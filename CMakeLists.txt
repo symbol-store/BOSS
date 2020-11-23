@@ -48,6 +48,9 @@ ExternalProject_Add(catch2
 set(VTune_DIR "" CACHE PATH "Where to look for VTune installation")
 find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
 
+set(CMAKE_MODULE_PATH "${BOSS_SOURCE_DIR}/CMake/Mathematica/CMake/Mathematica" ${CMAKE_MODULE_PATH})
+find_package(Mathematica COMPONENTS WSTP)
+
 #################################### Targets ####################################
 
 
@@ -85,4 +88,13 @@ if(ITT_NOTIFY_INCLUDE_DIR)
 endif(ITT_NOTIFY_INCLUDE_DIR)
 target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark.a)
 target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main.a)
+
+
+foreach (Target Tests Benchmarks BOSS)
+  if(Mathematica_WSTP_FOUND)
+    target_include_directories(${Target} PUBLIC ${Mathematica_INCLUDE_DIRS})
+    target_link_libraries(${Target} ${Mathematica_WSTP_LIBRARY})
+    target_compile_definitions(${Target} PUBLIC "${Mathematica_WSTP_DEFINITIONS}")
+  endif(Mathematica_WSTP_FOUND)
+endforeach()
 
