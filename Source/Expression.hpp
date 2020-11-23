@@ -10,11 +10,11 @@ public:
     std::string const& getName() const { return name; };
   };
 
-  using ReturnType = std::variant<int, std::string, Symbol, bool>;
-  using ArgumentType = std::variant<Expression, std::string, int, bool>;
+  using ReturnType = std::variant<Expression, int, std::string, Symbol, bool>;
+  using ArgumentType = ReturnType;
 
 private:
-  std::string const& head;
+  std::string const head;
   std::vector<ArgumentType> const& arguments;
 
 public:
