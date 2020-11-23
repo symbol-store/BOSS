@@ -55,7 +55,7 @@ find_package(Mathematica COMPONENTS WSTP)
 
 
 
-set(ImplementationFiles Source/BOSS.cpp)
+set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp)
 set(ExecutableFiles Source/main.cpp)
 set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
@@ -94,7 +94,7 @@ foreach (Target Tests Benchmarks BOSS)
   if(Mathematica_WSTP_FOUND)
     target_include_directories(${Target} PUBLIC ${Mathematica_INCLUDE_DIRS})
     target_link_libraries(${Target} ${Mathematica_WSTP_LIBRARY})
-    target_compile_definitions(${Target} PUBLIC "${Mathematica_WSTP_DEFINITIONS}")
+    target_compile_definitions(${Target} PUBLIC "${Mathematica_WSTP_DEFINITIONS}" "-DMATHEMATICA_KERNEL_EXECUTABLE=${Mathematica_KERNEL_EXECUTABLE}")
   endif(Mathematica_WSTP_FOUND)
 endforeach()
 
