@@ -45,8 +45,26 @@ ExternalProject_Add(catch2
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCATCH_BUILD_TESTING=NO -DBUILD_TESTING=NO -DCATCH_ENABLE_WERROR=NO -DCATCH_INSTALL_DOCS=NO -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DDCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS}
   )
 
+ExternalProject_Add(rapidjson
+	URL https://github.com/Tencent/rapidjson/archive/v1.1.0.tar.gz
+  DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND ""
+  INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/rapidjson ${BOSS_BINARY_DIR}/deps/include/rapidjson
+  )
+
+ExternalProject_Add(cpp-httplib
+  URL https://github.com/yhirose/cpp-httplib/archive/v0.7.15.tar.gz
+  DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND ""
+  INSTALL_COMMAND ${CMAKE_COMMAND} -E make_directory ${BOSS_BINARY_DIR}/deps/include/cpp-httplib COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/httplib.h ${BOSS_BINARY_DIR}/deps/include/cpp-httplib/
+  )
+
 set(VTune_DIR "" CACHE PATH "Where to look for VTune installation")
 find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
+
+set(OpenWeatherAPIKey "" CACHE STRING "Api Key for feching data from OpenWeatherAPI")
 
 #################################### Targets ####################################
 
@@ -73,6 +91,25 @@ set_property(TARGET Benchmarks PROPERTY CXX_STANDARD 17)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 target_link_libraries(Benchmarks Threads::Threads)
+
+find_package(OpenSSL)
+if(OpenSSL_FOUND)
+  message(STATUS "Found OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
+  message(STATUS "Found OpenSSL libraries: ${OPENSSL_LIBRARIES}")
+  target_include_directories(BOSS SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
+  target_include_directories(Tests SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
+  target_include_directories(Benchmarks SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
+  target_link_libraries(BOSS ${OPENSSL_LIBRARIES})
+  target_link_libraries(Tests ${OPENSSL_LIBRARIES})
+  target_link_libraries(Benchmarks ${OPENSSL_LIBRARIES})
+  target_compile_options(BOSS PUBLIC -DCPPHTTPLIB_OPENSSL_SUPPORT)
+  target_compile_options(Tests PUBLIC -DCPPHTTPLIB_OPENSSL_SUPPORT)
+  target_compile_options(Benchmarks PUBLIC -DCPPHTTPLIB_OPENSSL_SUPPORT)
+endif(OpenSSL_FOUND)
+
+if(OpenWeatherAPIKey)
+  target_compile_options(Tests PUBLIC "-DOPEN_WEATHER_API_KEY=\"${OpenWeatherAPIKey}\"")
+endif(OpenWeatherAPIKey)
 
 add_dependencies(Benchmarks googlebenchmark)
 target_include_directories(Benchmarks SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)

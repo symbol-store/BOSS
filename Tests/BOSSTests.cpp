@@ -83,4 +83,49 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::bulk::Engine) {
     REQUIRE(table2.sort("A").template get<int>(1, 4) == column2[4]);
     REQUIRE(table2.sort("A").template get<int>(1, 9) == column2[8]);
   }
+
+#ifndef OPEN_WEATHER_API_KEY
+  std::cerr << "OpenWeather API key not defined. Fetching cannot be tested." << std::endl;
+#else
+  SECTION("Fetching") {
+    auto& table3 = engine.table("T3");
+    table3.template addColumn<float>("lat");
+    table3.template addColumn<float>("lon");
+    table3.template addColumn<int>("dt");
+    table3.template addColumn<float>("temp");
+    table3.template addColumn<float>("wind_speed");
+
+    float lat = 40.12;
+    float lon = -96.66;
+
+    std::string url = "http://api.openweathermap.org:80";
+
+    std::string apiKey(OPEN_WEATHER_API_KEY);
+
+    std::string exclude = "hourly,daily";
+    std::string command =
+        "/data/2.5/onecall?lat={lat}&lon={lon}&mode=json&exclude=" + exclude + "&appid=" + apiKey;
+
+    typename TestType::SymbolicTable::TupleImpl newTuple;
+    newTuple.reserve(5);
+    newTuple.add(lat);
+    newTuple.add(lon);
+    newTuple.add(typename TestType::FetchedInt(url, command, "current.dt"));
+    newTuple.add(typename TestType::FetchedFloat(url, command, "current.temp"));
+    newTuple.add(typename TestType::FetchedFloat(url, command, "current.wind_speed"));
+
+    REQUIRE(table3.addRow(newTuple) == true);
+
+    REQUIRE(table3.symbolicFilter("wind_speed", true).numRows() == 1);
+    REQUIRE(table3.symbolicFilter("wind_speed", false).numRows() == 0);
+
+    table3.evaluate("dt").evaluate("temp").evaluate("wind_speed").sort("dt");
+
+    REQUIRE(table3.symbolicFilter("wind_speed", true).numRows() == 0);
+    REQUIRE(table3.symbolicFilter("wind_speed", false).numRows() == 1);
+    REQUIRE(table3.template get<int>(2, 0) > 0);
+    REQUIRE(table3.template get<float>(3, 0) > 0.0f);
+    REQUIRE(table3.template get<float>(4, 0) > 0.0f);
+  }
+#endif // OPEN_WEATHER_API_KEY
 }
