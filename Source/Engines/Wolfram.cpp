@@ -10,8 +10,10 @@
 #define STRING(x) STRINGIFY(x)
 
 namespace boss::engines::wolfram {
-using std::vector;
 using std::to_string;
+using std::vector;
+using Symbol = Expression::Symbol;
+Symbol operator""_sym(const char* name, unsigned long /*unused*/) { return Symbol(name); };
 
 template <class... Fs> struct overload : Fs... {
   template <class... Ts> explicit overload(Ts&&... ts) : Fs{std::forward<Ts>(ts)}... {}
@@ -28,7 +30,7 @@ struct EngineImplementation {
       std::visit(
           overload([&](int a) { WSPutInteger(e.link, a); },
                    [&](char const* a) { WSPutString(e.link, a); },
-                   [&](Expression::Symbol const& a) { WSPutSymbol(e.link, a.getName().c_str()); },
+                   [&](Symbol const& a) { WSPutSymbol(e.link, a.getName().c_str()); },
                    [&](std::string const& a) { WSPutString(e.link, a.c_str()); },
                    [&](Expression const& expression) { putExpressionOnLink(e, expression); }),
           argument);
@@ -62,7 +64,7 @@ struct EngineImplementation {
     } else if(resultType == WSTKSYM) {
       char const* result = nullptr;
       WSGetSymbol(e.link, &result);
-      auto resultingSymbol = Expression::Symbol(result);
+      auto resultingSymbol = Symbol(result);
       WSReleaseSymbol(e.link, result);
       if(std::string("True") == resultingSymbol.getName()) {
         return true;
@@ -74,6 +76,26 @@ struct EngineImplementation {
     }
     throw std::logic_error("unsupported return type: " + std::to_string(resultType));
   }
+
+  static void loadShimLayer(Engine& e) {
+    auto project = e.evaluate(
+        {"Set",
+         {Symbol("Project"),
+          Expression{"Function",
+                     {Expression{"List", {"projections"_sym, "fromKeyword"_sym, "relation"_sym}},
+                      Expression{"Length", {"relation"_sym}}}}}});
+    e.evaluate({"Set",
+                {Symbol("Create"),
+                 Expression{"Function",
+                            {Expression{"List", {"Table"_sym, "relation"_sym}},
+                             Expression{"Set", {"relation"_sym, Expression{"List", {}}}}}}}});
+    e.evaluate({"Set",
+                {Symbol("InsertInto"),
+                 Expression{"Function",
+                            {Expression{"List", {"relation"_sym, "tuple"_sym}},
+                             Expression{"AppendTo", {"relation"_sym, "tuple"_sym}}, "HoldFirst"_sym}}}});
+    auto v = e.evaluate({"Set", {Symbol("BOSSVersion"), 1}});
+  };
 };
 
 Engine::Engine() {
@@ -88,6 +110,7 @@ Engine::Engine() {
   if(error != 0) {
     throw std::runtime_error("could not open wstp link -- error code: " + to_string(error));
   }
+  EngineImplementation::loadShimLayer(*this);
 }
 Engine::~Engine() {
   WSClose(link);

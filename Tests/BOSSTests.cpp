@@ -4,7 +4,9 @@
 
 #ifdef WSINTERFACE
 TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
-  using namespace std;
+  using std::get;
+  using std::string;
+  using Symbol = Expression::Symbol;
   static auto engine = TestType();
   SECTION("Basics") {
     REQUIRE(get<int>(engine.evaluate({"Plus", {5, 4}})) == 9);
@@ -16,8 +18,38 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
             "howdie world");
     REQUIRE(get<bool>(engine.evaluate({"Greater", {5, 2}})));
     REQUIRE(!get<bool>(engine.evaluate({"Greater", {2, 5}})));
-    REQUIRE(get<Expression::Symbol>(engine.evaluate({"Symbol", {"x"}})).getName() == "x");
-    REQUIRE(get<Expression>(engine.evaluate({"UndefinedFunction", {9}})).getHead() == "UndefinedFunction");
+    REQUIRE(get<Symbol>(engine.evaluate({"Symbol", {"x"}})).getName() == "x");
+    REQUIRE(get<Expression>(engine.evaluate({"UndefinedFunction", {9}})).getHead() ==
+            "UndefinedFunction");
+  }
+
+  SECTION("State") {
+    engine.evaluate({"Set", {Symbol("thingy"), 9}});
+    REQUIRE(get<int>(engine.evaluate({"Evaluate", {Symbol("thingy")}})) == 9);
+  }
+
+  SECTION("Relational") {
+    engine.evaluate({"Create", {"Table", Symbol("Customer"), "FirstName", "LastName"}});
+    engine.evaluate({"InsertInto", {Symbol("Customer"), Expression{"List", {"John", "McCarthy"}}}});
+    engine.evaluate({"InsertInto", {Symbol("Customer"), Expression{"List", {"Sam", "Madden"}}}});
+    REQUIRE(get<int>(engine.evaluate(
+                {"Project", {Expression{"Count", {"Name"}}, "From", Symbol("Customer")}})) == 2);
+    engine.evaluate(
+        {"InsertInto", {Symbol("Customer"), Expression{"List", {"Barbara", "Liskov"}}}});
+    REQUIRE(get<int>(engine.evaluate(
+                {"Project", {Expression{"Count", {"Name"}}, "From", Symbol("Customer")}})) == 3);
+    REQUIRE(
+        get<int>(engine.evaluate(
+            {"Length",
+             {Expression{
+                 "Select",
+                 {Symbol("Customer"),
+                  Expression{"Function",
+                             {Symbol("tuple"),
+                              Expression{"StringContainsQ",
+                                         {"Madden",
+                                          Expression{"Extract", {Symbol("tuple"), 2}}}}}}}}}})) ==
+        1);
   }
 }
 #endif // WSINTERFACE
