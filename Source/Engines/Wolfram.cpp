@@ -38,9 +38,12 @@ struct EngineImplementation {
   static Expression::ReturnType readExpressionFromLink(Engine& e) {
     auto resultType = WSGetType(e.link);
     if(resultType == WSTKSTR) {
-      char const* result = nullptr;
-      WSGetString(e.link, &result);
-      return std::string(result);
+      char const* resultAsCString = nullptr;
+      WSGetString(e.link, &resultAsCString);
+      auto result = std::string(resultAsCString);
+      WSReleaseString(e.link, resultAsCString);
+
+      return result;
     } else if(resultType == WSTKINT) {
       int result = 0;
       WSGetInteger(e.link, &result);
@@ -53,18 +56,21 @@ struct EngineImplementation {
       for(auto i = 0U; i < numberOfArguments; i++) {
         resultArguments.push_back(readExpressionFromLink(e));
       }
-
-      return Expression(resultHead, resultArguments);
+      auto result = Expression(resultHead, resultArguments);
+      WSReleaseSymbol(e.link, resultHead);
+      return result;
     } else if(resultType == WSTKSYM) {
       char const* result = nullptr;
       WSGetSymbol(e.link, &result);
-      if(std::string("True") == result) {
+      auto resultingSymbol = Expression::Symbol(result);
+      WSReleaseSymbol(e.link, result);
+      if(std::string("True") == resultingSymbol.getName()) {
         return true;
       }
-      if(std::string("False") == result) {
+      if(std::string("False") == resultingSymbol.getName()) {
         return false;
       }
-      return Expression::Symbol(result);
+      return resultingSymbol;
     }
     throw std::logic_error("unsupported return type: " + std::to_string(resultType));
   }
