@@ -52,7 +52,7 @@ find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
 
 
 
-set(ImplementationFiles Source/BOSS.cpp)
+set(ImplementationFiles Source/BOSS.cpp Source/Engines/Bulk.cpp)
 set(ExecutableFiles Source/main.cpp)
 set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
