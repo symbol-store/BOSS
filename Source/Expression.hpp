@@ -20,7 +20,6 @@ private:
 public:
   Expression(std::string const& head, std::vector<ArgumentType> const& arguments)
       : head(head), arguments(arguments){};
-  ReturnType get();
   std::vector<ArgumentType> const& getArguments() const { return arguments; };
   std::string const& getHead() const { return head; };
 };

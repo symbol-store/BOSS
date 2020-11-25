@@ -4,14 +4,14 @@
 #include <stdexcept>
 #include <string>
 #include <tuple>
-#include <variant>
 #include <vector>
 
 #define STRINGIFY(x) #x
 #define STRING(x) STRINGIFY(x)
 
 namespace boss::engines::wolfram {
-using namespace std;
+using std::vector;
+using std::to_string;
 
 template <class... Fs> struct overload : Fs... {
   template <class... Ts> explicit overload(Ts&&... ts) : Fs{std::forward<Ts>(ts)}... {}
@@ -24,7 +24,7 @@ struct EngineImplementation {
 
   static void putExpressionOnLink(Engine& e, Expression const& expression) {
     WSPutFunction(e.link, expression.getHead().c_str(), expression.getArguments().size());
-    for(const auto& argument : expression.getArguments()) {
+    for(auto const& argument : expression.getArguments()) {
       std::visit(
           overload([&](int a) { WSPutInteger(e.link, a); },
                    [&](char const* a) { WSPutString(e.link, a); },
