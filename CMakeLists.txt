@@ -74,6 +74,8 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 #################################### Backends ####################################
+# GPU backend
+find_package(OpenCL)
 
 # Wolfram BOSS
 add_library(WolframBOSS STATIC Source/Engines/Wolfram.cpp ${ImplementationFiles})
@@ -228,3 +230,10 @@ foreach (Target IN LISTS AllTargets)
   endforeach()
 endforeach()
 
+if(OpenCL_FOUND)
+  foreach (Target Tests Benchmarks BOSS)
+    target_include_directories(${Target} PUBLIC ${OpenCL_INCLUDE_DIRS})
+    target_link_libraries(${Target} ${OpenCL_LIBRARIES})
+    target_compile_definitions(${Target} PUBLIC "-DGPUINTERFACE")
+  endforeach()
+endif()

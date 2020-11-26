@@ -8,6 +8,7 @@
 - Python3 libs
 - NumPy
 - Racket
+- OpenCL (optional)
 
 *** MacOS
 : brew install python3-numpy
@@ -29,15 +30,20 @@
 : cmake -DRacket_ROOT="/usr" -DCMAKE_CXX_COMPILER=clang++-12 \
 :           -DCMAKE_CXX_FLAGS="-std=c++17 -stdlib=libc++"
 
+*** OpenCL requirements for GPU engine
+- opencl-headers + preferred OpenCL backend
+- example for CPU
+: sudo apt install opencl-headers pocl-opencl-icd
+
 ** Building
 : cmake --build .
-    
+
 ** Running
 *** Python example
 : python3 ../Tests/TestPython.py
 
 *** Racket example
-#+begin_src racket :exports both :tangle yes :main no :cache no 
+#+begin_src racket :exports both :tangle yes :main no :cache no
   #lang racket
   ;; utilities
   (load-extension "RacketBOSS.so")

@@ -162,3 +162,44 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
 }
 
 #endif // WSINTERFACE
+
+#ifdef GPUINTERFACE
+#include "../Source/BOSS.hpp"
+#include "../Source/Utilities.hpp"
+using std::get;
+using std::string;
+using boss::utilities::operator""_;
+TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::GPU::Engine) { // NOLINT
+  using namespace std;
+  using namespace boss;
+  static auto engine = TestType();
+  SECTION("Basics") {
+    REQUIRE(get<int>(engine.evaluate("Plus"_(5, 4))) == 9);
+    REQUIRE(get<int>(engine.evaluate("Plus"_(5, 2, 2))) == 9);
+    REQUIRE(get<int>(engine.evaluate("Plus"_(5, 2, 2))) == 9);
+    /*
+    REQUIRE(get<int>(engine.evaluate({"Plus", {Expression{"Plus", {2, 3}}, 2, 2}})) == 9);
+    REQUIRE(get<int>(engine.evaluate({"Plus", {Expression{"Plus", {3, 2}}, 2, 2}})) == 9);
+    REQUIRE(get<string>(engine.evaluate({"StringJoin", {"howdie", " ", "world"}})) ==
+            "howdie world");
+    REQUIRE(get<bool>(engine.evaluate({"Greater", {5, 2}})));
+    REQUIRE(!get<bool>(engine.evaluate({"Greater", {2, 5}})));
+    REQUIRE(get<Expression::Symbol>(engine.evaluate({"Symbol", {"x"}})).getName() == "x");
+    REQUIRE(get<Expression>(engine.evaluate({"UndefinedFunction", {9}})).getHead() ==
+            "UndefinedFunction");*/
+  }
+  SECTION("Database Basics") {
+    const std::string tb_name = "T1";
+    
+    engine.evaluate("create_table"_(tb_name));
+    engine.evaluate("create_column"_("table"_(tb_name), std::string("ColA"), std::string("number")));
+    engine.evaluate("insert"_("table"_(tb_name), "number"_(42)));
+    const auto entire_col = get<ComplexExpression>(engine.evaluate(
+      "select"_("table"_(tb_name), std::string("ColA"), std::string("*"))
+    ));
+    REQUIRE(entire_col.getHead().getName() == "vector");
+    REQUIRE(entire_col.getArguments().size() == 1);
+    REQUIRE(get<int>(entire_col.getArguments()[0]) == 42);
+  }
+}
+#endif // GPUINTERFACE
