@@ -3,7 +3,8 @@
 #include <catch2/catch.hpp>
 
 #ifdef WSINTERFACE
-TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::mlir::Engine) { // NOLINT
+TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine,
+                   boss::engines::mlir::Engine) { // NOLINT
   using namespace std;
   static auto engine = TestType();
   SECTION("Basics") {
