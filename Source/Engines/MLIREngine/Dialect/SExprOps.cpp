@@ -50,6 +50,10 @@ void mlir::sexpr::SymbolOp::inferType() {
 
   auto newType = SymbolOrValueType::get(currentType.getContext(), symOrVal, baseType);
 
+  // if(!baseType.hasValue()) {
+  //   throw std::runtime_error("Could not infer type");
+  // }
+
   this->getResult().setType(newType);
 }
 

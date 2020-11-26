@@ -1,3 +1,4 @@
 .dir-locals.el
 .vscode
 build
+Debug

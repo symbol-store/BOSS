@@ -8,6 +8,7 @@ using namespace mlir;
 
 namespace sexprtype {
 enum class SymbolOrValue { SYMBOL, VALUE, UNKNOWN };
+enum class ReturnTypes { STRING, INT, UNKNOWN };
 }; // namespace sexprtype
 
 struct StringTypeStorage : public TypeStorage {

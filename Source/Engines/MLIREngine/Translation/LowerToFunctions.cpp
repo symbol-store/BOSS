@@ -41,9 +41,14 @@ FuncOp generateFunctionsRecursive(sexpr::CombineOp& c, OpBuilder& builder, Regio
 struct SexprToFunctionsLoweringPass
     : public PassWrapper<SexprToFunctionsLoweringPass, OperationPass<ModuleOp>> {
 
+  SexprToFunctionsLoweringPass(sexprtype::ReturnTypes& returnType)
+      : PassWrapper(), returnType(returnType) {}
+
   void getDependentDialects(DialectRegistry& registry) const override {
     registry.insert<StandardOpsDialect>();
   }
+
+  sexprtype::ReturnTypes& returnType;
 
   void runOnOperation() final;
 };
@@ -63,6 +68,11 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
   }
 
   builder.setInsertionPointToStart(moduleBody);
+
+  auto rootType = rootCombine.getResult().getType();
+
+  // Mark the root type so we know what value to extract from JIT after executing
+  returnType = sexprtype::ReturnTypes::INT;
 
   // Create the root entry function
   auto funcType = builder.getFunctionType(llvm::None, rootCombine.getResult().getType());
@@ -86,6 +96,6 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
 
 }; // namespace
 
-std::unique_ptr<mlir::Pass> createLowerToFunctionsPass() {
-  return std::make_unique<SexprToFunctionsLoweringPass>();
+std::unique_ptr<mlir::Pass> createLowerToFunctionsPass(sexprtype::ReturnTypes& returnType) {
+  return std::make_unique<SexprToFunctionsLoweringPass>(returnType);
 }

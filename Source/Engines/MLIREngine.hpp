@@ -1,6 +1,5 @@
 #pragma once
 #include "../Engine.hpp"
-#include "MLIREngine/Interface/Interface.hpp"
 
 namespace boss::engines::mlir {
 class Engine : public boss::Engine {
@@ -10,9 +9,9 @@ public:
   Engine& operator=(Engine&) = delete;
   Engine(Engine&&) = default;
   Engine& operator=(Engine&&) = default;
-  Engine();
+  Engine() = default;
   Expression::ReturnType evaluate(Expression const& e);
-  ~Engine();
+  ~Engine() = default;
 };
 
 }; // namespace boss::engines::mlir

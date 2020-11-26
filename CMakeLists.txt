@@ -72,6 +72,9 @@ include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 include(HandleLLVMOptions)
+
+set(LLVM_ENABLE_EH ON)
+set(LLVM_ENABLE_RTTI ON)
 # ================ End LLVM/MLIR Config =========
 
 #################################### Targets ####################################
@@ -79,11 +82,11 @@ include(HandleLLVMOptions)
 # ========= MLIR Egine Source Files =============
 # MLIR Engine Implementation Files
 set(MLIREngineImplFiles
-  Source/Engines/MLIREngine/IR/MLIRVisitor.cpp
   Source/Engines/MLIREngine/AST/Expression.cpp
   Source/Engines/MLIREngine/Print/PrintVisitor.cpp
   Source/Engines/MLIREngine/Analysis/TypeInferencePass.cpp
-  Source/Engines/MLIREngine/Interface/Interface.cpp
+  Source/Engines/MLIREngine/IR/MLIRGenerator.cpp
+  Source/Engines/MLIREngine.cpp
 )
 
 # Get MLIR dialect and conversion libraries
@@ -100,26 +103,18 @@ set(ExecutableFiles Source/main.cpp)
 set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
-# set_property(GLOBAL PROPERTY LLVM_ENABLE_RTTI True LLVM_ENABLE_EH True)
-
-
 add_llvm_executable(BOSS ${ImplementationFiles} ${ExecutableFiles})
 llvm_update_compile_flags(BOSS LLVM_REQUIRES_EH ON)
 set_property(TARGET BOSS PROPERTY CXX_STANDARD 17)
 target_include_directories(BOSS SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
 
-add_llvm_executable(Tests ${ImplementationFiles} ${TestFiles})
+add_executable(Tests ${ImplementationFiles} ${TestFiles})
 set_property(TARGET Tests PROPERTY CXX_STANDARD 17)
 target_include_directories(Tests SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
 add_dependencies(Tests catch2)
 
 add_llvm_executable(Benchmarks ${ImplementationFiles} ${BenchmarkFiles})
 set_property(TARGET Benchmarks PROPERTY CXX_STANDARD 17)
-
-# Enable RTTI and Exceptions
-# foreach (Target Tests Benchmarks BOSS)
-#   llvm_update_compile_flags(${Target} LLVM_REQUIRES_EH ON)
-# endforeach()
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)

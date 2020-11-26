@@ -85,16 +85,16 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
     auto symbolName = s.name();
 
-    if(symbolName == "+") {
+    if(symbolName == "Plus") {
       return replaceBinaryOp<mlir::AddIOp>(s, rewriter);
     }
-    if(symbolName == "-") {
+    if(symbolName == "Minus") {
       return replaceBinaryOp<mlir::SubIOp>(s, rewriter);
     }
-    if(symbolName == "*") {
+    if(symbolName == "Mul") {
       return replaceBinaryOp<mlir::MulIOp>(s, rewriter);
     }
-    if(symbolName == "/") {
+    if(symbolName == "IDiv") {
       return replaceBinaryOp<mlir::SignedDivIOp>(s, rewriter);
     }
 
@@ -224,7 +224,6 @@ struct CallOpSignatureConversion : public OpConversionPattern<mlir::CallOp> {
 } // namespace
 
 void SexprToStdLoweringPass::runOnFunction() {
-  std::cout << "Running lower to std" << std::endl;
   ConversionTarget target(getContext());
 
   // Create type converter
