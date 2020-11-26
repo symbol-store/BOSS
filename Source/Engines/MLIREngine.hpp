@@ -1,14 +1,9 @@
 #pragma once
-
-#ifdef WSINTERFACE
 #include "../Engine.hpp"
-#include <wstp.h>
+#include "MLIREngine/Interface/Interface.hpp"
 
-namespace boss::engines::wolfram {
+namespace boss::engines::mlir {
 class Engine : public boss::Engine {
-private:
-  WSENV environment = {};
-  WSLINK link = {};
 
 public:
   Engine(Engine&) = delete;
@@ -18,7 +13,6 @@ public:
   Engine();
   Expression::ReturnType evaluate(Expression const& e);
   ~Engine();
-  friend class EngineImplementation;
 };
-} // namespace boss::engines::wolfram
-#endif // WSINTERFACE
+
+}; // namespace boss::engines::mlir

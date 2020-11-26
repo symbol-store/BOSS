@@ -1,0 +1,19 @@
+add_mlir_dialect(SExprOps sexpr)
+
+add_mlir_interface(TypeInferenceInterface
+  DEPENDS
+  MLIRTypeInferenceInterfaceIncGen
+  LINK_LIBS PUBLIC
+	MLIRIR
+)
+
+add_mlir_dialect_library(MLIRSExpr
+        SExprOps.cpp
+        SExprDialect.cpp
+
+        DEPENDS
+        MLIRSExprOpsIncGen
+
+	LINK_LIBS PUBLIC
+	MLIRIR
+)
