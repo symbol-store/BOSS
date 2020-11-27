@@ -36,8 +36,9 @@ mlir::OwningModuleRef MLIRGenerator::generateModule(Expression const& e) {
 
 void MLIRGenerator::visitExpression(Expression const& e) {
   auto op = builder.create<mlir::sexpr::CombineOp, mlir::Type>(
-      builder.getUnknownLoc(), builder.getType<SymbolOrValueType, sexprtype::SymbolOrValue, Type>(
-                                   sexprtype::SymbolOrValue::UNKNOWN, builder.getI64Type()));
+      builder.getUnknownLoc(),
+      builder.getType<SymbolOrValueType, sexprtype::SymbolOrValue, llvm::Optional<Type>>(
+          sexprtype::SymbolOrValue::UNKNOWN, llvm::Optional<Type>{}));
 
   auto saved = builder.saveInsertionPoint();
   // Creates block and sets new insertion point

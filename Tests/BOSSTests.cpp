@@ -8,6 +8,7 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine,
   using namespace std;
   static auto engine = TestType();
   SECTION("Basics") {
+    REQUIRE(get<string>(engine.evaluate({"Eval", {"Hello World"}})) == "Hello World");
     REQUIRE(get<int>(engine.evaluate({"Plus", {5, 4}})) == 9);
     REQUIRE(get<int>(engine.evaluate({"Plus", {5, 2, 2}})) == 9);
     REQUIRE(get<int>(engine.evaluate({"Plus", {5, 2, 2}})) == 9);

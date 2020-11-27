@@ -6,6 +6,7 @@
 #include <mlir/Dialect/StandardOps/IR/Ops.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
+#include <stdexcept>
 #include <string>
 
 namespace {
@@ -53,6 +54,24 @@ struct SexprToFunctionsLoweringPass
   void runOnOperation() final;
 };
 
+// Sets the return type enum so we know what type the expression returns as a whole
+void setReturnType(sexprtype::ReturnTypes& returnType, mlir::Type const& actualType) {
+  if(!actualType.isa<SymbolOrValueType>()) {
+    throw std::runtime_error("Unexpected root return type: Expected SymbolOrValue");
+  }
+
+  auto symbolOrValue = actualType.cast<SymbolOrValueType>();
+  auto baseType = symbolOrValue.getBaseType();
+
+  if(baseType.isa<StringType>()) {
+    returnType = sexprtype::ReturnTypes::STRING;
+  } else if(baseType.isa<IntegerType>()) {
+    returnType = sexprtype::ReturnTypes::INT;
+  } else {
+    returnType = sexprtype::ReturnTypes::UNKNOWN;
+  }
+}
+
 void SexprToFunctionsLoweringPass::runOnOperation() {
   // Make a builder
   OpBuilder builder(getOperation().getContext());
@@ -72,7 +91,7 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
   auto rootType = rootCombine.getResult().getType();
 
   // Mark the root type so we know what value to extract from JIT after executing
-  returnType = sexprtype::ReturnTypes::INT;
+  setReturnType(returnType, rootType);
 
   // Create the root entry function
   auto funcType = builder.getFunctionType(llvm::None, rootCombine.getResult().getType());

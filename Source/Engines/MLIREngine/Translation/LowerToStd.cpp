@@ -80,7 +80,7 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
     return success();
   }
 
-  LogicalResult matchAndRewrite(sexpr::SymbolOp s, ArrayRef<Value> /*operands*/,
+  LogicalResult matchAndRewrite(sexpr::SymbolOp s, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
 
     auto symbolName = s.name();
@@ -96,6 +96,12 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
     }
     if(symbolName == "IDiv") {
       return replaceBinaryOp<mlir::SignedDivIOp>(s, rewriter);
+    }
+    if(symbolName == "Eval") {
+      std::cout << "Here" << std::endl;
+      // rewriter.eraseOp(s.getOperation());
+      rewriter.replaceOp(s.getOperation(), s.getOperands());
+      return success();
     }
 
     return failure();
@@ -277,9 +283,9 @@ void SexprToStdLoweringPass::runOnFunction() {
     signalPassFailure();
   }
 
-  // printMutex.lock();
-  // getFunction().dump();
-  // printMutex.unlock();
+  printMutex.lock();
+  getFunction().dump();
+  printMutex.unlock();
 }
 
 std::unique_ptr<mlir::Pass> createLowerToStdPass() {

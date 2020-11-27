@@ -65,26 +65,8 @@ Expression::ReturnType Engine::evaluate(Expression const& e) {
   auto& funcPassManager = passManager.nest<::mlir::FuncOp>();
 
   passManager.addPass(createTypeInferencePass());
-
-  // if(::mlir::failed(passManager.run(module.get()))) {
-  //   throw std::runtime_error("Compilation failed");
-  // }
-  // module->dump();
-
   passManager.addPass(createLowerToFunctionsPass(returnType));
-
-  // if(::mlir::failed(passManager.run(module.get()))) {
-  //   throw std::runtime_error("Compilation failed");
-  // }
-  // module->dump();
-
   passManager.addNestedPass<::mlir::FuncOp>(createLowerToStdPass());
-
-  // if(::mlir::failed(passManager.run(module.get()))) {
-  //   throw std::runtime_error("Compilation failed");
-  // }
-  // module->dump();
-
   passManager.addPass(::mlir::createInlinerPass());
   passManager.addPass(createLowerToLLVMPass());
 
@@ -103,6 +85,8 @@ Expression::ReturnType Engine::evaluate(Expression const& e) {
   switch(returnType) {
   case sexprtype::ReturnTypes::INT:
     return static_cast<int>(jitResult);
+  case sexprtype::ReturnTypes::STRING:
+    return std::string{reinterpret_cast<const char*>(jitResult)};
   default:
     throw std::runtime_error("Unknown");
   }
