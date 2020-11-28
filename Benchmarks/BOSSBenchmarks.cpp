@@ -8,7 +8,7 @@ static auto const vtune = VTuneAPIInterface{"BOSS"};
 static void DummyBenchmark(benchmark::State& state) {
   auto dummy = 0;
   vtune.startSampling("DummyBenchmark");
-  for(auto _ : state) {
+  for(auto _ : state) {                         // NOLINT
     for(auto i = 0U; i < state.range(0); i++) { // NOLINT
       dummy++;
     }
