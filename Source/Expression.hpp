@@ -1,5 +1,6 @@
 #include <string>
 #include <variant>
+namespace boss {
 class Expression {
 public:
   class Symbol {
@@ -23,3 +24,5 @@ public:
   std::vector<ArgumentType> const& getArguments() const { return arguments; };
   std::string const& getHead() const { return head; };
 };
+
+} // namespace boss

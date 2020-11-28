@@ -5,6 +5,7 @@
 #ifdef WSINTERFACE
 TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
   using namespace std;
+  using boss::Expression;
   static auto engine = TestType();
   SECTION("Basics") {
     REQUIRE(get<int>(engine.evaluate({"Plus", {5, 4}})) == 9);
