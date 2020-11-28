@@ -6,12 +6,12 @@
 #include <tuple>
 #include <vector>
 
-#define STRINGIFY(x) #x
-#define STRING(x) STRINGIFY(x)
+#define STRINGIFY(x) #x        // NOLINT
+#define STRING(x) STRINGIFY(x) // NOLINT
 
 namespace boss::engines::wolfram {
-using std::vector;
 using std::to_string;
+using std::vector;
 
 template <class... Fs> struct overload : Fs... {
   template <class... Ts> explicit overload(Ts&&... ts) : Fs{std::forward<Ts>(ts)}... {}
@@ -44,11 +44,13 @@ struct EngineImplementation {
       WSReleaseString(e.link, resultAsCString);
 
       return result;
-    } else if(resultType == WSTKINT) {
+    }
+    if(resultType == WSTKINT) {
       int result = 0;
       WSGetInteger(e.link, &result);
       return result;
-    } else if(resultType == WSTKFUNC) {
+    }
+    if(resultType == WSTKFUNC) {
       auto const* resultHead = "";
       auto numberOfArguments = 0;
       WSGetFunction(e.link, &resultHead, &numberOfArguments);
@@ -59,7 +61,8 @@ struct EngineImplementation {
       auto result = Expression(resultHead, resultArguments);
       WSReleaseSymbol(e.link, resultHead);
       return result;
-    } else if(resultType == WSTKSYM) {
+    }
+    if(resultType == WSTKSYM) {
       char const* result = nullptr;
       WSGetSymbol(e.link, &result);
       auto resultingSymbol = Expression::Symbol(result);
@@ -99,7 +102,7 @@ Expression::ReturnType Engine::evaluate(Expression const& e) {
 
   WSEndPacket(link);
   int pkt = 0;
-  while((pkt = WSNextPacket(link)) && (pkt != RETURNPKT)) {
+  while(((pkt = WSNextPacket(link)) != 0) && (pkt != RETURNPKT)) {
     WSNewPacket(link);
   }
   return EngineImplementation::readExpressionFromLink(*this);

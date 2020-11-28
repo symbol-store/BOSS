@@ -1,6 +1,6 @@
 ---
-Checks:          'clang-diagnostic-*,clang-analyzer-*,clang-analyzer-*,bugprone-*,cppcoreguidelines-*,darwin-*,hicpp-*,llvm-*,performance-*,portability-*,readability-*,misc-*,-cppcoreguidelines-pro-type-reinterpret-cast,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-owning-memory,-llvm-header-guard'
-WarningsAsErrors: 'clang-diagnostic-*,clang-analyzer-*,clang-analyzer-*,bugprone-*,cppcoreguidelines-*,darwin-*,hicpp-*,llvm-*,performance-*,portability-*,readability-*,misc-*,-cppcoreguidelines-pro-type-reinterpret-cast,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-owning-memory,-llvm-header-guard'
+Checks:          'clang-diagnostic-*,clang-analyzer-*,clang-analyzer-*,bugprone-*,cppcoreguidelines-*,darwin-*,hicpp-*,llvm-*,performance-*,portability-*,readability-*,misc-*,-cppcoreguidelines-pro-type-reinterpret-cast,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-owning-memory,-llvm-header-guard,-misc-no-recursion'
+WarningsAsErrors: 'clang-diagnostic-*,clang-analyzer-*,clang-analyzer-*,bugprone-*,cppcoreguidelines-*,darwin-*,hicpp-*,llvm-*,performance-*,portability-*,readability-*,misc-*,-cppcoreguidelines-pro-type-reinterpret-cast,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-owning-memory,-llvm-header-guard,-misc-no-recursion'
 HeaderFilterRegex: './Source/.*'
 AnalyzeTemporaryDtors: false
 FormatStyle:     file
