@@ -15,11 +15,11 @@ public:
 
 private:
   std::string const head;
-  std::vector<ArgumentType> const& arguments;
+  std::vector<ArgumentType> const arguments;
 
 public:
-  Expression(std::string const& head, std::vector<ArgumentType> const& arguments)
-      : head(head), arguments(arguments){};
+  Expression(std::string const& head, std::vector<ArgumentType>&& arguments)
+      : head(head), arguments(std::move(arguments)){};
   std::vector<ArgumentType> const& getArguments() const { return arguments; };
   std::string const& getHead() const { return head; };
 };
