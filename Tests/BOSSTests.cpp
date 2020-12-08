@@ -6,6 +6,7 @@
 TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
   using std::get;
   using std::string;
+  using boss::Expression;
   using Symbol = Expression::Symbol;
   static auto engine = TestType();
   SECTION("Basics") {
