@@ -1,3 +1,4 @@
+#pragma once
 #ifdef WSINTERFACE
 #include "../Engine.hpp"
 #include <wstp.h>

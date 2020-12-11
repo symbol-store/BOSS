@@ -1,5 +1,6 @@
 #ifdef WSINTERFACE
 #include "Wolfram.hpp"
+#include "../Utilities.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -10,15 +11,10 @@
 #define STRING(x) STRINGIFY(x) // NOLINT
 
 namespace boss::engines::wolfram {
+using boss::utilities::overload;
 using std::to_string;
 using std::vector;
-
-template <class... Fs> struct overload : Fs... {
-  template <class... Ts> explicit overload(Ts&&... ts) : Fs{std::forward<Ts>(ts)}... {}
-  using Fs::operator()...;
-};
-
-template <class... Ts> overload(Ts&&...) -> overload<std::remove_reference_t<Ts>...>;
+using boss::utilities::operator""_;
 
 struct EngineImplementation {
 

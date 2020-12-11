@@ -1,5 +1,7 @@
+#pragma once
 #include <string>
 #include <variant>
+#include <vector>
 namespace boss {
 class Expression {
 public:
@@ -16,7 +18,7 @@ public:
 
 private:
   std::string const head;
-  std::vector<ArgumentType> const& arguments;
+  std::vector<ArgumentType> const arguments;
 
 public:
   Expression(std::string const& head, std::vector<ArgumentType> const& arguments)
