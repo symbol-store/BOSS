@@ -1,56 +1,46 @@
-#include "../Source/BOSS.hpp"
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch.hpp>
-
 #ifdef WSINTERFACE
+#include "../Source/BOSS.hpp"
+#include "../Source/Utilities.hpp"
+using std::get;
+using std::string;
+using boss::utilities::operator""_;
+
 TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
-  using std::get;
-  using std::string;
-  using boss::Expression;
-  using Symbol = Expression::Symbol;
-  static auto engine = TestType();
+  static auto eval = [e = TestType()](boss::Expression const& expression) mutable {
+    return e.evaluate(expression);
+  };
+
   SECTION("Basics") {
-    REQUIRE(get<int>(engine.evaluate({"Plus", {5, 4}})) == 9);
-    REQUIRE(get<int>(engine.evaluate({"Plus", {5, 2, 2}})) == 9);
-    REQUIRE(get<int>(engine.evaluate({"Plus", {5, 2, 2}})) == 9);
-    REQUIRE(get<int>(engine.evaluate({"Plus", {Expression{"Plus", {2, 3}}, 2, 2}})) == 9);
-    REQUIRE(get<int>(engine.evaluate({"Plus", {Expression{"Plus", {3, 2}}, 2, 2}})) == 9);
-    REQUIRE(get<string>(engine.evaluate({"StringJoin", {"howdie", " ", "world"}})) ==
-            "howdie world");
-    REQUIRE(get<bool>(engine.evaluate({"Greater", {5, 2}})));
-    REQUIRE(!get<bool>(engine.evaluate({"Greater", {2, 5}})));
-    REQUIRE(get<Symbol>(engine.evaluate({"Symbol", {"x"}})).getName() == "x");
-    REQUIRE(get<Expression>(engine.evaluate({"UndefinedFunction", {9}})).getHead() ==
-            "UndefinedFunction");
+    REQUIRE(get<int>(eval("Plus"_(5, 4))) == 9);
+    REQUIRE(get<int>(eval("Plus"_(5, 2, 2))) == 9);
+    REQUIRE(get<int>(eval("Plus"_(5, 2, 2))) == 9);
+    REQUIRE(get<int>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
+    REQUIRE(get<int>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
+    REQUIRE(get<string>(eval("StringJoin"_("howdie", " ", "world"))) == "howdie world");
+    REQUIRE(get<bool>(eval("Greater"_(5, 2))));
+    REQUIRE(!get<bool>(eval("Greater"_(2, 5))));
+    REQUIRE(get<boss::Expression::Symbol>(eval("Symbol"_("x"))).getName() == "x");
+    REQUIRE(get<boss::Expression>(eval("UndefinedFunction"_(9))).getHead() == "UndefinedFunction");
   }
 
   SECTION("State") {
-    engine.evaluate({"Set", {Symbol("thingy"), 9}});
-    REQUIRE(get<int>(engine.evaluate({"Evaluate", {Symbol("thingy")}})) == 9);
+    eval("Set"_("thingy"_, 9));
+    REQUIRE(get<int>(eval("Evaluate"_("thingy"_))) == 9);
   }
 
   SECTION("Relational") {
-    engine.evaluate({"Create", {"Table", Symbol("Customer"), "FirstName", "LastName"}});
-    engine.evaluate({"InsertInto", {Symbol("Customer"), Expression{"List", {"John", "McCarthy"}}}});
-    engine.evaluate({"InsertInto", {Symbol("Customer"), Expression{"List", {"Sam", "Madden"}}}});
-    REQUIRE(get<int>(engine.evaluate(
-                {"Project", {Expression{"Count", {"Name"}}, "From", Symbol("Customer")}})) == 2);
-    engine.evaluate(
-        {"InsertInto", {Symbol("Customer"), Expression{"List", {"Barbara", "Liskov"}}}});
-    REQUIRE(get<int>(engine.evaluate(
-                {"Project", {Expression{"Count", {"Name"}}, "From", Symbol("Customer")}})) == 3);
+    eval("CreateTable"_("Customer"_, "FirstName", "LastName"));
+    eval("InsertInto"_("Customer"_, "List"_("John", "McCarthy")));
+    eval("InsertInto"_("Customer"_, "List"_("Sam", "Madden")));
+    eval("InsertInto"_("Customer"_, "List"_("Barbara", "Liskov")));
+    REQUIRE(get<int>(eval("GroupBy2"_("Customer"_, "List"_(), "Count"_))) == 3);
     REQUIRE(
-        get<int>(engine.evaluate(
-            {"Length",
-             {Expression{
-                 "Select",
-                 {Symbol("Customer"),
-                  Expression{"Function",
-                             {Symbol("tuple"),
-                              Expression{"StringContainsQ",
-                                         {"Madden",
-                                          Expression{"Extract", {Symbol("tuple"), 2}}}}}}}}}})) ==
-        1);
+        get<int>(eval("GroupBy2"_(
+            ("Select"_("Customer"_, "Function"_("tuple"_, "StringContainsQ"_(
+                                                              "Madden", "Extract"_("tuple"_, 2))))),
+            "List"_(), "Count"_))) == 1);
   }
 }
 #endif // WSINTERFACE

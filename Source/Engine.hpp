@@ -1,3 +1,4 @@
+#pragma once
 #include "Expression.hpp"
 namespace boss {
 class Engine {

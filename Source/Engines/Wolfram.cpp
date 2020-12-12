@@ -1,5 +1,6 @@
 #ifdef WSINTERFACE
 #include "Wolfram.hpp"
+#include "../Utilities.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -10,17 +11,10 @@
 #define STRING(x) STRINGIFY(x) // NOLINT
 
 namespace boss::engines::wolfram {
+using boss::utilities::overload;
 using std::to_string;
 using std::vector;
-using Symbol = Expression::Symbol;
-Symbol operator""_sym(const char* name, unsigned long /*unused*/) { return Symbol(name); };
-
-template <class... Fs> struct overload : Fs... {
-  template <class... Ts> explicit overload(Ts&&... ts) : Fs{std::forward<Ts>(ts)}... {}
-  using Fs::operator()...;
-};
-
-template <class... Ts> overload(Ts&&...) -> overload<std::remove_reference_t<Ts>...>;
+using boss::utilities::operator""_;
 
 struct EngineImplementation {
 
@@ -30,7 +24,7 @@ struct EngineImplementation {
       std::visit(
           overload([&](int a) { WSPutInteger(e.link, a); },
                    [&](char const* a) { WSPutString(e.link, a); },
-                   [&](Symbol const& a) { WSPutSymbol(e.link, a.getName().c_str()); },
+                   [&](Expression::Symbol const& a) { WSPutSymbol(e.link, a.getName().c_str()); },
                    [&](std::string const& a) { WSPutString(e.link, a.c_str()); },
                    [&](Expression const& expression) { putExpressionOnLink(e, expression); }),
           argument);
@@ -67,7 +61,7 @@ struct EngineImplementation {
     if(resultType == WSTKSYM) {
       char const* result = nullptr;
       WSGetSymbol(e.link, &result);
-      auto resultingSymbol = Symbol(result);
+      auto resultingSymbol = Expression::Symbol(result);
       WSReleaseSymbol(e.link, result);
       if(std::string("True") == resultingSymbol.getName()) {
         return true;
@@ -81,23 +75,17 @@ struct EngineImplementation {
   }
 
   static void loadShimLayer(Engine& e) {
-    auto project = e.evaluate(
-        {"Set",
-         {Symbol("Project"),
-          Expression{"Function",
-                     {Expression{"List", {"projections"_sym, "fromKeyword"_sym, "relation"_sym}},
-                      Expression{"Length", {"relation"_sym}}}}}});
-    e.evaluate({"Set",
-                {Symbol("Create"),
-                 Expression{"Function",
-                            {Expression{"List", {"Table"_sym, "relation"_sym}},
-                             Expression{"Set", {"relation"_sym, Expression{"List", {}}}}}}}});
-    e.evaluate({"Set",
-                {Symbol("InsertInto"),
-                 Expression{"Function",
-                            {Expression{"List", {"relation"_sym, "tuple"_sym}},
-                             Expression{"AppendTo", {"relation"_sym, "tuple"_sym}}, "HoldFirst"_sym}}}});
-    auto v = e.evaluate({"Set", {Symbol("BOSSVersion"), 1}});
+    auto Set = "Set"_;
+    auto Function = "Function"_;
+    auto List = "List"_;
+    auto eval = [&e](Expression const& expression) { return e.evaluate(expression); };
+    eval(Set("Project"_, Function(List("projections"_, "relation"_), "Length"_("relation"_))));
+    eval(Set("GroupBy2"_, Function(List("input"_, "groupAttributes"_, "aggregateFunction"_),
+                                   "Length"_("input"_), "HoldFirst"_)));
+    eval(Set("CreateTable"_, Function(List("relation"_), Set("relation"_, List()))));
+    eval(Set("InsertInto"_, Function(List("relation"_, "tuple"_),
+                                     "AppendTo"_("relation"_, "tuple"_), "HoldFirst"_)));
+    eval("Set"_("BOSSVersion"_, 1));
   };
 };
 
