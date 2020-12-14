@@ -1,8 +1,8 @@
 #pragma once
 #ifdef WSINTERFACE
 #include "../Engine.hpp"
-#include <wstp.h>
 #include <string>
+#include <wstp.h>
 
 namespace boss::engines::wolfram {
 class Engine : public boss::Engine {
