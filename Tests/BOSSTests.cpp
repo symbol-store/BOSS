@@ -1,9 +1,9 @@
 #include <variant>
 #define CATCH_CONFIG_MAIN
-#ifdef WSINTERFACE
 #include "../Source/BOSS.hpp"
 #include "../Source/Utilities.hpp"
 #include <catch2/catch.hpp>
+#ifdef WSINTERFACE
 using std::get;
 using std::string;
 using boss::utilities::operator""_;
