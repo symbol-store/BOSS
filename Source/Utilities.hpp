@@ -30,23 +30,24 @@ template <class... Ts> overload(Ts&&...) -> overload<std::remove_reference_t<Ts>
 
 } // namespace boss::utilities
 
+static std::ostream& operator<<(std::ostream& out, boss::Expression const& e);
 static std::ostream& operator<<(std::ostream& out, boss::Expression::ReturnType const& thing) {
   std::visit(boss::utilities::overload(
-                 [&](boss::Expression const& e) {
-                   out << e.getHead() << "[";
-                   if(!e.getArguments().empty()) {
-                     out << e.getArguments().front();
-                     for(auto it = next(e.getArguments().begin()); it != e.getArguments().end();
-                         ++it) {
-                       out << "," << *it;
-                     }
-                   }
-                   out << "]";
-                 },
-                 [&](int value) { out << value; },
+                 [&](boss::Expression const& e) { out << e; }, [&](int value) { out << value; },
                  [&](boss::Expression::Symbol const& value) { out << value.getName(); },
                  [&](float value) { out << value; },
                  [&](std::string const& value) { out << "\"" << value << "\""; }),
              thing);
+  return out;
+}
+static std::ostream& operator<<(std::ostream& out, boss::Expression const& e) {
+  out << e.getHead() << "[";
+  if(!e.getArguments().empty()) {
+    out << e.getArguments().front();
+    for(auto it = next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
+      out << "," << *it;
+    }
+  }
+  out << "]";
   return out;
 }
