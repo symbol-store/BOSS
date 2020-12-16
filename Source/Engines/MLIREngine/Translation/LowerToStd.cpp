@@ -3,6 +3,7 @@
 #include "Engines/MLIREngine/Dialect/SExprTypes.h"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 #include <array>
+#include <atomic>
 #include <iostream>
 #include <llvm/ADT/StringExtras.h>
 #include <mlir/Dialect/SCF/SCF.h>
@@ -22,6 +23,8 @@ std::mutex printMutex;
 
 namespace {
 using namespace mlir;
+
+std::atomic<int> stringCounter{0};
 
 struct EndOpLowering : public OpConversionPattern<sexpr::EndOp> {
   EndOpLowering(MLIRContext* ctx, TypeConverter& converter)
@@ -80,6 +83,56 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
     return success();
   }
 
+  LogicalResult rewriteStringJoin(sexpr::SymbolOp& s, ArrayRef<Value> operands,
+                                  ConversionPatternRewriter& rewriter) const {
+    // Find lenght of total joined string
+    // Just nullbyte
+    int64_t stringLength = 1;
+    for(auto const& operand : operands) {
+      if(operand.getType().dyn_cast<MemRefType>()) {
+        // Don't add nullbyte of each string
+        stringLength += operand.getType().dyn_cast<MemRefType>().getDimSize(0) - 1;
+      } else {
+        return failure();
+      }
+    }
+
+    // Create new buffer
+    auto memRefType = MemRefType::get({stringLength}, rewriter.getIntegerType(8));
+    auto allocatedMemory =
+        rewriter.create<AllocOp, MemRefType&>(rewriter.getUnknownLoc(), memRefType);
+
+    int64_t offset = 0;
+    for(auto const& operand : operands) {
+      auto currentLength = operand.getType().cast<MemRefType>().getDimSize(0) - 1;
+
+      auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), offset);
+      auto upperBound =
+          rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), offset + currentLength);
+      auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
+      auto loop =
+          rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
+
+      auto savedPoint = rewriter.saveInsertionPoint();
+      rewriter.setInsertionPointToStart(loop.getBody());
+      auto offsetVal = rewriter.create<ConstantIndexOp, int64_t&>(rewriter.getUnknownLoc(), offset);
+      auto loadPosition = rewriter.create<SubIOp, TypeRange, Value, Value>(
+          rewriter.getUnknownLoc(), rewriter.getIndexType(), loop.getInductionVar(),
+          offsetVal.getResult());
+      auto load = rewriter.create<LoadOp, Value const&, ValueRange>(
+          rewriter.getUnknownLoc(), operand, loadPosition.getResult());
+      rewriter.create<StoreOp, Value, Value, ValueRange>(rewriter.getUnknownLoc(), load.getResult(),
+                                                         allocatedMemory.getResult(),
+                                                         loop.getInductionVar());
+
+      rewriter.restoreInsertionPoint(savedPoint);
+      offset += currentLength;
+    }
+
+    rewriter.replaceOp(s.getOperation(), allocatedMemory.getResult());
+    return success();
+  }
+
   LogicalResult matchAndRewrite(sexpr::SymbolOp s, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
 
@@ -98,10 +151,11 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
       return replaceBinaryOp<mlir::SignedDivIOp>(s, rewriter);
     }
     if(symbolName == "Eval") {
-      std::cout << "Here" << std::endl;
-      // rewriter.eraseOp(s.getOperation());
       rewriter.replaceOp(s.getOperation(), s.getOperands());
       return success();
+    }
+    if(symbolName == "StringJoin") {
+      return rewriteStringJoin(s, operands, rewriter);
     }
 
     return failure();
@@ -152,10 +206,12 @@ struct ConstantStringOpLowering : public OpConversionPattern<sexpr::StringConsta
     llvm::SmallVector<int8_t, 30> stringWithNullTerminator{op.value().bytes()};
     stringWithNullTerminator.push_back(0);
 
+    int currentString = stringCounter++;
+
     // Create a global memory reference to our string
     rewriter.create<mlir::GlobalMemrefOp, ::llvm::StringRef, mlir::StringAttr, ::mlir::TypeAttr,
                     mlir::Attribute, bool>(
-        rewriter.getUnknownLoc(), "string1", nullptr, TypeAttr::get(memRefType),
+        rewriter.getUnknownLoc(), std::to_string(currentString), nullptr, TypeAttr::get(memRefType),
         DenseElementsAttr::get(
             RankedTensorType::get({static_cast<int64_t>(stringLength)}, rewriter.getIntegerType(8)),
             ArrayRef<int8_t>(stringWithNullTerminator)),
@@ -164,7 +220,7 @@ struct ConstantStringOpLowering : public OpConversionPattern<sexpr::StringConsta
     rewriter.restoreInsertionPoint(currentLocation);
 
     auto memref = rewriter.create<mlir::GetGlobalMemrefOp, Type&, StringRef>(
-        rewriter.getUnknownLoc(), memRefType, "string1");
+        rewriter.getUnknownLoc(), memRefType, std::to_string(currentString));
 
     auto allocatedMemory =
         rewriter.create<AllocOp, MemRefType&>(rewriter.getUnknownLoc(), memRefType);
@@ -256,13 +312,6 @@ void SexprToStdLoweringPass::runOnFunction() {
                            IntegerType::get(8, t.getContext()));
   });
 
-  // Convert the type of the current function
-  auto newFuncType = c.convertType(getFunction().getType()).dyn_cast<FunctionType>();
-
-  if(newFuncType) {
-    getFunction().setType(newFuncType);
-  }
-
   // Register legality of dialects and operations
   target.addLegalDialect<mlir::StandardOpsDialect, mlir::scf::SCFDialect>();
   target.addIllegalDialect<sexpr::SExprDialect>();
@@ -278,6 +327,13 @@ void SexprToStdLoweringPass::runOnFunction() {
   patterns.insert<CallOpSignatureConversion>(&getContext(), c);
 
   auto res = applyPartialConversion(getFunction(), target, std::move(patterns));
+
+  // Convert the type of the current function
+  auto newFuncType = c.convertType(getFunction().getType()).dyn_cast<FunctionType>();
+
+  if(newFuncType) {
+    getFunction().setType(newFuncType);
+  }
 
   if(failed(res)) {
     signalPassFailure();
