@@ -55,7 +55,7 @@ find_package(Mathematica COMPONENTS WSTP)
 
 
 
-set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp)
+set(ImplementationFiles Source/BOSS.cpp Source/Expression.cpp Source/Engines/Wolfram.cpp)
 set(ExecutableFiles Source/main.cpp)
 set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)

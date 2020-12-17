@@ -27,10 +27,7 @@ public:
   std::string const& getHead() const { return head; };
 };
 } // namespace boss
-static bool operator==(boss::Expression::ReturnType const& r1,
-                       boss::Expression::ReturnType const& r2) {
-  if(r1.index() == r2.index()) {
-    return std::visit([&](auto r1) { return r1 == std::get<decltype(r1)>(r2); }, r1);
-  }
-  return false;
-}
+bool operator==(boss::Expression::ReturnType const& r1, boss::Expression::ReturnType const& r2);
+static bool operator!=(boss::Expression::ReturnType const& r1, boss::Expression::ReturnType const& r2) {
+  return !(r1 == r2);
+};
