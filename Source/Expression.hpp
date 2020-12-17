@@ -28,6 +28,7 @@ public:
 };
 } // namespace boss
 bool operator==(boss::Expression::ReturnType const& r1, boss::Expression::ReturnType const& r2);
-static bool operator!=(boss::Expression::ReturnType const& r1, boss::Expression::ReturnType const& r2) {
+static bool operator!=(boss::Expression::ReturnType const& r1,
+                       boss::Expression::ReturnType const& r2) {
   return !(r1 == r2);
 };
