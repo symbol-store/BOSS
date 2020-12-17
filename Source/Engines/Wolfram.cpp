@@ -87,7 +87,6 @@ struct EngineImplementation {
   }
 
   void loadShimLayer() {
-    // namespaceIdentifier = "";
     auto Set = "Set"_;
     auto Function = "Function"_;
     auto List = "List"_;
@@ -97,18 +96,19 @@ struct EngineImplementation {
                "List", "Extract", "Function", "StringContainsQ"}) {
       eval(Set(namespaced(it), Expression::Symbol("System`" + it)));
     }
+    eval(Set(namespaced("CreateTable"),
+             Function(List("relation"_), Set("relation"_, List()), "HoldFirst"_)));
+    eval(Set(namespaced("InsertInto"), Function(List("relation"_, "tuple"_),
+                                                "AppendTo"_("relation"_, "tuple"_), "HoldFirst"_)));
     eval(Set(namespaced("Project"),
              Function(List("projections"_, "relation"_), "Length"_("relation"_))));
+    eval(Set(namespaced("Select"), Function(List("input"_, "predicate"_),
+                                            "Select"_("input"_, "predicate"_), "HoldFirst"_)));
+
     eval(Set(namespaced("GroupBy"),
              Function(List("input"_, "groupAttributes"_, "aggregateFunction"_), "Length"_("input"_),
                       "HoldFirst"_)));
-    eval(Set(namespaced("CreateTable"), Function(List("relation"_), Set("relation"_, List()))));
-    eval(Set(namespaced("Select"), Function(List("input"_, "predicate"_),
-                                            "Select"_("input"_, "predicate"_), "HoldFirst"_)));
-    eval(Set(namespaced("InsertInto"), Function(List("relation"_, "tuple"_),
-                                                "AppendTo"_("relation"_, "tuple"_), "HoldFirst"_)));
     eval("Set"_("BOSSVersion"_, 1));
-    // namespaceIdentifier = "BOSS`";
   };
 
   EngineImplementation() {
@@ -125,13 +125,18 @@ struct EngineImplementation {
     }
   }
 
+  EngineImplementation(EngineImplementation&&) = default;
+  EngineImplementation(EngineImplementation const&) = delete;
+  EngineImplementation& operator=(EngineImplementation&&) = default;
+  EngineImplementation& operator=(EngineImplementation const&) = delete;
+
   ~EngineImplementation() {
     WSClose(link);
     WSDeinitialize(environment);
   }
 
   Expression::ReturnType evaluate(Expression const& e,
-                                  std::string namespaceIdentifier = DefaultNamespace) {
+                                  std::string const& namespaceIdentifier = DefaultNamespace) {
     putExpressionOnLink(e, namespaceIdentifier);
     WSEndPacket(link);
     int pkt = 0;

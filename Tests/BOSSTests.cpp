@@ -29,7 +29,7 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
   }
 
   SECTION("State") {
-    eval("Set"_("thingy"_, 9));
+    eval("Set"_("thingy"_, 9)); // NOLINT
     REQUIRE(eval("Evaluate"_("thingy"_)) == Value(9));
   }
 
@@ -38,12 +38,22 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
     eval("InsertInto"_("Customer"_, "List"_("John", "McCarthy")));
     eval("InsertInto"_("Customer"_, "List"_("Sam", "Madden")));
     eval("InsertInto"_("Customer"_, "List"_("Barbara", "Liskov")));
-    REQUIRE(eval("GroupBy"_("Customer"_, "List"_(), "Count"_)) == Value(3));
-    REQUIRE(
-        eval("GroupBy"_(
-            ("Select"_("Customer"_, "Function"_("tuple"_, "StringContainsQ"_(
-                                                              "Madden", "Extract"_("tuple"_, 2))))),
-            "List"_(), "Count"_)) == Value(1));
+    SECTION("Selection") {
+      auto const& sam = eval(
+          "Select"_("Customer"_,
+                    "Function"_("tuple"_, "StringContainsQ"_("Madden", "Extract"_("tuple"_, 2)))));
+      REQUIRE(sam == "List"_("List"_("Sam", "Madden")));
+      REQUIRE(sam != "List"_("List"_("Barbara", "Liskov")));
+    }
+
+    SECTION("Aggregation") {
+      REQUIRE(eval("GroupBy"_("Customer"_, "List"_(), "Count"_)) == Value(3));
+      REQUIRE(eval("GroupBy"_(
+                  ("Select"_("Customer"_,
+                             "Function"_("tuple"_,
+                                         "StringContainsQ"_("Madden", "Extract"_("tuple"_, 2))))),
+                  "List"_(), "Count"_)) == Value(1));
+    }
   }
 }
 #endif // WSINTERFACE
