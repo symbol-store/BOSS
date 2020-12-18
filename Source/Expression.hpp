@@ -3,28 +3,35 @@
 #include <variant>
 #include <vector>
 namespace boss {
-class Expression {
+class Symbol {
+  std::string const name;
+
 public:
-  class Symbol {
-    std::string const name;
+  explicit Symbol(std::string const& name) : name(name){};
+  std::string const& getName() const { return name; };
+};
 
-  public:
-    explicit Symbol(std::string const& name) : name(name){};
-    std::string const& getName() const { return name; };
-  };
+template <typename T, typename... Args> struct variant_amend;
 
-  using ReturnType = std::variant<Expression, int, std::string, Symbol, bool>;
-  using ArgumentType = ReturnType;
+template <typename... Args0, typename... Args1>
+struct variant_amend<std::variant<Args0...>, Args1...> {
+  using type = std::variant<Args0..., Args1...>;
+};
 
+using AtomicExpression = std::variant<int, std::string, Symbol, bool>;
+class ComplexExpression;
+using Expression = variant_amend<AtomicExpression, ComplexExpression>::type;
+
+class ComplexExpression {
 private:
-  std::string const head;
-  std::vector<ArgumentType> const arguments;
+  Symbol const head;
+  std::vector<Expression> const arguments;
 
 public:
-  Expression(std::string const& head, std::vector<ArgumentType> const& arguments)
+  explicit ComplexExpression(Symbol const& head, std::vector<Expression> const& arguments)
       : head(head), arguments(arguments){};
-  std::vector<ArgumentType> const& getArguments() const { return arguments; };
-  std::string const& getHead() const { return head; };
+  std::vector<Expression> const& getArguments() const { return arguments; };
+  Symbol const& getHead() const { return head; };
 };
 
 } // namespace boss

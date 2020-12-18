@@ -15,7 +15,7 @@ public:
   Engine(Engine&&) = default;
   Engine& operator=(Engine&&) = default;
   Engine();
-  Expression::ReturnType evaluate(Expression const& e);
+  Expression evaluate(Expression const& e);
   ~Engine();
   friend class EngineImplementation;
 };

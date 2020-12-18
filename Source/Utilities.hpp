@@ -5,17 +5,17 @@
 
 namespace boss::utilities {
 class ExpressionBuilder {
-  std::string const s;
+  Symbol const s;
 
 public:
-  explicit ExpressionBuilder(const std::string& s) : s(s){};
-  template <typename... Ts> Expression operator()(Ts... args /*a*/) const {
-    return Expression{s, {args...}};
+  explicit ExpressionBuilder(const std::string& s) : s(Symbol(s)){};
+  template <typename... Ts> ComplexExpression operator()(Ts... args /*a*/) const {
+    return ComplexExpression{s, {args...}};
   };
   friend Expression operator|(Expression const& expression, ExpressionBuilder const& builder) {
     return builder(expression);
   };
-  operator Expression::Symbol() const { return Expression::Symbol(s); } // NOLINT
+  operator Symbol() const { return Symbol(s); } // NOLINT
 };
 static ExpressionBuilder operator""_(const char* name, unsigned long /*unused*/) {
   return ExpressionBuilder(name);
@@ -30,9 +30,12 @@ template <class... Ts> overload(Ts&&...) -> overload<std::remove_reference_t<Ts>
 
 } // namespace boss::utilities
 
-static std::ostream& operator<<(std::ostream& out, boss::Expression::ReturnType const& thing) {
+static std::ostream& operator<<(std::ostream& out, boss::Symbol const& thing) {
+  return out << thing.getName();
+}
+static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing) {
   std::visit(boss::utilities::overload(
-                 [&](boss::Expression const& e) {
+                 [&](boss::ComplexExpression const& e) {
                    out << e.getHead() << "[";
                    if(!e.getArguments().empty()) {
                      out << e.getArguments().front();
@@ -43,10 +46,8 @@ static std::ostream& operator<<(std::ostream& out, boss::Expression::ReturnType 
                    }
                    out << "]";
                  },
-                 [&](int value) { out << value; },
-                 [&](boss::Expression::Symbol const& value) { out << value.getName(); },
-                 [&](float value) { out << value; },
-                 [&](std::string const& value) { out << "\"" << value << "\""; }),
+                 [&](std::string const& value) { out << "\"" << value << "\""; },
+                 [&](auto value) { out << value; }),
              thing);
   return out;
 }

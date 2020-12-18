@@ -14,24 +14,24 @@ namespace boss::engines::wolfram {
 using boss::utilities::overload;
 using std::to_string;
 using std::vector;
-using boss::utilities::operator""_;
-
 struct EngineImplementation {
 
   static void putExpressionOnLink(Engine& e, Expression const& expression) {
-    WSPutFunction(e.link, expression.getHead().c_str(), expression.getArguments().size());
-    for(auto const& argument : expression.getArguments()) {
-      std::visit(
-          overload([&](int a) { WSPutInteger(e.link, a); },
-                   [&](char const* a) { WSPutString(e.link, a); },
-                   [&](Expression::Symbol const& a) { WSPutSymbol(e.link, a.getName().c_str()); },
-                   [&](std::string const& a) { WSPutString(e.link, a.c_str()); },
-                   [&](Expression const& expression) { putExpressionOnLink(e, expression); }),
-          argument);
-    }
+    std::visit(overload([&](int a) { WSPutInteger(e.link, a); },
+                        [&](char const* a) { WSPutString(e.link, a); },
+                        [&](Symbol const& a) { WSPutSymbol(e.link, a.getName().c_str()); },
+                        [&](std::string const& a) { WSPutString(e.link, a.c_str()); },
+                        [&](ComplexExpression const& expression) {
+                          WSPutFunction(e.link, expression.getHead().getName().c_str(),
+                                        expression.getArguments().size());
+                          for(auto const& argument : expression.getArguments()) {
+                            putExpressionOnLink(e, argument);
+                          }
+                        }),
+               expression);
   }
 
-  static Expression::ReturnType readExpressionFromLink(Engine& e) {
+  static Expression readExpressionFromLink(Engine& e) {
     auto resultType = WSGetType(e.link);
     if(resultType == WSTKSTR) {
       char const* resultAsCString = nullptr;
@@ -50,18 +50,18 @@ struct EngineImplementation {
       auto const* resultHead = "";
       auto numberOfArguments = 0;
       WSGetFunction(e.link, &resultHead, &numberOfArguments);
-      auto resultArguments = vector<Expression::ArgumentType>();
+      auto resultArguments = vector<Expression>();
       for(auto i = 0U; i < numberOfArguments; i++) {
         resultArguments.push_back(readExpressionFromLink(e));
       }
-      auto result = Expression(resultHead, resultArguments);
+      auto result = ComplexExpression(Symbol(resultHead), resultArguments);
       WSReleaseSymbol(e.link, resultHead);
       return result;
     }
     if(resultType == WSTKSYM) {
       char const* result = nullptr;
       WSGetSymbol(e.link, &result);
-      auto resultingSymbol = Expression::Symbol(result);
+      auto resultingSymbol = Symbol(result);
       WSReleaseSymbol(e.link, result);
       if(std::string("True") == resultingSymbol.getName()) {
         return true;
@@ -93,7 +93,7 @@ Engine::~Engine() {
   WSDeinitialize(environment);
 }
 
-Expression::ReturnType Engine::evaluate(Expression const& e) {
+Expression Engine::evaluate(Expression const& e) {
   EngineImplementation::putExpressionOnLink(*this, e);
 
   WSEndPacket(link);

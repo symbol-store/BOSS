@@ -21,8 +21,9 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
     REQUIRE(get<string>(eval("StringJoin"_("howdie", " ", "world"))) == "howdie world");
     REQUIRE(get<bool>(eval("Greater"_(5, 2))));
     REQUIRE(!get<bool>(eval("Greater"_(2, 5))));
-    REQUIRE(get<boss::Expression::Symbol>(eval("Symbol"_("x"))).getName() == "x");
-    REQUIRE(get<boss::Expression>(eval("UndefinedFunction"_(9))).getHead() == "UndefinedFunction");
+    REQUIRE(get<boss::Symbol>(eval("Symbol"_("x"))).getName() == "x");
+    REQUIRE(get<boss::ComplexExpression>(eval("UndefinedFunction"_(9))).getHead().getName() ==
+            "UndefinedFunction");
   }
 }
 #endif // WSINTERFACE
