@@ -79,35 +79,53 @@ struct EngineImplementation {
       }
       return resultingSymbol;
     }
+    if(resultType == WSTKERROR) {
+      const char* messageAsCString = WSErrorMessage(link);
+      auto message = string(messageAsCString);
+      WSReleaseErrorMessage(link, messageAsCString);
+      throw std::runtime_error(message);
+    }
     throw std::logic_error("unsupported return type: " + std::to_string(resultType));
   }
 
-  static Expression::Symbol namespaced(string const& name) {
-    return Expression::Symbol(DefaultNamespace + name);
+  static Expression::Symbol namespaced(Expression::Symbol const& name) {
+    return Expression::Symbol(DefaultNamespace + name.getName());
+  }
+  static Expression namespaced(Expression const& name) {
+    return Expression(DefaultNamespace + name.getHead(), name.getArguments());
   }
 
   void loadShimLayer() {
     auto Set = "Set"_;
+    auto SetDelayed = "SetDelayed"_;
     auto Function = "Function"_;
     auto List = "List"_;
     auto eval = [this](Expression const& expression) { return evaluate(expression, ""); };
     for(std::string const& it :
         vector{"Plus", "StringJoin", "Greater", "Symbol", "UndefinedFunction", "Evaluate", "Set",
                "List", "Extract", "Function", "StringContainsQ"}) {
-      eval(Set(namespaced(it), Expression::Symbol("System`" + it)));
+      eval(Set(namespaced(Expression::Symbol(it)), Expression::Symbol("System`" + it)));
     }
-    eval(Set(namespaced("CreateTable"),
-             Function(List("relation"_), Set("relation"_, List()), "HoldFirst"_)));
-    eval(Set(namespaced("InsertInto"), Function(List("relation"_, "tuple"_),
-                                                "AppendTo"_("relation"_, "tuple"_), "HoldFirst"_)));
-    eval(Set(namespaced("Project"),
-             Function(List("projections"_, "relation"_), "Length"_("relation"_))));
-    eval(Set(namespaced("Select"), Function(List("input"_, "predicate"_),
-                                            "Select"_("input"_, "predicate"_), "HoldFirst"_)));
+    eval(SetDelayed(namespaced("CreateTable"_("Pattern"_("relation"_, "Blank"_()),
+                                              "Pattern"_("attributes"_, "BlankSequence"_()))),
+                    Set("relation"_, List())));
+    eval("SetAttributes"_(namespaced("CreateTable"_), "HoldFirst"_));
 
-    eval(Set(namespaced("GroupBy"),
-             Function(List("input"_, "groupAttributes"_, "aggregateFunction"_), "Length"_("input"_),
-                      "HoldFirst"_)));
+    eval(SetDelayed(namespaced("InsertInto"_("Pattern"_("relation"_, "Blank"_()),
+                                             "Pattern"_("tuple"_, "BlankSequence"_()))),
+                    "AppendTo"_("relation"_, "List"_("tuple"_))));
+    eval("SetAttributes"_(namespaced("InsertInto"_), "HoldFirst"_));
+
+    eval(SetDelayed(namespaced("Project"_("Pattern"_("input"_, "Blank"_()),
+                                          "Pattern"_("projection"_, "Blank"_()))),
+                    "Map"_("projection"_, "relation"_)));
+    eval(SetDelayed(namespaced("Select"_("Pattern"_("input"_, "Blank"_()),
+                                          "Pattern"_("predicate"_, "Blank"_()))),
+                    "Select"_("input"_, "predicate"_)));
+    eval(SetDelayed(namespaced("GroupBy"_("Pattern"_("input"_, "Blank"_()),
+                                          "Pattern"_("groupFunction"_, "Blank"_()),
+                                          "Pattern"_("aggregateFunction"_, "Blank"_()))),
+                    "Length"_("input"_)));
     eval("Set"_("BOSSVersion"_, 1));
   };
 

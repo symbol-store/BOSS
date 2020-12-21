@@ -35,9 +35,9 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
 
   SECTION("Relational") {
     eval("CreateTable"_("Customer"_, "FirstName", "LastName"));
-    eval("InsertInto"_("Customer"_, "List"_("John", "McCarthy")));
-    eval("InsertInto"_("Customer"_, "List"_("Sam", "Madden")));
-    eval("InsertInto"_("Customer"_, "List"_("Barbara", "Liskov")));
+    eval("InsertInto"_("Customer"_, "John", "McCarthy"));
+    eval("InsertInto"_("Customer"_, "Sam", "Madden"));
+    eval("InsertInto"_("Customer"_, "Barbara", "Liskov"));
     SECTION("Selection") {
       auto const& sam = eval(
           "Select"_("Customer"_,
@@ -52,7 +52,7 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
                   ("Select"_("Customer"_,
                              "Function"_("tuple"_,
                                          "StringContainsQ"_("Madden", "Extract"_("tuple"_, 2))))),
-                  "List"_(), "Count"_)) == Value(1));
+                  "Function"_(0), "Count"_)) == Value(1));
     }
   }
 }
