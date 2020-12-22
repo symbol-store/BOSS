@@ -1,13 +1,18 @@
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch.hpp>
-#ifdef WSINTERFACE
 #include "../Source/BOSS.hpp"
 #include "../Source/Utilities.hpp"
 using std::get;
 using std::string;
 using boss::utilities::operator""_;
 
-TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
+#ifdef WSINTERFACE
+TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::bulk::Engine,
+                   boss::engines::wolfram::Engine) { // NOLINT
+#else
+TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::bulk::Engine) { // NOLINT
+#endif // WSINTERFACE
+
   static auto eval = [e = TestType()](boss::Expression const& expression) mutable {
     return e.evaluate(expression);
   };
@@ -26,4 +31,3 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
             "UndefinedFunction");
   }
 }
-#endif // WSINTERFACE
