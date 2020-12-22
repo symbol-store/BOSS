@@ -1,13 +1,18 @@
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch.hpp>
-#ifdef WSINTERFACE
 #include "../Source/BOSS.hpp"
 #include "../Source/Utilities.hpp"
 using std::get;
 using std::string;
 using boss::utilities::operator""_;
 
-TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
+TEMPLATE_TEST_CASE("Simpletons", "" // NOLINT
+#ifdef WSINTERFACE
+                   ,
+                   boss::engines::wolfram::Engine
+#endif // WSINTERFACE
+                   ,
+                   boss::engines::bulk::Engine) {
   static auto eval = [e = TestType()](boss::Expression const& expression) mutable {
     return e.evaluate(expression);
   };
@@ -43,4 +48,3 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
                   .getArguments()[0]) == "Hello World!");
   }
 }
-#endif // WSINTERFACE

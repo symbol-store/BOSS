@@ -62,7 +62,7 @@ find_package(Threads REQUIRED)
 
 
 
-set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp)
+set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp Source/Engines/Bulk.cpp)
 set(ExecutableFiles Source/main.cpp)
 set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)

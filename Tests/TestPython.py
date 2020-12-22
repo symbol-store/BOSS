@@ -6,7 +6,7 @@ sys.path.insert(0, './build')
 sys.path.insert(0, './Debug')
 sys.path.insert(0, './Release')
 
-import faulthandler;
+import faulthandler
 faulthandler.enable()
 
 import BOSS
@@ -15,10 +15,8 @@ from BOSS import ComplexExpression as Expr
 Symbol = BOSS.Expression.Symbol
 
 
-def TestExpressions():
-    # uncomment to switch to a specific engine (otherwise use default)
-    #BOSS.setEngine(BOSS.BulkEngine)
-    #BOSS.setEngine(BOSS.WolframEngine)
+def TestExpressions(engine):
+    BOSS.setEngine(engine)
 
     print(Symbol("bla"))
     print(Expr("bla2", []).getHead())
@@ -31,9 +29,10 @@ def TestExpressions():
     print(args)
 
     print(Symbol("A") + Symbol("B"))
-    print((expr + expr2).evaluate())
+    print(evaluate(Symbol("A") + Symbol("B")))
 
-    print(Expr("bla2", ["arg1", "arg2"]) + Expr("bla3", [1, True, 'blabla', Symbol("symb")]))
+    print(expr + expr2)
+    print(evaluate(expr + expr2))
 
     print(Expr("Plus", [1, 2]).evaluate())
 
@@ -44,4 +43,19 @@ def TestExpressions():
     print(evaluate(1))
     print(evaluate("Test!"))
 
-TestExpressions()
+    listExpr = Expr("List", [10,11,Expr("Plus", [10, 2])])
+    print(listExpr.evaluate())
+    print("1: " + str(Expr("Extract", [listExpr, 1]).evaluate()))
+    print("2: " + str(Expr("Extract", [listExpr, 2]).evaluate()))
+    print("3: " + str(Expr("Extract", [listExpr, 3]).evaluate()))
+
+def main():
+    print("using Wolfram engine...")
+    TestExpressions(BOSS.WolframEngine)
+    print("")
+    print("using Bulk engine...")
+    TestExpressions(BOSS.BulkEngine)
+    print("")
+
+if __name__ == "__main__":
+    main()

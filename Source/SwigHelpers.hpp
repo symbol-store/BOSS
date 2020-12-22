@@ -30,10 +30,15 @@ boss::engines::wolfram::Engine& wolframEngine() {
 }
 #endif // WSINTERFACE
 
+boss::engines::bulk::Engine& bulkEngine() {
+  static auto instance = boss::engines::bulk::Engine();
+  return instance;
+}
+
 Expression evaluate(Expression const& arg) {
   switch(currentEngine()) {
   case BulkEngine:
-    break;
+    return bulkEngine().evaluate(arg);
 #ifdef WSINTERFACE
   case WolframEngine:
     return wolframEngine().evaluate(arg);
