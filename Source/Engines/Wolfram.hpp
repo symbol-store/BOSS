@@ -16,7 +16,7 @@ public:
   Engine(Engine&&) = default;
   Engine& operator=(Engine&&) = delete;
   Engine();
-  Expression::ReturnType evaluate(Expression const& e);
+  Expression evaluate(Expression const& e);
   ~Engine();
 };
 } // namespace boss::engines::wolfram

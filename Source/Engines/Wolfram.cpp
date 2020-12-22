@@ -16,30 +16,30 @@ using std::string;
 using std::to_string;
 using std::vector;
 using boss::utilities::operator""_;
-
 struct EngineImplementation {
   constexpr static char const* const DefaultNamespace = "BOSS`";
   WSENV environment = {};
   WSLINK link = {};
 
   void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier) {
-    WSPutFunction(link, (namespaceIdentifier + expression.getHead()).c_str(),
-                  expression.getArguments().size());
-    for(auto const& argument : expression.getArguments()) {
-      std::visit(overload([&](int a) { WSPutInteger(link, a); },
-                          [&](char const* a) { WSPutString(link, a); },
-                          [&](Expression::Symbol const& a) {
-                            WSPutSymbol(link, (namespaceIdentifier + a.getName()).c_str());
-                          },
-                          [&](std::string const& a) { WSPutString(link, a.c_str()); },
-                          [&](Expression const& expression) {
-                            putExpressionOnLink(expression, namespaceIdentifier);
-                          }),
-                 argument);
-    }
+    std::visit(overload([&](int a) { WSPutInteger(link, a); },
+                        [&](char const* a) { WSPutString(link, a); },
+                        [&](Symbol const& a) {
+                          WSPutSymbol(link, (namespaceIdentifier + a.getName()).c_str());
+                        },
+                        [&](std::string const& a) { WSPutString(link, a.c_str()); },
+                        [&](ComplexExpression const& expression) {
+                          WSPutFunction(
+                              link, (namespaceIdentifier + expression.getHead().getName()).c_str(),
+                              expression.getArguments().size());
+                          for(auto const& argument : expression.getArguments()) {
+                            putExpressionOnLink(argument, namespaceIdentifier);
+                          }
+                        }),
+               expression);
   }
 
-  Expression::ReturnType readExpressionFromLink() {
+  Expression readExpressionFromLink() {
     auto resultType = WSGetType(link);
     if(resultType == WSTKSTR) {
       char const* resultAsCString = nullptr;
@@ -58,18 +58,18 @@ struct EngineImplementation {
       auto const* resultHead = "";
       auto numberOfArguments = 0;
       WSGetFunction(link, &resultHead, &numberOfArguments);
-      auto resultArguments = vector<Expression::ArgumentType>();
+      auto resultArguments = vector<Expression>();
       for(auto i = 0U; i < numberOfArguments; i++) {
         resultArguments.push_back(readExpressionFromLink());
       }
-      auto result = Expression(resultHead, resultArguments);
+      auto result = ComplexExpression(Symbol(resultHead), resultArguments);
       WSReleaseSymbol(link, resultHead);
       return result;
     }
     if(resultType == WSTKSYM) {
       char const* result = nullptr;
       WSGetSymbol(link, &result);
-      auto resultingSymbol = Expression::Symbol(result);
+      auto resultingSymbol = Symbol(result);
       WSReleaseSymbol(link, result);
       if(std::string("True") == resultingSymbol.getName()) {
         return true;
@@ -88,11 +88,10 @@ struct EngineImplementation {
     throw std::logic_error("unsupported return type: " + std::to_string(resultType));
   }
 
-  static Expression::Symbol namespaced(Expression::Symbol const& name) {
-    return Expression::Symbol(DefaultNamespace + name.getName());
-  }
-  static Expression namespaced(Expression const& name) {
-    return Expression(DefaultNamespace + name.getHead(), name.getArguments());
+  static Symbol namespaced(Symbol const& name) { return Symbol(DefaultNamespace + name.getName()); }
+  static ComplexExpression namespaced(ComplexExpression const& name) {
+    return ComplexExpression(Symbol(DefaultNamespace + name.getHead().getName()),
+                             name.getArguments());
   }
 
   void loadShimLayer() {
@@ -104,7 +103,7 @@ struct EngineImplementation {
     for(std::string const& it :
         vector{"Plus", "StringJoin", "Greater", "Symbol", "UndefinedFunction", "Evaluate", "Set",
                "List", "Extract", "Function", "StringContainsQ"}) {
-      eval(Set(namespaced(Expression::Symbol(it)), Expression::Symbol("System`" + it)));
+      eval(Set(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
     eval(SetDelayed(namespaced("CreateTable"_("Pattern"_("relation"_, "Blank"_()),
                                               "Pattern"_("attributes"_, "BlankSequence"_()))),
@@ -120,7 +119,7 @@ struct EngineImplementation {
                                           "Pattern"_("projection"_, "Blank"_()))),
                     "Map"_("projection"_, "relation"_)));
     eval(SetDelayed(namespaced("Select"_("Pattern"_("input"_, "Blank"_()),
-                                          "Pattern"_("predicate"_, "Blank"_()))),
+                                         "Pattern"_("predicate"_, "Blank"_()))),
                     "Select"_("input"_, "predicate"_)));
     eval(SetDelayed(namespaced("GroupBy"_("Pattern"_("input"_, "Blank"_()),
                                           "Pattern"_("groupFunction"_, "Blank"_()),
@@ -153,8 +152,8 @@ struct EngineImplementation {
     WSDeinitialize(environment);
   }
 
-  Expression::ReturnType evaluate(Expression const& e,
-                                  std::string const& namespaceIdentifier = DefaultNamespace) {
+  Expression evaluate(Expression const& e,
+                      std::string const& namespaceIdentifier = DefaultNamespace) {
     putExpressionOnLink(e, namespaceIdentifier);
     WSEndPacket(link);
     int pkt = 0;
@@ -170,7 +169,7 @@ Engine::Engine() : impl([]() -> EngineImplementation& { return *(new EngineImple
 }
 Engine::~Engine() { delete &impl; }
 
-Expression::ReturnType Engine::evaluate(Expression const& e) { return impl.evaluate(e); }
+Expression Engine::evaluate(Expression const& e) { return impl.evaluate(e); }
 } // namespace boss::engines::wolfram
 
 #endif // WSINTERFACE
