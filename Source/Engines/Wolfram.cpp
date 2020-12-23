@@ -16,26 +16,56 @@ using std::string;
 using std::to_string;
 using std::vector;
 using boss::utilities::operator""_;
+using std::string_literals::operator""s;
+using std::endl;
+#ifdef NDEBUG
+struct NOOPConsole {
+  template <typename T> NOOPConsole const& operator<<(T /*unused*/) const { return *this; }
+  NOOPConsole const& operator<<(std::ostream& (*/*pf*/)(std::ostream&)) const { return *this; };
+
+} const console;
+#else
+std::ostream& console = std::cout; // NOLINT
+#endif // NDEBUG
+
 struct EngineImplementation {
   constexpr static char const* const DefaultNamespace = "BOSS`";
   WSENV environment = {};
   WSLINK link = {};
 
   void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier) {
-    std::visit(overload([&](int a) { WSPutInteger(link, a); },
-                        [&](char const* a) { WSPutString(link, a); },
-                        [&](Symbol const& a) {
-                          WSPutSymbol(link, (namespaceIdentifier + a.getName()).c_str());
-                        },
-                        [&](std::string const& a) { WSPutString(link, a.c_str()); },
-                        [&](ComplexExpression const& expression) {
-                          WSPutFunction(
-                              link, (namespaceIdentifier + expression.getHead().getName()).c_str(),
-                              expression.getArguments().size());
-                          for(auto const& argument : expression.getArguments()) {
-                            putExpressionOnLink(argument, namespaceIdentifier);
-                          }
-                        }),
+    std::visit(overload(
+                   [&](int a) {
+                     console << a;
+                     WSPutInteger(link, a);
+                   },
+                   [&](char const* a) {
+                     console << a;
+                     WSPutString(link, a);
+                   },
+                   [&](Symbol const& a) {
+                     console << (namespaceIdentifier + a.getName());
+                     WSPutSymbol(link, (namespaceIdentifier + a.getName()).c_str());
+                   },
+                   [&](std::string const& a) {
+                     console << "\"" << a << "\"";
+                     WSPutString(link, a.c_str());
+                   },
+                   [&](ComplexExpression const& expression) {
+                     console << (namespaceIdentifier + expression.getHead().getName()) << "[";
+                     WSPutFunction(link,
+                                   (namespaceIdentifier + expression.getHead().getName()).c_str(),
+                                   expression.getArguments().size());
+                     for(auto it = expression.getArguments().begin();
+                         it != expression.getArguments().end(); ++it) {
+                       auto const& argument = *it;
+                       if(it != expression.getArguments().begin()) {
+                         console << ", ";
+                       }
+                       putExpressionOnLink(argument, namespaceIdentifier);
+                     }
+                     console << "]";
+                   }),
                expression);
   }
 
@@ -155,6 +185,7 @@ struct EngineImplementation {
   Expression evaluate(Expression const& e,
                       std::string const& namespaceIdentifier = DefaultNamespace) {
     putExpressionOnLink(e, namespaceIdentifier);
+    console << endl;
     WSEndPacket(link);
     int pkt = 0;
     while(((pkt = WSNextPacket(link)) != 0) && (pkt != RETURNPKT)) {
