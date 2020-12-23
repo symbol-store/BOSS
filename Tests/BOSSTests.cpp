@@ -55,6 +55,21 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
                                          "StringContainsQ"_("Madden", "Extract"_("tuple"_, 2))))),
                   "Function"_(0), "Count"_)) == Value(1));
     }
+
+    SECTION("Join") {
+      eval("CreateTable"_("Adjacency1"_, "From", "To"));
+      eval("CreateTable"_("Adjacency2"_, "From", "To"));
+      auto const dataSetSize = 10;
+      for(int i = 0U; i < dataSetSize; i++) {
+        eval("InsertInto"_("Adjacency1"_, i, dataSetSize + i));
+        eval("InsertInto"_("Adjacency2"_, dataSetSize + i, i));
+      }
+      auto const& result =
+          eval("Join"_("Adjacency1"_, "Adjacency2"_,
+                       "Function"_("List"_("left"_, "right"_),
+                                   "Equal"_("Extract"_("left"_, 2), "Extract"_("right"_, 1)))));
+      REQUIRE(get<boss::ComplexExpression>(result).getArguments().size() == dataSetSize);
+    }
   }
 }
 #endif // WSINTERFACE

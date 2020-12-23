@@ -87,7 +87,10 @@ struct EngineImplementation {
     if(resultType == WSTKFUNC) {
       auto const* resultHead = "";
       auto numberOfArguments = 0;
-      WSGetFunction(link, &resultHead, &numberOfArguments);
+      auto success = WSGetFunction(link, &resultHead, &numberOfArguments);
+      if(success == 0) {
+        throw std::runtime_error("error when getting function"s + WSErrorMessage(link));
+      }
       auto resultArguments = vector<Expression>();
       for(auto i = 0U; i < numberOfArguments; i++) {
         resultArguments.push_back(readExpressionFromLink());
@@ -132,9 +135,20 @@ struct EngineImplementation {
     auto eval = [this](Expression const& expression) { return evaluate(expression, ""); };
     for(std::string const& it :
         vector{"Plus", "StringJoin", "Greater", "Symbol", "UndefinedFunction", "Evaluate", "Set",
-               "List", "Extract", "Function", "StringContainsQ"}) {
+
+               "List", "Equal", "Extract", "StringContainsQ"}) {
       eval(Set(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
+    auto Argument = [&](Symbol const& name, Symbol const* type = nullptr) {
+      return type != nullptr ? "Pattern"_(name, "Blank"_(*type)) : "Pattern"_(name, "Blank"_());
+    };
+
+    auto DefineFunction = [&](Symbol const& name, const vector<Expression>& arguments) {
+      eval(SetDelayed(namespaced(ComplexExpression(name, arguments)), "Function"_("List"_())));
+    };
+    eval(SetDelayed(namespaced("Function"_(Argument("arg"_), Argument("definition"_))),
+                    "Function"_("arg"_, "definition"_)));
+
     eval(SetDelayed(namespaced("CreateTable"_("Pattern"_("relation"_, "Blank"_()),
                                               "Pattern"_("attributes"_, "BlankSequence"_()))),
                     Set("relation"_, List())));
@@ -155,6 +169,13 @@ struct EngineImplementation {
                                           "Pattern"_("groupFunction"_, "Blank"_()),
                                           "Pattern"_("aggregateFunction"_, "Blank"_()))),
                     "Length"_("input"_)));
+    eval(SetDelayed(
+        namespaced("Join"_("Pattern"_("left"_, "Blank"_("List"_)),
+                           "Pattern"_("right"_, "Blank"_("List"_)),
+                           "Pattern"_("predicate"_, "Blank"_("Function"_)))),
+        "Map"_("Flatten"_, "Select"_("Flatten"_("Outer"_("List"_, "left"_, "right"_, 1), 1),
+                                     "Function"_("both"_, "predicate"_("First"_("both"_),
+                                                                       "Last"_("both"_)))))));
     eval("Set"_("BOSSVersion"_, 1));
   };
 

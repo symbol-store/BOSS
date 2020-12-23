@@ -6,8 +6,8 @@
 namespace boss::utilities {
 class ExpressionBuilder {
   Symbol const s;
-
 public:
+  explicit ExpressionBuilder(Symbol const& s) : s(s){};
   explicit ExpressionBuilder(const std::string& s) : s(Symbol(s)){};
   template <typename... Ts> ComplexExpression operator()(Ts... args /*a*/) const {
     return ComplexExpression{s, {args...}};
