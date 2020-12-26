@@ -7,6 +7,11 @@
 
 namespace boss::engines::bulk {
 
+/****************** class BuiltinFunctions ********************/
+
+/* Helper class just for registering all the builin functions */
+/**************************************************************/
+
 class BuiltinFunctions {
 public:
   BuiltinFunctions(BatchTemplates& templates) {

@@ -16,8 +16,6 @@ public:
   RLEBatch(T const& value) : m_value(value), m_count(0) {}
   RLEBatch(T&& value) : m_value(std::move(value)), m_count(0) {}
 
-  ~RLEBatch() {}
-
   Batch* clone() override { return new RLEBatch(*this); }
 
   class ConstIterator {

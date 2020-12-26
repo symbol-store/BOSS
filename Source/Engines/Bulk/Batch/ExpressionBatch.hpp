@@ -5,90 +5,34 @@
 #include "SymbolBatch.hpp"
 #include "ValueBatch.hpp"
 
+#include "../Utils/LambdaInfo.hpp"
+
 #include <memory>
 #include <tuple>
 
 namespace boss::engines::bulk {
 
-template <typename F, typename... Args>
-struct lambda_details : lambda_details<decltype(&F::template operator()<Args...>)> {};
-
-template <typename F, typename R, typename... Args> struct lambda_details<R (F::*)(Args...) const> {
-  using argument_count = std::integral_constant<size_t, sizeof...(Args)>;
-  using return_type = R;
-};
-
-template <typename EvaluatorType, typename Func, size_t N>
-class ExpressionBatchBase : public Batch {
-public:
-  static bool isAllowedType(UniqueId::type typeId) {
-    return isAllowedType(typeId, typename EvaluatorType::types{});
-  }
-
-  template <typename Type> static constexpr bool isAllowedType() {
-    return isAllowedType<Type>(typename EvaluatorType::types{});
-  }
-
-  template <template <typename...> typename TLIST, typename... TYPES>
-  static bool isAllowedType(UniqueId::type typeId, TLIST<TYPES...>) {
-    return ((typeId == UniqueId::forType<TYPES>()) || ...);
-  }
-
-  template <typename Type, template <typename...> typename TLIST, typename... TYPES>
-  static constexpr bool isAllowedType(TLIST<TYPES...>) {
-    return ((std::is_same_v<Type, TYPES>) || ...);
-  }
-
-  template <typename... Ts> struct AreAllowedTypes {
-    static constexpr bool value = (isAllowedType<Ts>() && ...);
-  };
-
-  ExpressionBatchBase(Func&& func) : m_evaluator(func) {}
-  ExpressionBatchBase(ExpressionBatchBase const& other) : m_evaluator(other.m_evaluator) {}
-
-  ~ExpressionBatchBase() {}
-
-  Batch* clone() override { return new ExpressionBatchBase(*this); }
-  size_t size() const override { return 0; }
-  void insert(Expression::ArgumentType const& val) override {}
-  UniqueId::type typeId() const override { return UniqueId::forType<ExpressionBatchBase>(); }
-  UniqueId::type evaluatedTypeId() const override { return typeId(); }
-  UniqueId::type elementTypeId() const override { return UniqueId::forType<Expression>(); }
-  bool isRLE() const override { return false; }
-  bool canContain(Expression::ArgumentType const& val) const override { return false; }
-  Batch* evaluate(BatchFactory const&) override { return this; }
-
-protected:
-  EvaluatorType m_evaluator;
-};
-
-template <typename EvaluatorType, typename Func, size_t N = lambda_details<Func>::argument_count,
-          typename... BatchArgs> // Use evalutor type instead?
-class ExpressionBatch : public ExpressionBatchBase<EvaluatorType, Func, N> {
+template <typename EvaluatorType, typename Func, size_t FuncArgCount>
+class ExpressionBatch : public Batch {
 public:
   using ValueType = Expression;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<ExpressionBatch>();
 
-  using ArgumentTuple = std::tuple<std::unique_ptr<BatchArgs>...>;
-  using ExpressionBatchBase = ExpressionBatchBase<EvaluatorType, Func, N>;
+  using ArgumentList = std::array<std::unique_ptr<Batch>, FuncArgCount>;
+
+  ExpressionBatch(EvaluatorType const& evaluator, ArgumentList const& batchArgs)
+      : m_evaluator(evaluator), m_arguments(batchArgs) {}
+
+  ExpressionBatch(EvaluatorType const& evaluator, ArgumentList&& batchArgs)
+      : m_evaluator(evaluator), m_arguments(std::move(batchArgs)) {}
 
   ExpressionBatch(ExpressionBatch const& other)
-      : ExpressionBatchBase(other),
+      : m_evaluator(other.m_evaluator),
         m_arguments(std::apply(
             [](auto&&... arg) {
-              return std::make_tuple(
-                  (std::unique_ptr<typename std::remove_reference_t<decltype(arg)>::element_type>(
-                      static_cast<typename std::remove_reference_t<decltype(arg)>::element_type*>(
-                          arg.get()->clone())))...);
+              return ArgumentList{(std::unique_ptr<Batch>(arg ? arg.get()->clone() : nullptr))...};
             },
             other.m_arguments)) {}
-
-  ExpressionBatch(ExpressionBatchBase const& other, ArgumentTuple const& batchArgs)
-      : ExpressionBatchBase(other), m_arguments(batchArgs) {}
-  ExpressionBatch(ExpressionBatchBase const& other, ArgumentTuple&& batchArgs)
-      : ExpressionBatchBase(other), m_arguments(std::move(batchArgs)) {}
-
-  ~ExpressionBatch() {}
 
   Batch* clone() override { return new ExpressionBatch(*this); }
 
@@ -99,7 +43,7 @@ public:
   };
 
   size_t size() const override {
-    if constexpr(ArgumentCount::value == 0) {
+    if constexpr(FuncArgCount == 0) {
       return 1;
     } else {
       return std::get<0>(m_arguments).get()->size();
@@ -110,10 +54,26 @@ public:
     auto& expression = std::get<Expression>(val);
     auto argIt = expression.getArguments().begin();
 
-    auto ForEachTupleArgument = [&argIt, &expression](auto&& arg) {
+    auto ForEachTupleArgument = [&argIt, &expression](auto& batchPtr) {
       if(argIt != expression.getArguments().end()) {
-        auto& batch = *arg.get();
-        batch.insert(*argIt);
+        auto& argument = *argIt;
+
+        if(!std::holds_alternative<Expression::Symbol>(argument) &&
+           !std::holds_alternative<Expression>(argument)) {
+          auto& batch = *batchPtr.get();
+          if(batch.isRLE() && !batch.canContain(argument)) {
+            // there are more than one single value
+            // make it a normal value batch
+            std::visit(
+                [&batchPtr, &batch](auto&& value) {
+                  using type = std::decay_t<decltype(value)>;
+                  batchPtr = std::unique_ptr<Batch>(new ValueBatch<type>(batch.size(), value));
+                },
+                argument);
+          }
+        }
+
+        batchPtr.get()->insert(argument);
         ++argIt;
       }
     };
@@ -122,8 +82,8 @@ public:
     auto argsEnd = expression.getArguments().end();
 
     size_t sizeArgs = std::distance(argsBegin, argsEnd);
-    if(sizeArgs > ArgumentCount::value) {
-      if(ArgumentCount::value == 2 &&
+    if(sizeArgs > FuncArgCount) {
+      if(FuncArgCount == 2 &&
          std::get<0>(m_arguments).get()->elementTypeId() == UniqueId::forType<Expression>()) {
         // handle compound batch
 
@@ -138,12 +98,12 @@ public:
       } else {
         // otherwise just truncate it
         // (should not come here though)
-        Expression::ArgumentList newList{argsBegin, std::next(argsBegin, ArgumentCount::value)};
+        Expression::ArgumentList newList{argsBegin, std::next(argsBegin, FuncArgCount)};
         Expression newExpr{expression.getHead(), newList};
         insert(newExpr);
       }
     } else {
-      std::apply([&ForEachTupleArgument](auto&&... args) { ((ForEachTupleArgument(args)), ...); },
+      std::apply([&ForEachTupleArgument](auto&... args) { ((ForEachTupleArgument(args)), ...); },
                  m_arguments);
     }
   }
@@ -161,315 +121,258 @@ public:
     return std::holds_alternative<Expression>(val);
   }
 
-  template <typename TupleOfBatches> struct checkIsRLE;
-
-  template <typename... BatchType>
-  struct checkIsRLE<std::tuple<std::unique_ptr<BatchType>...>>
-      : std::conjunction<typename BatchType::RLE::type...> {};
-
   Batch* evaluate(BatchFactory const& factory) override {
-    std::vector<Batch*> evaluatedArgs;
-    evaluatedArgs.reserve(N);
-
-    auto ForEachArgument = [this, &factory, &evaluatedArgs](auto const& unevaluated) {
-      auto* evaluatedBatch = unevaluated.get()->evaluate(factory);
-
-      // check if the evaluated type is allowed in the function
-      if(!ExpressionBatchBase::isAllowedType(evaluatedBatch->elementTypeId())) {
-        // not ready to evaluate yet
-        return false;
-      }
-
-      evaluatedArgs.push_back(evaluatedBatch);
-      return true;
-    };
-
-    bool readyToEvaluate = std::apply(
-        [&, this](auto const&... arg) { return ((ForEachArgument(arg)) && ...); }, m_arguments);
-
-    if(readyToEvaluate) {
-      auto* evaluated = evaluateHelper(evaluatedArgs.begin(), evaluatedArgs.end(), factory);
-      if(evaluated) {
-        return evaluated;
-      }
+    auto* evaluated = evaluateHelper(factory);
+    if(evaluated) {
+      return evaluated;
     } else {
-      // need to manually delete the args
-      // since they haven't been taken care of by the evaluateHelper
-      // TODO: should just pass unique_ptr directly to evaluateHelper
-      for(auto* batch : evaluatedArgs) {
-        delete batch;
-      }
+      return clone();
     }
-
-    return this->clone();
   }
 
-private:
-  using ArgumentCount = std::tuple_size<ArgumentTuple>;
-  using ArgumentIndexSequence = std::make_index_sequence<ArgumentCount::value>;
+protected:
+  EvaluatorType const& m_evaluator;
+  ArgumentList m_arguments;
 
-  ArgumentTuple m_arguments;
+  // helpers to retrieve return type for a specific set of Batch argument types
+  template <typename T> using UniquePtrToElementType = typename T::element_type::ValueType;
+  template <typename... BatchTupleTypes>
+  using ReturnType =
+      typename LambdaInfo<Func, UniquePtrToElementType<BatchTupleTypes>...>::ReturnType;
 
+  // calls the evaluator with specific Batch types as arguments (not just generic Batch)
   template <typename OutputBatchType, typename InputBatchTuple, size_t... Indices>
   void evaluateImpl(OutputBatchType& out, InputBatchTuple const& in,
                     std::index_sequence<Indices...>) const {
-    this->m_evaluator(out, (*std::get<Indices>(in).get())...);
+    m_evaluator(out, (*std::get<Indices>(in).get())...);
   }
 
-  template <typename T> using UniquePtrToElementType = typename T::element_type::ValueType;
-
-  template <size_t Index = 0, typename BatchPos, typename End, typename... BatchTupleTypes>
+  // build a tuple of specific Batch argument types
+  // from dynamic information extracted from generic Batch list
+  template <size_t Index = 0, typename... BatchTupleTypes>
   Batch*
-  evaluateHelper(BatchPos batchPos, End end, BatchFactory const& factory,
+  evaluateHelper(BatchFactory const& factory,
                  std::tuple<BatchTupleTypes...>&& batchTuple = std::tuple<BatchTupleTypes...>(),
                  bool isRLE = true) const {
     using BatchTuple = std::tuple<BatchTupleTypes...>;
-    if constexpr(Index == N) {
-      if constexpr(std::tuple_size_v<BatchTuple> != N) {
+    if constexpr(Index == FuncArgCount) {
+      if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
         return nullptr;
-      } else if constexpr(!ExpressionBatchBase::template AreAllowedTypes<
+      } else if constexpr(!EvaluatorType::template AreAllowedTypes<
                               UniquePtrToElementType<BatchTupleTypes>...>::value) {
         return nullptr;
       } else {
-        using ReturnType =
-            typename lambda_details<Func, UniquePtrToElementType<BatchTupleTypes>...>::return_type;
+        using ReturnType = ReturnType<BatchTupleTypes...>;
         if constexpr(std::is_same_v<ReturnType, Expression::Symbol>) {
           auto* outputBatch = new SymbolBatch();
-          evaluateImpl(*outputBatch, batchTuple, ArgumentIndexSequence{});
+          evaluateImpl(*outputBatch, batchTuple, std::make_index_sequence<FuncArgCount>{});
           return outputBatch;
         } else if(isRLE) {
           auto* outputBatch = new RLEBatch<ReturnType>(size(), ReturnType());
-          evaluateImpl(*outputBatch, batchTuple, ArgumentIndexSequence{});
+          evaluateImpl(*outputBatch, batchTuple, std::make_index_sequence<FuncArgCount>{});
           return outputBatch;
         } else {
           auto* outputBatch = new ValueBatch<ReturnType>(size(), ReturnType());
-          evaluateImpl(*outputBatch, batchTuple, ArgumentIndexSequence{});
+          evaluateImpl(*outputBatch, batchTuple, std::make_index_sequence<FuncArgCount>{});
           return outputBatch;
         }
       }
-    } else if constexpr(Index != std::tuple_size_v<BatchTuple>) {
-      // some arguments failed
-      // just clean things up properly and return
-      delete *batchPos;
-      return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
     } else {
-      auto* batchPtr = *batchPos;
-      isRLE = isRLE && batchPtr->isRLE();
+      auto& batchPtr = std::get<Index>(m_arguments);
+      auto& evaluatedBatch = *batchPtr.get()->evaluate(factory);
 
-      if(batchPtr->typeId() == UniqueId::forType<SymbolBatch>()) {
-        if constexpr(ExpressionBatchBase::template isAllowedType<Expression::Symbol>()) {
-          auto uniquePtr = std::unique_ptr<SymbolBatch>(static_cast<SymbolBatch*>(batchPtr));
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
+      // TODO: templatise it with allowed types
+      if(evaluatedBatch.elementTypeId() == UniqueId::forType<bool>()) {
+        if constexpr(!EvaluatorType::template isAllowedType<bool>()) {
+          return nullptr;
+        } else if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
+          if(evaluatedBatch.isRLE()) {
+            return evaluateHelper<Index + 1>(factory,
+                                             std::make_tuple(std::unique_ptr<RLEBatch<bool>>(
+                                                 static_cast<RLEBatch<bool>*>(&evaluatedBatch))),
+                                             isRLE);
           } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
+            return evaluateHelper<Index + 1>(factory,
+                                             std::make_tuple(std::unique_ptr<ValueBatch<bool>>(
+                                                 static_cast<ValueBatch<bool>*>(&evaluatedBatch))),
+                                             false);
           }
         } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
+          return std::apply(
+              [&, this](auto&&... arg) {
+                if(evaluatedBatch.isRLE()) {
+                  return evaluateHelper<Index + 1>(
+                      factory,
+                      std::make_tuple((std::move(arg))...,
+                                      std::unique_ptr<RLEBatch<bool>>(
+                                          static_cast<RLEBatch<bool>*>(&evaluatedBatch))),
+                      isRLE);
+                } else {
+                  return evaluateHelper<Index + 1>(
+                      factory,
+                      std::make_tuple((std::move(arg))...,
+                                      std::unique_ptr<ValueBatch<bool>>(
+                                          static_cast<ValueBatch<bool>*>(&evaluatedBatch))),
+                      false);
+                }
+              },
+              batchTuple);
         }
-      } else if(batchPtr->typeId() == UniqueId::forType<ValueBatch<bool>>()) {
-        if constexpr(ExpressionBatchBase::template isAllowedType<bool>()) {
-          auto uniquePtr =
-              std::unique_ptr<ValueBatch<bool>>(static_cast<ValueBatch<bool>*>(batchPtr));
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
+      } else if(evaluatedBatch.elementTypeId() == UniqueId::forType<int>()) {
+        if constexpr(!EvaluatorType::template isAllowedType<int>()) {
+          return nullptr;
+        } else if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
+          if(evaluatedBatch.isRLE()) {
+            return evaluateHelper<Index + 1>(factory,
+                                             std::make_tuple(std::unique_ptr<RLEBatch<int>>(
+                                                 static_cast<RLEBatch<int>*>(&evaluatedBatch))),
+                                             isRLE);
           } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
+            return evaluateHelper<Index + 1>(factory,
+                                             std::make_tuple(std::unique_ptr<ValueBatch<int>>(
+                                                 static_cast<ValueBatch<int>*>(&evaluatedBatch))),
+                                             false);
           }
         } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
+          return std::apply(
+              [&, this](auto&&... arg) {
+                if(evaluatedBatch.isRLE()) {
+                  return evaluateHelper<Index + 1>(
+                      factory,
+                      std::make_tuple((std::move(arg))...,
+                                      std::unique_ptr<RLEBatch<int>>(
+                                          static_cast<RLEBatch<int>*>(&evaluatedBatch))),
+                      isRLE);
+                } else {
+                  return evaluateHelper<Index + 1>(
+                      factory,
+                      std::make_tuple((std::move(arg))...,
+                                      std::unique_ptr<ValueBatch<int>>(
+                                          static_cast<ValueBatch<int>*>(&evaluatedBatch))),
+                      false);
+                }
+              },
+              batchTuple);
         }
-      } else if(batchPtr->typeId() == UniqueId::forType<RLEBatch<bool>>()) {
-        if constexpr(ExpressionBatchBase::template isAllowedType<bool>()) {
-          auto uniquePtr = std::unique_ptr<RLEBatch<bool>>(static_cast<RLEBatch<bool>*>(batchPtr));
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
+      } else if(evaluatedBatch.elementTypeId() == UniqueId::forType<float>()) {
+        if constexpr(!EvaluatorType::template isAllowedType<float>()) {
+          return nullptr;
+        } else if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
+          if(evaluatedBatch.isRLE()) {
+            return evaluateHelper<Index + 1>(factory,
+                                             std::make_tuple(std::unique_ptr<RLEBatch<float>>(
+                                                 static_cast<RLEBatch<float>*>(&evaluatedBatch))),
+                                             isRLE);
           } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
+            return evaluateHelper<Index + 1>(factory,
+                                             std::make_tuple(std::unique_ptr<ValueBatch<float>>(
+                                                 static_cast<ValueBatch<float>*>(&evaluatedBatch))),
+                                             false);
           }
         } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
+          return std::apply(
+              [&, this](auto&&... arg) {
+                if(evaluatedBatch.isRLE()) {
+                  return evaluateHelper<Index + 1>(
+                      factory,
+                      std::make_tuple((std::move(arg))...,
+                                      std::unique_ptr<RLEBatch<float>>(
+                                          static_cast<RLEBatch<float>*>(&evaluatedBatch))),
+                      isRLE);
+                } else {
+                  return evaluateHelper<Index + 1>(
+                      factory,
+                      std::make_tuple((std::move(arg))...,
+                                      std::unique_ptr<ValueBatch<float>>(
+                                          static_cast<ValueBatch<float>*>(&evaluatedBatch))),
+                      false);
+                }
+              },
+              batchTuple);
         }
-      } else if(batchPtr->typeId() == UniqueId::forType<ValueBatch<int>>()) {
-        if constexpr(ExpressionBatchBase::template isAllowedType<int>()) {
-          auto uniquePtr =
-              std::unique_ptr<ValueBatch<int>>(static_cast<ValueBatch<int>*>(batchPtr));
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
+      } else if(evaluatedBatch.elementTypeId() == UniqueId::forType<std::string>()) {
+        if constexpr(!EvaluatorType::template isAllowedType<std::string>()) {
+          return nullptr;
+        } else if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
+          if(evaluatedBatch.isRLE()) {
+            return evaluateHelper<Index + 1>(
+                factory,
+                std::make_tuple(std::unique_ptr<RLEBatch<std::string>>(
+                    static_cast<RLEBatch<std::string>*>(&evaluatedBatch))),
+                isRLE);
           } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
+            return evaluateHelper<Index + 1>(
+                factory,
+                std::make_tuple(std::unique_ptr<ValueBatch<std::string>>(
+                    static_cast<ValueBatch<std::string>*>(&evaluatedBatch))),
+                false);
           }
         } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
+          return std::apply(
+              [&, this](auto&&... arg) {
+                if(evaluatedBatch.isRLE()) {
+                  return evaluateHelper<Index + 1>(
+                      factory,
+                      std::make_tuple((std::move(arg))...,
+                                      std::unique_ptr<RLEBatch<std::string>>(
+                                          static_cast<RLEBatch<std::string>*>(&evaluatedBatch))),
+                      isRLE);
+                } else {
+                  return evaluateHelper<Index + 1>(
+                      factory,
+                      std::make_tuple((std::move(arg))...,
+                                      std::unique_ptr<ValueBatch<std::string>>(
+                                          static_cast<ValueBatch<std::string>*>(&evaluatedBatch))),
+                      false);
+                }
+              },
+              batchTuple);
         }
-      } else if(batchPtr->typeId() == UniqueId::forType<RLEBatch<int>>()) {
-        if constexpr(ExpressionBatchBase::template isAllowedType<int>()) {
-          auto uniquePtr = std::unique_ptr<RLEBatch<int>>(static_cast<RLEBatch<int>*>(batchPtr));
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
-          } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
-          }
+      } else if(evaluatedBatch.elementTypeId() == UniqueId::forType<Expression::Symbol>()) {
+        if constexpr(!EvaluatorType::template isAllowedType<Expression::Symbol>()) {
+          return nullptr;
+        } else if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
+          return evaluateHelper<Index + 1>(factory,
+                                           std::make_tuple(std::unique_ptr<SymbolBatch>(
+                                               static_cast<SymbolBatch*>(&evaluatedBatch))),
+                                           isRLE);
         } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
+          return std::apply(
+              [&, this](auto&&... arg) {
+                return evaluateHelper<Index + 1>(
+                    factory,
+                    std::make_tuple(
+                        (std::move(arg))...,
+                        std::unique_ptr<SymbolBatch>(static_cast<SymbolBatch*>(&evaluatedBatch))),
+                    isRLE);
+              },
+              batchTuple);
         }
-      } else if(batchPtr->typeId() == UniqueId::forType<ValueBatch<float>>()) {
-        if constexpr(ExpressionBatchBase::template isAllowedType<float>()) {
-          auto uniquePtr =
-              std::unique_ptr<ValueBatch<float>>(static_cast<ValueBatch<float>*>(batchPtr));
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
-          } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
-          }
+      } else if(evaluatedBatch.elementTypeId() == UniqueId::forType<Expression>()) {
+        // TODO: if really needed to handle Expressions as argument
+        // it should be a less generic type than Batch
+        // it won't even compile...
+        if constexpr(!EvaluatorType::template isAllowedType<Expression>()) {
+          return nullptr;
+        } else if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
+          return evaluateHelper<Index + 1>(
+              factory, std::make_tuple(std::unique_ptr<Batch>(&evaluatedBatch)), isRLE);
         } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
-        }
-      } else if(batchPtr->typeId() == UniqueId::forType<RLEBatch<float>>()) {
-        if constexpr(ExpressionBatchBase::template isAllowedType<float>()) {
-          auto uniquePtr =
-              std::unique_ptr<RLEBatch<float>>(static_cast<RLEBatch<float>*>(batchPtr));
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
-          } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
-          }
-        } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
-        }
-      } else if(batchPtr->typeId() == UniqueId::forType<ValueBatch<std::string>>()) {
-        if constexpr(ExpressionBatchBase::template isAllowedType<std::string>()) {
-          auto uniquePtr = std::unique_ptr<ValueBatch<std::string>>(
-              static_cast<ValueBatch<std::string>*>(batchPtr));
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
-          } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
-          }
-        } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
-        }
-      } else if(batchPtr->typeId() == UniqueId::forType<RLEBatch<std::string>>()) {
-        if constexpr(ExpressionBatchBase::template isAllowedType<std::string>()) {
-          auto uniquePtr =
-              std::unique_ptr<RLEBatch<std::string>>(static_cast<RLEBatch<std::string>*>(batchPtr));
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
-          } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
-          }
-        } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
+          return std::apply(
+              [&, this](auto&&... arg) {
+                return evaluateHelper<Index + 1>(
+                    factory,
+                    std::make_tuple((std::move(arg))..., std::unique_ptr<Batch>(&evaluatedBatch)),
+                    isRLE);
+              },
+              batchTuple);
         }
       } else {
-        // generic Batch (likely an expression batch)
-        if constexpr(ExpressionBatchBase::template isAllowedType<Expression>()) {
-          auto uniquePtr = std::unique_ptr<Batch>(batchPtr);
-          if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
-            return evaluateHelper<Index + 1>(++batchPos, end, factory,
-                                             std::make_tuple(std::move(uniquePtr)), isRLE);
-          } else {
-            return std::apply(
-                [&, this](auto&&... arg) {
-                  return evaluateHelper<Index + 1>(
-                      ++batchPos, end, factory,
-                      std::make_tuple((std::move(arg))..., std::move(uniquePtr)), isRLE);
-                },
-                batchTuple);
-          }
-        } else {
-          delete batchPtr;
-          return evaluateHelper<Index + 1>(++batchPos, end, factory, std::move(batchTuple), isRLE);
-        }
+        // unhandled batch type?
+        return nullptr;
       }
     }
   }
 };
-
-template <typename EvaluatorType, typename Func, size_t N = lambda_details<Func>::argument_count,
-          typename... BatchArgs>
-auto* clone(ExpressionBatchBase<EvaluatorType, Func, N> const& batchBase,
-            std::tuple<std::unique_ptr<BatchArgs>...> const& batchArgs) {
-  return new ExpressionBatch<EvaluatorType, Func, N, BatchArgs...>(batchBase, batchArgs);
-}
-
-template <typename EvaluatorType, typename Func, size_t N = lambda_details<Func>::argument_count,
-          typename... BatchArgs>
-auto* clone(ExpressionBatchBase<EvaluatorType, Func, N> const& batchBase,
-            std::tuple<std::unique_ptr<BatchArgs>...>&& batchArgs) {
-  return new ExpressionBatch<EvaluatorType, Func, N, BatchArgs...>(batchBase, std::move(batchArgs));
-}
 
 } // namespace boss::engines::bulk

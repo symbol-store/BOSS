@@ -9,7 +9,7 @@ namespace boss::engines::bulk {
 class BatchFactory;
 class Batch {
 public:
-  virtual ~Batch() {}
+  virtual ~Batch() = default;
 
   virtual Batch* clone() = 0;
 
