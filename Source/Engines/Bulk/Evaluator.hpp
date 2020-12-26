@@ -5,19 +5,24 @@
 
 namespace boss::engines::bulk {
 
-template <typename... TYPES> class ForTypes {
+/********************* class Evaluator ************************/
+
+/* to call iteratively a generic lambda function              */
+/* from a specifc list of argument Batch types                */
+/**************************************************************/
+
+template <typename... Types> class ForTypes {
 public:
   template <typename AtomicFunc = bool, typename BatchFunc = bool> class Evaluator {
   public:
-    template <typename...> struct TypeList {};
-    using types = TypeList<TYPES...>;
+    using Func = std::conditional_t<!std::is_same_v<AtomicFunc, bool>, AtomicFunc, BatchFunc>;
 
     Evaluator(AtomicFunc const& func) : m_func(func) {}
     Evaluator(AtomicFunc&& func) : m_func(func) {}
     Evaluator(Evaluator const&) = default;
 
-    template <typename BatchOut, typename... BatchIn, typename Func = AtomicFunc,
-              typename std::enable_if_t<!std::is_same_v<Func, bool>, bool> = false>
+    template <typename BatchOut, typename... BatchIn, typename UsedFunc = AtomicFunc,
+              typename std::enable_if_t<!std::is_same_v<UsedFunc, bool>, bool> = false>
     void operator()(BatchOut& out, BatchIn const&... in) const {
       [&, this](auto&&... inIt) {
         auto outIt = out.begin();
@@ -27,15 +32,29 @@ public:
       }(in.begin()...);
     }
 
-    template <typename BatchOut, typename... BatchIn, typename Func = BatchFunc,
-              typename std::enable_if_t<!std::is_same_v<Func, bool>, int> = 0>
+    template <typename BatchOut, typename... BatchIn, typename UsedFunc = BatchFunc,
+              typename std::enable_if_t<!std::is_same_v<UsedFunc, bool>, int> = 0>
     void operator()(BatchOut& out, BatchIn const&... in) const {
       m_batchFunc(out, in...);
     }
 
+    static constexpr bool isAllowedType(UniqueId::type typeId) {
+      return ((typeId == UniqueId::forType<Types>()) || ...);
+    }
+
+    template <typename Type> static constexpr bool isAllowedType() {
+      return ((std::is_same_v<Type, Types>) || ...);
+    }
+
+    template <typename... Ts> struct AreAllowedTypes {
+      static constexpr bool value = (isAllowedType<Ts>() && ...);
+    };
+
   private:
-    AtomicFunc m_func;
-    BatchFunc m_batchFunc;
+    union {
+      AtomicFunc m_func;
+      BatchFunc m_batchFunc;
+    };
   }; // class Evaluator
 
 }; // class ForTypes

@@ -15,6 +15,12 @@
 
 namespace boss::engines::bulk {
 
+/********************* class Dispatcher ***********************/
+
+/* insert any expression into its specific Batch type         */
+/* deduced from the expression head and argument types        */
+/**************************************************************/
+
 class Dispatcher {
 public:
   using BatchPtr = std::unique_ptr<Batch>;

@@ -9,6 +9,8 @@
 #include "Batch/SymbolBatch.hpp"
 #include "Batch/ValueBatch.hpp"
 
+#include "Utils/LambdaInfo.hpp"
+
 #include "../../Expression.hpp"
 
 #include <map>
@@ -18,6 +20,13 @@
 #include <vector>
 
 namespace boss::engines::bulk {
+
+/******************* class BatchTemplates *********************/
+
+/* keep a map of Evaluators for each symbol                   */
+/* then createBatch can create the right ExpressionBatch      */
+/* for any expression                                         */
+/**************************************************************/
 
 class BatchTemplates : public BatchFactory {
 public:
@@ -34,16 +43,12 @@ public:
       registerFunction<Func, N>(symbol, std::move(func));
     }
 
-    template <typename Func, size_t N = lambda_details<Func>::argument_count>
+    template <typename Func, size_t N = LambdaInfo<Func>::ArgCount>
     void registerFunction(std::string const& symbol, Func&& func) {
-      using BatchTemplateType = BatchTemplate<Func, N, Types...>;
-      using BaseBatchType = typename BatchTemplateType::BatchType;
-
       // TODO: fill argumentTypes with type ids if needed to handle overloading
       std::vector<size_t> argumentTypes(N, 0);
       BatchTemplateKey key(symbol, argumentTypes);
-      auto* expressionBatch = new BaseBatchType(std::move(func));
-      auto* templateBatch = new BatchTemplateType(expressionBatch);
+      auto* templateBatch = new BatchTemplate<Func, N, Types...>(std::move(func));
       m_batchTemplates.m_templates[key] = BatchTemplatePtr(templateBatch);
     }
 
@@ -138,89 +143,40 @@ private:
   class BatchTemplate : public BatchTemplateBase {
   public:
     using EvaluatorType = typename ForTypes<AllowedTypes...>::template Evaluator<Func>;
-    using BatchType = ExpressionBatchBase<EvaluatorType, Func, N>;
+    using BatchType = ExpressionBatch<EvaluatorType, Func, N>;
 
-    BatchTemplate(BatchType* batch) : m_batch(batch) {}
+    BatchTemplate(Func && func) : m_evaluator(func) {}
 
     Batch* createBatch(BatchTemplates const& templates,
                        Expression::ArgumentList const& argumentList) const override {
-      if(!m_batch) {
-        return nullptr;
+      auto argIt = argumentList.begin();
+
+      typename BatchType::ArgumentList batchArgs;
+      for(size_t i = 0; i < N; ++i) {
+        batchArgs[i] = std::visit(
+            [&templates](auto&& value) {
+              using type = std::decay_t<decltype(value)>;
+              if constexpr(std::is_same_v<type, Expression>) {
+                return std::unique_ptr<Batch>(templates.createBatch(value));
+              } else if constexpr(std::is_same_v<type, Expression::Symbol>) {
+                return std::unique_ptr<Batch>(new SymbolBatch(value));
+              } else {
+                // assume RLE first, converted to ValueBatch if needed later
+                return std::unique_ptr<Batch>(new RLEBatch<type>());
+              }
+            },
+            *argIt++);
       }
 
-      return templates.createBatchHelper<N>(*m_batch.get(), argumentList.begin(),
-                                            argumentList.end());
+      return new BatchType(m_evaluator, std::move(batchArgs));
     }
 
   private:
-    std::unique_ptr<BatchType> m_batch;
+    EvaluatorType m_evaluator;
   };
 
   using BatchTemplatePtr = std::unique_ptr<BatchTemplateBase>;
   std::map<BatchTemplateKey, BatchTemplatePtr> m_templates;
-
-  template <size_t N, typename BatchType, typename Variants, typename End, typename Tuple = bool>
-  Batch* createBatchHelper(BatchType const& batch, Variants variants, End end,
-                           Tuple&& tuple = false) const {
-    if constexpr(N == 0) {
-      if constexpr(std::is_same_v<Tuple, bool>) {
-        return nullptr;
-      } else {
-        return clone(batch, std::move(tuple));
-      }
-    } else {
-      return std::visit(
-          [&, this](auto&& value) -> Batch* {
-            using type = std::decay_t<decltype(value)>;
-            if constexpr(std::is_same_v<type, Expression>) {
-              if constexpr(std::is_same_v<Tuple, bool>) {
-                auto newTuple = std::make_tuple(std::unique_ptr<Batch>(createBatch(value)));
-                return createBatchHelper<N - 1>(batch, ++variants, end, newTuple);
-              } else {
-                return std::apply(
-                    [&, this](auto&&... arg) {
-                      return createBatchHelper<N - 1>(
-                          batch, ++variants, end,
-                          std::make_tuple((std::move(arg))...,
-                                          std::unique_ptr<Batch>(createBatch(value))));
-                    },
-                    tuple);
-              }
-            } else if constexpr(std::is_same_v<type, Expression::Symbol>) {
-              if constexpr(std::is_same_v<Tuple, bool>) {
-                auto newTuple =
-                    std::make_tuple(std::unique_ptr<SymbolBatch>(new SymbolBatch(value)));
-                return createBatchHelper<N - 1>(batch, ++variants, end, newTuple);
-              } else {
-                return std::apply(
-                    [&, this](auto&&... arg) {
-                      return createBatchHelper<N - 1>(
-                          batch, ++variants, end,
-                          std::make_tuple((std::move(arg))...,
-                                          std::unique_ptr<SymbolBatch>(new SymbolBatch(value))));
-                    },
-                    tuple);
-              }
-            } else {
-              if constexpr(std::is_same_v<Tuple, bool>) {
-                auto newTuple =
-                    std::make_tuple(std::unique_ptr<ValueBatch<type>>(new ValueBatch<type>()));
-                return createBatchHelper<N - 1>(batch, ++variants, end, newTuple);
-              } else {
-                return std::apply(
-                    [&, this](auto&&... arg) {
-                      return createBatchHelper<N - 1>(
-                          batch, ++variants, end,
-                          std::make_tuple((std::move(arg))..., std::unique_ptr<ValueBatch<type>>(
-                                                                   new ValueBatch<type>())));
-                    },
-                    tuple);
-              }
-            }
-          },
-          *variants);
-    }
-  }
 };
 
 } // namespace boss::engines::bulk

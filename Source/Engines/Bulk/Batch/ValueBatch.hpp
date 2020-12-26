@@ -18,8 +18,6 @@ public:
   ValueBatch(std::vector<T> const& values) : m_values(values) {}
   ValueBatch(std::vector<T>&& values) : m_values(std::move(values)) {}
 
-  ~ValueBatch() {}
-
   Batch* clone() override { return new ValueBatch(*this); }
 
   auto begin() const { return m_values.begin(); }
