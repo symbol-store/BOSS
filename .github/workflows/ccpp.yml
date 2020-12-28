@@ -42,7 +42,7 @@ jobs:
       uses: actions/upload-artifact@v1.0.0
       with:
         name: ${{ matrix.build-type }}
-        path: ${{ matrix.build-type }}
+        path: ${{ matrix.build-type }}/Tests
         retention-days: 1
     needs: [format-check]
 
