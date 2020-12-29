@@ -55,7 +55,7 @@ public:
 
     // Symbolic
     templates.allowedTypes<std::string>().registerFunction<1>(
-        "Symbol", [](auto const& name) -> Expression::Symbol { return Expression::Symbol(name); });
+        "Symbol", [](auto const& name) -> Symbol { return Symbol(name); });
   }
 };
 

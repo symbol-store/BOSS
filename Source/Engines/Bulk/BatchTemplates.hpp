@@ -25,7 +25,7 @@ namespace boss::engines::bulk {
 
 /* keep a map of Evaluators for each symbol                   */
 /* then createBatch can create the right ExpressionBatch      */
-/* for any expression                                         */
+/* for any complex expression                                 */
 /**************************************************************/
 
 class BatchTemplates : public BatchFactory {
@@ -61,13 +61,13 @@ public:
     return types;
   }
 
-  Batch* createBatch(Expression const& expression) const {
-    std::string const& symbol = expression.getHead();
+  Batch* createBatch(ComplexExpression const& expression) const {
+    auto const& symbol = expression.getHead();
     auto argsBegin = expression.getArguments().begin();
     auto argsEnd = expression.getArguments().end();
     size_t numArgs = std::distance(argsBegin, argsEnd);
     std::vector<size_t> argumentTypes(numArgs, 0);
-    BatchTemplateKey key(symbol, argumentTypes);
+    BatchTemplateKey key(symbol.getName(), argumentTypes);
     auto templateIt = m_templates.find(key);
     if(templateIt != m_templates.end()) {
       auto* batchTemplate = templateIt->second.get();
@@ -80,15 +80,15 @@ public:
         auto closestTemplateIt = m_templates.lower_bound(key);
         if(closestTemplateIt != m_templates.end() && closestTemplateIt != m_templates.begin()) {
           --closestTemplateIt;
-          if(closestTemplateIt->first.getKey() == symbol &&
+          if(closestTemplateIt->first.getKey() == symbol.getName() &&
              closestTemplateIt->first.getArgumentCount() == 2) {
             // create a compound expression batch
             auto* batchTemplate = closestTemplateIt->second.get();
             auto it = std::next(argsBegin, 2);
-            Expression::ArgumentList newArgumentList{argsBegin, it};
+            ExpressionArguments newArgumentList{argsBegin, it};
             for(; it != argsEnd; ++it) {
-              Expression compoundExpr{symbol, newArgumentList};
-              newArgumentList = Expression::ArgumentList{compoundExpr, *it};
+              ComplexExpression compoundExpr{symbol, newArgumentList};
+              newArgumentList = ExpressionArguments{compoundExpr, *it};
             }
             return batchTemplate->createBatch(*this, newArgumentList);
           }
@@ -134,7 +134,7 @@ private:
   class BatchTemplateBase {
   public:
     virtual Batch* createBatch(BatchTemplates const&,
-                               Expression::ArgumentList const& argumentList) const {
+                               ExpressionArguments const& argumentList) const {
       return nullptr;
     }
   };
@@ -145,10 +145,10 @@ private:
     using EvaluatorType = typename ForTypes<AllowedTypes...>::template Evaluator<Func>;
     using BatchType = ExpressionBatch<EvaluatorType, Func, N>;
 
-    BatchTemplate(Func && func) : m_evaluator(func) {}
+    BatchTemplate(Func&& func) : m_evaluator(func) {}
 
     Batch* createBatch(BatchTemplates const& templates,
-                       Expression::ArgumentList const& argumentList) const override {
+                       ExpressionArguments const& argumentList) const override {
       auto argIt = argumentList.begin();
 
       typename BatchType::ArgumentList batchArgs;
@@ -156,9 +156,9 @@ private:
         batchArgs[i] = std::visit(
             [&templates](auto&& value) {
               using type = std::decay_t<decltype(value)>;
-              if constexpr(std::is_same_v<type, Expression>) {
+              if constexpr(std::is_same_v<type, ComplexExpression>) {
                 return std::unique_ptr<Batch>(templates.createBatch(value));
-              } else if constexpr(std::is_same_v<type, Expression::Symbol>) {
+              } else if constexpr(std::is_same_v<type, Symbol>) {
                 return std::unique_ptr<Batch>(new SymbolBatch(value));
               } else {
                 // assume RLE first, converted to ValueBatch if needed later

@@ -15,7 +15,7 @@ namespace boss::engines::bulk {
 template <typename EvaluatorType, typename Func, size_t FuncArgCount>
 class ExpressionBatch : public Batch {
 public:
-  using ValueType = Expression;
+  using ValueType = ComplexExpression;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<ExpressionBatch>();
 
   using ArgumentList = std::array<std::unique_ptr<Batch>, FuncArgCount>;
@@ -38,7 +38,7 @@ public:
 
   class Iterator {
     // TODO?
-    // would require to build a temporary list of expression,
+    // would require to build a temporary list of complex expressions,
     // and iterate on them
   };
 
@@ -50,16 +50,16 @@ public:
     }
   }
 
-  void insert(Expression::ArgumentType const& val) override {
-    auto& expression = std::get<Expression>(val);
+  void insert(Expression const& val) override {
+    auto& expression = std::get<ComplexExpression>(val);
     auto argIt = expression.getArguments().begin();
 
     auto ForEachTupleArgument = [&argIt, &expression](auto& batchPtr) {
       if(argIt != expression.getArguments().end()) {
         auto& argument = *argIt;
 
-        if(!std::holds_alternative<Expression::Symbol>(argument) &&
-           !std::holds_alternative<Expression>(argument)) {
+        if(!std::holds_alternative<Symbol>(argument) &&
+           !std::holds_alternative<ComplexExpression>(argument)) {
           auto& batch = *batchPtr.get();
           if(batch.isRLE() && !batch.canContain(argument)) {
             // there are more than one single value
@@ -84,22 +84,22 @@ public:
     size_t sizeArgs = std::distance(argsBegin, argsEnd);
     if(sizeArgs > FuncArgCount) {
       if(FuncArgCount == 2 &&
-         std::get<0>(m_arguments).get()->elementTypeId() == UniqueId::forType<Expression>()) {
+         std::get<0>(m_arguments).get()->elementTypeId() == UniqueId::forType<ComplexExpression>()) {
         // handle compound batch
 
         size_t numPassingOverArgs = sizeArgs - 1;
 
-        Expression::ArgumentList compoundList{argsBegin, std::next(argsBegin, numPassingOverArgs)};
-        Expression compoundExpr{expression.getHead(), compoundList};
+        ExpressionArguments compoundList{argsBegin, std::next(argsBegin, numPassingOverArgs)};
+        ComplexExpression compoundExpr{expression.getHead(), compoundList};
 
-        Expression::ArgumentList newList{compoundExpr, *std::next(argsBegin, numPassingOverArgs)};
-        Expression newExpr{expression.getHead(), newList};
+        ExpressionArguments newList{compoundExpr, *std::next(argsBegin, numPassingOverArgs)};
+        ComplexExpression newExpr{expression.getHead(), newList};
         insert(newExpr);
       } else {
         // otherwise just truncate it
         // (should not come here though)
-        Expression::ArgumentList newList{argsBegin, std::next(argsBegin, FuncArgCount)};
-        Expression newExpr{expression.getHead(), newList};
+        ExpressionArguments newList{argsBegin, std::next(argsBegin, FuncArgCount)};
+        ComplexExpression newExpr{expression.getHead(), newList};
         insert(newExpr);
       }
     } else {
@@ -109,7 +109,7 @@ public:
   }
 
   UniqueId::type typeId() const override { return UniqueId::forType<ExpressionBatch>(); }
-  UniqueId::type elementTypeId() const override { return UniqueId::forType<Expression>(); }
+  UniqueId::type elementTypeId() const override { return UniqueId::forType<ComplexExpression>(); }
   UniqueId::type evaluatedTypeId() const override {
     return typeId(); /*deduceReturnTypeId();*/
   }                  // TODO. maybe not needed?
@@ -117,8 +117,8 @@ public:
   using RLE = std::bool_constant<false>;
   bool isRLE() const override { return RLE::value; }
 
-  bool canContain(Expression::ArgumentType const& val) const override {
-    return std::holds_alternative<Expression>(val);
+  bool canContain(Expression const& val) const override {
+    return std::holds_alternative<ComplexExpression>(val);
   }
 
   Batch* evaluate(BatchFactory const& factory) override {
@@ -163,7 +163,7 @@ protected:
         return nullptr;
       } else {
         using ReturnType = ReturnType<BatchTupleTypes...>;
-        if constexpr(std::is_same_v<ReturnType, Expression::Symbol>) {
+        if constexpr(std::is_same_v<ReturnType, Symbol>) {
           auto* outputBatch = new SymbolBatch();
           evaluateImpl(*outputBatch, batchTuple, std::make_index_sequence<FuncArgCount>{});
           return outputBatch;
@@ -328,8 +328,8 @@ protected:
               },
               batchTuple);
         }
-      } else if(evaluatedBatch.elementTypeId() == UniqueId::forType<Expression::Symbol>()) {
-        if constexpr(!EvaluatorType::template isAllowedType<Expression::Symbol>()) {
+      } else if(evaluatedBatch.elementTypeId() == UniqueId::forType<Symbol>()) {
+        if constexpr(!EvaluatorType::template isAllowedType<Symbol>()) {
           return nullptr;
         } else if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
           return evaluateHelper<Index + 1>(factory,
@@ -348,11 +348,11 @@ protected:
               },
               batchTuple);
         }
-      } else if(evaluatedBatch.elementTypeId() == UniqueId::forType<Expression>()) {
-        // TODO: if really needed to handle Expressions as argument
+      } else if(evaluatedBatch.elementTypeId() == UniqueId::forType<ComplexExpression>()) {
+        // TODO: if really needed to handle complex expressions as argument
         // it should be a less generic type than Batch
         // it won't even compile...
-        if constexpr(!EvaluatorType::template isAllowedType<Expression>()) {
+        if constexpr(!EvaluatorType::template isAllowedType<ComplexExpression>()) {
           return nullptr;
         } else if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
           return evaluateHelper<Index + 1>(

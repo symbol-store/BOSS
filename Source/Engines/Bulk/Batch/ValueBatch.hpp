@@ -35,11 +35,11 @@ public:
   using RLE = std::bool_constant<false>;
   bool isRLE() const override { return RLE::value; }
 
-  bool canContain(Expression::ArgumentType const& val) const override {
+  bool canContain(Expression const& val) const override {
     return std::holds_alternative<T>(val);
   }
 
-  void insert(Expression::ArgumentType const& val) override {
+  void insert(Expression const& val) override {
     m_values.push_back(std::get<T>(val));
   }
 

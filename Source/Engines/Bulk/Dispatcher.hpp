@@ -27,15 +27,15 @@ public:
 
   Dispatcher(BatchTemplates const& templates) : m_templates(templates) {}
 
-  void insert(Expression::ArgumentType const& argument) {
+  void insert(Expression const& argument) {
     auto& batchPtr = m_batches[argument];
     if(!batchPtr) {
       batchPtr = std::visit(
           [this](auto&& value) {
             using type = std::decay_t<decltype(value)>;
-            if constexpr(std::is_same_v<type, Expression>) {
+            if constexpr(std::is_same_v<type, ComplexExpression>) {
               return BatchPtr(m_templates.createBatch(value));
-            } else if constexpr(std::is_same_v<type, Expression::Symbol>) {
+            } else if constexpr(std::is_same_v<type, Symbol>) {
               return BatchPtr(new SymbolBatch(value));
             } else {
               return BatchPtr(new RLEBatch<type>(value));
@@ -44,8 +44,8 @@ public:
           argument);
     }
 
-    if(!std::holds_alternative<Expression::Symbol>(argument) &&
-       !std::holds_alternative<Expression>(argument)) {
+    if(!std::holds_alternative<Symbol>(argument) &&
+       !std::holds_alternative<ComplexExpression>(argument)) {
       auto& batch = *batchPtr.get();
       if(batch.isRLE() && !batch.canContain(argument)) {
         // there are more than one single value
@@ -82,21 +82,21 @@ public:
   }
 
 private:
-  struct compareArgumentType {
-    bool operator()(Expression::ArgumentType const& lhs,
-                    Expression::ArgumentType const& rhs) const {
+  struct compareExpressionType {
+    bool operator()(Expression const& lhs,
+                    Expression const& rhs) const {
       return compare(lhs, rhs) < 0;
     }
 
   private:
-    int compare(Expression::ArgumentType const& lhs, Expression::ArgumentType const& rhs) const {
+    int compare(Expression const& lhs, Expression const& rhs) const {
       if(lhs.index() != rhs.index()) {
         return lhs.index() < rhs.index() ? -1 : 1;
-      } else if(auto const* lhsSymbol = std::get_if<Expression::Symbol>(&lhs)) {
-        auto& rhsSymbol = std::get<Expression::Symbol>(rhs);
+      } else if(auto const* lhsSymbol = std::get_if<Symbol>(&lhs)) {
+        auto& rhsSymbol = std::get<Symbol>(rhs);
         return lhsSymbol->getName() < rhsSymbol.getName() ? -1 : 1;
-      } else if(auto const* lhsExpr = std::get_if<Expression>(&lhs)) {
-        auto& rhsExpr = std::get<Expression>(rhs);
+      } else if(auto const* lhsExpr = std::get_if<ComplexExpression>(&lhs)) {
+        auto& rhsExpr = std::get<ComplexExpression>(rhs);
         auto lhsArgsIt = lhsExpr->getArguments().begin();
         auto rhsArgsIt = rhsExpr.getArguments().begin();
         auto lhsArgsItEnd = lhsExpr->getArguments().end();
@@ -125,7 +125,7 @@ private:
     }
   };
 
-  std::map<Expression::ArgumentType, BatchPtr, compareArgumentType> m_batches;
+  std::map<Expression, BatchPtr, compareExpressionType> m_batches;
 
   BatchTemplates const& m_templates;
 };

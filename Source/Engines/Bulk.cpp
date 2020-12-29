@@ -8,7 +8,7 @@
 
 namespace boss::engines::bulk {
 
-Expression::ReturnType Engine::evaluate(Expression const& e) {
+Expression Engine::evaluate(Expression const& e) {
   m_dispatcher.insert(e);
   auto output = m_dispatcher.evaluate();
   if(output.empty()) {
@@ -21,7 +21,7 @@ Expression::ReturnType Engine::evaluate(Expression const& e) {
 
   // TODO: templatise it
   if(outputBatch->typeId() == UniqueId::forType<SymbolBatch>()) {
-    return (Expression::Symbol)*static_cast<SymbolBatch*>(outputBatch)->begin();
+    return (Symbol)*static_cast<SymbolBatch*>(outputBatch)->begin();
   } else if(outputBatch->typeId() == UniqueId::forType<ValueBatch<bool>>()) {
     return (bool)*static_cast<ValueBatch<bool>*>(outputBatch)->begin();
   } else if(outputBatch->typeId() == UniqueId::forType<RLEBatch<bool>>()) {

@@ -26,25 +26,20 @@ public:
     using type = std::variant<Args0..., Args1...>;
   };
 
-  using InternalArgumentType =
-      typename ExtendedArgumentType<Expression::ArgumentType, AdditionalTypes...>::type;
-  using InternalReturnType =
-      typename ExtendedArgumentType<Expression::ReturnType, AdditionalTypes...>::type;
-
   using SupportedType =
-      typename ExtendedArgumentType<Expression::ArgumentType, AdditionalTypes...>::type;
+      typename ExtendedArgumentType<Expression, AdditionalTypes...>::type;
 
   class SymbolInternal {
   public:
     template <typename T> SymbolInternal(T const& value) : m_value(value) {}
     template <typename T> SymbolInternal(T&& value) : m_value(std::move(value)) {}
 
-    Expression::ReturnType ToReturnType(std::string const& symbolName) const {
+    Expression ToReturnType(std::string const& symbolName) const {
       return std::visit(
-          [&symbolName](auto&& arg) -> Expression::ReturnType {
+          [&symbolName](auto&& arg) -> Expression {
             using fromType = std::decay_t<decltype(arg)>;
             if constexpr(std::disjunction_v<std::is_same<fromType, AdditionalTypes>...>) {
-              return Expression::Symbol(symbolName);
+              return Symbol(symbolName);
             } else {
               return arg;
             }
@@ -70,9 +65,9 @@ public:
     return *symbolPtr.get();
   }
 
-  Expression::ReturnType evaluateSymbol(std::string const& symbol) {
+  Expression evaluateSymbol(std::string const& symbol) {
     auto& symbolPtr = m_symbolMap[symbol];
-    return symbolPtr ? symbolPtr.get()->ToReturnType(symbol) : Expression::Symbol(symbol);
+    return symbolPtr ? symbolPtr.get()->ToReturnType(symbol) : Symbol(symbol);
   }
 
 private:

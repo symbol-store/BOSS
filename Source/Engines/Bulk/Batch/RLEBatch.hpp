@@ -47,10 +47,10 @@ public:
   using RLE = std::bool_constant<true>;
   bool isRLE() const override { return RLE::value; }
   
-  bool canContain(Expression::ArgumentType const& val) const override {
-    if constexpr(std::is_constructible_v<Expression::ArgumentType, T>) {
+  bool canContain(Expression const& val) const override {
+    if constexpr(std::is_constructible_v<Expression, T>) {
       if(auto* value = std::get_if<T>(&val)) {
-        if constexpr(std::is_same_v<T, Expression::Symbol>) {
+        if constexpr(std::is_same_v<T, Symbol>) {
           if(value->getName() == m_value.getName()) {
             return true;
           }
@@ -64,7 +64,7 @@ public:
     return false;
   }
 
-  void insert(Expression::ArgumentType const& val) override {
+  void insert(Expression const& val) override {
     ++m_count;
   }
 

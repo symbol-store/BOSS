@@ -23,7 +23,7 @@ public:
 
   // expressions
 
-  Expression::ReturnType evaluate(Expression const& e);
+  Expression evaluate(Expression const& e);
 
 private:
   BatchTemplates m_batchTemplates;

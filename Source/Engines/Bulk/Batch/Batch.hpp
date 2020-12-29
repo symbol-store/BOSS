@@ -20,9 +20,9 @@ public:
   virtual UniqueId::type elementTypeId() const = 0;
 
   virtual bool isRLE() const = 0;
-  virtual bool canContain(Expression::ArgumentType const& val) const = 0;
+  virtual bool canContain(Expression const& val) const = 0;
 
-  virtual void insert(Expression::ArgumentType const& val) = 0;
+  virtual void insert(Expression const& val) = 0;
 
   virtual Batch* evaluate(BatchFactory const&) = 0;
 };
