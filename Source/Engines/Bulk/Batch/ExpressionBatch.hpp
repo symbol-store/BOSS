@@ -55,7 +55,7 @@ public:
     auto argIt = expression.getArguments().begin();
 
     auto ForEachTupleArgument = [&argIt, &expression](auto& batchPtr) {
-      if(argIt != expression.getArguments().end()) {
+      if(batchPtr && argIt != expression.getArguments().end()) {
         auto& argument = *argIt;
 
         if(!std::holds_alternative<Symbol>(argument) &&
@@ -179,6 +179,10 @@ protected:
       }
     } else {
       auto& batchPtr = std::get<Index>(m_arguments);
+      if(!batchPtr) {
+        return nullptr;
+      }
+
       auto& evaluatedBatch = *batchPtr.get()->evaluate(factory);
 
       // TODO: templatise it with allowed types
