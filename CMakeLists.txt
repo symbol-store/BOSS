@@ -59,6 +59,7 @@ set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp)
 set(ExecutableFiles Source/main.cpp)
 set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
+set(SwigFiles Source/BOSS.i)
 
 add_executable(BOSS ${ImplementationFiles} ${ExecutableFiles})
 set_property(TARGET BOSS PROPERTY CXX_STANDARD 17)
@@ -72,6 +73,61 @@ add_dependencies(Tests catch2)
 
 add_executable(Benchmarks ${ImplementationFiles} ${BenchmarkFiles})
 set_property(TARGET Benchmarks PROPERTY CXX_STANDARD 17)
+
+list(APPEND AllTargets BOSS Tests Benchmarks)
+
+find_package(SWIG 4) # at least swig 4.0 for C++17 support
+find_package(Python3 COMPONENTS Interpreter Development NumPy)
+if(NOT Python3_FOUND)
+  find_package(Python3 COMPONENTS Interpreter Development)
+endif(NOT Python3_FOUND)
+
+if(SWIG_FOUND)
+  message(STATUS "Found Swig files: ${SWIG_USE_FILE}")
+  INCLUDE(${SWIG_USE_FILE})
+  SET(CMAKE_SWIG_FLAGS "-builtin" "-O")
+  if(Python3_FOUND)
+    message(STATUS "Found Python include dir: ${Python3_INCLUDE_DIRS}")
+    set_source_files_properties(${SwigFiles} PROPERTIES CPLUSPLUS ON)
+    swig_add_library(BOSS TYPE SHARED LANGUAGE python SOURCES ${SwigFiles} ${ImplementationFiles})
+    set_property(TARGET ${SWIG_MODULE_BOSS_REAL_NAME} PROPERTY CXX_STANDARD 17)
+    set_property(TARGET ${SWIG_MODULE_BOSS_REAL_NAME} PROPERTY SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
+    target_include_directories(${SWIG_MODULE_BOSS_REAL_NAME} SYSTEM PUBLIC ${Python3_INCLUDE_DIRS})
+    target_include_directories(${SWIG_MODULE_BOSS_REAL_NAME} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    target_include_directories(${SWIG_MODULE_BOSS_REAL_NAME} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
+    list(APPEND AllTargets ${SWIG_MODULE_BOSS_REAL_NAME})
+    if(Python3_NumPy_FOUND)
+      message(STATUS "Found Python NumPy include: ${Python3_NumPy_INCLUDE_DIRS}")
+      target_include_directories(${SWIG_MODULE_BOSS_REAL_NAME} SYSTEM PUBLIC ${Python3_NumPy_INCLUDE_DIRS})
+    else(Python3_NumPy_FOUND)
+      message(STATUS "Couldn't find NumPy. Try executing Python code to find it...")
+      execute_process(COMMAND "${Python3_EXECUTABLE}" "-c"
+        "import numpy; print(numpy.get_include());"
+        RESULT_VARIABLE __result_numpy
+        OUTPUT_VARIABLE __output_numpy
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+      if(${__result_numpy} EQUAL 0)
+        message(STATUS "Found Python NumPy include: ${__output_numpy}")
+        target_include_directories(${SWIG_MODULE_BOSS_REAL_NAME} SYSTEM PUBLIC ${__output_numpy})
+      endif(${__result_numpy} EQUAL 0)
+    endif(Python3_NumPy_FOUND)
+    if("${Python3_LIBRARIES}" STREQUAL "")
+      message(STATUS "Couldn't find Python3_LIBRARY. Try executing python3-config to find the ldflags...")
+      execute_process(COMMAND "${Python3_EXECUTABLE}-config" "--ldflags"
+        RESULT_VARIABLE __result_python3_ldflags
+        OUTPUT_VARIABLE __output_python3_ldflags
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+      if(${__result_python3_ldflags} EQUAL 0)
+        message(STATUS "Found Python3 ldflags: ${__output_python3_ldflags}")
+        target_link_options(${SWIG_MODULE_BOSS_REAL_NAME} BEFORE PUBLIC ${__output_python3_ldflags})
+      endif(${__result_python3_ldflags} EQUAL 0)
+    else("${Python3_LIBRARIES}" STREQUAL "")
+      message(STATUS "Found Python libraries: ${Python3_LIBRARIES}")
+    endif("${Python3_LIBRARIES}" STREQUAL "")
+    target_link_libraries(${SWIG_MODULE_BOSS_REAL_NAME} ${Python3_LIBRARIES})
+    message(STATUS "Swig Python module: ${SWIG_MODULE_BOSS_REAL_NAME}")
+  endif(Python3_FOUND)
+endif(SWIG_FOUND)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
@@ -90,7 +146,7 @@ target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBR
 target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main.a)
 
 
-foreach (Target Tests Benchmarks BOSS)
+foreach (Target IN LISTS AllTargets)
   if(Mathematica_WSTP_FOUND)
     target_include_directories(${Target} PUBLIC ${Mathematica_INCLUDE_DIRS})
     target_link_libraries(${Target} ${Mathematica_WSTP_LIBRARY})
