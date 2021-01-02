@@ -69,7 +69,7 @@ public:
     $result = PyString_FromString(strVal->c_str());
   } else {
     // handle any other type as a pointer to underline c object
-    $result = createPythonPointerObj(self, expression, $descriptor(Expression *), $descriptor(ComplexExpression *));
+    $result = createPythonPointerObj($self, expression, $descriptor(Expression *), $descriptor(ComplexExpression *));
   }
 }
 
@@ -112,9 +112,6 @@ public:
    $result = PyInt_FromLong((long)*$1);
 }
 
-class ExpressionArguments {
-};
-
 %typemap(out) ExpressionArguments const & {
   auto size = std::distance($1->begin(), $1->end());
   $result = PyList_New(size);
@@ -134,7 +131,7 @@ class ExpressionArguments {
       PyList_SetItem($result,index,o);
     } else {
       // handle any other type as a pointer to underline c object
-      PyObject *o = createPythonPointerObj(self, *it, $descriptor(Expression *), $descriptor(ComplexExpression *));
+      PyObject *o = createPythonPointerObj($self, *it, $descriptor(Expression *), $descriptor(ComplexExpression *));
       PyList_SetItem($result,index,o);
     }
   }
@@ -198,7 +195,7 @@ class ExpressionArguments {
   std::string __str__() {
     std::ostringstream oss;
     bool first = true;
-    for(auto const& argument : *self) {
+    for(auto const& argument : *$self) {
       if(!first) {
         oss << ',';
       }
@@ -213,7 +210,7 @@ class ExpressionArguments {
 %extend Expression {
   std::string __str__() {
     std::ostringstream oss;
-    oss << *self;
+    oss << *$self;
     return oss.str();
   }
 };
@@ -229,7 +226,7 @@ public:
 %extend ComplexExpression {
   std::string __str__() {
     std::ostringstream oss;
-    oss << *self;
+    oss << *$self;
     return oss.str();
   }
 
@@ -239,55 +236,55 @@ public:
   }
 
   Expression evaluate() {
-    return evaluate(*self);
+    return evaluate(*$self);
   }
 
   Expression operator+(Expression other) {
-    return "Plus"_(*self, other);
+    return "Plus"_(*$self, other);
   }
   Expression operator-(Expression other) {
-    return "Minus"_(*self, other);
+    return "Minus"_(*$self, other);
   }
   Expression operator*(Expression other) {
-    return "Times"_(*self, other);
+    return "Times"_(*$self, other);
   }
   Expression operator/(Expression other) {
-    return "Divide"_(*self, other);
+    return "Divide"_(*$self, other);
   }
   Expression operator-() {
-    return "Negation"_(*self);
+    return "Negation"_(*$self);
   }
 
   Expression operator==(Expression other) {
-    return "Equal"_(*self, other);
+    return "Equal"_(*$self, other);
   }
   Expression operator!=(Expression other) {
-    return "NotEqual"_(*self, other);
+    return "NotEqual"_(*$self, other);
   }
   Expression operator<(Expression other) {
-    return "Less"_(*self, other);
+    return "Less"_(*$self, other);
   }
   Expression operator>(Expression other) {
-    return "Greater"_(*self, other);
+    return "Greater"_(*$self, other);
   }
   Expression operator<=(Expression other) {
-    return "LessEqual"_(*self, other);
+    return "LessEqual"_(*$self, other);
   }
   Expression operator>=(Expression other) {
-    return "GreaterEqual"_(*self, other);
+    return "GreaterEqual"_(*$self, other);
   }
 
   Expression operator&(Expression other) {
-    return "And"_(*self, other);
+    return "And"_(*$self, other);
   }
   Expression operator|(Expression other) {
-    return "Or"_(*self, other);
+    return "Or"_(*$self, other);
   }
   Expression operator~() {
-    return "Not"_(*self);
+    return "Not"_(*$self);
   }
 
   Expression stringJoin(Expression other) {
-    return "StringJoin"_(*self, other);
+    return "StringJoin"_(*$self, other);
   }
 }
