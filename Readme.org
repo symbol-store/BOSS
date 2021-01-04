@@ -1,2 +1,11 @@
 * BOSS
-
+** Building
+*** Dependencies
+- NumPy
+*** MacOS
+- `brew install numpy`
+- `brew install --cask racket`
+    
+`cmake -DRacket_ROOT="/Applications/Racket v7.9" .`
+** Running
+`racket -e '(load-extension "RacketBOSS.so")' -e '(evaluate (new-Expression (new-ComplexExpression (new-Symbol "Plus") (new-ExpressionArguments `(,(new-Expression 5) ,(new-Expression 8))))))'`

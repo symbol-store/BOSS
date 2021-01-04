@@ -40,5 +40,3 @@ Expression evaluate(Expression const& arg) {
   }
   return arg; // do nothing
 }
-
-Expression Symbol(std::string const& symbolName) { return boss::Symbol(symbolName); }

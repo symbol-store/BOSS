@@ -4,7 +4,7 @@
 #include <vector>
 namespace boss {
 class Symbol {
-  std::string const name;
+  std::string name;
 
 public:
   explicit Symbol(std::string const& name) : name(name){};
@@ -25,8 +25,8 @@ using ExpressionArguments = std::vector<Expression>;
 
 class ComplexExpression {
 private:
-  Symbol const head;
-  ExpressionArguments const arguments;
+  Symbol head;
+  ExpressionArguments arguments;
 
 public:
   explicit ComplexExpression(Symbol const& head, ExpressionArguments const& arguments)

@@ -1,6 +1,7 @@
 %module BOSS
 
 %include "std_string.i"
+%include stl.i
 
 %{
   #include "Source/Expression.hpp"
@@ -8,9 +9,10 @@
   #include "Source/Utilities.hpp"
 
   #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-  //#define PY_ARRAY_UNIQUE_SYMBOL
+#ifdef SWIGPYTHON
   #include "numpy/arrayobject.h"
   #include "numpy/ndarraytypes.h"
+#endif
 
   #include <sstream>
 
@@ -18,16 +20,30 @@
 %}
 
 %init %{
+#ifdef SWIGPYTHON
   import_array();
+#endif
 %}
 
 %{
-typedef boss::Expression Expression;
-typedef boss::ComplexExpression ComplexExpression;
-typedef boss::ExpressionArguments ExpressionArguments;
+using boss::Expression;
+using boss::Symbol;
+using boss::AtomicExpression;
+using boss::ComplexExpression;
+using boss::ExpressionArguments;
 %}
 
-%implicitconv Expression;
+class Symbol {
+public:
+  Symbol(std::string);
+};
+
+class ComplexExpression {
+public:
+  ComplexExpression(Symbol const& head, std::vector<Expression> const & arguments);
+  ExpressionArguments const& getArguments() const;
+  std::string const& getHead() const;
+};
 
 class Expression {
 public:  
@@ -38,8 +54,17 @@ public:
   Expression(ComplexExpression);
 };
 
+namespace std {%template(ExpressionArguments) vector<Expression>;}
+
+#if defined(SWIGMZSCHEME)
+%typemap(out) Expression {
+  std::stringstream output;
+  output << $1;
+  $result = scheme_make_byte_string(output.str().c_str());
+}
+#elif defined(SWIGPYTHON)
+%implicitconv Expression;
 %inline %{
-  extern "C++" {
     PyObject * createPythonPointerObj(PyObject * self, Expression expression, 
                 swig_type_info * expressionDesc, 
                 swig_type_info * complexExpressionDesc) {
@@ -54,7 +79,6 @@ public:
         }
       }, expression);
     }
-  }
 %}
 
 %typemap(out) Expression {
@@ -187,6 +211,7 @@ public:
 %typemap(freearg) ExpressionArguments const & {
    delete $1;
 }
+#endif
 
 %include "SwigHelpers.hpp"
 
@@ -215,13 +240,8 @@ public:
   }
 };
 
-class ComplexExpression {
-public:
-  ComplexExpression(boss::Symbol const& head, ExpressionArguments const & arguments);
-  ExpressionArguments const& getArguments() const;
-  std::string const& getHead() const;
-};
 
+#ifdef SWIGPYTHON
 %feature("python:slot", "tp_repr", functype="reprfunc") ComplexExpression::__str__;
 %extend ComplexExpression {
   std::string __str__() {
@@ -288,3 +308,4 @@ public:
     return "StringJoin"_(*$self, other);
   }
 }
+#endif
