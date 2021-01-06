@@ -36,9 +36,12 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: configure
-      run: cmake -B${{ matrix.build-type }} -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_CLANG_TIDY=clang-tidy .
+      run: |
+        mkdir ${{ matrix.build-type }}
+        cd ${{ matrix.build-type }}
+        cmake -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_CLANG_TIDY=clang-tidy ..
     - name: build
-      run: cmake --build ${{ matrix.build-type }}
+      run: cmake --build ..
     - name: Upload artifact
       uses: actions/upload-artifact@v1.0.0
       with:
