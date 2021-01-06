@@ -1,26 +1,27 @@
 #pragma once
 #include "BOSS.hpp"
 #include "Expression.hpp"
-#include "Utilities.hpp"
 
+#ifndef SWIG
 using boss::Expression;
+#endif
 
 enum EngineImplementation {
+  NoEngine,
   BulkEngine,
   WolframEngine,
 };
 
 EngineImplementation& currentEngine() {
-  static EngineImplementation type = BulkEngine; // default
+#ifdef WSINTERFACE
+  static EngineImplementation type = WolframEngine; // default
+#else
+  static EngineImplementation type = NoEngine; // default
+#endif // WSINTERFACE
   return type;
 }
 
 void setEngine(EngineImplementation type) { currentEngine() = type; }
-
-boss::engines::bulk::Engine& bulkEngine() {
-  static auto instance = boss::engines::bulk::Engine();
-  return instance;
-}
 
 #ifdef WSINTERFACE
 boss::engines::wolfram::Engine& wolframEngine() {
@@ -32,11 +33,13 @@ boss::engines::wolfram::Engine& wolframEngine() {
 Expression evaluate(Expression const& arg) {
   switch(currentEngine()) {
   case BulkEngine:
-    return bulkEngine().evaluate(arg);
+    break;
 #ifdef WSINTERFACE
   case WolframEngine:
     return wolframEngine().evaluate(arg);
 #endif // WSINTERFACE
+  case NoEngine:
+    break;
   }
   return arg; // do nothing
 }

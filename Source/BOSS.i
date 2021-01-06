@@ -38,32 +38,14 @@ public:
   Symbol(std::string);
 };
 
-class ComplexExpression {
-public:
-  ComplexExpression(Symbol const& head, std::vector<Expression> const & arguments);
-  ExpressionArguments const& getArguments() const;
-  std::string const& getHead() const;
-};
-
-class Expression {
-public:  
-  Expression(bool);
-  Expression(int);
-  Expression(float);
-  Expression(std::string);
-  Expression(ComplexExpression);
-};
-
-namespace std {%template(ExpressionArguments) vector<Expression>;}
-
 #if defined(SWIGMZSCHEME)
+namespace std {%template(ExpressionArguments) vector<Expression>;}
 %typemap(out) Expression {
   std::stringstream output;
   output << $1;
   $result = scheme_make_byte_string(output.str().c_str());
 }
 #elif defined(SWIGPYTHON)
-%implicitconv Expression;
 %inline %{
     PyObject * createPythonPointerObj(PyObject * self, Expression expression, 
                 swig_type_info * expressionDesc, 
@@ -112,8 +94,10 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
     $1 = new Expression(std::string(bytes));
   } else {
     void * rawPtr = NULL; 
-    if (SWIG_IsOK(SWIG_ConvertPtr($input, &rawPtr, $descriptor(Expression *), 0))) {
-      $1 = new Expression(*(Expression*)rawPtr);
+    if (SWIG_IsOK(SWIG_ConvertPtr($input, &rawPtr, $descriptor(ComplexExpression *), 0))) {
+      $1 = new Expression(*(ComplexExpression*)rawPtr);
+    } else  if (SWIG_IsOK(SWIG_ConvertPtr($input, &rawPtr, $descriptor(Symbol *), 0))) {
+      $1 = new Expression(*(Symbol*)rawPtr);
     } else {
       PyObject * repr = PyObject_Str($input);
       PyObject * str = PyUnicode_AsEncodedString(repr, "utf-8", "Error ~");
@@ -190,6 +174,8 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
       void * rawPtr = NULL;
       if(SWIG_IsOK(SWIG_ConvertPtr(o, &rawPtr, $descriptor(ComplexExpression *), 0))) {
         arg.emplace<ComplexExpression>(*(ComplexExpression*)rawPtr);
+      } else if(SWIG_IsOK(SWIG_ConvertPtr(o, &rawPtr, $descriptor(Symbol *), 0))) {
+        arg.emplace<Symbol>(*(Symbol*)rawPtr);
       } else {
         PyObject * repr = PyObject_Str(o);
         PyObject * str = PyUnicode_AsEncodedString(repr, "utf-8", "Error ~");
@@ -202,7 +188,6 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
         Py_XDECREF(repr);
         Py_XDECREF(str);
 
-        delete $1;
         SWIG_fail;
       }
     }
@@ -213,20 +198,29 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
 }
 #endif
 
+class Expression {
+public:  
+  Expression(bool);
+  Expression(int);
+  Expression(float);
+  Expression(std::string);
+  Expression(ComplexExpression);
+};
+
+class ComplexExpression {
+public:
+  ComplexExpression(Symbol const& head, std::vector<Expression> const & arguments);
+  ExpressionArguments const& getArguments() const;
+  std::string const& getHead() const;
+};
+
 %include "SwigHelpers.hpp"
 
-%feature("python:slot", "tp_repr", functype="reprfunc") ExpressionArguments::__str__;
-%extend ExpressionArguments {
+%feature("python:slot", "tp_repr", functype="reprfunc") Symbol::__str__;
+%extend Symbol {
   std::string __str__() {
     std::ostringstream oss;
-    bool first = true;
-    for(auto const& argument : *$self) {
-      if(!first) {
-        oss << ',';
-      }
-      oss << argument;
-      first = false;
-    }
+    oss << *$self;
     return oss.str();
   }
 };
@@ -238,8 +232,11 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
     oss << *$self;
     return oss.str();
   }
-};
 
+  static Expression Symbol(std::string const& name) {
+    return boss::Symbol(name);
+  }
+};
 
 #ifdef SWIGPYTHON
 %feature("python:slot", "tp_repr", functype="reprfunc") ComplexExpression::__str__;
@@ -258,53 +255,53 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
   Expression evaluate() {
     return evaluate(*$self);
   }
-
-  Expression operator+(Expression other) {
+  
+  Expression operator+(Expression const& other) {
     return "Plus"_(*$self, other);
   }
-  Expression operator-(Expression other) {
+  Expression operator-(Expression const& other) {
     return "Minus"_(*$self, other);
   }
-  Expression operator*(Expression other) {
+  Expression operator*(Expression const& other) {
     return "Times"_(*$self, other);
   }
-  Expression operator/(Expression other) {
+  Expression operator/(Expression const& other) {
     return "Divide"_(*$self, other);
   }
   Expression operator-() {
     return "Negation"_(*$self);
   }
 
-  Expression operator==(Expression other) {
+  Expression operator==(Expression const& other) {
     return "Equal"_(*$self, other);
   }
-  Expression operator!=(Expression other) {
+  Expression operator!=(Expression const& other) {
     return "NotEqual"_(*$self, other);
   }
-  Expression operator<(Expression other) {
+  Expression operator<(Expression const& other) {
     return "Less"_(*$self, other);
   }
-  Expression operator>(Expression other) {
+  Expression operator>(Expression const& other) {
     return "Greater"_(*$self, other);
   }
-  Expression operator<=(Expression other) {
+  Expression operator<=(Expression const& other) {
     return "LessEqual"_(*$self, other);
   }
-  Expression operator>=(Expression other) {
+  Expression operator>=(Expression const& other) {
     return "GreaterEqual"_(*$self, other);
   }
 
-  Expression operator&(Expression other) {
+  Expression operator&(Expression const& other) {
     return "And"_(*$self, other);
   }
-  Expression operator|(Expression other) {
+  Expression operator|(Expression const& other) {
     return "Or"_(*$self, other);
   }
   Expression operator~() {
     return "Not"_(*$self);
   }
 
-  Expression stringJoin(Expression other) {
+  Expression stringJoin(Expression const& other) {
     return "StringJoin"_(*$self, other);
   }
 }

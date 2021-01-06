@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
 import sys
+sys.path.insert(0, '.')
 sys.path.insert(0, './build')
+sys.path.insert(0, './Debug')
+sys.path.insert(0, './Release')
 
 import faulthandler;
 faulthandler.enable()
@@ -9,14 +12,13 @@ faulthandler.enable()
 import BOSS
 from BOSS import evaluate
 from BOSS import ComplexExpression as Expr
-from BOSS import Symbol
+Symbol = BOSS.Expression.Symbol
 
-import BOSSHelpers
 
 def TestExpressions():
-    # comment out to switch between Wolfram/Bulk
-    BOSS.setEngine(BOSS.WolframEngine)
-    BOSS.setEngine(BOSS.BulkEngine)
+    # uncomment to switch to a specific engine (otherwise use default)
+    #BOSS.setEngine(BOSS.BulkEngine)
+    #BOSS.setEngine(BOSS.WolframEngine)
 
     print(Symbol("bla"))
     print(Expr("bla2", []).getHead())
@@ -24,7 +26,7 @@ def TestExpressions():
     expr = Expr("bla2", ["arg1", "arg2"])
     print(expr)
 
-    expr2 = Expr("bla3", [1, True, 'blabla', Symbol("symb")])
+    expr2 = Expr("bla3", [1, True, 'blabla'])
     args = expr2.getArguments()
     print(args)
 
@@ -37,8 +39,8 @@ def TestExpressions():
 
     exprToEval = Expr("Plus", [Symbol("A"), Expr("Plus", [1,2,3,4,5,6,7,8,9,10])])
     print(exprToEval)
-
     print(exprToEval.evaluate())
+    
     print(evaluate(1))
     print(evaluate("Test!"))
 
