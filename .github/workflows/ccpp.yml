@@ -40,8 +40,9 @@ jobs:
         mkdir ${{ matrix.build-type }}
         cd ${{ matrix.build-type }}
         cmake -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_CLANG_TIDY=clang-tidy ..
+        cd ..
     - name: build
-      run: cmake --build ..
+      run: cmake --build ${{ matrix.build-type }}
     - name: Upload artifact
       uses: actions/upload-artifact@v1.0.0
       with:
