@@ -11,8 +11,8 @@
 #define STRING(x) STRINGIFY(x) // NOLINT
 
 namespace boss::engines::wolfram {
-using std::to_string;
 using std::string;
+using std::to_string;
 using std::vector;
 using boss::utilities::operator""_;
 using std::string_literals::operator""s;
@@ -142,7 +142,7 @@ struct EngineImplementation {
       return type != nullptr ? "Pattern"_(name, "Blank"_(*type)) : "Pattern"_(name, "Blank"_());
     };
 
-    auto DefineFunction = [&](Symbol const& name, const vector<Expression>& arguments) {
+    [&](Symbol const& name, const vector<Expression>& arguments) {
       eval(SetDelayed(namespaced(ComplexExpression(name, arguments)), "Function"_("List"_())));
     };
     eval(SetDelayed(namespaced("Function"_(Argument("arg"_), Argument("definition"_))),
