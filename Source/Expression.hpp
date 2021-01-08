@@ -4,7 +4,7 @@
 #include <vector>
 namespace boss {
 class Symbol {
-  std::string const name;
+  std::string name;
 
 public:
   explicit Symbol(std::string const& name) : name(name){};
@@ -18,19 +18,20 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
   using type = std::variant<Args0..., Args1...>;
 };
 
-using AtomicExpression = std::variant<int, std::string, Symbol, bool>;
+using AtomicExpression = std::variant<bool, int, float, std::string, Symbol>;
 class ComplexExpression;
 using Expression = variant_amend<AtomicExpression, ComplexExpression>::type;
+using ExpressionArguments = std::vector<Expression>;
 
 class ComplexExpression {
 private:
-  Symbol const head;
-  std::vector<Expression> const arguments;
+  Symbol head;
+  ExpressionArguments arguments;
 
 public:
-  explicit ComplexExpression(Symbol const& head, std::vector<Expression> const& arguments)
+  explicit ComplexExpression(Symbol const& head, ExpressionArguments const& arguments)
       : head(head), arguments(arguments){};
-  std::vector<Expression> const& getArguments() const { return arguments; };
+  ExpressionArguments const& getArguments() const { return arguments; };
   Symbol const& getHead() const { return head; };
 };
 } // namespace boss
