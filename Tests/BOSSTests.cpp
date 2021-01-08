@@ -16,15 +16,15 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
   };
 
   SECTION("Basics") {
-    REQUIRE(eval("Plus"_(5, 4)) == Value(9));
+    REQUIRE(eval("Plus"_(5, 4)) == Value(9)); // NOLINT
     REQUIRE(eval("Plus"_(5, 2, 2)) == Value(9));
     REQUIRE(eval("Plus"_(5, 2, 2)) == Value(9));
     REQUIRE(eval("Plus"_("Plus"_(2, 3), 2, 2)) == Value(9));
     REQUIRE(eval("Plus"_("Plus"_(3, 2), 2, 2)) == Value(9));
-    REQUIRE(eval("StringJoin"_("howdie", " ", "world")) == Value("howdie world"));
+    REQUIRE(eval("StringJoin"_(string("howdie"), string(" "), string("world"))) == Value("howdie world"));
     REQUIRE(get<bool>(eval("Greater"_(5, 2))));
     REQUIRE(!get<bool>(eval("Greater"_(2, 5))));
-    REQUIRE(get<boss::Symbol>(eval("Symbol"_("x"))).getName() == "x");
+    REQUIRE(get<boss::Symbol>(eval("Symbol"_((string) "x"))).getName() == "x");
     REQUIRE(get<boss::ComplexExpression>(eval("UndefinedFunction"_(9))).getHead().getName() ==
             "UndefinedFunction");
   }

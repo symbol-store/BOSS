@@ -11,8 +11,6 @@
 #define STRING(x) STRINGIFY(x) // NOLINT
 
 namespace boss::engines::wolfram {
-using boss::utilities::overload;
-using std::string;
 using std::to_string;
 using std::vector;
 using boss::utilities::operator""_;
@@ -33,7 +31,7 @@ struct EngineImplementation {
   WSENV environment = {};
   WSLINK link = {};
 
-  void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier) {
+  static void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier) {
     std::visit(overload(
                    [&](int a) {
                      console << a;
