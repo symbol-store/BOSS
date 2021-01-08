@@ -11,23 +11,23 @@
 #define STRING(x) STRINGIFY(x) // NOLINT
 
 namespace boss::engines::wolfram {
-using boss::utilities::overload;
 using std::to_string;
 using std::vector;
 struct EngineImplementation {
 
   static void putExpressionOnLink(Engine& e, Expression const& expression) {
-    std::visit(overload([&](int a) { WSPutInteger(e.link, a); },
-                        [&](char const* a) { WSPutString(e.link, a); },
-                        [&](Symbol const& a) { WSPutSymbol(e.link, a.getName().c_str()); },
-                        [&](std::string const& a) { WSPutString(e.link, a.c_str()); },
-                        [&](ComplexExpression const& expression) {
-                          WSPutFunction(e.link, expression.getHead().getName().c_str(),
-                                        expression.getArguments().size());
-                          for(auto const& argument : expression.getArguments()) {
-                            putExpressionOnLink(e, argument);
-                          }
-                        }),
+    std::visit(boss::utilities::overload(
+                   [&](int a) { WSPutInteger(e.link, a); },
+                   [&](char const* a) { WSPutString(e.link, a); },
+                   [&](Symbol const& a) { WSPutSymbol(e.link, a.getName().c_str()); },
+                   [&](std::string const& a) { WSPutString(e.link, a.c_str()); },
+                   [&](ComplexExpression const& expression) {
+                     WSPutFunction(e.link, expression.getHead().getName().c_str(),
+                                   expression.getArguments().size());
+                     for(auto const& argument : expression.getArguments()) {
+                       putExpressionOnLink(e, argument);
+                     }
+                   }),
                expression);
   }
 

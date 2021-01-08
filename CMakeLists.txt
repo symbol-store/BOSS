@@ -55,6 +55,9 @@ set(Racket_ROOT "" CACHE PATH "Where to look for Racket API")
 find_path(Racket_LIB_DIR "mzdyn3m.o" HINTS ${Racket_ROOT}/lib ${Racket_ROOT}/lib/racket)
 find_path(Racket_INCLUDE_DIR "escheme.h" HINTS ${Racket_ROOT}/include ${Racket_ROOT}/include/racket)
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 #################################### Targets ####################################
 
 
@@ -66,14 +69,9 @@ set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 set(SwigFiles Source/BOSS.i)
 
 add_executable(BOSS ${ImplementationFiles} ${ExecutableFiles})
-set_property(TARGET BOSS PROPERTY CXX_STANDARD 17)
-target_include_directories(BOSS SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
 
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
-set_property(TARGET Tests PROPERTY CXX_STANDARD 17)
-target_include_directories(Tests SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
 add_dependencies(Tests catch2)
-
 
 add_executable(Benchmarks ${ImplementationFiles} ${BenchmarkFiles})
 set_property(TARGET Benchmarks PROPERTY CXX_STANDARD 17)
@@ -158,7 +156,6 @@ find_package(Threads REQUIRED)
 target_link_libraries(Benchmarks Threads::Threads)
 
 add_dependencies(Benchmarks googlebenchmark)
-target_include_directories(Benchmarks SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
 if(ITT_NOTIFY_INCLUDE_DIR)
   message(STATUS "found itt notify header in ${ITT_NOTIFY_INCLUDE_DIR}")
   target_include_directories(Benchmarks SYSTEM PUBLIC ${ITT_NOTIFY_INCLUDE_DIR})
@@ -169,11 +166,21 @@ endif(ITT_NOTIFY_INCLUDE_DIR)
 target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark.a)
 target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main.a)
 
-
 foreach (Target IN LISTS AllTargets)
+  target_link_libraries(${Target} Threads::Threads)
+  set_property(TARGET ${Target} PROPERTY CXX_STANDARD 17)
+  target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
+  if(UNIX AND NOT APPLE)
+    target_link_libraries(${Target} rt)
+  endif()
+  
   if(Mathematica_WSTP_FOUND)
     target_include_directories(${Target} PUBLIC ${Mathematica_INCLUDE_DIRS})
     target_link_libraries(${Target} ${Mathematica_WSTP_LIBRARY})
+    if(UNIX AND NOT APPLE)
+      target_link_libraries(${Target} uuid)
+    endif()
+    target_link_libraries(${Target} dl)
     target_compile_definitions(${Target} PUBLIC "${Mathematica_WSTP_DEFINITIONS}" "-DMATHEMATICA_KERNEL_EXECUTABLE=${Mathematica_KERNEL_EXECUTABLE}")
   endif(Mathematica_WSTP_FOUND)
 endforeach()
