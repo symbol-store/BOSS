@@ -12,6 +12,7 @@
 
 namespace boss::engines::wolfram {
 using std::to_string;
+using std::string;
 using std::vector;
 using boss::utilities::operator""_;
 using std::string_literals::operator""s;
@@ -31,8 +32,8 @@ struct EngineImplementation {
   WSENV environment = {};
   WSLINK link = {};
 
-  static void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier) {
-    std::visit(overload(
+  void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier) {
+    std::visit(boss::utilities::overload(
                    [&](int a) {
                      console << a;
                      WSPutInteger(link, a);
