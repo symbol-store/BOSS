@@ -39,6 +39,15 @@ Expression Engine::evaluate(Expression const& e) {
     return *static_cast<ValueBatch<std::string>*>(outputBatch)->begin();
   } else if(outputBatch->typeId() == UniqueId::forType<RLEBatch<std::string>>()) {
     return *static_cast<RLEBatch<std::string>*>(outputBatch)->begin();
+  } else if(outputBatch->typeId() == UniqueId::forType<BatchTemplatesImpl::TableView>()) {
+    // return table as a list of lists
+    auto &tableView = *static_cast<BatchTemplatesImpl::TableView*>(outputBatch);
+    ExpressionArguments args;
+    args.reserve(tableView.size());
+    for(auto rowIt = tableView.begin(); rowIt != tableView.end(); ++rowIt) {
+      args.emplace_back(*rowIt);
+    }
+    return "List"_(std::move(args));
   } else if(outputBatch->typeId() == UniqueId::forType<BatchTemplatesImpl::CompoundBatch>()) {
     return *static_cast<BatchTemplatesImpl::CompoundBatch*>(outputBatch)->begin();
   } else {

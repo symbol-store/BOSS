@@ -35,6 +35,10 @@ public:
     if(batchPtr) {
       return batchPtr.get()->clone();
     }
+    auto& writablePtr = WritableBatchPool::instance().findSymbol(m_value);
+    if(writablePtr) {
+      return writablePtr.get()->clone();
+    }
     return this->clone();
   }
 };

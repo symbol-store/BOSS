@@ -132,7 +132,8 @@ protected:
       auto currentTypeId = evaluatedBatch->typeId();
 
       // little trick here until we can support overloading
-      // or find another way to pass symbol to the db functions
+      // or find another way to pass symbol/tableView to the db functions
+      // 2- also needed for "Function" which are evaluated too early (when not using parameters)
       bool needEvaluation = true;
       if constexpr(FixedTypes) {
         if(EvaluatorType::IsExactType(index, currentTypeId)) {

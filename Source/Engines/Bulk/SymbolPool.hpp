@@ -37,5 +37,6 @@ private:
 };
 
 using DefaultSymbolPool = SymbolPool<Batch const>;
+using WritableBatchPool = SymbolPool<Batch>;
 
 } // namespace boss::engines::bulk

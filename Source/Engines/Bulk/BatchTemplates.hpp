@@ -2,10 +2,12 @@
 
 #include "BatchFactory.hpp"
 #include "Evaluator.hpp"
+#include "TableView.hpp"
 
 #include "Batch/Batch.hpp"
 #include "Batch/CompoundBatch.hpp"
 #include "Batch/ExpressionBatch.hpp"
+#include "Batch/FunctionBatch.hpp"
 #include "Batch/RLEBatch.hpp"
 #include "Batch/SymbolBatch.hpp"
 #include "Batch/ValueBatch.hpp"
@@ -34,6 +36,9 @@ template <typename... SupportedTypes> class BatchTemplates : public BatchFactory
 public:
   using CompoundBatch = CompoundBatch<SupportedTypes...>;
   using AnyExpressionBatch = AnyExpressionBatch<SupportedTypes...>;
+  using FunctionBatch = FunctionBatch<SupportedTypes...>;
+  using TableView = TableView<SupportedTypes...>;
+
   BatchTemplates() {}
 
   BatchTemplates(BatchTemplates const&) = delete;
@@ -45,8 +50,15 @@ public:
 
     template <size_t N, typename Func>
     void registerFunction(std::string const& symbol, Func&& func) {
-      // TODO: fill argumentTypes with type ids if needed to handle overloading
       std::vector<size_t> argumentTypes(N, 0);
+      /*if constexpr(FixedTypes) {
+        // support overloading only when specify every argument type
+        if constexpr(IsBatchType) {
+          argumentTypes = std::vector<size_t>{((size_t)UniqueId::forType<typename
+      Types::ValueType>())...}; } else { argumentTypes =
+      std::vector<size_t>{((size_t)UniqueId::forType<Types>())...};
+        }
+      }*/
       BatchTemplateKey key(symbol, argumentTypes);
       auto* templateBatch =
           new ExpressionBatchTemplate<Func, N, FixedTypes, Types...>(symbol, std::move(func));

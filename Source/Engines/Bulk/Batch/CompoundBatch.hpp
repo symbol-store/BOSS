@@ -101,6 +101,11 @@ public:
   auto begin() const { return ConstIteratorImpl(m_symbol, m_batches, 0); }
   auto end() const { return ConstIteratorImpl(m_symbol, m_batches, size()); }
 
+  auto beginBatch() const { return m_batches.begin(); }
+  auto endBatch() const { return m_batches.end(); }
+
+  auto beginBatch() { return m_batches.begin(); }
+  auto endBatch() { return m_batches.end(); }
 
   size_t size() const override {
     size_t maxSize = 0;
