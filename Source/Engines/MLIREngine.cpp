@@ -51,13 +51,13 @@ int64_t runJit(::mlir::ModuleOp module) {
   return output;
 }
 
-Expression::ReturnType Engine::evaluate(Expression const& e) {
+Expression Engine::evaluate(Expression const& e) {
 
   MLIRGenerator generator{};
 
   auto module = generator.generateModule(e);
 
-  // module->dump();
+  module->dump();
 
   sexprtype::ReturnTypes returnType = sexprtype::ReturnTypes::UNKNOWN;
 

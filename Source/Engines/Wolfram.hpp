@@ -1,5 +1,4 @@
 #pragma once
-
 #ifdef WSINTERFACE
 #include "../Engine.hpp"
 #include <wstp.h>
@@ -16,7 +15,7 @@ public:
   Engine(Engine&&) = default;
   Engine& operator=(Engine&&) = default;
   Engine();
-  Expression::ReturnType evaluate(Expression const& e);
+  Expression evaluate(Expression const& e);
   ~Engine();
   friend class EngineImplementation;
 };
