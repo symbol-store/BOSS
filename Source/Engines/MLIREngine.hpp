@@ -10,7 +10,7 @@ public:
   Engine(Engine&&) = default;
   Engine& operator=(Engine&&) = default;
   Engine() = default;
-  Expression::ReturnType evaluate(Expression const& e);
+  Expression evaluate(Expression const& e);
   ~Engine() = default;
 };
 

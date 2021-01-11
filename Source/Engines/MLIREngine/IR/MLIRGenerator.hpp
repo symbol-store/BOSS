@@ -11,7 +11,7 @@
 class MLIRGenerator {
 public:
   MLIRGenerator();
-  mlir::OwningModuleRef generateModule(Expression const& e);
+  mlir::OwningModuleRef generateModule(boss::Expression const& e);
 
 private:
   mlir::MLIRContext context;
@@ -19,5 +19,6 @@ private:
   mlir::ModuleOp theModule;
   std::stack<std::optional<mlir::Value>> values;
 
-  void visitExpression(Expression const& e);
+  void visitExpression(boss::Expression const& e);
+  void visitComplexExpression(boss::ComplexExpression const& e);
 };
