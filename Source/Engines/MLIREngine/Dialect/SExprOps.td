@@ -58,7 +58,7 @@ def SymbolOp: SExpr_Op<"symbol", [DeclareOpInterfaceMethods<TypeInferenceOpInter
 
   let builders = [
     // Build a symbol from the name and inputs.
-    OpBuilder<"const std::string& name, mlir::ValueRange">
+    OpBuilder<"std::string name, mlir::ValueRange">
   ];
 
   let results = (outs

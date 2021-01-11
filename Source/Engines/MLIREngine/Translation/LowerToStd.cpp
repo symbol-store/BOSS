@@ -128,6 +128,13 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
       rewriter.restoreInsertionPoint(savedPoint);
       offset += currentLength;
     }
+    auto zeroTerminator =
+        rewriter.create<mlir::ConstantIntOp, int64_t, unsigned>(rewriter.getUnknownLoc(), 0, 8);
+    auto endIndex =
+        rewriter.create<mlir::ConstantIndexOp, int64_t>(rewriter.getUnknownLoc(), stringLength - 1);
+    rewriter.create<StoreOp, Value, Value, ValueRange>(
+        rewriter.getUnknownLoc(), zeroTerminator.getResult(), allocatedMemory.getResult(),
+        endIndex.getResult());
 
     rewriter.replaceOp(s.getOperation(), allocatedMemory.getResult());
     return success();

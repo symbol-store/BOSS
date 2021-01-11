@@ -4,17 +4,22 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect.h"
 #include "Engines/MLIREngine/Dialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/TypeInferenceInterface.h"
+#include <exception>
 #include <iostream>
+#include <map>
 #include <mlir/IR/OpImplementation.h>
 #include <mlir/IR/OperationSupport.h>
+#include <mlir/IR/Types.h>
 
 #define GET_OP_CLASSES
 #include "SExprOps.cpp.inc"
 
 #include "TypeInferenceInterface.cpp.inc"
 
+// ================ Builders =====================================
+
 void mlir::sexpr::SymbolOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
-                                  const std::string& name, mlir::ValueRange vals) {
+                                  std::string name, mlir::ValueRange vals) {
 
   odsState.addAttribute("name", odsBuilder.getStringAttr(name));
   odsState.addOperands(vals);
@@ -22,6 +27,65 @@ void mlir::sexpr::SymbolOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Operati
       odsBuilder.getType<SymbolOrValueType, sexprtype::SymbolOrValue, llvm::Optional<Type>>(
           sexprtype::SymbolOrValue::UNKNOWN, llvm::Optional<Type>{}));
 }
+
+// ================ Type Inference ===============================
+
+// ==== Functions to infer type of operator results ====
+
+inline mlir::Type inferArithmeticType(mlir::sexpr::SymbolOp& symbol) {
+  auto const& types = symbol.getOperandTypes();
+  Optional<Type> baseType;
+  // Check all input types are the same
+  for(const auto& type : types) {
+    // Check that it is an integer
+    // Cast is safe as this is already checked
+    if(!type.cast<SymbolOrValueType>().getBaseType().isIntOrIndexOrFloat()) {
+      throw std::runtime_error("Expected a type for arithmetic operation");
+    }
+    // Check that all args are of the same type
+    if(baseType.hasValue()) {
+      if(baseType.getValue() != type) {
+        throw std::runtime_error("Expected a type for arithmetic operation");
+      }
+    } else {
+      baseType = type;
+    }
+  }
+
+  if(!baseType.hasValue()) {
+    throw std::runtime_error("Expected a type for arithmetic operation");
+  }
+
+  return baseType.getValue().dyn_cast<SymbolOrValueType>().getBaseType();
+}
+
+// Returns base type that was inferred
+const std::map<std::string,
+               std::function<mlir::Type(mlir::sexpr::SymbolOp&, sexprtype::SymbolOrValue)>>
+    operatorToType{{"Plus", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
+                   {"Minus", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
+                   {"Mul", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
+                   {"Div", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
+                   //  {"Eval", [](auto& symbol, auto sOrV) { return symbol.getArgumentType(); }},
+                   {"StringJoin", [](auto& symbol, auto sOrV) {
+                      if(sOrV != sexprtype::SymbolOrValue::VALUE) {
+                        return StringType::get(symbol.getContext(), 0);
+                      };
+                      int length = 0;
+                      for(const auto& type : symbol.getOperandTypes()) {
+                        auto val = type.template dyn_cast<SymbolOrValueType>()
+                                       .getBaseType()
+                                       .template dyn_cast<StringType>();
+                        if(!val) {
+                          throw std::runtime_error("Expected a string as argument");
+                        }
+                        length += val.getLength();
+                      }
+
+                      return StringType::get(symbol.getContext(), length);
+                    }}};
+
+// ==== Entry point functions for type inference =======
 
 void mlir::sexpr::IntegerConstantOp::inferType() {
   auto currentType = getResult().getType().cast<SymbolOrValueType>();
@@ -35,24 +99,24 @@ void mlir::sexpr::IntegerConstantOp::inferType() {
 void mlir::sexpr::SymbolOp::inferType() {
   const auto& types = this->getOperandTypes();
 
-  Optional<Type> baseType{};
+  // Verify that we have a symbol or value type
   bool hasSymbol = false;
   for(const auto& someType : types) {
-    auto type = someType.cast<SymbolOrValueType>();
-    baseType = type.getBaseType();
+    auto type = someType.dyn_cast<SymbolOrValueType>();
+
+    if(!type) {
+      throw std::runtime_error("Expected Symbol or Value Type");
+    }
+
     hasSymbol = hasSymbol || type.isSymbolic() == sexprtype::SymbolOrValue::SYMBOL;
   }
-
-  auto currentType = getResult().getType().cast<SymbolOrValueType>();
 
   sexprtype::SymbolOrValue symOrVal =
       hasSymbol ? sexprtype::SymbolOrValue::SYMBOL : sexprtype::SymbolOrValue::VALUE;
 
-  auto newType = SymbolOrValueType::get(currentType.getContext(), symOrVal, baseType);
-
-  // if(!baseType.hasValue()) {
-  //   throw std::runtime_error("Could not infer type");
-  // }
+  // Infer base type
+  auto baseType = operatorToType.at(std::string(this->name()))(*this, symOrVal);
+  auto newType = SymbolOrValueType::get(this->getContext(), symOrVal, baseType);
 
   this->getResult().setType(newType);
 }

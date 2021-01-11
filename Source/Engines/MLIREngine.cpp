@@ -57,7 +57,7 @@ Expression::ReturnType Engine::evaluate(Expression const& e) {
 
   auto module = generator.generateModule(e);
 
-  module->dump();
+  // module->dump();
 
   sexprtype::ReturnTypes returnType = sexprtype::ReturnTypes::UNKNOWN;
 
@@ -74,11 +74,15 @@ Expression::ReturnType Engine::evaluate(Expression const& e) {
     throw std::runtime_error("Compilation failed");
   }
 
+  // module->dump();
+
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);
   if(!llvmModule) {
     throw std::runtime_error("Compilation failed");
   }
+
+  // module->dump();
 
   auto jitResult = runJit(module.get());
 
@@ -88,7 +92,7 @@ Expression::ReturnType Engine::evaluate(Expression const& e) {
   case sexprtype::ReturnTypes::STRING:
     return std::string{reinterpret_cast<const char*>(jitResult)};
   default:
-    throw std::runtime_error("Unknown");
+    throw std::runtime_error("Return Type is Unknown");
   }
 }
 
