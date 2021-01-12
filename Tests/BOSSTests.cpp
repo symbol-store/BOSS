@@ -12,16 +12,25 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
     return e.evaluate(expression);
   };
 
-  SECTION("Basics") {
+  SECTION("Addition") {
     REQUIRE(get<int>(eval("Plus"_(5, 4))) == 9); // NOLINT
     REQUIRE(get<int>(eval("Plus"_(5, 2, 2))) == 9);
     REQUIRE(get<int>(eval("Plus"_(5, 2, 2))) == 9);
     REQUIRE(get<int>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
     REQUIRE(get<int>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
+  }
+
+  SECTION("Strings") {
     REQUIRE(get<string>(eval("StringJoin"_((string) "howdie", (string) " ", (string) "world"))) ==
             "howdie world");
+  }
+
+  SECTION("Booleans") {
     REQUIRE(get<bool>(eval("Greater"_(5, 2))));
     REQUIRE(!get<bool>(eval("Greater"_(2, 5))));
+  }
+
+  SECTION("Symbols") {
     REQUIRE(get<boss::Symbol>(eval("Symbol"_((string) "x"))).getName() == "x");
     REQUIRE(get<boss::ComplexExpression>(eval("UndefinedFunction"_(9))).getHead().getName() ==
             "UndefinedFunction");
