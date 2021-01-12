@@ -1,4 +1,5 @@
 #include "Engines/MLIREngine/IR/MLIRGenerator.hpp"
+#include "Engines/MLIREngine/Dialect/MemoryDialect.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect.h"
 #include "Engines/MLIREngine/Dialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprTypes.h"
@@ -17,6 +18,7 @@
 MLIRGenerator::MLIRGenerator() : builder(&context) {
   context.getOrLoadDialect<mlir::sexpr::SExprDialect>();
   context.getOrLoadDialect<scf::SCFDialect>();
+  context.getOrLoadDialect<mlir::memory::MemoryDialect>();
 
   theModule = mlir::ModuleOp::create(builder.getUnknownLoc());
   builder.clearInsertionPoint();

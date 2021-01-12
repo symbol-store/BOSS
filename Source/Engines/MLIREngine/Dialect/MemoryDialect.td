@@ -1,5 +1,5 @@
-#ifndef SEXPR_DIALECT
-#define SEXPR_DIALECT
+#ifndef MEMORY_DIALECT
+#define MEMORY_DIALECT
 
 include "mlir/IR/OpBase.td"
 
@@ -7,20 +7,20 @@ include "mlir/IR/OpBase.td"
 // Standalone dialect definition.
 //===----------------------------------------------------------------------===//
 
-def SExpr_Dialect : Dialect {
-    let name = "sexpr";
-    let summary = "S-Expression Dialect";
+def Memory_Dialect : Dialect {
+    let name = "memory";
+    let summary = "Memory Dialect";
     let description = [{
-        This dialect represents S-Expressions.
+        This dialect represents memory operations for s-expression allocation.
     }];
-    let cppNamespace = "::mlir::sexpr";
+    let cppNamespace = "::mlir::memory";
 }
 
 //===----------------------------------------------------------------------===//
 // Base standalone operation definition.
 //===----------------------------------------------------------------------===//
 
-class SExpr_Op<string mnemonic, list<OpTrait> traits = []> :
-        Op<SExpr_Dialect, mnemonic, traits>;
+class Memory_Op<string mnemonic, list<OpTrait> traits = []> :
+        Op<Memory_Dialect, mnemonic, traits>;
 
 #endif // STANDALONE_DIALECT

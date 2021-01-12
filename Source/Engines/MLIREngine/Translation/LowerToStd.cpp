@@ -1,3 +1,5 @@
+#include "Engines/MLIREngine/Dialect/MemoryDialect.h"
+#include "Engines/MLIREngine/Dialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect.h"
 #include "Engines/MLIREngine/Dialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprTypes.h"
@@ -248,6 +250,9 @@ struct ConstantStringOpLowering : public OpConversionPattern<sexpr::StringConsta
                                                        allocatedMemory.getResult(),
                                                        loop.getInductionVar());
 
+    rewriter.create<memory::PrintMemrefOp, Value>(rewriter.getUnknownLoc(),
+                                                  allocatedMemory.getResult());
+
     rewriter.restoreInsertionPoint(insertionPoint);
 
     return success();
@@ -320,7 +325,8 @@ void SexprToStdLoweringPass::runOnFunction() {
   });
 
   // Register legality of dialects and operations
-  target.addLegalDialect<mlir::StandardOpsDialect, mlir::scf::SCFDialect>();
+  target.addLegalDialect<mlir::StandardOpsDialect, mlir::scf::SCFDialect,
+                         mlir::memory::MemoryDialect>();
   target.addIllegalDialect<sexpr::SExprDialect>();
   target.addLegalOp<FuncOp>();
   target.addDynamicallyLegalOp<mlir::CallOp>(

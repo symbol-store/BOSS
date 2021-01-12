@@ -23,9 +23,12 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 
+#include <stdio.h>
+
 #include <stdexcept>
 
 namespace boss::engines::mlir {
+
 // Run the module in the LLVM JIT
 int64_t runJit(::mlir::ModuleOp module) {
   llvm::InitializeNativeTarget();
@@ -42,6 +45,8 @@ int64_t runJit(::mlir::ModuleOp module) {
 
   void* args[1] = {(void*)&output}; // NOLINT
 
+  // engine->registerSymbols(llvm::function_ref(sayHello));
+
   auto status = engine->invoke("entry", args);
   if(status) {
     llvm::errs() << "JIT invocation failed\n";
@@ -57,8 +62,6 @@ Expression Engine::evaluate(Expression const& e) {
 
   auto module = generator.generateModule(e);
 
-  module->dump();
-
   sexprtype::ReturnTypes returnType = sexprtype::ReturnTypes::UNKNOWN;
 
   ::mlir::PassManager passManager(module->getContext());
@@ -70,11 +73,11 @@ Expression Engine::evaluate(Expression const& e) {
   passManager.addPass(::mlir::createInlinerPass());
   passManager.addPass(createLowerToLLVMPass());
 
+  module->dump();
+
   if(::mlir::failed(passManager.run(module.get()))) {
     throw std::runtime_error("Compilation failed");
   }
-
-  // module->dump();
 
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);

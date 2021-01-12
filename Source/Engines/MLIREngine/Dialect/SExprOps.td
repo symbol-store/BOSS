@@ -1,5 +1,5 @@
-#ifndef STANDALONE_OPS
-#define STANDALONE_OPS
+#ifndef SEXPR_OPS
+#define SEXPR_OPS
 
 include "SExprDialect.td"
 include "mlir/IR/OpBase.td"

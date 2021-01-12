@@ -8,12 +8,30 @@ add_mlir_interface(TypeInferenceInterface
 )
 
 add_mlir_dialect_library(MLIRSExpr
-        SExprOps.cpp
-        SExprDialect.cpp
+  SExprOps.cpp
+  SExprDialect.cpp
+  MemoryOps.cpp
+  MemoryDialect.cpp
 
-        DEPENDS
-        MLIRSExprOpsIncGen
+  DEPENDS
+  MLIRSExprOpsIncGen
+  MLIRMemoryOpsIncGen
 
 	LINK_LIBS PUBLIC
 	MLIRIR
+)
+
+add_mlir_dialect(MemoryOps memory)
+
+add_mlir_dialect_library(MLIRMemory
+  MemoryOps.cpp
+  MemoryDialect.cpp
+  SExprOps.cpp
+  SExprDialect.cpp
+
+  DEPENDS
+  MLIRMemoryOpsIncGen
+  MLIRSExprOpsIncGen
+
+  LINK_LIBS PUBLIC MLIRIR
 )
