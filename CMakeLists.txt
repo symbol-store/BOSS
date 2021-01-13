@@ -89,8 +89,6 @@ find_package(Threads REQUIRED)
 # ========= MLIR Egine Source Files =============
 # MLIR Engine Implementation Files
 set(MLIREngineImplFiles
-  Source/Engines/MLIREngine/AST/Expression.cpp
-  Source/Engines/MLIREngine/Print/PrintVisitor.cpp
   Source/Engines/MLIREngine/Analysis/TypeInferencePass.cpp
   Source/Engines/MLIREngine/IR/MLIRGenerator.cpp
   Source/Engines/MLIREngine.cpp
