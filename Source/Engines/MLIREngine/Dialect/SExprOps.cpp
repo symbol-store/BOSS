@@ -59,6 +59,33 @@ inline mlir::Type inferArithmeticType(mlir::sexpr::SymbolOp& symbol) {
   return baseType.getValue().dyn_cast<SymbolOrValueType>().getBaseType();
 }
 
+static auto inferBooleanCompareFunction = [](auto& symbol, auto sOrV) {
+  auto const& types = symbol.getOperandTypes();
+  Optional<Type> baseType;
+  // Check all input types are the same
+  for(const auto& type : types) {
+    // Check that it is an integer
+    // Cast is safe as this is already checked
+    if(!type.template cast<SymbolOrValueType>().getBaseType().isIntOrFloat()) {
+      throw std::runtime_error("Expected a type for arithmetic operation");
+    }
+    // Check that all args are of the same type
+    if(baseType.hasValue()) {
+      if(baseType.getValue() != type) {
+        throw std::runtime_error("Expected a type for arithmetic operation");
+      }
+    } else {
+      baseType = type;
+    }
+  }
+
+  if(!baseType.hasValue()) {
+    throw std::runtime_error("Expected a type for arithmetic operation");
+  }
+
+  return IntegerType::get(1, symbol.getContext());
+};
+
 // Returns base type that was inferred
 const std::map<std::string,
                std::function<mlir::Type(mlir::sexpr::SymbolOp&, sexprtype::SymbolOrValue)>>
@@ -67,6 +94,7 @@ const std::map<std::string,
                    {"Mul", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
                    {"Div", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
                    //  {"Eval", [](auto& symbol, auto sOrV) { return symbol.getArgumentType(); }},
+                   {"Greater", inferBooleanCompareFunction},
                    {"StringJoin", [](auto& symbol, auto sOrV) {
                       if(sOrV != sexprtype::SymbolOrValue::VALUE) {
                         return StringType::get(symbol.getContext(), 0);

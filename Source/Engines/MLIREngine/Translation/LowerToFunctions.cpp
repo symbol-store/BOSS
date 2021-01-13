@@ -66,7 +66,10 @@ void setReturnType(sexprtype::ReturnTypes& returnType, mlir::Type const& actualT
   if(baseType.isa<StringType>()) {
     returnType = sexprtype::ReturnTypes::STRING;
   } else if(baseType.isa<IntegerType>()) {
-    returnType = sexprtype::ReturnTypes::INT;
+    if(baseType.cast<IntegerType>().getWidth() == 1)
+      returnType = sexprtype::ReturnTypes::BOOLEAN; // Is boolean
+    else
+      returnType = sexprtype::ReturnTypes::INT; // Is integer
   } else {
     returnType = sexprtype::ReturnTypes::UNKNOWN;
   }

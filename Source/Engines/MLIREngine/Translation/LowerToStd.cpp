@@ -142,11 +142,21 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
     return success();
   }
 
+  template <CmpIPredicate cmpPred>
+  LogicalResult replaceBooleanCompareOp(sexpr::SymbolOp s, ArrayRef<Value> operands,
+                                        ConversionPatternRewriter& rewriter) const {
+    auto cmpOp = rewriter.create<mlir::CmpIOp>(s.getLoc(), cmpPred, operands[0], operands[1]);
+    rewriter.replaceOp(s.getOperation(), cmpOp.result());
+
+    return success();
+  }
+
   LogicalResult matchAndRewrite(sexpr::SymbolOp s, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
 
     auto symbolName = s.name();
 
+    // Todo use const map as dispatch table
     if(symbolName == "Plus") {
       return replaceBinaryOp<mlir::AddIOp>(s, rewriter);
     }
@@ -165,6 +175,9 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
     }
     if(symbolName == "StringJoin") {
       return rewriteStringJoin(s, operands, rewriter);
+    }
+    if(symbolName == "Greater") {
+      return replaceBooleanCompareOp<CmpIPredicate::sgt>(s, operands, rewriter);
     }
 
     return failure();
