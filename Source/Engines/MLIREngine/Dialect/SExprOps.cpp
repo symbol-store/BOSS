@@ -32,7 +32,7 @@ void mlir::sexpr::SymbolOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Operati
 
 // ==== Functions to infer type of operator results ====
 
-inline mlir::Type inferArithmeticType(mlir::sexpr::SymbolOp& symbol) {
+static auto inferArithmeticType = [](mlir::sexpr::SymbolOp& symbol, auto sOrV) {
   auto const& types = symbol.getOperandTypes();
   Optional<Type> baseType;
   // Check all input types are the same
@@ -57,7 +57,7 @@ inline mlir::Type inferArithmeticType(mlir::sexpr::SymbolOp& symbol) {
   }
 
   return baseType.getValue().dyn_cast<SymbolOrValueType>().getBaseType();
-}
+};
 
 static auto inferBooleanCompareFunction = [](auto& symbol, auto sOrV) {
   auto const& types = symbol.getOperandTypes();
@@ -89,12 +89,17 @@ static auto inferBooleanCompareFunction = [](auto& symbol, auto sOrV) {
 // Returns base type that was inferred
 const std::map<std::string,
                std::function<mlir::Type(mlir::sexpr::SymbolOp&, sexprtype::SymbolOrValue)>>
-    operatorToType{{"Plus", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
-                   {"Minus", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
-                   {"Mul", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
-                   {"Div", [](auto& symbol, auto sOrV) { return inferArithmeticType(symbol); }},
-                   //  {"Eval", [](auto& symbol, auto sOrV) { return symbol.getArgumentType(); }},
+    operatorToType{{"Plus", inferArithmeticType},
+                   {"Minus", inferArithmeticType},
+                   {"Mul", inferArithmeticType},
+                   {"Div", inferArithmeticType},
                    {"Greater", inferBooleanCompareFunction},
+                   {"Symbol",
+                    [](auto& symbol, auto sOrV) {
+                      return SymbolOrValueType::get(symbol.getContext(),
+                                                    sexprtype::SymbolOrValue::SYMBOL,
+                                                    llvm::Optional<Type>{});
+                    }},
                    {"StringJoin", [](auto& symbol, auto sOrV) {
                       if(sOrV != sexprtype::SymbolOrValue::VALUE) {
                         return StringType::get(symbol.getContext(), 0);
@@ -144,9 +149,14 @@ void mlir::sexpr::SymbolOp::inferType() {
 
   // Infer base type
   auto baseType = operatorToType.at(std::string(this->name()))(*this, symOrVal);
-  auto newType = SymbolOrValueType::get(this->getContext(), symOrVal, baseType);
 
-  this->getResult().setType(newType);
+  // TODO is this right?
+  if(baseType.isa<SymbolOrValueType>()) {
+    this->getResult().setType(baseType);
+  } else {
+    auto newType = SymbolOrValueType::get(this->getContext(), symOrVal, baseType);
+    this->getResult().setType(newType);
+  }
 }
 
 void mlir::sexpr::StringConstantOp::inferType() {
@@ -175,10 +185,10 @@ void mlir::sexpr::EndOp::inferType() {
     return;
   }
 
-  auto resultType = parent.getResult().getType();
+  // auto resultType = parent.getResult().getType();
 
-  auto newType = SymbolOrValueType::get(resultType.getContext(), inputType.isSymbolic(),
-                                        inputType.getBaseTypeChecked());
+  // auto newType = SymbolOrValueType::get(resultType.getContext(), inputType.isSymbolic(),
+  //                                       inputType.getBaseTypeChecked());
 
-  parent.getResult().setType(newType);
+  parent.getResult().setType(inputType);
 }

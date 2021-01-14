@@ -61,6 +61,11 @@ void setReturnType(sexprtype::ReturnTypes& returnType, mlir::Type const& actualT
   }
 
   auto symbolOrValue = actualType.cast<SymbolOrValueType>();
+  if(symbolOrValue.isSymbolic() == sexprtype::SymbolOrValue::SYMBOL) {
+    returnType = sexprtype::ReturnTypes::SYMBOL;
+    return;
+  }
+
   auto baseType = symbolOrValue.getBaseType();
 
   if(baseType.isa<StringType>()) {
@@ -86,12 +91,13 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
   auto rootCombine = mlir::dyn_cast<sexpr::CombineOp, Operation>(getOperation().getBody()->front());
 
   if(!rootCombine) {
-    return;
+    throw std::runtime_error("Expecting combine at root");
   }
 
   builder.setInsertionPointToStart(moduleBody);
 
   auto rootType = rootCombine.getResult().getType();
+  rootCombine.dump();
 
   // Mark the root type so we know what value to extract from JIT after executing
   setReturnType(returnType, rootType);

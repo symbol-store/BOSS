@@ -92,6 +92,7 @@ set(MLIREngineImplFiles
   Source/Engines/MLIREngine/Analysis/TypeInferencePass.cpp
   Source/Engines/MLIREngine/IR/MLIRGenerator.cpp
   Source/Engines/MLIREngine.cpp
+  Source/Engines/MLIREngine/Runtime/Runtime.cpp
 )
 
 # Get MLIR dialect and conversion libraries

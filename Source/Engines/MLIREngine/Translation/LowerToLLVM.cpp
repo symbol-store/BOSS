@@ -1,4 +1,5 @@
 #include "Engines/MLIREngine/Dialect/MemoryOps.h"
+#include "Engines/MLIREngine/Dialect/SExprTypes.h"
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
 #include <mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
@@ -7,6 +8,8 @@
 
 namespace {
 using namespace mlir;
+
+static StringRef sExprStructName{"SExpressionStruct"};
 
 /// Return a symbol reference to the printf function, inserting it into the
 /// module if necessary.
@@ -27,6 +30,25 @@ static FlatSymbolRefAttr getOrInsertPrintf(PatternRewriter& rewriter, ModuleOp m
   rewriter.setInsertionPointToStart(module.getBody());
   rewriter.create<LLVM::LLVMFuncOp>(module.getLoc(), "printf", llvmFnType);
   return SymbolRefAttr::get("printf", context);
+}
+
+static FlatSymbolRefAttr getOrInsertAllocSymbol(PatternRewriter& rewriter, ModuleOp module) {
+  auto* context = module.getContext();
+  if(module.lookupSymbol<LLVM::LLVMFuncOp>("allocateSymbol"))
+    return SymbolRefAttr::get("allocateSymbol", context);
+
+  // Create signature
+  auto argType = LLVM::LLVMType::getInt8PtrTy(context);
+  auto returnType =
+      LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, sExprStructName));
+  auto funcType = LLVM::LLVMType::getFunctionTy(returnType, argType,
+                                                /*isVarArg=*/false);
+
+  // Insert the printf function into the body of the parent module.
+  PatternRewriter::InsertionGuard insertGuard(rewriter);
+  rewriter.setInsertionPointToStart(module.getBody());
+  rewriter.create<LLVM::LLVMFuncOp>(module.getLoc(), "allocateSymbol", funcType);
+  return SymbolRefAttr::get("allocateSymbol", context);
 }
 
 /// Return a value representing an access into a global string with the given
@@ -86,6 +108,35 @@ struct PrintMemrefOpLowering : public OpConversionPattern<memory::PrintMemrefOp>
   TypeConverter& converter;
 };
 
+struct AllocateSymbolOpLowering : public OpConversionPattern<memory::AllocateSymbolOp> {
+  AllocateSymbolOpLowering(MLIRContext* ctx, TypeConverter& converter)
+      : OpConversionPattern(ctx), converter(converter) {}
+
+  LogicalResult matchAndRewrite(memory::AllocateSymbolOp allocOp, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+
+    auto* context = allocOp.getContext();
+    auto loc = allocOp.getLoc();
+    ModuleOp parentModule = allocOp.getParentOfType<ModuleOp>();
+
+    auto allocExprRef = getOrInsertAllocSymbol(rewriter, parentModule);
+
+    auto barePtr = rewriter.create<LLVM::ExtractValueOp, Type, Value const&, ArrayAttr>(
+        loc, LLVM::LLVMType::getInt8PtrTy(context), operands[0], rewriter.getI64ArrayAttr(0));
+
+    auto allocExprCall = rewriter.create<LLVM::CallOp>(
+        loc,
+        LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, sExprStructName)),
+        allocExprRef, barePtr.getResult());
+
+    rewriter.replaceOp(allocOp.getOperation(), allocExprCall.getResults());
+
+    return success();
+  }
+
+  TypeConverter& converter;
+};
+
 void SexprToLLVMLoweringPass::runOnOperation() {
   LLVMConversionTarget target(getContext());
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
@@ -95,11 +146,25 @@ void SexprToLLVMLoweringPass::runOnOperation() {
 
   LLVMTypeConverter typeConverter(&getContext(), options);
 
+  auto sExprStruct = LLVM::LLVMStructType::createStructTy(&getContext(), sExprStructName);
+  sExprStruct.cast<LLVM::LLVMStructType>().setBody(
+      {LLVM::LLVMType::getInt8PtrTy(&getContext()),
+       LLVM::LLVMPointerType::get(
+           LLVM::LLVMStructType::getIdentified(&getContext(), sExprStructName))},
+      false);
+
+  typeConverter.addConversion([](SymbolOrValueType t) -> llvm::Optional<Type> {
+    if(t.isSymbolic() == sexprtype::SymbolOrValue::SYMBOL)
+      return LLVM::LLVMPointerType::get(
+          LLVM::LLVMStructType::getIdentified(t.getContext(), sExprStructName));
+    return llvm::Optional<Type>{};
+  });
+
   OwningRewritePatternList patterns;
   populateLoopToStdConversionPatterns(patterns, &getContext());
   populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
-  patterns.insert<PrintMemrefOpLowering>(&getContext(), typeConverter);
+  patterns.insert<PrintMemrefOpLowering, AllocateSymbolOpLowering>(&getContext(), typeConverter);
 
   auto module = getOperation();
 
@@ -108,7 +173,7 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   if(failed(applyFullConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
-}
+} // namespace
 }; // namespace
 
 std::unique_ptr<mlir::Pass> createLowerToLLVMPass() {

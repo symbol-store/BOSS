@@ -188,6 +188,13 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
     if(symbolName == "Greater") {
       return replaceBooleanCompareOp<CmpIPredicate::sgt>(s, operands, rewriter);
     }
+    if(symbolName == "Symbol") {
+      auto allocOp =
+          rewriter.create<memory::AllocateSymbolOp, Value const&>(s.getLoc(), operands[0]);
+      rewriter.replaceOp(s.getOperation(), allocOp.getResult());
+
+      return success();
+    }
 
     return failure();
   }
@@ -318,7 +325,7 @@ void SexprToStdLoweringPass::runOnFunction() {
     if(t.isSymbolic() == sexprtype::SymbolOrValue::VALUE) {
       return c.convertType(t.getBaseType());
     }
-    return llvm::None;
+    return llvm::Optional<Type>{};
   });
   c.addConversion([&c](FunctionType t) -> llvm::Optional<Type> {
     auto resultTypes = t.getResults();

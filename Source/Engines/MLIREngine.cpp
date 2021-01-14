@@ -2,6 +2,7 @@
 #include "Engines/MLIREngine/Analysis/AnalysisPasses.hpp"
 #include "Engines/MLIREngine/Dialect/SExprTypes.h"
 #include "Engines/MLIREngine/IR/MLIRGenerator.hpp"
+#include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Translation/SexprToFunctions.hpp"
 #include "Engines/MLIREngine/Translation/SexprToLLVM.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
@@ -95,6 +96,8 @@ Expression Engine::evaluate(Expression const& e) {
     return std::string{reinterpret_cast<const char*>(jitResult)};
   case sexprtype::ReturnTypes::BOOLEAN:
     return static_cast<bool>(jitResult);
+  case sexprtype::ReturnTypes::SYMBOL:
+    return Symbol{reinterpret_cast<SExpression*>(jitResult)->head};
   default:
     throw std::runtime_error("Return Type is Unknown");
   }
