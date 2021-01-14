@@ -42,6 +42,31 @@ struct EndOpLowering : public OpConversionPattern<sexpr::EndOp> {
   TypeConverter& converter;
 };
 
+/// Create a loop to copy from memref source to memref target + offset
+static LogicalResult createStringCopyLoop(Value const& source, Value const& target, int length,
+                                          ConversionPatternRewriter& rewriter,
+                                          Value const& targetOffset) {
+  // Create loop
+  auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
+  auto upperBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), length);
+  auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
+  auto loop = rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
+  PatternRewriter::InsertionGuard insertionGuard(rewriter);
+  rewriter.setInsertionPointToStart(loop.getBody());
+
+  // Load value from source + loop, store to target + loop + targetOffset
+  auto load = rewriter.create<LoadOp, Value const&, ValueRange>(rewriter.getUnknownLoc(), source,
+                                                                loop.getInductionVar());
+
+  auto offset = rewriter.create<AddIOp, Type, Value, Value const&>(
+      rewriter.getUnknownLoc(), rewriter.getIndexType(), loop.getInductionVar(), targetOffset);
+
+  rewriter.create<StoreOp, Value, Value const&, ValueRange>(
+      rewriter.getUnknownLoc(), load.getResult(), target, offset.getResult());
+
+  return success();
+}
+
 struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
   SymbolOpLowering(MLIRContext* ctx, TypeConverter& converter)
       : OpConversionPattern(ctx), converter(converter) {}
@@ -108,26 +133,10 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
     for(auto const& operand : operands) {
       auto currentLength = operand.getType().cast<MemRefType>().getDimSize(0) - 1;
 
-      auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), offset);
-      auto upperBound =
-          rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), offset + currentLength);
-      auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
-      auto loop =
-          rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
-
-      auto savedPoint = rewriter.saveInsertionPoint();
-      rewriter.setInsertionPointToStart(loop.getBody());
       auto offsetVal = rewriter.create<ConstantIndexOp, int64_t&>(rewriter.getUnknownLoc(), offset);
-      auto loadPosition = rewriter.create<SubIOp, TypeRange, Value, Value>(
-          rewriter.getUnknownLoc(), rewriter.getIndexType(), loop.getInductionVar(),
-          offsetVal.getResult());
-      auto load = rewriter.create<LoadOp, Value const&, ValueRange>(
-          rewriter.getUnknownLoc(), operand, loadPosition.getResult());
-      rewriter.create<StoreOp, Value, Value, ValueRange>(rewriter.getUnknownLoc(), load.getResult(),
-                                                         allocatedMemory.getResult(),
-                                                         loop.getInductionVar());
+      createStringCopyLoop(operand, allocatedMemory.getResult(), currentLength, rewriter,
+                           offsetVal);
 
-      rewriter.restoreInsertionPoint(savedPoint);
       offset += currentLength;
     }
     auto zeroTerminator =
@@ -222,6 +231,7 @@ struct ConstantStringOpLowering : public OpConversionPattern<sexpr::StringConsta
     auto memRefType =
         MemRefType::get({static_cast<int64_t>(stringLength)}, rewriter.getIntegerType(8));
 
+    // Set insertino point to main module body to insert global string
     auto currentLocation = rewriter.saveInsertionPoint();
     rewriter.setInsertionPointToStart(op.getParentOfType<ModuleOp>().getBody());
 
@@ -239,34 +249,21 @@ struct ConstantStringOpLowering : public OpConversionPattern<sexpr::StringConsta
             ArrayRef<int8_t>(stringWithNullTerminator)),
         false);
 
+    // Restore insertion point to current function
     rewriter.restoreInsertionPoint(currentLocation);
 
+    // Get memory for a) global string just created and b) local copy
     auto memref = rewriter.create<mlir::GetGlobalMemrefOp, Type&, StringRef>(
         rewriter.getUnknownLoc(), memRefType, std::to_string(currentString));
-
     auto allocatedMemory =
         rewriter.create<AllocOp, MemRefType&>(rewriter.getUnknownLoc(), memRefType);
+    auto offset = rewriter.create<ConstantIndexOp, int64_t>(op.getLoc(), 0);
+    createStringCopyLoop(memref.getResult(), allocatedMemory.getResult(), stringLength, rewriter,
+                         offset.getResult());
 
-    rewriter.setInsertionPointAfter(allocatedMemory);
-
-    auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
-    auto upperBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), stringLength);
-    auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
-    auto loop = rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
     rewriter.replaceOp(op.getOperation(), allocatedMemory.getResult());
-
-    auto insertionPoint = rewriter.saveInsertionPoint();
-    rewriter.setInsertionPointToStart(loop.getBody());
-    auto load = rewriter.create<LoadOp, Value, ValueRange>(
-        rewriter.getUnknownLoc(), memref.getResult(), loop.getInductionVar());
-    rewriter.create<StoreOp, Value, Value, ValueRange>(rewriter.getUnknownLoc(), load.getResult(),
-                                                       allocatedMemory.getResult(),
-                                                       loop.getInductionVar());
-
     rewriter.create<memory::PrintMemrefOp, Value>(rewriter.getUnknownLoc(),
                                                   allocatedMemory.getResult());
-
-    rewriter.restoreInsertionPoint(insertionPoint);
 
     return success();
   }

@@ -1,9 +1,7 @@
 #include "Engines/MLIREngine.hpp"
-#include "Engines/MLIREngine/AST/Expression.hpp"
 #include "Engines/MLIREngine/Analysis/AnalysisPasses.hpp"
 #include "Engines/MLIREngine/Dialect/SExprTypes.h"
 #include "Engines/MLIREngine/IR/MLIRGenerator.hpp"
-#include "Engines/MLIREngine/Print/PrintVisitor.hpp"
 #include "Engines/MLIREngine/Translation/SexprToFunctions.hpp"
 #include "Engines/MLIREngine/Translation/SexprToLLVM.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
@@ -82,6 +80,7 @@ Expression Engine::evaluate(Expression const& e) {
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);
   if(!llvmModule) {
+    llvmModule->dump();
     throw std::runtime_error("Compilation failed");
   }
 

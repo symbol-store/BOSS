@@ -102,6 +102,9 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   patterns.insert<PrintMemrefOpLowering>(&getContext(), typeConverter);
 
   auto module = getOperation();
+
+  module.dump();
+
   if(failed(applyFullConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
