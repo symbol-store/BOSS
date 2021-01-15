@@ -1,5 +1,6 @@
 #include "Engines/MLIREngine/Dialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
 #include <mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
@@ -177,14 +178,17 @@ struct AllocateSymbolicFunctionOpLowering
     // Insert arguments into the symbols
     auto insertArgExprRef = getOrInsertAllocArgsSymbol(rewriter, parentModule);
 
-    SmallVector<Value, 4> args;
+    // Remove first operand: This is the function name pointer
+    auto functionArguments = operands.drop_front(1);
 
+    // Push arguments for allocArguments call
+    SmallVector<Value, 4> args;
     args.push_back(allocExprCall.getResult(0));
     auto numArgsValue = rewriter.create<LLVM::ConstantOp>(
         loc, LLVM::LLVMIntegerType::get(context, 64),
-        IntegerAttr::get(IndexType::get(context), operands.size()));
+        IntegerAttr::get(IndexType::get(context), functionArguments.size()));
     args.push_back(numArgsValue.getResult());
-    args.append(operands.begin(), operands.end());
+    args.append(functionArguments.begin(), functionArguments.end());
 
     rewriter.create<LLVM::CallOp>(loc, LLVM::LLVMVoidType::get(context), insertArgExprRef, args);
 
@@ -230,8 +234,6 @@ void SexprToLLVMLoweringPass::runOnOperation() {
           &getContext(), typeConverter);
 
   auto module = getOperation();
-
-  module.dump();
 
   if(failed(applyFullConversion(module, target, std::move(patterns)))) {
     signalPassFailure();

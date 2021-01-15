@@ -33,8 +33,11 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine,
 
   SECTION("Symbols") {
     REQUIRE(get<boss::Symbol>(eval("Symbol"_((string) "x"))).getName() == "x");
-    REQUIRE(get<boss::ComplexExpression>(eval("UndefinedFunction"_(9))).getHead().getName() ==
-            "UndefinedFunction");
+
+    auto expression = get<boss::ComplexExpression>(eval("UndefinedFunction"_(9)));
+
+    REQUIRE(expression.getHead().getName() == "UndefinedFunction");
+    REQUIRE(get<int>(expression.getArguments()[0]) == 9);
   }
 }
 #endif // WSINTERFACE

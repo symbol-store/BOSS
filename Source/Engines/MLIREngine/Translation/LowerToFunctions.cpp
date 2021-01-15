@@ -97,7 +97,6 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
   builder.setInsertionPointToStart(moduleBody);
 
   auto rootType = rootCombine.getResult().getType();
-  rootCombine.dump();
 
   // Mark the root type so we know what value to extract from JIT after executing
   setReturnType(returnType, rootType);

@@ -31,6 +31,12 @@ boss::Expression mExpressionFromSExpression(SExpression* expr) {
   if(expr->args == nullptr) {
     return boss::Symbol{expr->head};
   }
+
+  boss::ExpressionArguments args;
+
+  // TODO: Total hack! We need run time type information to determine what to cast to here
+  args.push_back(static_cast<int>(expr->args->value));
+
   // TODO correctly parse arguments
-  return boss::ComplexExpression{boss::Symbol{expr->head}, {}};
+  return boss::ComplexExpression{boss::Symbol{expr->head}, args};
 }

@@ -72,8 +72,6 @@ Expression Engine::evaluate(Expression const& e) {
   passManager.addPass(::mlir::createInlinerPass());
   passManager.addPass(createLowerToLLVMPass());
 
-  module->dump();
-
   if(::mlir::failed(passManager.run(module.get()))) {
     throw std::runtime_error("Compilation failed");
   }
@@ -81,11 +79,8 @@ Expression Engine::evaluate(Expression const& e) {
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);
   if(!llvmModule) {
-    llvmModule->dump();
     throw std::runtime_error("Compilation failed");
   }
-
-  // module->dump();
 
   auto jitResult = runJit(module.get());
 

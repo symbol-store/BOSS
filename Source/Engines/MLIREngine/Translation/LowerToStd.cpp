@@ -18,8 +18,6 @@
 #include <stack>
 #include <string>
 
-std::mutex printMutex;
-
 // Lowers all operations to the Std dialect. Converts types to Std dialect
 // compatible types.
 
@@ -276,8 +274,6 @@ struct ConstantStringOpLowering : public OpConversionPattern<sexpr::StringConsta
                          offset.getResult());
 
     rewriter.replaceOp(op.getOperation(), allocatedMemory.getResult());
-    rewriter.create<memory::PrintMemrefOp, Value>(rewriter.getUnknownLoc(),
-                                                  allocatedMemory.getResult());
 
     return success();
   }
@@ -375,10 +371,6 @@ void SexprToStdLoweringPass::runOnFunction() {
   if(failed(res)) {
     signalPassFailure();
   }
-
-  printMutex.lock();
-  getFunction().dump();
-  printMutex.unlock();
 }
 
 std::unique_ptr<mlir::Pass> createLowerToStdPass() {
