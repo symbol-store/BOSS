@@ -148,7 +148,14 @@ void mlir::sexpr::SymbolOp::inferType() {
       hasSymbol ? sexprtype::SymbolOrValue::SYMBOL : sexprtype::SymbolOrValue::VALUE;
 
   // Infer base type
-  auto baseType = operatorToType.at(std::string(this->name()))(*this, symOrVal);
+  auto inferenceFuncItertor = operatorToType.find(std::string{this->name()});
+  if(inferenceFuncItertor == operatorToType.end()) {
+    this->getResult().setType(SymbolOrValueType::get(
+        this->getContext(), sexprtype::SymbolOrValue::SYMBOL, llvm::Optional<Type>{}));
+    return;
+  }
+
+  auto baseType = (inferenceFuncItertor->second)(*this, symOrVal);
 
   // TODO is this right?
   if(baseType.isa<SymbolOrValueType>()) {

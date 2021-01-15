@@ -97,7 +97,7 @@ Expression Engine::evaluate(Expression const& e) {
   case sexprtype::ReturnTypes::BOOLEAN:
     return static_cast<bool>(jitResult);
   case sexprtype::ReturnTypes::SYMBOL:
-    return Symbol{reinterpret_cast<SExpression*>(jitResult)->head};
+    return mExpressionFromSExpression(reinterpret_cast<SExpression*>(jitResult));
   default:
     throw std::runtime_error("Return Type is Unknown");
   }

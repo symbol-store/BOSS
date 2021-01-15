@@ -196,7 +196,14 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
       return success();
     }
 
-    return failure();
+    // Function is not defined here
+    auto funcName = rewriter.create<sexpr::StringConstantOp>(s.getLoc(), std::string{symbolName});
+    auto allocOp = rewriter.create<memory::AllocateSymbolicFunctionOp, Value, ValueRange>(
+        s.getLoc(), funcName.getResult(), s.getOperands());
+
+    rewriter.replaceOp(s.getOperation(), allocOp.getResult());
+
+    return success();
   }
 
   TypeConverter& converter;
