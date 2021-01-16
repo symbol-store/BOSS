@@ -1,42 +1,58 @@
-#include "Runtime.hpp"
-
+#include <functional>
+#include <map>
 #include <stdarg.h>
+#include <stdexcept>
 #include <stdlib.h>
 
-extern "C" SExpression* allocateSymbol(char* name) {
-  SExpression* newMemory = (SExpression*)malloc(sizeof(SExpression));
+#include "Runtime.hpp"
+
+extern "C" SymbolExpression* allocateSymbol(char* name) {
+  SymbolExpression* newMemory = (SymbolExpression*)malloc(sizeof(SymbolExpression));
 
   newMemory->head = name;
-  newMemory->args = nullptr;
+  newMemory->argc = 0;
+  newMemory->arguments = nullptr;
 
   // TODO Reference counting/garbage collection
   return newMemory;
 }
 
-extern "C" void setSExpressionArgs(SExpression* baseExpr, int64_t argc, ...) {
-  SExpressionArgument* args = (SExpressionArgument*)malloc(sizeof(SExpressionArgument) * argc);
-  va_list argv;
-  va_start(argv, argc);
+extern "C" void setSExpressionArgs(SymbolExpression* baseExpr, int64_t argc, ...) {
+  SymbolArgument* args = (SymbolArgument*)malloc(sizeof(SymbolArgument) * argc);
+  va_list argValuesAndTypes;
+  va_start(argValuesAndTypes, argc);
 
   for(int i = 0; i < argc; i++) {
-    args[i] = va_arg(argv, SExpressionArgument);
+    args[i] = SymbolArgument{va_arg(argValuesAndTypes, SymbolArgumentValue),
+                             va_arg(argValuesAndTypes, SymbolArgumentType)};
   }
 
-  va_end(argv);
+  va_end(argValuesAndTypes);
 
-  baseExpr->args = args;
+  baseExpr->argc = argc;
+  baseExpr->arguments = args;
 }
 
-boss::Expression mExpressionFromSExpression(SExpression* expr) {
-  if(expr->args == nullptr) {
-    return boss::Symbol{expr->head};
+SymbolArgumentType llvmTypeToRuntimeArgType(mlir::LLVM::LLVMType type) {
+  if(type.isIntegerTy(1)) {
+    return SymbolArgumentType::Bool;
+  } else if(type.isIntegerTy()) {
+    return SymbolArgumentType::Int;
+  } else if(type.isFloatTy()) {
+    return SymbolArgumentType::Float;
+  } else if(type.isPointerTy()) {
+    auto elementType =
+        type.cast<mlir::LLVM::LLVMPointerType>().getElementType().cast<mlir::LLVM::LLVMType>();
+
+    if(elementType.isIntegerTy(8)) {
+      return SymbolArgumentType::String;
+    } else if(elementType.isStructTy()) {
+      return SymbolArgumentType::Symbol;
+    } else {
+      throw std::runtime_error("Unknown LLVM type");
+    }
+    return SymbolArgumentType::Symbol;
+  } else {
+    throw std::runtime_error("Unknown LLVM type");
   }
-
-  boss::ExpressionArguments args;
-
-  // TODO: Total hack! We need run time type information to determine what to cast to here
-  args.push_back(static_cast<int>(expr->args->value));
-
-  // TODO correctly parse arguments
-  return boss::ComplexExpression{boss::Symbol{expr->head}, args};
 }

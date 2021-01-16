@@ -1,5 +1,6 @@
 #include "Engines/MLIREngine/Dialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
 #include <mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h>
@@ -10,7 +11,8 @@
 namespace {
 using namespace mlir;
 
-static StringRef sExprStructName{"SExpressionStruct"};
+static StringRef symbolStructName{"SymbolStruct"};
+static StringRef symbolArgStructName{"SymbolArgStruct"};
 
 /// Insert or get a function into the llvm namespace
 static FlatSymbolRefAttr getOrInsertFunction(std::string name, LLVM::LLVMType functionType,
@@ -45,7 +47,7 @@ static FlatSymbolRefAttr getOrInsertAllocSymbol(PatternRewriter& rewriter, Modul
   // Create signature
   auto argType = LLVM::LLVMType::getInt8PtrTy(context);
   auto returnType =
-      LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, sExprStructName));
+      LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, symbolStructName));
   auto funcType = LLVM::LLVMType::getFunctionTy(returnType, argType,
                                                 /*isVarArg=*/false);
 
@@ -56,7 +58,7 @@ static FlatSymbolRefAttr getOrInsertAllocArgsSymbol(PatternRewriter& rewriter, M
   auto* context = module.getContext();
   // Create signature
   auto baseExprType =
-      LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, sExprStructName));
+      LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, symbolStructName));
   auto argcType = LLVM::LLVMIntegerType::get(context, 64);
   auto returnType = LLVM::LLVMVoidType::get(context);
   auto funcType = LLVM::LLVMType::getFunctionTy(returnType, {baseExprType, argcType},
@@ -140,7 +142,7 @@ struct AllocateSymbolOpLowering : public OpConversionPattern<memory::AllocateSym
 
     auto allocExprCall = rewriter.create<LLVM::CallOp>(
         loc,
-        LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, sExprStructName)),
+        LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, symbolStructName)),
         allocExprRef, barePtr.getResult());
 
     rewriter.replaceOp(allocOp.getOperation(), allocExprCall.getResults());
@@ -172,7 +174,7 @@ struct AllocateSymbolicFunctionOpLowering
 
     auto allocExprCall = rewriter.create<LLVM::CallOp>(
         loc,
-        LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, sExprStructName)),
+        LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, symbolStructName)),
         allocExprRef, barePtr.getResult());
 
     // Insert arguments into the symbols
@@ -188,12 +190,21 @@ struct AllocateSymbolicFunctionOpLowering
         loc, LLVM::LLVMIntegerType::get(context, 64),
         IntegerAttr::get(IndexType::get(context), functionArguments.size()));
     args.push_back(numArgsValue.getResult());
-    args.append(functionArguments.begin(), functionArguments.end());
+
+    for(auto argument : functionArguments) {
+      auto runtimeType = rewriter.create<LLVM::ConstantOp>(
+          loc, LLVM::LLVMType::getInt64Ty(context),
+          rewriter.getIntegerAttr(
+              rewriter.getIndexType(),
+              (int64_t)llvmTypeToRuntimeArgType(argument.getType().cast<mlir::LLVM::LLVMType>())));
+      args.push_back(argument);
+
+      args.push_back(runtimeType.getResult());
+    }
 
     rewriter.create<LLVM::CallOp>(loc, LLVM::LLVMVoidType::get(context), insertArgExprRef, args);
 
     rewriter.replaceOp(allocOp.getOperation(), allocExprCall.getResults());
-
     return success();
   }
 
@@ -210,18 +221,32 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   LLVMTypeConverter typeConverter(&getContext(), options);
 
   // Insert S-Expression struct type
-  // TODO: Change to correct signature
-  auto sExprStruct = LLVM::LLVMStructType::createStructTy(&getContext(), sExprStructName);
-  sExprStruct.cast<LLVM::LLVMStructType>().setBody(
-      {LLVM::LLVMType::getInt8PtrTy(&getContext()),
-       LLVM::LLVMPointerType::get(
-           LLVM::LLVMStructType::getIdentified(&getContext(), sExprStructName))},
-      false);
+  auto symbolStruct = LLVM::LLVMStructType::createStructTy(&getContext(), symbolStructName);
+  auto symbolArgumentStruct =
+      LLVM::LLVMStructType::createStructTy(&getContext(), symbolArgStructName);
+
+  // clang-format off
+  // LLVM representation of struct ::Symbol
+  symbolStruct.cast<LLVM::LLVMStructType>().setBody({
+    LLVM::LLVMType::getInt8PtrTy(&getContext()),   // head pointer
+    LLVM::LLVMIntegerType::get(&getContext(), 64), // argc
+    LLVM::LLVMPointerType::get(                    // arguments
+    LLVM::LLVMStructType::getIdentified(&getContext(), symbolArgStructName))
+  }, false);
+  // clang-format on
+
+  // clang-format off
+  // LLVM representation of struct ::SymbolArgument
+  symbolArgumentStruct.cast<LLVM::LLVMStructType>().setBody({
+    LLVM::LLVMType::getInt64Ty(&getContext()), // size_t integer to represent type
+    LLVM::LLVMType::getInt64Ty(&getContext())  // size_t integer to represent value
+  }, false);
+  // clang-format on
 
   typeConverter.addConversion([](SymbolOrValueType t) -> llvm::Optional<Type> {
     if(t.isSymbolic() == sexprtype::SymbolOrValue::SYMBOL)
       return LLVM::LLVMPointerType::get(
-          LLVM::LLVMStructType::getIdentified(t.getContext(), sExprStructName));
+          LLVM::LLVMStructType::getIdentified(t.getContext(), symbolStructName));
     return llvm::Optional<Type>{};
   });
 

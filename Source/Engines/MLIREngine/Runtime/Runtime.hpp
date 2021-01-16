@@ -1,20 +1,32 @@
 #pragma once
 
-#include "Expression.hpp"
-#include <stdint.h>
+#include <mlir/Dialect/LLVMIR/LLVMTypes.h>
 
-struct SExpression;
+enum class SymbolArgumentType { Int = 0, Bool = 1, Float, String, Symbol };
 
-union SExpressionArgument {
-  SExpression* args;
-  int64_t value;
+struct SymbolExpression;
+
+union SymbolArgumentValue {
+  int integerValue;
+  bool booleanValue;
+  float floatValue;
+  char* stringValue;
+  SymbolExpression* symbolValue;
 };
 
-struct SExpression {
+struct SymbolArgument {
+  SymbolArgument(SymbolArgumentValue value, SymbolArgumentType type) : type(type), value(value) {}
+
+  SymbolArgumentType type;
+  SymbolArgumentValue value;
+};
+
+struct SymbolExpression {
   char* head;
-  SExpressionArgument* args;
+  int64_t argc;
+  SymbolArgument* arguments;
 };
 
-extern "C" SExpression* allocateSymbol(char* name);
+extern "C" SymbolExpression* allocateSymbol(char* name);
 
-boss::Expression mExpressionFromSExpression(SExpression* expr);
+SymbolArgumentType llvmTypeToRuntimeArgType(mlir::LLVM::LLVMType type);

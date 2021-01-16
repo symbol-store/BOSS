@@ -55,6 +55,37 @@ int64_t runJit(::mlir::ModuleOp module) {
   return output;
 }
 
+boss::Expression mExpressionFromSExpression(SymbolExpression* expr);
+
+// Retrieve boss::Expression from Symbol/Argument based on given type
+const std::map<SymbolArgumentType, std::function<boss::Expression(SymbolArgumentValue)>>
+    typeToExpression{
+        {SymbolArgumentType::Int, [](SymbolArgumentValue value) { return value.integerValue; }},
+        {SymbolArgumentType::Bool, [](SymbolArgumentValue value) { return value.booleanValue; }},
+        {SymbolArgumentType::Float, [](SymbolArgumentValue value) { return value.floatValue; }},
+        {SymbolArgumentType::Symbol,
+         [](SymbolArgumentValue value) { return mExpressionFromSExpression(value.symbolValue); }},
+        {SymbolArgumentType::String,
+         [](SymbolArgumentValue value) { return std::string(value.stringValue); }}};
+
+boss::Expression mExpressionFromSExpression(SymbolExpression* expr) {
+  if(expr->arguments == nullptr) {
+    return boss::Symbol{expr->head};
+  }
+
+  auto argc = expr->argc;
+
+  boss::ExpressionArguments args;
+
+  for(int i = 0; i < argc; i++) {
+    auto const& argument = expr->arguments[i];
+
+    args.push_back(typeToExpression.at(argument.type)(argument.value));
+  }
+
+  return boss::ComplexExpression{boss::Symbol{expr->head}, args};
+}
+
 Expression Engine::evaluate(Expression const& e) {
 
   MLIRGenerator generator{};
@@ -92,7 +123,7 @@ Expression Engine::evaluate(Expression const& e) {
   case sexprtype::ReturnTypes::BOOLEAN:
     return static_cast<bool>(jitResult);
   case sexprtype::ReturnTypes::SYMBOL:
-    return mExpressionFromSExpression(reinterpret_cast<SExpression*>(jitResult));
+    return mExpressionFromSExpression(reinterpret_cast<SymbolExpression*>(jitResult));
   default:
     throw std::runtime_error("Return Type is Unknown");
   }
