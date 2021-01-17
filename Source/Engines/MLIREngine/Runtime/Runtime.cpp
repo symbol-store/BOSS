@@ -1,8 +1,12 @@
 #include <functional>
+#include <iostream>
 #include <map>
 #include <stdarg.h>
 #include <stdexcept>
 #include <stdlib.h>
+
+#include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include <mlir/IR/StandardTypes.h>
 
 #include "Runtime.hpp"
 
@@ -33,26 +37,22 @@ extern "C" void setSExpressionArgs(SymbolExpression* baseExpr, int64_t argc, ...
   baseExpr->arguments = args;
 }
 
-SymbolArgumentType llvmTypeToRuntimeArgType(mlir::LLVM::LLVMType type) {
-  if(type.isIntegerTy(1)) {
+SymbolArgumentType llvmTypeToRuntimeArgType(mlir::Type type) {
+  if(type.isInteger(1)) {
     return SymbolArgumentType::Bool;
-  } else if(type.isIntegerTy()) {
+  } else if(type.isIntOrIndex()) {
     return SymbolArgumentType::Int;
-  } else if(type.isFloatTy()) {
+  } else if(type.isIntOrFloat()) {
     return SymbolArgumentType::Float;
-  } else if(type.isPointerTy()) {
-    auto elementType =
-        type.cast<mlir::LLVM::LLVMPointerType>().getElementType().cast<mlir::LLVM::LLVMType>();
-
-    if(elementType.isIntegerTy(8)) {
-      return SymbolArgumentType::String;
-    } else if(elementType.isStructTy()) {
+  } else if(type.isa<mlir::MemRefType>()) {
+    return SymbolArgumentType::String;
+  } else if(type.isa<SymbolOrValueType>()) {
+    if(type.cast<SymbolOrValueType>().isSymbolic() == sexprtype::SymbolOrValue::SYMBOL) {
       return SymbolArgumentType::Symbol;
     } else {
-      throw std::runtime_error("Unknown LLVM type");
+      throw std::runtime_error("Unknwon Type");
     }
-    return SymbolArgumentType::Symbol;
   } else {
-    throw std::runtime_error("Unknown LLVM type");
+    throw std::runtime_error("Unknown type");
   }
 }

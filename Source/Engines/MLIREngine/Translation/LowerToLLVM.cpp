@@ -181,7 +181,7 @@ struct AllocateSymbolicFunctionOpLowering
     auto insertArgExprRef = getOrInsertAllocArgsSymbol(rewriter, parentModule);
 
     // Remove first operand: This is the function name pointer
-    auto functionArguments = operands.drop_front(1);
+    auto functionArguments = allocOp.getOperands().drop_front(1);
 
     // Push arguments for allocArguments call
     SmallVector<Value, 4> args;
@@ -194,10 +194,17 @@ struct AllocateSymbolicFunctionOpLowering
     for(auto argument : functionArguments) {
       auto runtimeType = rewriter.create<LLVM::ConstantOp>(
           loc, LLVM::LLVMType::getInt64Ty(context),
-          rewriter.getIntegerAttr(
-              rewriter.getIndexType(),
-              (int64_t)llvmTypeToRuntimeArgType(argument.getType().cast<mlir::LLVM::LLVMType>())));
-      args.push_back(argument);
+          rewriter.getIntegerAttr(rewriter.getIndexType(),
+                                  (int64_t)llvmTypeToRuntimeArgType(argument.getType())));
+
+      // Extract memref
+      if(argument.getType().isa<mlir::MemRefType>()) {
+        auto basePointer = rewriter.create<LLVM::ExtractValueOp, Type, Value const&, ArrayAttr>(
+            loc, LLVM::LLVMType::getInt8PtrTy(context), argument, rewriter.getI64ArrayAttr(0));
+        args.push_back(basePointer);
+      } else {
+        args.push_back(argument);
+      }
 
       args.push_back(runtimeType.getResult());
     }

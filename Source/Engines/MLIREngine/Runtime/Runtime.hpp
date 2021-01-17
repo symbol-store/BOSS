@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mlir/Dialect/LLVMIR/LLVMTypes.h>
+#include <mlir/IR/Types.h>
 
 enum class SymbolArgumentType { Int = 0, Bool = 1, Float, String, Symbol };
 
@@ -29,4 +29,4 @@ struct SymbolExpression {
 
 extern "C" SymbolExpression* allocateSymbol(char* name);
 
-SymbolArgumentType llvmTypeToRuntimeArgType(mlir::LLVM::LLVMType type);
+SymbolArgumentType llvmTypeToRuntimeArgType(mlir::Type type);

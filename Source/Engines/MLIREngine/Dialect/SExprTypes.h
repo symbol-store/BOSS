@@ -1,4 +1,5 @@
 #pragma once
+#include <mlir/IR/Location.h>
 #include <mlir/IR/StandardTypes.h>
 #include <mlir/IR/TypeSupport.h>
 #include <optional>
