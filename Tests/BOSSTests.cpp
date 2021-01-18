@@ -14,21 +14,21 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine,
   };
 
   SECTION("Addition") {
-    REQUIRE(get<int>(eval("Plus"_(5, 4))) == 9); // NOLINT
-    REQUIRE(get<int>(eval("Plus"_(5, 2, 2))) == 9);
-    REQUIRE(get<int>(eval("Plus"_(5, 2, 2))) == 9);
-    REQUIRE(get<int>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
-    REQUIRE(get<int>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
+    CHECK(get<int>(eval("Plus"_(5, 4))) == 9); // NOLINT
+    CHECK(get<int>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<int>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<int>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
+    CHECK(get<int>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
   }
 
   SECTION("Strings") {
-    REQUIRE(get<string>(eval("StringJoin"_((string) "howdie", (string) " ", (string) "world"))) ==
-            "howdie world");
+    CHECK(get<string>(eval("StringJoin"_((string) "howdie", (string) " ", (string) "world"))) ==
+          "howdie world");
   }
 
   SECTION("Booleans") {
-    REQUIRE(get<bool>(eval("Greater"_(5, 2))));
-    REQUIRE(!get<bool>(eval("Greater"_(2, 5))));
+    CHECK(get<bool>(eval("Greater"_(5, 2))));
+    CHECK(!get<bool>(eval("Greater"_(2, 5))));
   }
 
   SECTION("Symbols") {
