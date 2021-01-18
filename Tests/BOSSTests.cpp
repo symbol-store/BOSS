@@ -7,33 +7,41 @@ using std::get;
 using std::string;
 using boss::utilities::operator""_;
 
-TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
+TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine,
+                   boss::engines::mlir::Engine) { // NOLINT
   static auto eval = [e = TestType()](boss::Expression const& expression) mutable {
     return e.evaluate(expression);
   };
 
   SECTION("Addition") {
-    REQUIRE(get<int>(eval("Plus"_(5, 4))) == 9); // NOLINT
-    REQUIRE(get<int>(eval("Plus"_(5, 2, 2))) == 9);
-    REQUIRE(get<int>(eval("Plus"_(5, 2, 2))) == 9);
-    REQUIRE(get<int>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
-    REQUIRE(get<int>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
+    CHECK(get<int>(eval("Plus"_(5, 4))) == 9); // NOLINT
+    CHECK(get<int>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<int>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<int>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
+    CHECK(get<int>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
   }
 
   SECTION("Strings") {
-    REQUIRE(get<string>(eval("StringJoin"_((string) "howdie", (string) " ", (string) "world"))) ==
-            "howdie world");
+    CHECK(get<string>(eval("StringJoin"_((string) "howdie", (string) " ", (string) "world"))) ==
+          "howdie world");
   }
 
   SECTION("Booleans") {
-    REQUIRE(get<bool>(eval("Greater"_(5, 2))));
-    REQUIRE(!get<bool>(eval("Greater"_(2, 5))));
+    CHECK(get<bool>(eval("Greater"_(5, 2))));
+    CHECK(!get<bool>(eval("Greater"_(2, 5))));
   }
 
   SECTION("Symbols") {
-    REQUIRE(get<boss::Symbol>(eval("Symbol"_((string) "x"))).getName() == "x");
-    REQUIRE(get<boss::ComplexExpression>(eval("UndefinedFunction"_(9))).getHead().getName() ==
-            "UndefinedFunction");
+    CHECK(get<boss::Symbol>(eval("Symbol"_((string) "x"))).getName() == "x");
+
+    auto expression = get<boss::ComplexExpression>(eval("UndefinedFunction"_(9)));
+
+    CHECK(expression.getHead().getName() == "UndefinedFunction");
+    CHECK(get<int>(expression.getArguments()[0]) == 9);
+
+    CHECK(get<std::string>(
+              get<boss::ComplexExpression>(eval("UndefinedFunction"_((string) "Hello World!")))
+                  .getArguments()[0]) == "Hello World!");
   }
 }
 #endif // WSINTERFACE
