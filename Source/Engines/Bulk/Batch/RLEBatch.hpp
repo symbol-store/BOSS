@@ -46,7 +46,8 @@ public:
   // but will stop if we compare with end()
   class ConstIterator {
   public:
-    explicit ConstIterator(ValueType const& pointer, size_t size) : m_pointer(pointer), m_left(size) {}
+    explicit ConstIterator(ValueType const& pointer, size_t size)
+        : m_pointer(pointer), m_left(size) {}
     ValueType const& operator*() { return m_pointer; }
     bool operator!=(ConstIterator& rhs) { return m_left != rhs.m_left; }
     bool operator!=(ConstIterator&& rhs) { return m_left != rhs.m_left; }
