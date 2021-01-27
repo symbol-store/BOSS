@@ -10,6 +10,7 @@ public:
   using IsRLE = std::bool_constant<true>;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<RLEBatch<T>>();
 
+  UniqueId::type baseId() const override { return UniqueId; }
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
@@ -20,7 +21,7 @@ public:
       return true;
     }
 
-    if(auto* value = std::get_if<T>(&val)) {
+    if(auto* value = std::get_if<ValueType>(&val)) {
       if(*value == m_value) {
         return true;
       }
@@ -30,10 +31,10 @@ public:
   }
 
   RLEBatch(RLEBatch const&) = default;
-  RLEBatch(size_t size, T const& value) : m_value(value), m_count(size) {}
-  RLEBatch(size_t size, T&& value) : m_value(std::move(value)), m_count(size) {}
-  RLEBatch(T const& value) : m_value(value), m_count(0) {}
-  RLEBatch(T&& value) : m_value(std::move(value)), m_count(0) {}
+  RLEBatch(size_t size, ValueType const& value) : m_value(value), m_count(size) {}
+  RLEBatch(size_t size, ValueType&& value) : m_value(std::move(value)), m_count(size) {}
+  explicit RLEBatch(ValueType const& value) : m_value(value), m_count(0) {}
+  explicit RLEBatch(ValueType&& value) : m_value(std::move(value)), m_count(0) {}
 
   BatchPtr clone(bool clear = false) const override {
     return BatchPtr(clear ? new RLEBatch(m_value) : new RLEBatch(*this));
@@ -41,40 +42,75 @@ public:
 
   void clear() override { m_count = 0; }
 
+  // readable-only RLE: safe to loop indefinitely on the same element
+  // but will stop if we compare with end()
   class ConstIterator {
   public:
-    ConstIterator(T const* pointer) : m_pointer(pointer) {}
-    T const& operator*() { return *m_pointer; }
-    bool operator!=(ConstIterator& rhs) { return m_pointer != rhs.m_pointer; }
-    bool operator!=(ConstIterator&& rhs) { return m_pointer != rhs.m_pointer; }
-    ConstIterator operator+(size_t) const { return *this; }
-    void operator++() {}
+    explicit ConstIterator(ValueType const& pointer, size_t size) : m_pointer(pointer), m_left(size) {}
+    ValueType const& operator*() { return m_pointer; }
+    bool operator!=(ConstIterator& rhs) { return m_left != rhs.m_left; }
+    bool operator!=(ConstIterator&& rhs) { return m_left != rhs.m_left; }
+    ConstIterator operator+(size_t incr) const {
+      return ConstIterator(m_pointer, m_left > incr ? m_left - incr : 0);
+    }
+    void operator++() {
+      if(m_left > 0) {
+        m_left--;
+      }
+    }
 
   private:
-    T const* m_pointer;
+    ValueType const& m_pointer;
+    size_t m_left;
   };
-
-  // readable-only RLE: loop indefinitely on the same element
-  ConstIterator begin() const { return ConstIterator(m_count > 0 ? &m_value : nullptr); }
-  ConstIterator end() const { return ConstIterator(nullptr); }
+  auto begin() const { return ConstIterator(m_value, m_count); }
+  auto end() const { return ConstIterator(m_value, 0); }
 
   // writable RLE: stop after first iteration
-  T* begin() { return m_count > 0 ? &m_value : nullptr; }
-  T* end() { return m_count > 0 ? &m_value + 1 : nullptr; }
+  class Iterator {
+  public:
+    explicit Iterator(ValueType* pointer) : m_pointer(pointer) {}
+    ValueType& operator*() { return *m_pointer; }
+    bool operator!=(Iterator& rhs) { return m_pointer != rhs.m_pointer; }
+    bool operator!=(Iterator&& rhs) { return m_pointer != rhs.m_pointer; }
+    Iterator operator+(size_t size) const { return Iterator(nullptr); }
+    void operator++() { m_pointer = nullptr; }
+
+  private:
+    ValueType* m_pointer;
+  };
+  auto begin() { return Iterator(m_count > 0 ? &m_value : nullptr); }
+  auto end() { return Iterator(nullptr); }
+
+  void reserve(size_t size) override {
+    // nothing to do
+  }
+  void resize(size_t size, Expression const& val) override {
+    if(m_count == 0) {
+      insert(val);
+    }
+    m_count = size;
+  }
 
   size_t size() const override { return m_count; }
 
-  void insert(Expression const& val) override {
-    if(m_count == 0) {
-      m_value = std::get<T>(val);
-    }
+  void insert(Expression const& expression) override { insert(std::get<ValueType>(expression)); }
+
+  void insert(ValueType const& value) {
+    m_value = value;
     ++m_count;
+  }
+
+  void merge(BatchPtr&& other) override {
+    auto& batch = *static_cast<RLEBatch*>(other.get());
+    m_value = batch.m_value;
+    m_count += batch.m_count;
   }
 
   BatchPtr evaluate() const override { return this->clone(); }
 
 protected:
-  T m_value;
+  ValueType m_value;
   size_t m_count;
 };
 

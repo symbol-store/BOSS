@@ -2,7 +2,6 @@
 
 #include "Bulk/BatchTemplates.hpp"
 #include "Bulk/BuiltinFunctions.hpp"
-#include "Bulk/Dispatcher.hpp"
 
 #include "../Engine.hpp"
 #include "../Expression.hpp"
@@ -16,10 +15,8 @@ public:
   Engine(Engine&&) = delete;
   Engine& operator=(Engine&&) = delete;
 
-  Engine() : m_batchTemplates(), m_dispatcher(m_batchTemplates) {
-    BuiltinFunctions functionsInitialiser(m_batchTemplates);
-  }
-  ~Engine() {}
+  Engine() { BuiltinFunctions functionsInitialiser(m_batchTemplates); }
+  ~Engine() = default;
 
   // expressions
 
@@ -29,7 +26,6 @@ private:
   using BatchTemplatesImpl = BatchTemplates<bool, int, float, std::string>;
 
   BatchTemplatesImpl m_batchTemplates;
-  Dispatcher m_dispatcher;
 };
 
 } // namespace boss::engines::bulk

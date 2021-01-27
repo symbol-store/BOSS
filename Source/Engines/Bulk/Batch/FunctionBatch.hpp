@@ -1,34 +1,37 @@
 #pragma once
 
-#include "CompoundBatch.hpp"
+#include "ExpressionBatch.hpp"
 
 #include "../SymbolPool.hpp"
 
 namespace boss::engines::bulk {
 
-template <typename... SupportedTypes>
-class FunctionBatch : public CompoundBatch<SupportedTypes...> {
+class FunctionBatch : public CompoundBatch {
 public:
-  using CompoundBatch = CompoundBatch<SupportedTypes...>;
-
-  using ValueType = ComplexExpression;
+  using ValueType = CompoundBatch::ValueType;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<FunctionBatch>();
 
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
-  FunctionBatch(std::vector<Symbol> const& parameters, CompoundBatch const& definitionBatch)
-      : m_parameters(parameters),
-        CompoundBatch(Symbol("Function"), createCompountBatchList(definitionBatch)) {}
+  FunctionBatch(BatchFactory const& factory, std::vector<Symbol> const& parameters,
+                CompoundBatch const& definitionBatch)
+      : m_parameters(parameters), CompoundBatch(factory, false, Symbol("Function")) {
+    insert(0, 0, definitionBatch.clone());
+  }
 
-  FunctionBatch(std::vector<Symbol>&& parameters, CompoundBatch const& definitionBatch)
-      : m_parameters(std::move(parameters)),
-        CompoundBatch(Symbol("Function"), createCompountBatchList(definitionBatch)) {}
+  FunctionBatch(BatchFactory const& factory, std::vector<Symbol>&& parameters,
+                CompoundBatch const& definitionBatch)
+      : m_parameters(std::move(parameters)), CompoundBatch(factory, false, Symbol("Function")) {
+    insert(0, 0, definitionBatch.clone());
+  }
 
   FunctionBatch(FunctionBatch const& other, bool clear = false)
       : m_parameters(other.m_parameters), CompoundBatch(other, clear) {}
 
-  BatchPtr clone(bool clear = false) const override { return BatchPtr(new FunctionBatch(*this, clear)); }
+  BatchPtr clone(bool clear = false) const override {
+    return BatchPtr(new FunctionBatch(*this, clear));
+  }
 
   BatchPtr evaluateWith(std::vector<Batch const*> const& args) const {
     std::vector<std::pair<DefaultSymbolPool::SymbolPtr&, DefaultSymbolPool::SymbolPtr>> oldSymbols;
@@ -52,7 +55,7 @@ public:
       ++paramIt;
     }
 
-    BatchPtr evaluatedPtr = this->m_batches.front().get()->evaluate();
+    BatchPtr evaluatedPtr = (*begin())->evaluate();
 
     // before finishing, set back any colliding symbol (or clear them)
     for(auto& oldSymbol : oldSymbols) {
@@ -62,15 +65,19 @@ public:
     return evaluatedPtr;
   }
 
+  BatchPtr evaluate() const override {
+    auto evaluatedPtr = CompoundBatch::evaluate();
+
+    // put back missing info
+    auto& functionBatch = *static_cast<FunctionBatch*>(evaluatedPtr.get());
+    functionBatch.m_parameters.insert(functionBatch.m_parameters.begin(), m_parameters.begin(),
+                                      m_parameters.end());
+
+    return evaluatedPtr;
+  }
+
 private:
   std::vector<Symbol> m_parameters;
-
-  static typename CompoundBatch::BatchList
-  createCompountBatchList(CompoundBatch const& definitionBatch) {
-    typename CompoundBatch::BatchList list;
-    list.emplace_back(std::move(definitionBatch.clone()));
-    return list;
-  }
 };
 
 } // namespace boss::engines::bulk

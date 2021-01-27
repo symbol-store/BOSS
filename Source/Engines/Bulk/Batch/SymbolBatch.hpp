@@ -11,7 +11,7 @@ namespace boss::engines::bulk {
 
 class SymbolBatch : public RLEBatch<Symbol> {
 public:
-  using ValueType = Symbol; // still pretend to be a Symbol
+  using ValueType = Symbol;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<SymbolBatch>();
 
   UniqueId::type typeId() const override { return UniqueId; }
@@ -21,10 +21,12 @@ public:
     return std::holds_alternative<ValueType>(val);
   }
 
-  SymbolBatch(size_t count = 0) : RLEBatch(count, Symbol("")) {}
-  SymbolBatch(SymbolBatch const& other) : RLEBatch(other) {}
-  SymbolBatch(Symbol const& symbol) : RLEBatch(symbol) {}
-  SymbolBatch(Symbol&& symbol) : RLEBatch(std::move(symbol)) {}
+  explicit SymbolBatch(size_t count = 0) : RLEBatch(count, Symbol("")) {}
+  explicit SymbolBatch(Symbol const& symbol) : RLEBatch(symbol) {}
+  explicit SymbolBatch(Symbol&& symbol) : RLEBatch(std::move(symbol)) {}
+  SymbolBatch(size_t size, Symbol const& symbol) : RLEBatch(size, symbol) {}
+  SymbolBatch(size_t size, Symbol&& symbol) : RLEBatch(size, std::move(symbol)) {}
+  SymbolBatch(SymbolBatch const& other) = default;
 
   BatchPtr clone(bool clear = false) const override {
     return BatchPtr(clear ? new SymbolBatch(m_value) : new SymbolBatch(*this));
@@ -33,11 +35,11 @@ public:
   BatchPtr evaluate() const override {
     auto& batchPtr = DefaultSymbolPool::instance().findSymbol(m_value);
     if(batchPtr) {
-      return batchPtr.get()->clone();
+      return batchPtr->clone();
     }
     auto& writablePtr = WritableBatchPool::instance().findSymbol(m_value);
     if(writablePtr) {
-      return writablePtr.get()->clone();
+      return writablePtr->clone();
     }
     return this->clone();
   }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Batch/Batch.hpp"
+
 #include "../../Expression.hpp"
 
 #include <memory>
@@ -9,7 +11,7 @@
 
 namespace boss::engines::bulk {
 
-template<typename T> class SymbolPool {
+template <typename T> class SymbolPool {
 private:
   SymbolPool() = default;
 
@@ -22,9 +24,7 @@ public:
 
   using SymbolPtr = std::unique_ptr<T>;
 
-  SymbolPtr& findSymbol(Symbol const& symbol) {
-    return m_symbolMap[symbol.getName()];
-  }
+  SymbolPtr& findSymbol(Symbol const& symbol) { return m_symbolMap[symbol.getName()]; }
 
   void registerSymbol(Symbol const& symbol, T& value) {
     m_symbolMap[symbol.getName()] = SymbolPtr(&value);

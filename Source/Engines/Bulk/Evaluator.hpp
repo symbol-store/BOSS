@@ -1,5 +1,8 @@
 #pragma once
 
+#include "BatchHelper.hpp"
+
+#include <array>
 #include <tuple>
 #include <vector>
 
@@ -25,74 +28,71 @@ public:
       return m_func(in...);
     }
 
-    static constexpr bool IsAllowedType(UniqueId::type typeId) {
-      return ((typeId == UniqueId::forType<Types>()) || ...);
+    static constexpr bool isAllowedType(Batch const& batch) {
+      return ((batch.typeId() == UniqueId::forType<Types>()) || ...) ||
+             ((batch.baseId() == UniqueId::forType<Types>()) || ...);
     }
 
-    template <typename Type> static constexpr bool IsAllowedType() {
+    template <typename Type> static constexpr bool isAllowedType() {
       return ((std::is_same_v<Type, Types>) || ...);
     }
 
-    template <typename... Ts> static constexpr bool AreAllowedTypes() {
-      return (IsAllowedType<Ts>() && ...);
+    template <typename... Ts> static constexpr bool areAllowedTypes() {
+      return (isAllowedType<Ts>() && ...);
     }
 
-    static constexpr bool IsExactType(size_t index, UniqueId::type typeId) {
-      return IsExactTypeHelper(index, typeId, std::make_index_sequence<sizeof...(Types)>{});
+    static constexpr bool isExactType(size_t index, Batch const& batch) {
+      return isExactTypeHelper(index, batch, std::make_index_sequence<sizeof...(Types)>{});
     }
 
-    template <size_t Index, typename Type> static constexpr bool IsExactType() {
+    template <size_t Index, typename Type> static constexpr bool isExactType() {
       return std::is_same_v<Type, std::tuple_element_t<Index, std::tuple<Types...>>>;
     }
 
-    template <typename... Ts> static constexpr bool AreExactTypes() {
+    template <typename... Ts> static constexpr bool areExactTypes() {
       return std::is_same_v<std::tuple<Types...>, std::tuple<Ts...>>;
     }
 
-    template <typename Vis> static bool VisitAllowedTypes(Vis&& visitor, Batch& batch) {
-      return VisitHelper<Vis>(visitor, batch, SupportedTypeList{});
+    template <typename Vis> static bool visitAllowedTypes(Vis&& visitor, Batch& batch) {
+      return BatchHelper<Types...>::visit(visitor, batch);
     }
 
-    template <size_t Index, typename Vis> static bool VisitExactType(Vis&& visitor, Batch& batch) {
+    template <size_t Index, typename Vis> static bool visitExactType(Vis&& visitor, Batch& batch) {
       using BatchType = std::tuple_element_t<Index, std::tuple<Types...>>;
-      return VisitHelper<Vis>(visitor, batch, TypeList<BatchType>{});
+      return BatchHelper<BatchType>::visit(visitor, batch);
+    };
+
+    template <typename Vis> static bool visitAllowedTypes(Vis&& visitor, BatchPtr& batchPtr) {
+      return BatchHelper<Types...>::visit(visitor, batchPtr);
+    }
+
+    template <size_t Index, typename Vis>
+    static bool visitExactType(Vis&& visitor, BatchPtr& batchPtr) {
+      using BatchType = std::tuple_element_t<Index, std::tuple<Types...>>;
+      return BatchHelper<BatchType>::visit(visitor, batchPtr);
     };
 
   private:
     std::string const m_symbol;
     Func m_func;
 
-    template <typename...> struct TypeList {};
-    using SupportedTypeList = TypeList<Types...>;
-
-    template <size_t Index> static constexpr bool IsExactType(UniqueId::type typeId) {
-      return typeId == UniqueId::forType<std::tuple_element_t<Index, std::tuple<Types...>>>();
+    template <size_t Index> static constexpr bool isExactType(Batch const& batch) {
+      return (batch.typeId() ==
+              UniqueId::forType<std::tuple_element_t<Index, std::tuple<Types...>>>()) ||
+             (batch.baseId() ==
+              UniqueId::forType<std::tuple_element_t<Index, std::tuple<Types...>>>());
     }
 
     template <size_t... Indices>
-    static constexpr bool IsExactTypeHelper(size_t index, UniqueId::type typeId,
+    static constexpr bool isExactTypeHelper(size_t index, Batch const& batch,
                                             std::index_sequence<Indices...>) {
       if(index < sizeof...(Types)) {
-        using CheckFuncPtr = bool (*)(UniqueId::type);
-        constexpr CheckFuncPtr table[sizeof...(Types)] = {&IsExactType<Indices>...};
-        return table[index](typeId);
+        using CheckFuncPtr = bool (*)(Batch const&);
+        constexpr std::array<CheckFuncPtr, sizeof...(Types)> table = {&isExactType<Indices>...};
+        return table[index](batch);
       } else {
         return false;
       }
-    }
-
-    template <typename Vis, template <typename...> typename BatchTypeList, typename... BatchType>
-    static bool VisitHelper(Vis& visitor, Batch& batch, BatchTypeList<BatchType...>) {
-      return (... || VisitHelper<std::decay_t<Vis>, BatchType>(visitor, batch));
-    }
-
-    template <typename Vis, typename BatchType>
-    static bool VisitHelper(Vis& visitor, Batch& batch) {
-      if(batch.typeId() == UniqueId::forType<BatchType>()) {
-        visitor(*static_cast<BatchType*>(&batch));
-        return true;
-      }
-      return false;
     }
   }; // class Evaluator
 

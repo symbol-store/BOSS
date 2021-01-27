@@ -8,7 +8,14 @@ namespace boss::engines::bulk {
 
 class BatchFactory {
 public:
-  virtual BatchPtr createBatch(ComplexExpression const& expression) const = 0;
+  virtual BatchPtr createBatch(Expression const& expression,
+                               bool allowDecomposedDispatch) const = 0;
+  virtual BatchPtr extractFromBatch(Batch const& batch, size_t index) const = 0;
+  virtual BatchPtr recomposeBatch(Batch const& batch, size_t index) const = 0;
+  virtual BatchPtr reduceBatch(Batch const& batch, size_t index) const = 0;
+  virtual void reduceCompoundBatch(Batch& destBatch, Batch const& srcBatch, size_t index) const = 0;
+  virtual BatchPtr convertToNonRLE(Batch& batch) const = 0;
+  virtual Expression revertToExpression(Batch const& batch) const = 0;
 };
 
 } // namespace boss::engines::bulk
