@@ -17,6 +17,11 @@ private:
 
 public:
   ~SymbolPool() = default;
+  SymbolPool(SymbolPool const& other) = delete;
+  SymbolPool(SymbolPool&& other) = delete;
+  SymbolPool& operator=(SymbolPool const& other) = delete;
+  SymbolPool& operator=(SymbolPool&& other) = delete;
+
   static SymbolPool& instance() {
     static SymbolPool instance;
     return instance;

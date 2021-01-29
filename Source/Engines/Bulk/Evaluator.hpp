@@ -20,7 +20,11 @@ public:
   public:
     Evaluator(std::string const& symbol, Func const& func) : m_symbol(symbol), m_func(func) {}
     Evaluator(std::string const& symbol, Func&& func) : m_symbol(symbol), m_func(func) {}
+    ~Evaluator() = default;
     Evaluator(Evaluator const&) = default;
+    Evaluator(Evaluator&&) noexcept = default;
+    Evaluator& operator=(Evaluator const&) = delete;
+    Evaluator& operator=(Evaluator&&) = delete;
 
     std::string const& getSymbol() const { return m_symbol; }
 
@@ -85,14 +89,14 @@ public:
 
     template <size_t... Indices>
     static constexpr bool isExactTypeHelper(size_t index, Batch const& batch,
-                                            std::index_sequence<Indices...>) {
+                                            std::index_sequence<Indices...> /*unused*/) {
       if(index < sizeof...(Types)) {
         using CheckFuncPtr = bool (*)(Batch const&);
         constexpr std::array<CheckFuncPtr, sizeof...(Types)> table = {&isExactType<Indices>...};
-        return table[index](batch);
-      } else {
-        return false;
+        auto& funcIsExactType = table[index]; // NOLINT, bounds are checked just above
+        return funcIsExactType(batch);
       }
+      return false;
     }
   }; // class Evaluator
 

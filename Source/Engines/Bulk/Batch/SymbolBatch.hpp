@@ -26,18 +26,27 @@ public:
   explicit SymbolBatch(Symbol&& symbol) : RLEBatch(std::move(symbol)) {}
   SymbolBatch(size_t size, Symbol const& symbol) : RLEBatch(size, symbol) {}
   SymbolBatch(size_t size, Symbol&& symbol) : RLEBatch(size, std::move(symbol)) {}
-  SymbolBatch(SymbolBatch const& other) = default;
 
-  BatchPtr clone(bool clear = false) const override {
-    return BatchPtr(clear ? new SymbolBatch(m_value) : new SymbolBatch(*this));
+  SymbolBatch(SymbolBatch const& other) = default;
+  SymbolBatch(SymbolBatch&& other) noexcept = default;
+
+  ~SymbolBatch() override = default;
+  SymbolBatch& operator=(SymbolBatch const& other) = delete;
+  SymbolBatch& operator=(SymbolBatch&& other) = delete;
+
+  BatchPtr clone(bool clear = false) const override { return cloneAsSymbolBatch(clear); }
+
+  using SymbolBatchPtr = std::unique_ptr<SymbolBatch>;
+  SymbolBatchPtr cloneAsSymbolBatch(bool clear = false) const {
+    return SymbolBatchPtr(clear ? new SymbolBatch(*begin()) : new SymbolBatch(*this));
   }
 
   BatchPtr evaluate() const override {
-    auto& batchPtr = DefaultSymbolPool::instance().findSymbol(m_value);
+    auto& batchPtr = DefaultSymbolPool::instance().findSymbol(*begin());
     if(batchPtr) {
       return batchPtr->clone();
     }
-    auto& writablePtr = WritableBatchPool::instance().findSymbol(m_value);
+    auto& writablePtr = WritableBatchPool::instance().findSymbol(*begin());
     if(writablePtr) {
       return writablePtr->clone();
     }

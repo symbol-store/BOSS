@@ -33,6 +33,11 @@ public:
     }
   }
 
+  ~Dispatcher() = default;
+  Dispatcher(Dispatcher&& other) = default;
+  Dispatcher& operator=(Dispatcher const& other) = delete;
+  Dispatcher& operator=(Dispatcher&& other) = delete;
+
   void setDecomposed(bool value) { m_decomposed = value; }
 
   auto begin() const { return m_batches.begin(); }
@@ -46,11 +51,11 @@ public:
   size_t size() const {
     if(m_decomposed) {
       size_t totalSize = 0;
-      visitBatches([&totalSize](auto const& key, auto const& batch) { totalSize += batch.size(); });
+      visitBatches(
+          [&totalSize](auto const& /*key*/, auto const& batch) { totalSize += batch.size(); });
       return totalSize;
-    } else {
-      return m_batches.empty() ? 0 : m_batches.begin()->second->size();
     }
+    return m_batches.empty() ? 0 : m_batches.begin()->second->size();
   }
 
   void resize(size_t size, Expression const& val) {
@@ -87,19 +92,18 @@ public:
       size_t batchSize = batch.size();
       if(index >= batchSize) {
         return extract(srcBatch, index - batchSize, ++it);
-      } else {
-        return m_factory.extractFromBatch(batch, index);
       }
-    } else {
-      // need to recompose a new row from every column
-      // Notes:
-      // 1. we have to go through that even if a relation has only one row (size() == 1)
-      //    so it creates the right decomposed batch and avoid an infinite loop...)
-      // 2. we have to go through that even if a dispatched batch has only one column
-      // (m_batches.size() == 1)
-      //    otherwise we end up exporting a column as value directly instead of a list
-      return m_factory.recomposeBatch(srcBatch, index);
+      return m_factory.extractFromBatch(batch, index);
     }
+
+    // need to recompose a new row from every column
+    // Notes:
+    // 1. we have to go through that even if a relation has only one row (size() == 1)
+    //    so it creates the right decomposed batch and avoid an infinite loop...)
+    // 2. we have to go through that even if a dispatched batch has only one column
+    // (m_batches.size() == 1)
+    //    otherwise we end up exporting a column as value directly instead of a list
+    return m_factory.recomposeBatch(srcBatch, index);
   }
 
   BatchPtr reduce(Batch const& srcBatch, size_t index) const {
@@ -107,9 +111,8 @@ public:
       auto destBatchPtr = srcBatch.clone(true);
       m_factory.reduceCompoundBatch(*destBatchPtr, srcBatch, index);
       return std::move(destBatchPtr);
-    } else {
-      return std::next(begin(), static_cast<ptrdiff_t>(index))->second->clone();
     }
+    return std::next(begin(), static_cast<ptrdiff_t>(index))->second->clone();
   }
 
   void insert(Expression const& argument, size_t argIndex, BatchPtr batchPtr) {
@@ -161,6 +164,21 @@ public:
     }
   }
 
+  template <typename BatchHelper, typename Func> void visitBatches(Func&& visitor) const {
+    for(auto const& keyValue : m_batches) {
+      auto const& argument = keyValue.first;
+      auto const& batchPtr = keyValue.second;
+      BatchHelper::visit(
+          [&argument, &visitor](auto const& batch) {
+            if(batch.size() == 0) {
+              return;
+            }
+            visitor(argument, batch);
+          },
+          *batchPtr);
+    }
+  }
+
 private:
   using DispatchKey = std::pair<Expression, size_t>;
 
@@ -170,9 +188,8 @@ private:
       auto const& [rhs_expr, rhs_argIndex] = rhs;
       if(lhs_argIndex != rhs_argIndex) {
         return lhs_argIndex < rhs_argIndex;
-      } else {
-        return compare(lhs_expr, rhs_expr) < 0;
       }
+      return compare(lhs_expr, rhs_expr) < 0;
     }
 
   private:
@@ -181,40 +198,42 @@ private:
     int compare(Expression const& lhs, Expression const& rhs) const {
       if(lhs.index() != rhs.index()) {
         return lhs.index() < rhs.index() ? -1 : 1;
-      } else if(auto const* lhsSymbol = std::get_if<Symbol>(&lhs)) {
+      }
+
+      if(auto const* lhsSymbol = std::get_if<Symbol>(&lhs)) {
         auto const& rhsSymbol = std::get<Symbol>(rhs);
         return lhsSymbol->getName() < rhsSymbol.getName() ? -1 : 1;
-      } else if(auto const* lhsExpr = std::get_if<ComplexExpression>(&lhs)) {
+      }
+
+      if(auto const* lhsExpr = std::get_if<ComplexExpression>(&lhs)) {
         auto const& rhsExpr = std::get<ComplexExpression>(rhs);
         if(lhsExpr->getHead().getName() != rhsExpr.getHead().getName()) {
           return lhsExpr->getHead().getName() < rhsExpr.getHead().getName() ? -1 : 1;
-        } else {
-          auto lhsArgsIt = lhsExpr->getArguments().begin();
-          auto rhsArgsIt = rhsExpr.getArguments().begin();
-          auto lhsArgsItEnd = lhsExpr->getArguments().end();
-          auto rhsArgsItEnd = rhsExpr.getArguments().end();
-          size_t lhsNumArgs = std::distance(lhsArgsIt, lhsArgsItEnd);
-          size_t rhsNumArgs = std::distance(rhsArgsIt, rhsArgsItEnd);
-          if(lhsNumArgs != rhsNumArgs) {
-            return lhsNumArgs < rhsNumArgs ? -1 : 1;
-          } else {
-            while(lhsArgsIt != lhsArgsItEnd /*&& rhsArgsIt != rhsArgsItEnd*/) {
-              int argCompare = compare(*lhsArgsIt, *rhsArgsIt);
-              if(argCompare != 0) {
-                return argCompare;
-              }
-              ++lhsArgsIt;
-              ++rhsArgsIt;
-            }
-
-            // identical arguments
-            return 0;
-          }
         }
-      } else {
-        // "normal" values (of identical type) are all dispatched to the same batch
-        return 0;
+
+        auto lhsArgsIt = lhsExpr->getArguments().begin();
+        auto rhsArgsIt = rhsExpr.getArguments().begin();
+        auto lhsArgsItEnd = lhsExpr->getArguments().end();
+        auto rhsArgsItEnd = rhsExpr.getArguments().end();
+        size_t lhsNumArgs = std::distance(lhsArgsIt, lhsArgsItEnd);
+        size_t rhsNumArgs = std::distance(rhsArgsIt, rhsArgsItEnd);
+
+        if(lhsNumArgs != rhsNumArgs) {
+          return lhsNumArgs < rhsNumArgs ? -1 : 1;
+        }
+
+        while(lhsArgsIt != lhsArgsItEnd /*&& rhsArgsIt != rhsArgsItEnd*/) {
+          int argCompare = compare(*lhsArgsIt, *rhsArgsIt);
+          if(argCompare != 0) {
+            return argCompare;
+          }
+          ++lhsArgsIt;
+          ++rhsArgsIt;
+        }
       }
+
+      // "normal" values (of identical type) are all dispatched to the same batch
+      return 0;
     }
   };
 

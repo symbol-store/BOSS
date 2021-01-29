@@ -36,13 +36,22 @@ public:
   CompoundBatch(CompoundBatch const& other, bool clear = false)
       : m_dispatcher(other.m_dispatcher, clear), m_symbol(other.m_symbol) {}
 
+  ~CompoundBatch() override = default;
+  CompoundBatch(CompoundBatch&& other) = delete;
+  CompoundBatch& operator=(CompoundBatch const& other) = delete;
+  CompoundBatch& operator=(CompoundBatch&& other) = delete;
+
   void setDecomposedDispatch(bool value) { m_dispatcher.setDecomposed(value); }
 
   Symbol const& getHead() const { return m_symbol; }
 
-  BatchPtr clone(bool clear = false) const override {
-    return BatchPtr(new CompoundBatch(*this, clear));
+  BatchPtr clone(bool clear = false) const override { return cloneAsCompoundBatch(clear); }
+
+  using CompoundBatchPtr = std::unique_ptr<CompoundBatch>;
+  CompoundBatchPtr cloneAsCompoundBatch(bool clear = false) const {
+    return CompoundBatchPtr(new CompoundBatch(*this, clear));
   }
+
   void clear() override { m_dispatcher.clear(); }
 
   void reserve(size_t size) override {
@@ -53,29 +62,32 @@ public:
 
   size_t size() const override { return m_dispatcher.size(); }
 
+  template <typename DispatcherIterator> class Iterator {
+  public:
+    explicit Iterator(DispatcherIterator dispatcherIt) : m_dispatcherIt(dispatcherIt) {}
+    BatchPtr& operator*() const { return m_dispatcherIt->second; }
+    bool operator!=(Iterator const& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
+    bool operator!=(Iterator&& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
+    Iterator operator+(size_t incr) const { return Iterator(std::next(m_dispatcherIt, incr)); }
+    void operator++() { m_dispatcherIt++; }
+
+  private:
+    DispatcherIterator m_dispatcherIt;
+  };
+
   template <typename DispatcherIterator> class ConstIterator {
   public:
     explicit ConstIterator(DispatcherIterator dispatcherIt) : m_dispatcherIt(dispatcherIt) {}
-    BatchPtr const& operator*() { return m_dispatcherIt->second; }
-    bool operator!=(ConstIterator& rhs) { return m_dispatcherIt != rhs.m_dispatcherIt; }
-    bool operator!=(ConstIterator&& rhs) { return m_dispatcherIt != rhs.m_dispatcherIt; }
+    BatchPtr const& operator*() const { return m_dispatcherIt->second; }
+    bool operator!=(ConstIterator const& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
+    bool operator!=(ConstIterator&& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
     ConstIterator operator+(size_t incr) const {
       return ConstIterator(std::next(m_dispatcherIt, incr));
     }
     void operator++() { m_dispatcherIt++; }
 
-  protected:
+  private:
     DispatcherIterator m_dispatcherIt;
-  };
-
-  template <typename DispatcherIterator> class Iterator : public ConstIterator<DispatcherIterator> {
-  public:
-    explicit Iterator(DispatcherIterator dispatcherIt)
-        : ConstIterator<DispatcherIterator>(dispatcherIt) {}
-    BatchPtr& operator*() { return this->m_dispatcherIt->second; }
-    Iterator operator+(size_t incr) const {
-      return Iterator(std::next(this->m_dispatcherIt, incr));
-    }
   };
 
   auto begin() const { return ConstIterator(m_dispatcher.begin()); }
@@ -88,7 +100,11 @@ public:
   BatchPtr& at(size_t index) { return *(begin() + index); }
 
   template <typename Func> void visitBatches(Func&& visitor) const {
-    return m_dispatcher.visitBatches(std::move(visitor));
+    return m_dispatcher.visitBatches(std::forward<Func>(visitor));
+  }
+
+  template <typename BatchHelper, typename Func> void visitBatches(Func&& visitor) const {
+    return m_dispatcher.visitBatches<BatchHelper>(std::forward<Func>(visitor));
   }
 
   BatchPtr extract(size_t index) const { return m_dispatcher.extract(*this, index); }
@@ -109,20 +125,22 @@ public:
   }
 
   void merge(BatchPtr&& other) override {
-    auto& batch = *static_cast<CompoundBatch*>(other.get());
-    m_dispatcher.merge(std::move(batch.m_dispatcher));
+    BatchHelper<CompoundBatch>::visit(
+        [this](auto&& batch) { m_dispatcher.merge(std::move(batch.m_dispatcher)); }, *other);
   }
 
   BatchPtr evaluate() const override {
-    auto newBatchPtr = clone(true);
-    auto& newCompoundBatch = *static_cast<CompoundBatch*>(newBatchPtr.get());
+    auto newBatchPtr = cloneAsCompoundBatch(true);
+    auto& newCompoundBatch = *newBatchPtr;
     m_dispatcher.visitBatches([&newCompoundBatch](auto const& key, auto const& batch) {
       newCompoundBatch.insert(key.first, key.second, batch.evaluate());
     });
     return newBatchPtr;
   }
 
-protected:
+  Symbol const& getHead() { return m_symbol; }
+
+private:
   Dispatcher m_dispatcher;
   Symbol m_symbol;
 };

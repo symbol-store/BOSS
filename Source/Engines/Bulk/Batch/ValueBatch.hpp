@@ -27,10 +27,19 @@ public:
   explicit ValueBatch(std::vector<ValueType>&& values) : m_values(std::move(values)) {}
   ValueBatch(size_t size, ValueType const& value) : m_values(size, value) {}
   ValueBatch(size_t size, ValueType&& value) : m_values(size, std::move(value)) {}
-  ValueBatch(ValueBatch const&) = default;
 
-  BatchPtr clone(bool clear = false) const override {
-    return BatchPtr(clear ? new ValueBatch() : new ValueBatch(*this));
+  ValueBatch(ValueBatch const& other) : m_values(other.m_values) {}
+  ValueBatch(ValueBatch&& other) noexcept : m_values(std::move(other.m_values)) {}
+
+  ~ValueBatch() override = default;
+  ValueBatch& operator=(ValueBatch const& other) = delete;
+  ValueBatch& operator=(ValueBatch&& other) = delete;
+
+  BatchPtr clone(bool clear = false) const override { return cloneAsValueBatch(clear); }
+
+  using ValueBatchPtr = std::unique_ptr<ValueBatch>;
+  ValueBatchPtr cloneAsValueBatch(bool clear = false) const {
+    return ValueBatchPtr(clear ? new ValueBatch() : new ValueBatch(*this));
   }
 
   void clear() override { m_values.clear(); }

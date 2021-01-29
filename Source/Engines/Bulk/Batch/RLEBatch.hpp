@@ -30,14 +30,24 @@ public:
     return false;
   }
 
-  RLEBatch(RLEBatch const&) = default;
   RLEBatch(size_t size, ValueType const& value) : m_value(value), m_count(size) {}
   RLEBatch(size_t size, ValueType&& value) : m_value(std::move(value)), m_count(size) {}
   explicit RLEBatch(ValueType const& value) : m_value(value), m_count(0) {}
   explicit RLEBatch(ValueType&& value) : m_value(std::move(value)), m_count(0) {}
 
-  BatchPtr clone(bool clear = false) const override {
-    return BatchPtr(clear ? new RLEBatch(m_value) : new RLEBatch(*this));
+  RLEBatch(RLEBatch const& other) : m_value(other.m_value), m_count(other.m_count) {}
+  RLEBatch(RLEBatch&& other) noexcept
+      : m_value(std::move(other.m_value)), m_count(std::move(other.m_count)) {}
+
+  ~RLEBatch() override = default;
+  RLEBatch& operator=(RLEBatch const& other) = delete;
+  RLEBatch& operator=(RLEBatch&& other) = delete;
+
+  BatchPtr clone(bool clear = false) const override { return cloneAsRLEBatch(clear); }
+
+  using RLEBatchPtr = std::unique_ptr<RLEBatch>;
+  RLEBatchPtr cloneAsRLEBatch(bool clear = false) const {
+    return RLEBatchPtr(clear ? new RLEBatch(m_value) : new RLEBatch(*this));
   }
 
   void clear() override { m_count = 0; }
@@ -74,7 +84,7 @@ public:
     ValueType& operator*() { return *m_pointer; }
     bool operator!=(Iterator& rhs) { return m_pointer != rhs.m_pointer; }
     bool operator!=(Iterator&& rhs) { return m_pointer != rhs.m_pointer; }
-    Iterator operator+(size_t size) const { return Iterator(nullptr); }
+    Iterator operator+(size_t /*size*/) const { return Iterator(nullptr); }
     void operator++() { m_pointer = nullptr; }
 
   private:
@@ -110,7 +120,7 @@ public:
 
   BatchPtr evaluate() const override { return this->clone(); }
 
-protected:
+private:
   ValueType m_value;
   size_t m_count;
 };

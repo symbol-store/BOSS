@@ -20,8 +20,16 @@ public:
   TableView(TableView const& other, bool clear = false)
       : CompoundBatch(other, clear), m_columns(other.m_columns) {}
 
-  BatchPtr clone(bool clear = false) const override {
-    return BatchPtr(new TableView(*this, clear));
+  ~TableView() override = default;
+  TableView(TableView&& other) = delete;
+  TableView& operator=(TableView const& other) = delete;
+  TableView& operator=(TableView&& other) = delete;
+
+  BatchPtr clone(bool clear = false) const override { return cloneAsTableView(clear); }
+
+  using TableViewPtr = std::unique_ptr<TableView>;
+  TableViewPtr cloneAsTableView(bool clear = false) const {
+    return TableViewPtr(new TableView(*this, clear));
   }
 
   void addColumn(std::string const& name) { m_columns.push_back(name); }
@@ -43,8 +51,11 @@ public:
     auto evaluatedPtr = CompoundBatch::evaluate();
 
     // put back missing info
-    auto& tableView = *static_cast<TableView*>(evaluatedPtr.get());
-    tableView.m_columns.insert(tableView.m_columns.end(), m_columns.begin(), m_columns.end());
+    BatchHelper<TableView>::visit(
+        [this](auto& tableView) {
+          tableView.m_columns.insert(tableView.m_columns.end(), m_columns.begin(), m_columns.end());
+        },
+        *evaluatedPtr);
 
     return evaluatedPtr;
   }

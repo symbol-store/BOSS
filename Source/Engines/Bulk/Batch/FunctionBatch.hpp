@@ -29,8 +29,16 @@ public:
   FunctionBatch(FunctionBatch const& other, bool clear = false)
       : m_parameters(other.m_parameters), CompoundBatch(other, clear) {}
 
-  BatchPtr clone(bool clear = false) const override {
-    return BatchPtr(new FunctionBatch(*this, clear));
+  ~FunctionBatch() override = default;
+  FunctionBatch(FunctionBatch&& other) = delete;
+  FunctionBatch& operator=(FunctionBatch const& other) = delete;
+  FunctionBatch& operator=(FunctionBatch&& other) = delete;
+
+  BatchPtr clone(bool clear = false) const override { return cloneAsFunctionBatch(clear); }
+
+  using FunctionBatchPtr = std::unique_ptr<FunctionBatch>;
+  FunctionBatchPtr cloneAsFunctionBatch(bool clear = false) const {
+    return FunctionBatchPtr(new FunctionBatch(*this, clear));
   }
 
   BatchPtr evaluateWith(std::vector<Batch const*> const& args) const {
@@ -69,9 +77,12 @@ public:
     auto evaluatedPtr = CompoundBatch::evaluate();
 
     // put back missing info
-    auto& functionBatch = *static_cast<FunctionBatch*>(evaluatedPtr.get());
-    functionBatch.m_parameters.insert(functionBatch.m_parameters.begin(), m_parameters.begin(),
-                                      m_parameters.end());
+    BatchHelper<FunctionBatch>::visit(
+        [this](auto& functionBatch) {
+          functionBatch.m_parameters.insert(functionBatch.m_parameters.begin(),
+                                            m_parameters.begin(), m_parameters.end());
+        },
+        *evaluatedPtr);
 
     return evaluatedPtr;
   }

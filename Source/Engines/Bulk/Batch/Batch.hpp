@@ -14,6 +14,12 @@ using BatchPtr = std::unique_ptr<Batch>;
 class Batch {
 public:
   virtual ~Batch() = default;
+  Batch() = default;
+
+  Batch(Batch const& other) = delete;
+  Batch(Batch&& other) = delete;
+  Batch& operator=(Batch const& other) = delete;
+  Batch& operator=(Batch&& other) = delete;
 
   virtual BatchPtr clone(bool clear = false) const = 0;
   virtual void clear() = 0;
