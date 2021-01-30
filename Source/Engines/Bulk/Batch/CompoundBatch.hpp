@@ -48,7 +48,7 @@ public:
   BatchPtr clone(bool clear = false) const override { return cloneAsCompoundBatch(clear); }
 
   using CompoundBatchPtr = std::unique_ptr<CompoundBatch>;
-  CompoundBatchPtr cloneAsCompoundBatch(bool clear = false) const {
+  virtual CompoundBatchPtr cloneAsCompoundBatch(bool clear = false) const {
     return CompoundBatchPtr(new CompoundBatch(*this, clear));
   }
 

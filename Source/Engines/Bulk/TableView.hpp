@@ -2,6 +2,7 @@
 
 #include "Batch/Batch.hpp"
 #include "Batch/CompoundBatch.hpp"
+#include "Batch/ValueBatch.hpp"
 
 #include <string>
 #include <vector>
@@ -13,12 +14,17 @@ public:
   using ValueType = CompoundBatch::ValueType;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<TableView>();
 
+  using ColumnBatchType = ValueBatch<std::string>;
+  using ColumnBatchPtr = std::unique_ptr<ColumnBatchType>;
+
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
-  explicit TableView(BatchFactory const& factory) : CompoundBatch(factory, true) {}
+  explicit TableView(BatchFactory const& factory)
+      : CompoundBatch(factory, true), m_columns(new ColumnBatchType()) {}
+
   TableView(TableView const& other, bool clear = false)
-      : CompoundBatch(other, clear), m_columns(other.m_columns) {}
+      : CompoundBatch(other, clear), m_columns(other.m_columns->cloneAsValueBatch()) {}
 
   ~TableView() override = default;
   TableView(TableView&& other) = delete;
@@ -27,41 +33,50 @@ public:
 
   BatchPtr clone(bool clear = false) const override { return cloneAsTableView(clear); }
 
+  using CompoundBatch::CompoundBatchPtr;
+  CompoundBatchPtr cloneAsCompoundBatch(bool clear = false) const override {
+    return cloneAsTableView(clear);
+  }
+
   using TableViewPtr = std::unique_ptr<TableView>;
   TableViewPtr cloneAsTableView(bool clear = false) const {
     return TableViewPtr(new TableView(*this, clear));
   }
 
-  void addColumn(std::string const& name) { m_columns.push_back(name); }
+  void addColumn(std::string const& name) { m_columns->insert(name); }
 
-  std::string const& columnName(size_t index) const { return m_columns[index]; }
+  ColumnBatchPtr const& columns() { return m_columns; }
+
+  std::string const& columnName(size_t index) const {
+    return *std::next(m_columns->begin(), index); //NOLINT
+  }
 
   int columnIndex(std::string const& name) const {
-    for(size_t index = 0; index < m_columns.size(); ++index) {
-      if(m_columns[index] == name) {
-        return static_cast<int>(index);
+    int index = 0;
+    for(auto const& columnName : *m_columns) {
+      if(columnName == name) {
+        return index;
       }
+      ++index;
     }
     return -1;
   }
 
-  size_t numColumns() const { return m_columns.size(); }
+  size_t numColumns() const { return m_columns->size(); }
 
   BatchPtr evaluate() const override {
     auto evaluatedPtr = CompoundBatch::evaluate();
 
     // put back missing info
     BatchHelper<TableView>::visit(
-        [this](auto& tableView) {
-          tableView.m_columns.insert(tableView.m_columns.end(), m_columns.begin(), m_columns.end());
-        },
+        [this](auto& tableView) { tableView.m_columns = m_columns->cloneAsValueBatch(); },
         *evaluatedPtr);
 
     return evaluatedPtr;
   }
 
 private:
-  std::vector<std::string> m_columns;
+  ColumnBatchPtr m_columns;
 };
 
 } // namespace boss::engines::bulk

@@ -46,7 +46,7 @@ public:
   BatchPtr clone(bool clear = false) const override { return cloneAsRLEBatch(clear); }
 
   using RLEBatchPtr = std::unique_ptr<RLEBatch>;
-  RLEBatchPtr cloneAsRLEBatch(bool clear = false) const {
+  virtual RLEBatchPtr cloneAsRLEBatch(bool clear = false) const {
     return RLEBatchPtr(clear ? new RLEBatch(m_value) : new RLEBatch(*this));
   }
 

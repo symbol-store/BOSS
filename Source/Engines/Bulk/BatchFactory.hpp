@@ -16,7 +16,7 @@ public:
   BatchFactory& operator=(BatchFactory&& other) = delete;
 
   virtual BatchPtr createBatch(Expression const& expression,
-                               bool allowDecomposedDispatch) const = 0;
+                               bool allowDecomposedDispatch = false) const = 0;
   virtual BatchPtr extractFromBatch(Batch const& batch, size_t index) const = 0;
   virtual BatchPtr recomposeBatch(Batch const& batch, size_t index) const = 0;
   virtual BatchPtr reduceBatch(Batch const& batch, size_t index) const = 0;

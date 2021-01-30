@@ -33,13 +33,18 @@ public:
 
   BatchPtr clone(bool clear = false) const override { return cloneAsAnyExpressionBatch(clear); }
 
+  using CompoundBatch::CompoundBatchPtr;
+  CompoundBatchPtr cloneAsCompoundBatch(bool clear = false) const override {
+    return cloneAsAnyExpressionBatch(clear);
+  }
+
   using AnyExpressionBatchPtr = std::unique_ptr<AnyExpressionBatch>;
-  AnyExpressionBatchPtr cloneAsAnyExpressionBatch(bool clear = false) const {
+  virtual AnyExpressionBatchPtr cloneAsAnyExpressionBatch(bool clear = false) const {
     return AnyExpressionBatchPtr(new AnyExpressionBatch(*this, clear));
   }
 };
 
-template <typename EvaluatorType, typename Func, size_t FuncArgCount, bool FixedTypes>
+template <typename EvaluatorType, typename Func, size_t FuncArgCount>
 class ExpressionBatch : public AnyExpressionBatch {
 public:
   using ArgumentList = typename CompoundBatch::BatchList;
@@ -58,6 +63,11 @@ public:
   ExpressionBatch& operator=(ExpressionBatch&& other) = delete;
 
   BatchPtr clone(bool clear = false) const override { return cloneAsExpressionBatch(clear); }
+
+  using AnyExpressionBatch::AnyExpressionBatchPtr;
+  AnyExpressionBatchPtr cloneAsAnyExpressionBatch(bool clear = false) const override {
+    return cloneAsExpressionBatch(clear);
+  }
 
   using ExpressionBatchPtr = std::unique_ptr<ExpressionBatch>;
   ExpressionBatchPtr cloneAsExpressionBatch(bool clear = false) const {
@@ -133,11 +143,7 @@ private:
         evaluatedBatchPtr.release(); // NOLINT
       };
 
-      if constexpr(FixedTypes) {
-        EvaluatorType::template visitExactType<Index>(evaluateNext, *evaluatedBatchPtr);
-      } else {
-        EvaluatorType::template visitAllowedTypes(evaluateNext, *evaluatedBatchPtr);
-      }
+      EvaluatorType::template visitExactType<Index>(evaluateNext, *evaluatedBatchPtr);
 
       if(outputBatchPtr) {
         return outputBatchPtr;
@@ -150,7 +156,7 @@ private:
       // add previous evaluated arguments
       std::apply([&argList](auto&&... args) { (..., argList.emplace_back(std::move(args))); },
                  batchTuple);
-      // add this current batch (as the state we were evaluating it)
+      // add this current batch (at the state we were evaluating it)
       argList.emplace_back(std::move(evaluatedBatchPtr));
       // still evaluate them as much as possible
       for(size_t index = Index + 1; index < FuncArgCount; ++index) {
@@ -158,22 +164,14 @@ private:
         argList.emplace_back(std::move(otherBatchPtr));
       }
 
-      // need the original key, to be able to apply it for creating the new batch
-      ExpressionArguments expressionArgs;
-      expressionArgs.reserve(size());
-      visitBatches([&expressionArgs](auto const& key, auto const& /*batch*/) {
-        expressionArgs.push_back(key.first);
-      });
-      auto key = ComplexExpression(getHead(), std::move(expressionArgs));
-
+      // create the new batch and insert the semi-evaluated batches
       auto partOutputBatchPtr = cloneAsCompoundBatch(true);
       auto& outputBatch = *partOutputBatchPtr;
-      outputBatch.resize(argList.size(), key);
-      auto newBatchIt = outputBatch.begin();
-      for(auto& argBatch : argList) {
-        *newBatchIt = std::move(argBatch);
-        ++newBatchIt;
-      }
+      auto argIt = argList.begin();
+      visitBatches([&outputBatch, &argIt](auto const& key, auto const& /*batch*/) {
+        outputBatch.insert(key.first, key.second, std::move(*argIt));
+        ++argIt;
+      });
 
       return partOutputBatchPtr;
     }
@@ -189,22 +187,12 @@ private:
       // little trick here until we can support overloading
       // or find another way to pass symbol/tableView to the db functions
       // 2- also needed for "Function" which are evaluated too early (when not using parameters)
-      if constexpr(FixedTypes) {
-        if(EvaluatorType::isExactType(index, *evaluatedBatch)) {
-          isCorrectExpectedType = true;
-        } else if(isCorrectExpectedType) {
-          // go back to previous batch
-          evaluatedBatchPtr = std::move(previousBatchPtr);
-          break;
-        }
-      } else {
-        if(EvaluatorType::isAllowedType(*evaluatedBatch)) {
-          isCorrectExpectedType = true;
-        } else if(isCorrectExpectedType) {
-          // go back to previous batch
-          evaluatedBatchPtr = std::move(previousBatchPtr);
-          break;
-        }
+      if(EvaluatorType::isExactType(index, *evaluatedBatch)) {
+        isCorrectExpectedType = true;
+      } else if(isCorrectExpectedType) {
+        // go back to previous batch
+        evaluatedBatchPtr = std::move(previousBatchPtr);
+        break;
       }
 
       auto currentTypeId = evaluatedBatch->typeId();

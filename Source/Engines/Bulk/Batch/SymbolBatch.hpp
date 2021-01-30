@@ -36,6 +36,11 @@ public:
 
   BatchPtr clone(bool clear = false) const override { return cloneAsSymbolBatch(clear); }
 
+  using RLEBatch::RLEBatchPtr;
+  RLEBatchPtr cloneAsRLEBatch(bool clear = false) const override {
+    return cloneAsSymbolBatch(clear);
+  }
+
   using SymbolBatchPtr = std::unique_ptr<SymbolBatch>;
   SymbolBatchPtr cloneAsSymbolBatch(bool clear = false) const {
     return SymbolBatchPtr(clear ? new SymbolBatch(*begin()) : new SymbolBatch(*this));

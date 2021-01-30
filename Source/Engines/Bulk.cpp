@@ -13,7 +13,7 @@ Engine::~Engine() { delete &m_batchFactory; }
 
 /*static*/ BatchFactory& Engine::createBatchFactory() {
   auto* templates = new BatchTemplatesImpl();
-  BuiltinFunctions functionsInitialiser(*templates);
+  BuiltinFunctions<BatchTemplatesImpl>::registerAll(*templates);
   return *templates;
 }
 

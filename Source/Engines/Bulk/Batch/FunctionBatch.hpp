@@ -15,13 +15,13 @@ public:
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
   FunctionBatch(BatchFactory const& factory, std::vector<Symbol> const& parameters,
-                CompoundBatch const& definitionBatch)
+                Batch const& definitionBatch)
       : m_parameters(parameters), CompoundBatch(factory, false, Symbol("Function")) {
     insert(0, 0, definitionBatch.clone());
   }
 
   FunctionBatch(BatchFactory const& factory, std::vector<Symbol>&& parameters,
-                CompoundBatch const& definitionBatch)
+                Batch const& definitionBatch)
       : m_parameters(std::move(parameters)), CompoundBatch(factory, false, Symbol("Function")) {
     insert(0, 0, definitionBatch.clone());
   }
@@ -35,6 +35,11 @@ public:
   FunctionBatch& operator=(FunctionBatch&& other) = delete;
 
   BatchPtr clone(bool clear = false) const override { return cloneAsFunctionBatch(clear); }
+
+  using CompoundBatch::CompoundBatchPtr;
+  CompoundBatchPtr cloneAsCompoundBatch(bool clear = false) const override {
+    return cloneAsFunctionBatch(clear);
+  }
 
   using FunctionBatchPtr = std::unique_ptr<FunctionBatch>;
   FunctionBatchPtr cloneAsFunctionBatch(bool clear = false) const {
@@ -74,17 +79,8 @@ public:
   }
 
   BatchPtr evaluate() const override {
-    auto evaluatedPtr = CompoundBatch::evaluate();
-
-    // put back missing info
-    BatchHelper<FunctionBatch>::visit(
-        [this](auto& functionBatch) {
-          functionBatch.m_parameters.insert(functionBatch.m_parameters.begin(),
-                                            m_parameters.begin(), m_parameters.end());
-        },
-        *evaluatedPtr);
-
-    return evaluatedPtr;
+    // evaluate only by calling evaluateWith()
+    return clone();
   }
 
 private:

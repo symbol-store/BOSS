@@ -30,10 +30,21 @@ namespace boss::engines::bulk {
 
 template <typename... SupportedTypes> class BatchTemplates : public BatchFactory {
 public:
+  using BatchHelper =
+      BatchHelper<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., SymbolBatch,
+                  CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
+  using AnyBatch =
+      AllowedBatches<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., SymbolBatch,
+                     CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
+
   BatchPtr createBatch(Expression const& expression, bool allowDecomposedDispatch) const override {
     return std::visit([this, &allowDecomposedDispatch](
                           auto&& value) { return createBatch(value, allowDecomposedDispatch); },
                       expression);
+  }
+
+  BatchPtr createBatch(Symbol const& symbol) const {
+    return createBatch(symbol, false);
   }
 
   BatchPtr createBatch(Symbol const& symbol, bool /*allowDecomposedDispatch*/) const {
@@ -75,6 +86,16 @@ public:
     return BatchPtr(new CompoundBatch(*this, allowDecomposedDispatch, symbol));
   }
 
+  template <typename T>
+  BatchPtr createBatch(T const& value) const {
+    return createBatch<T>(value, false);
+  }
+
+  template <typename T>
+  BatchPtr createBatch(T const& value, bool /*allowDecomposedDispatch*/) const {
+    return BatchPtr(new RLEBatch<T>(value));
+  }
+
   BatchPtr extractFromBatch(Batch const& batch, size_t index) const override {
     BatchPtr batchPtr;
     BatchHelper::visit(
@@ -101,6 +122,12 @@ public:
         [this, &index, &recomposedPtr](auto const& batch) {
           using BatchType = std::decay_t<decltype(batch)>;
           if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
+            if(batch.size() == 1) {
+              auto recomposedCompoundPtr = batch.cloneAsCompoundBatch();
+              recomposedCompoundPtr->setDecomposedDispatch(true);
+              recomposedPtr = std::move(recomposedCompoundPtr);
+              return;
+            }
             auto recomposedCompoundPtr = batch.cloneAsCompoundBatch(true);
             auto& recomposed = *recomposedCompoundPtr;
             recomposed.setDecomposedDispatch(true);
@@ -205,26 +232,22 @@ public:
   }
 
   friend class AllowedTypes;
-  template <bool FixedTypes, typename... Types> class AllowedTypes {
+  template <typename... Types> class AllowedTypes {
   public:
-    using BatchHelper = BatchHelper<Types...>;
-
     explicit AllowedTypes(BatchTemplates& batchTemplates) : m_batchTemplates(batchTemplates) {}
 
     template <size_t N, typename Func>
     void registerFunction(std::string const& symbol, Func&& func) {
       std::vector<size_t> argumentTypes(N, 0);
-      /*if constexpr(FixedTypes) {
+      /*
         // support overloading only when specify every argument type
         if constexpr(IsBatchType) {
           argumentTypes = std::vector<size_t>{((size_t)UniqueId::forType<typename
-      Types::ValueType>())...}; } else { argumentTypes =
-      std::vector<size_t>{((size_t)UniqueId::forType<Types>())...};
-        }
+        Types::ValueType>())...}; } else { argumentTypes =
+        std::vector<size_t>{((size_t)UniqueId::forType<Types>())...};
       }*/
       BatchTemplateKey key(symbol, argumentTypes);
-      auto* templateBatch = new ExpressionBatchTemplate<Func, N, FixedTypes, Types...>(
-          symbol, std::forward<Func>(func));
+      auto* templateBatch = new ExpressionBatchTemplate<Func, N, Types...>(symbol, std::forward<Func>(func));
       m_batchTemplates.m_templates[key] = BatchTemplatePtr(templateBatch);
     }
 
@@ -232,53 +255,64 @@ public:
     BatchTemplates& m_batchTemplates;
   };
 
-  using AnyTypes =
-      AllowedTypes<false, ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., SymbolBatch,
-                   CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
-  using BatchHelper = typename AnyTypes::BatchHelper;
-
-  auto any() { return AnyTypes(*this); }
   template <typename... Types> auto allowedTypes() {
-    return FromElementTypeToAllowedBatchTypes<false, Types...>(*this);
+    return FromElementTypesToAllowedTypes<false, Types...>(*this);
   }
   template <typename... Types> auto argTypes() {
-    return FromElementTypeToAllowedBatchTypes<true, Types...>(*this);
+    return FromElementTypesToAllowedTypes<true, Types...>(*this);
   }
   template <typename... Types> auto allowedBatchTypes() {
-    return AllowedTypes<false, Types...>(*this);
+    return AllowedTypes<AllowedBatches<Types...>>(*this);
   }
-  template <typename... Types> auto argBatchTypes() { return AllowedTypes<true, Types...>(*this); }
-
-  template <typename T>
-  BatchPtr createBatch(T const& value, bool /*allowDecomposedDispatch*/) const {
-    return BatchPtr(new RLEBatch<T>(value));
+  template <typename... Types> auto argBatchTypes() {
+    return AllowedTypes<AsAllowedBatches<Types>...>(*this);
   }
 
 private:
-  template <typename, typename> struct MergeTwoAllowedTypes;
-  template <bool UsingFixedTypes, typename... Args0, typename... Args1>
-  struct MergeTwoAllowedTypes<AllowedTypes<UsingFixedTypes, Args0...>,
-                              AllowedTypes<UsingFixedTypes, Args1...>> {
-    using type = AllowedTypes<UsingFixedTypes, Args0..., Args1...>;
+  template <typename> struct IsAllowedBatches : std::false_type {};
+  template <typename... T> struct IsAllowedBatches<AllowedBatches<T...>> : std::true_type {};
+  template <typename T>
+  using AsAllowedBatches = std::conditional_t<IsAllowedBatches<T>::value, T, AllowedBatches<T>>;
+
+  template <typename, typename> struct MergeTwoFixedTypes;
+  template <typename... Args0, typename... Args1>
+  struct MergeTwoFixedTypes<AllowedTypes<AllowedBatches<Args0...>>,
+                            AllowedTypes<AllowedBatches<Args1...>>> {
+    using type = AllowedTypes<AllowedBatches<Args0...>, AllowedBatches<Args1...>>;
   };
 
-  template <typename...> struct MergeAllowedTypes;
-  template <typename FirstAllowedType> struct MergeAllowedTypes<FirstAllowedType> {
+  template <typename, typename> struct MergeTwoAllowedTypes;
+  template <typename... Args0, typename... Args1>
+  struct MergeTwoAllowedTypes<AllowedTypes<AllowedBatches<Args0...>>,
+                              AllowedTypes<AllowedBatches<Args1...>>> {
+    using type = AllowedTypes<AllowedBatches<Args0..., Args1...>>;
+  };
+
+  template <bool, typename...> struct MergeAllowedTypes;
+  template <bool UsingFixedTypes, typename FirstAllowedType>
+  struct MergeAllowedTypes<UsingFixedTypes, FirstAllowedType> {
     using type = FirstAllowedType;
   };
-  template <typename FirstAllowedType, typename... OtherAllowedTypes>
-  struct MergeAllowedTypes<FirstAllowedType, OtherAllowedTypes...> {
-    using type =
-        typename MergeTwoAllowedTypes<FirstAllowedType,
-                                      typename MergeAllowedTypes<OtherAllowedTypes...>::type>::type;
+  template <bool UsingFixedTypes, typename FirstAllowedType, typename... OtherAllowedTypes>
+  struct MergeAllowedTypes<UsingFixedTypes, FirstAllowedType, OtherAllowedTypes...> {
+    using type = std::conditional_t<
+        UsingFixedTypes,
+        typename MergeTwoFixedTypes<
+            FirstAllowedType,
+            typename MergeAllowedTypes<UsingFixedTypes, OtherAllowedTypes...>::type>::type,
+        typename MergeTwoAllowedTypes<
+            FirstAllowedType,
+            typename MergeAllowedTypes<UsingFixedTypes, OtherAllowedTypes...>::type>::type>;
   };
 
   template <bool UsingFixedTypes, typename... Types>
-  using FromElementTypeToAllowedBatchTypes = typename MergeAllowedTypes<std::conditional_t<
-      std::is_same_v<Types, Symbol>, AllowedTypes<UsingFixedTypes, SymbolBatch>,
+  using FromElementTypesToAllowedTypes = typename MergeAllowedTypes<
+      UsingFixedTypes,
       std::conditional_t<
-          std::is_same_v<Types, ComplexExpression>, AllowedTypes<UsingFixedTypes, CompoundBatch>,
-          AllowedTypes<UsingFixedTypes, ValueBatch<Types>, RLEBatch<Types>>>>...>::type;
+          std::is_same_v<Types, Symbol>, AllowedTypes<AllowedBatches<SymbolBatch>>,
+          std::conditional_t<
+              std::is_same_v<Types, ComplexExpression>, AllowedTypes<AllowedBatches<CompoundBatch>>,
+              AllowedTypes<AllowedBatches<ValueBatch<Types>, RLEBatch<Types>>>>>...>::type;
 
   class BatchTemplateKey {
   public:
@@ -325,11 +359,11 @@ private:
     virtual BatchPtr createBatch(BatchTemplates const&) const = 0;
   };
 
-  template <typename Func, int N, bool FixedTypes, typename... AllowedTypes>
+  template <typename Func, int N, typename... AllowedTypes>
   class ExpressionBatchTemplate : public BatchTemplateBase {
   public:
     using EvaluatorType = typename ForTypes<AllowedTypes...>::template Evaluator<Func>;
-    using BatchType = ExpressionBatch<EvaluatorType, Func, N, FixedTypes>;
+    using BatchType = ExpressionBatch<EvaluatorType, Func, N>;
 
     ExpressionBatchTemplate(std::string const& symbol, Func&& func) : m_evaluator(symbol, func) {}
 

@@ -13,10 +13,6 @@ public:
     return visit(std::forward<Func>(func), batch, BatchTypeList{});
   }
 
-private:
-  template <typename...> struct TypeList {};
-  using BatchTypeList = TypeList<BatchTypes...>;
-
   template <typename Func, template <typename...> typename List, typename... BatchType>
   static bool visit(Func&& func, Batch& batch, List<BatchType...> /*unused*/) {
     return (... || visit<std::decay_t<Func>, BatchType>(func, batch)) ||
@@ -27,6 +23,10 @@ private:
     return (... || visit<std::decay_t<Func>, BatchType>(func, batch)) ||
            (... || visitBase<std::decay_t<Func>, BatchType>(func, batch));
   }
+
+private:
+  template <typename...> struct TypeList {};
+  using BatchTypeList = TypeList<BatchTypes...>;
 
   template <typename Func, typename BatchType> static bool visit(Func& func, Batch& batch) {
     if(batch.typeId() == UniqueId::forType<BatchType>()) {
