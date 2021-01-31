@@ -83,7 +83,8 @@ public:
     }
 
     // symbol not found, return a generic batch with arguments at least
-    return BatchPtr(new CompoundBatch(*this, allowDecomposedDispatch, symbol));
+    bool ordered = symbol.getName() != "MultiSet";
+    return BatchPtr(new CompoundBatch(*this, allowDecomposedDispatch, ordered, symbol));
   }
 
   template <typename T>

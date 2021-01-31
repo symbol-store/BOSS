@@ -21,7 +21,7 @@ public:
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
   AnyExpressionBatch(BatchFactory const& factory, Symbol const& symbol)
-      : CompoundBatch(factory, false, symbol) {}
+      : CompoundBatch(factory, false, true, symbol) {}
 
   AnyExpressionBatch(AnyExpressionBatch const& other, bool clear = false)
       : CompoundBatch(other, clear) {}

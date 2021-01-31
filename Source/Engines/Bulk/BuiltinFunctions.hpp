@@ -444,9 +444,10 @@ private:
               auto& newColumnBatch = *static_cast<ColumnBatchType*>(newColumnBatchPtr.get());
               newColumnBatch.resize(column.size(), columnKey.first);
               auto newcolumnIt = newColumnBatch.begin();
+              auto newcolumnItEnd = newColumnBatch.end();
               for(auto const& sortedIt : sorted) {
                 auto const& rowIndices = sortedIt.second;
-                copyRowValuesInOrder(newcolumnIt, column, rowIndices);
+                copyRowValuesInOrder(newcolumnIt, newcolumnItEnd, column, rowIndices);
               }
               batchOut.insert(columnKey.first, columnKey.second, std::move(newColumnBatchPtr));
             });
@@ -506,7 +507,8 @@ private:
                 auto& newColumnBatch = *static_cast<ColumnBatchType*>(newColumnBatchPtr.get());
                 newColumnBatch.resize(rowIndices.size(), columnKey.first);
                 auto newColumnBatchIt = newColumnBatch.begin();
-                copyRowValuesInOrder(newColumnBatchIt, column, rowIndices);
+                auto newColumnBatchItEnd = newColumnBatch.end();
+                copyRowValuesInOrder(newColumnBatchIt, newColumnBatchItEnd, column, rowIndices);
                 grouped.insert(columnKey.first, columnKey.second, std::move(newColumnBatchPtr));
               });
 
@@ -656,20 +658,22 @@ private:
   }
 
   template <typename DestBatchIterator, typename SrcBatchType>
-  static void copyRowValuesInOrder(DestBatchIterator& destBatchIt, SrcBatchType const& srcBatch,
+  static void copyRowValuesInOrder(DestBatchIterator& destBatchIt,
+                                   DestBatchIterator& destBatchItEnd, SrcBatchType const& srcBatch,
                                    std::vector<size_t> const& rowIndices) {
     // copy row values in sorted order, column per column
     // TODO: insert together consecutive rows
     // (or directly re-implement with a more efficient method...)
-    for(size_t rowIndex : rowIndices) {
-      auto columnIt = srcBatch.begin() + rowIndex;
+    for(auto rowIndexIt = rowIndices.begin();
+        rowIndexIt != rowIndices.end() && destBatchIt != destBatchItEnd;
+        ++rowIndexIt, ++destBatchIt) {
+      auto columnIt = srcBatch.begin() + *rowIndexIt;
       auto const& value = *columnIt;
       if constexpr(std::is_base_of_v<BatchPtr, std::decay_t<decltype(value)>>) {
         *destBatchIt = value->clone();
       } else {
         *destBatchIt = value;
       }
-      ++destBatchIt;
     }
   }
 
@@ -680,7 +684,7 @@ private:
     auto columnIt = srcBatch.begin();
     auto conditionIt = conditionBatch.begin();
     auto newColumnIt = destBatch.begin();
-    for(; columnIt != srcBatch.end(); ++columnIt, ++conditionIt) {
+    for(; columnIt != srcBatch.end() && newColumnIt != destBatch.end(); ++columnIt, ++conditionIt) {
       if(!*conditionIt) {
         continue;
       }

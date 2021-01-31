@@ -21,11 +21,11 @@ namespace boss::engines::bulk {
 
 class Dispatcher {
 public:
-  Dispatcher(BatchFactory const& factory, bool decomposed)
-      : m_factory(factory), m_decomposed(decomposed) {}
+  Dispatcher(BatchFactory const& factory, bool decomposed, bool ordered)
+      : m_factory(factory), m_decomposed(decomposed), m_ordered(ordered) {}
 
   Dispatcher(Dispatcher const& other, bool clear = false)
-      : m_factory(other.m_factory), m_decomposed(other.m_decomposed) {
+      : m_factory(other.m_factory), m_decomposed(other.m_decomposed), m_ordered(other.m_ordered) {
     if(!clear) {
       for(auto const& [key, otherBatchPtr] : other.m_batches) {
         insert(key.first, key.second, std::move(otherBatchPtr->clone(clear)));
@@ -39,6 +39,7 @@ public:
   Dispatcher& operator=(Dispatcher&& other) = delete;
 
   void setDecomposed(bool value) { m_decomposed = value; }
+  void setOrdered(bool value) { m_ordered = value; }
 
   auto begin() const { return m_batches.begin(); }
   auto end() const { return m_batches.end(); }
@@ -116,7 +117,7 @@ public:
   }
 
   void insert(Expression const& argument, size_t argIndex, BatchPtr batchPtr) {
-    DispatchKey key(argument, m_decomposed ? 0 : argIndex);
+    DispatchKey key(argument, m_decomposed && !m_ordered ? 0 : argIndex);
     auto& existingBatchPtr = m_batches[key];
     if(existingBatchPtr) {
       if(existingBatchPtr->isRLE()) {
@@ -132,7 +133,7 @@ public:
   }
 
   void insert(Expression const& argument, size_t argIndex = 0) {
-    DispatchKey key(argument, m_decomposed ? 0 : argIndex);
+    DispatchKey key(argument, m_decomposed && !m_ordered ? 0 : argIndex);
     auto& batchPtr = m_batches[key];
     if(!batchPtr) {
       bool allowDecomposedDispatch = !m_decomposed;
@@ -242,6 +243,7 @@ private:
 
   BatchFactory const& m_factory;
   bool m_decomposed;
+  bool m_ordered;
 };
 
 } // namespace boss::engines::bulk

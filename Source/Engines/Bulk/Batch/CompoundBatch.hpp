@@ -5,12 +5,16 @@
 #include "../BatchHelper.hpp"
 #include "../Dispatcher.hpp"
 
+#include "../../../Utilities.hpp"
+
 #include <algorithm>
 #include <functional>
 #include <memory>
 #include <vector>
 
 namespace boss::engines::bulk {
+
+using boss::utilities::operator""_;
 
 class CompoundBatch : public Batch {
 public:
@@ -30,8 +34,12 @@ public:
   using BatchList = std::vector<std::unique_ptr<Batch>>;
 
   explicit CompoundBatch(BatchFactory const& factory, bool decomposedDispatch = false,
-                         Symbol const& symbol = Symbol("List"))
-      : m_dispatcher(factory, decomposedDispatch), m_symbol(symbol) {}
+                         bool ordered = true)
+      : m_dispatcher(factory, decomposedDispatch, ordered), m_symbol(ordered ? "List"_ : "MultiSet"_) {}
+
+  explicit CompoundBatch(BatchFactory const& factory, bool decomposedDispatch, bool ordered,
+                         Symbol const& symbol)
+      : m_dispatcher(factory, decomposedDispatch, ordered), m_symbol(symbol) {}
 
   CompoundBatch(CompoundBatch const& other, bool clear = false)
       : m_dispatcher(other.m_dispatcher, clear), m_symbol(other.m_symbol) {}
@@ -42,6 +50,7 @@ public:
   CompoundBatch& operator=(CompoundBatch&& other) = delete;
 
   void setDecomposedDispatch(bool value) { m_dispatcher.setDecomposed(value); }
+  void setOrdered(bool value) { m_dispatcher.setOrdered(value); }
 
   Symbol const& getHead() const { return m_symbol; }
 

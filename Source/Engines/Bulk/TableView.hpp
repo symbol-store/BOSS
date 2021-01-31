@@ -21,7 +21,7 @@ public:
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
   explicit TableView(BatchFactory const& factory)
-      : CompoundBatch(factory, true), m_columns(new ColumnBatchType()) {}
+      : CompoundBatch(factory, true, false), m_columns(new ColumnBatchType()) {}
 
   TableView(TableView const& other, bool clear = false)
       : CompoundBatch(other, clear), m_columns(other.m_columns->cloneAsValueBatch()) {}
