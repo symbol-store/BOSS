@@ -36,7 +36,7 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
     auto expression = get<boss::ComplexExpression>(eval("UndefinedFunction"_(9)));
 
     CHECK(expression.getHead().getName() == "UndefinedFunction");
-    CHECK(get<int>(expression.getArguments()[0]) == 9);
+    CHECK(get<int>(expression.getArguments()[0]) == 9); // NOLINT
 
     CHECK(get<std::string>(
               get<boss::ComplexExpression>(eval("UndefinedFunction"_((string) "Hello World!")))
