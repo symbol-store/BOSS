@@ -38,9 +38,13 @@ jobs:
         submodules: true
     - name: configure
       run: |
+        wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
+        add-apt-repository "deb http://apt.llvm.org/bionic/   llvm-toolchain-bionic-11  main"
+        apt update
+        apt install -y cmake clang-11 clang-tidy-11
         mkdir ${{ matrix.build-type }}
         cd ${{ matrix.build-type }}
-        cmake -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_CLANG_TIDY=clang-tidy ..
+        cmake -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
         cd ..
     - name: build
       run: cmake --build ${{ matrix.build-type }}
