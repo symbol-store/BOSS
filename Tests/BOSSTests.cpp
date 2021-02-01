@@ -1,7 +1,7 @@
 #define CATCH_CONFIG_MAIN
-#include <catch2/catch.hpp>
 #include "../Source/BOSS.hpp"
 #include "../Source/Utilities.hpp"
+#include <catch2/catch.hpp>
 using std::get;
 using std::string;
 using boss::utilities::operator""_;
