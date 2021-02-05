@@ -22,7 +22,8 @@ public:
 
   FunctionBatch(BatchFactory const& factory, std::vector<Symbol>&& parameters,
                 Batch const& definitionBatch)
-      : m_parameters(std::move(parameters)), CompoundBatch(factory, false, true, Symbol("Function")) {
+      : m_parameters(std::move(parameters)),
+        CompoundBatch(factory, false, true, Symbol("Function")) {
     insert(0, 0, definitionBatch.clone());
   }
 

@@ -35,7 +35,8 @@ public:
 
   explicit CompoundBatch(BatchFactory const& factory, bool decomposedDispatch = false,
                          bool ordered = true)
-      : m_dispatcher(factory, decomposedDispatch, ordered), m_symbol(ordered ? "List"_ : "MultiSet"_) {}
+      : m_dispatcher(factory, decomposedDispatch, ordered),
+        m_symbol(ordered ? "List"_ : "MultiSet"_) {}
 
   explicit CompoundBatch(BatchFactory const& factory, bool decomposedDispatch, bool ordered,
                          Symbol const& symbol)

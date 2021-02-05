@@ -43,9 +43,7 @@ public:
                       expression);
   }
 
-  BatchPtr createBatch(Symbol const& symbol) const {
-    return createBatch(symbol, false);
-  }
+  BatchPtr createBatch(Symbol const& symbol) const { return createBatch(symbol, false); }
 
   BatchPtr createBatch(Symbol const& symbol, bool /*allowDecomposedDispatch*/) const {
     return BatchPtr(new SymbolBatch(symbol));
@@ -87,8 +85,7 @@ public:
     return BatchPtr(new CompoundBatch(*this, allowDecomposedDispatch, ordered, symbol));
   }
 
-  template <typename T>
-  BatchPtr createBatch(T const& value) const {
+  template <typename T> BatchPtr createBatch(T const& value) const {
     return createBatch<T>(value, false);
   }
 
@@ -248,7 +245,8 @@ public:
         std::vector<size_t>{((size_t)UniqueId::forType<Types>())...};
       }*/
       BatchTemplateKey key(symbol, argumentTypes);
-      auto* templateBatch = new ExpressionBatchTemplate<Func, N, Types...>(symbol, std::forward<Func>(func));
+      auto* templateBatch =
+          new ExpressionBatchTemplate<Func, N, Types...>(symbol, std::forward<Func>(func));
       m_batchTemplates.m_templates[key] = BatchTemplatePtr(templateBatch);
     }
 
