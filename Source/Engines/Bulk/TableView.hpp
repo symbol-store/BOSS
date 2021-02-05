@@ -48,7 +48,7 @@ public:
   ColumnBatchPtr const& columns() { return m_columns; }
 
   std::string const& columnName(size_t index) const {
-    return *std::next(m_columns->begin(), index); //NOLINT
+    return *std::next(m_columns->begin(), index); // NOLINT
   }
 
   int columnIndex(std::string const& name) const {

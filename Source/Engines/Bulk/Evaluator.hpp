@@ -94,7 +94,8 @@ public:
     static constexpr bool isExactTypeHelper(size_t index, Batch const& batch,
                                             std::index_sequence<Indices...> /*unused*/) {
       using CheckFuncPtr = bool (*)(Batch const&);
-      constexpr std::array<CheckFuncPtr, sizeof...(AllowedBatches)> table = {&isExactType<Indices>...};
+      constexpr std::array<CheckFuncPtr, sizeof...(AllowedBatches)> table = {
+          &isExactType<Indices>...};
       if(index >= sizeof...(AllowedBatches)) {
         return table[sizeof...(AllowedBatches) - 1](batch);
       }
