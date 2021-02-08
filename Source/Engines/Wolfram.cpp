@@ -134,15 +134,14 @@ struct EngineImplementation {
     auto eval = [this](Expression const& expression) { return evaluate(expression, ""); };
     for(std::string const& it :
         vector{"Plus", "StringJoin", "Greater", "Symbol", "UndefinedFunction", "Evaluate", "Set",
-
-               "List", "Equal", "Extract", "StringContainsQ"}) {
+               "Function", "List", "Equal", "Extract", "StringContainsQ"}) {
       eval(Set(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
     auto Argument = [&](Symbol const& name, Symbol const* type = nullptr) {
       return type != nullptr ? "Pattern"_(name, "Blank"_(*type)) : "Pattern"_(name, "Blank"_());
     };
 
-    [&](Symbol const& name, const vector<Expression>& arguments) {
+    auto DefineFunction = [&](Symbol const& name, const vector<Expression>& arguments) {
       eval(SetDelayed(namespaced(ComplexExpression(name, arguments)), "Function"_("List"_())));
     };
     eval(SetDelayed(namespaced("Function"_(Argument("arg"_), Argument("definition"_))),
