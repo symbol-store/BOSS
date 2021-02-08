@@ -9,7 +9,9 @@
   #include "Source/Utilities.hpp"
 
   #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#ifdef SWIGPYTHON
+#if defined(SWIGMZSCHEME)
+  #include "Source/Shims/RacketMacros.cpp"
+#elif defined(SWIGPYTHON)
   #include "numpy/arrayobject.h"
   #include "numpy/ndarraytypes.h"
 #endif
