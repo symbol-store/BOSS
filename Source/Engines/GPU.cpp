@@ -10,25 +10,9 @@
 
 namespace boss::engines::GPU {
 
-constexpr int CL_WG_SIZE = 32;
-constexpr int DEFAULT_COL_ALLOC = 2;
 const std::string kernel_src =
 #include "kernels.cl"
     ;
-
-// Helpers //
-
-template <typename... Types> struct variant_cast_proxy {
-  std::variant<Types...> v;
-  template <typename... ToTypes> operator std::variant<ToTypes...>() const {
-    return std::visit(
-        [](auto&& arg) -> std::variant<ToTypes...> { return arg; }, v);
-  }
-};
-template <typename... Types>
-auto variant_cast(const std::variant<Types...>& v) -> variant_cast_proxy<Types...> {
-  return {v};
-}
 
 std::string metric_size(unsigned int size) {
   std::ostringstream os;
@@ -84,10 +68,19 @@ EngineImplementation::EngineImplementation()
     throw std::runtime_error("Failed to compile kernel");
   }
   accu_int = cl::Kernel(program, "accu_int");
+  accu_float = cl::Kernel(program, "accu_float");
 }
 
 cl::Buffer EngineImplementation::allocate_memory(size_t size, cl_mem_flags flags) {
-  return cl::Buffer(ctx, CL_MEM_READ_WRITE, size);
+  return cl::Buffer(ctx, flags, size);
+}
+cl::Buffer EngineImplementation::allocate_memory(size_t size, const cl::Buffer& other,
+                                                 cl_mem_flags flags) {
+  cl::Buffer ret = allocate_memory(size, flags);
+  cl::Event e;
+  cqueue.enqueueCopyBuffer(other, ret, 0, 0, other.getInfo<CL_MEM_SIZE>(), nullptr, &e);
+  e.wait();
+  return ret;
 }
 template <typename T>
 cl::Buffer EngineImplementation::allocate_memory(size_t num_Ts, T* begin, cl_mem_flags flags) {
@@ -117,31 +110,29 @@ cl::Device EngineImplementation::get_cl_device() {
 std::variant<int, float> EngineImplementation::plus(const std::vector<Expression>& args) {
   // OpenCL only operates on memory, can't use C++ variants - need to cast to same type.
   std::variant<int, float> common_type = int{};
-  auto common_type_lambda =
-  std::for_each(args.begin(), args.end(), [&common_type] (const Expression& e) {
-    return std::visit(
-      boss::utilities::overload(
-        [&common_type](float) {common_type = float{};},
-        [&common_type](int)   {},
-        [](auto ex) {
-          std::cerr << "Couldn't cast expression with type " << typeid(ex).name()
-                    << "to numeric type: " << ex << "\n";
-          throw std::runtime_error("Can't cast expression to numeric type");
-        }
-      ), e);
-    }
-  );
+  std::for_each(args.begin(), args.end(), [&common_type](const Expression& e) {
+    return std::visit(boss::utilities::overload(
+                          [&common_type](float) { common_type = float{}; }, [&common_type](int) {},
+                          [](auto ex) {
+                            std::cerr << "Couldn't cast expression with type " << typeid(ex).name()
+                                      << "to numeric type: " << ex << "\n";
+                            throw std::runtime_error("Can't cast expression to numeric type");
+                          }),
+                      e);
+  });
 
-  auto accu_with_type = [this, &args](auto common_type) {
+  auto accu_with_type = [this, &args](auto common_type, cl::Kernel& accu_type) {
     std::vector<decltype(common_type)> cast_args;
     cast_args.reserve(args.size());
     try {
       std::transform(args.begin(), args.end(), std::back_inserter(cast_args),
-                    [](const Expression& e) -> decltype(common_type) {
-                      auto e_int_ptr = std::get_if<int>(&e);
-                      if (e_int_ptr) return *e_int_ptr;
-                      return std::get<float>(e);
-                    });
+                     [](const Expression& e) -> decltype(common_type) {
+                       if(auto e_int_ptr = std::get_if<int>(&e)) {
+                         return *e_int_ptr;
+                       } else {
+                         return std::get<float>(e);
+                       }
+                     });
     } catch(std::bad_variant_access& e) {
       // Shouldn't be able to get here
       throw std::runtime_error("Bad variant, must have changed since initial check");
@@ -149,29 +140,36 @@ std::variant<int, float> EngineImplementation::plus(const std::vector<Expression
 
     // Allocate memory
     const size_t num_wgs = ((args.size() - 1) / CL_WG_SIZE) + 1;
+    std::cout << "WGs: " << num_wgs << "\n";
     cl::Buffer buf = allocate_memory(cast_args.size(), &cast_args[0], CL_MEM_READ_ONLY);
     cl::Buffer res = allocate_memory(sizeof(common_type) * num_wgs);
     cl::Event event;
 
     size_t local_mem_sz = CL_WG_SIZE * sizeof(common_type);
-    setKernelArgs(accu_int,
-      buf, int(args.size()), res, cl::Local(local_mem_sz));
+    setKernelArgs(accu_type, buf, int(args.size()), res, cl::Local(local_mem_sz));
 
-    cqueue.enqueueNDRangeKernel(accu_int, cl::NullRange, num_wgs * CL_WG_SIZE,
+    cqueue.enqueueNDRangeKernel(accu_type, cl::NullRange, num_wgs * CL_WG_SIZE,
                                 cl::NDRange(CL_WG_SIZE), nullptr, &event);
     event.wait();
     std::vector<decltype(common_type)> results(num_wgs);
     cqueue.enqueueReadBuffer(res, true, 0, sizeof(common_type) * num_wgs, &results[0]);
-    return std::accumulate(results.begin(), results.end(), 0);
+    return std::accumulate(results.begin(), results.end(), decltype(common_type){0});
   };
-  if (std::get_if<int>(&common_type)) {
-    return accu_with_type(int{});
+  if(std::get_if<int>(&common_type)) {
+    return accu_with_type(int{}, accu_int);
   } else {
-    return accu_with_type(float{});
+    return accu_with_type(float{}, accu_float);
   }
 }
 
 void EngineImplementation::create_database(std::string name) { databases[name] = DB(); }
+
+void EngineImplementation::resize_db(DB& db, size_t new_size) {
+  for(auto& col : db.columns) {
+    col.storage = allocate_memory(col.type_size * new_size, col.storage);
+  }
+  db.capacity = new_size;
+}
 
 void EngineImplementation::create_database_column(std::string db_name, std::string col_name,
                                                   std::string col_type) {
@@ -180,47 +178,45 @@ void EngineImplementation::create_database_column(std::string db_name, std::stri
   const auto type = get_type_from_string(col_type);
   const auto type_size = std::visit([](const auto& t) { return sizeof(t); }, type);
   const auto col_size = db.capacity > 0 ? db.capacity : DEFAULT_COL_ALLOC;
-  const auto tag_size = 0; // sizeof(DB::Column::Tag) // Add tag information to each element.
-  const auto col_storage = allocate_memory((type_size + tag_size) * DEFAULT_COL_ALLOC);
+  const auto col_storage = allocate_memory(type_size * col_size);
 
   db.columns_by_name[col_name] = db.columns.size();
-  db.column_types.push_back(type);
-  db.columns.push_back(col_storage);
+  db.columns.emplace_back(col_storage, type, type_size);
   db.capacity = col_size;
 }
 
-void EngineImplementation::insert_database_element(
-    std::string db_name, const std::vector<Expression>& value) {
+void EngineImplementation::insert_database_element(std::string db_name,
+                                                   const std::vector<Expression>& value) {
   auto& db = databases[db_name];
   if(value.size() != db.columns.size())
     throw std::runtime_error("Error on GPU db_insert: need all cols specified");
   // For each col, add one element at db.size, increment size
   if(db.capacity <= db.size)
-    throw std::runtime_error("Error on GPU db_insert: can't resize yet");
+    resize_db(db, db.capacity * 2);
   // Needs to be tagged correctly too, so turn to POD and copy to GPU, then call kernel insert. (Not
   // done yet)
   const auto write_val = [this, &db](int col, int val) {
-    cqueue.enqueueWriteBuffer(db.columns[col], /*block*/ true, /*offset*/ sizeof(int) * db.size,
-                              sizeof(int), &val);
+    cqueue.enqueueWriteBuffer(db.columns[col].storage, /*block*/ true,
+                              /*offset*/ sizeof(int) * db.size, sizeof(int), &val);
   };
   for(auto i = 0; i < value.size(); i++) {
-    std::visit(
-        boss::utilities::overload{[i, &write_val](int val) { write_val(i, val); },
-                 [i, &write_val](const ComplexExpression& e) {
-                   if(e.getHead().getName() == "number") {
-                     write_val(i, std::get<int>(e.getArguments()[0]));
-                   } else {
-                     throw std::runtime_error(
-                         "Error in GPU db_insert: can't evaluate expressions in insert yet");
-                   }
-                 },
-                 [](const auto& e) { throw std::runtime_error("Can't handle type on GPU"); }},
-        value[i]);
+    std::visit(boss::utilities::overload{
+                   [i, &write_val](int val) { write_val(i, val); },
+                   [i, &write_val](const ComplexExpression& e) {
+                     if(e.getHead().getName() == "number") {
+                       write_val(i, std::get<int>(e.getArguments()[0]));
+                     } else {
+                       throw std::runtime_error(
+                           "Error in GPU db_insert: can't evaluate expressions in insert yet");
+                     }
+                   },
+                   [](const auto& e) { throw std::runtime_error("Can't handle type on GPU"); }},
+               value[i]);
   }
   db.size++;
 }
 std::vector<Expression> EngineImplementation::get_column(std::string db_name,
-                                                                     std::string col_name) {
+                                                         std::string col_name) {
   const auto& db = databases[db_name];
   const auto col_idx = db.columns_by_name.at(col_name);
   const auto& col = db.columns[col_idx];
@@ -228,7 +224,8 @@ std::vector<Expression> EngineImplementation::get_column(std::string db_name,
   std::vector<Expression> ret;
   ret.reserve(db.size);
   std::vector<int> gpu_ret(db.size);
-  cqueue.enqueueReadBuffer(col, /*block*/ true, /*off*/ 0, sizeof(int) * db.size, &gpu_ret[0]);
+  cqueue.enqueueReadBuffer(col.storage, /*block*/ true, /*off*/ 0, col.type_size * db.size,
+                           &gpu_ret[0]);
   std::transform(gpu_ret.begin(), gpu_ret.end(), std::back_inserter(ret),
                  [](const auto& it) { return Expression(it); });
   return ret;
@@ -238,13 +235,13 @@ Engine::Engine() : impl(EngineImplementation()){};
 
 Expression Engine::evaluate(Expression const& unk_expression) {
   const auto e_ptr = std::get_if<ComplexExpression>(&unk_expression);
-  if (e_ptr == nullptr) return unk_expression; // Not a complex expression
+  if(e_ptr == nullptr)
+    return unk_expression; // Not a complex expression
   const auto e = *e_ptr;
   const auto expr_type = e.getHead().getName();
   std::cout << e << '\n';
   if(expr_type == "Plus") {
-    // TODO: working on this, not really done yet.
-    return variant_cast(impl.plus(e.getArguments()));
+    return boss::utilities::variant_cast(impl.plus(e.getArguments()));
   } else if(expr_type == "create_table") {
     const auto name = std::get<std::string>(e.getArguments()[0]);
     impl.create_database(name);
@@ -259,8 +256,7 @@ Expression Engine::evaluate(Expression const& unk_expression) {
     return true;
   } else if(expr_type == "insert") {
     const auto table_name = get_table_name(e.getArguments()[0]);
-    const auto elem =
-        std::vector<Expression>{e.getArguments().begin() + 1, e.getArguments().end()};
+    const auto elem = std::vector<Expression>{e.getArguments().begin() + 1, e.getArguments().end()};
     impl.insert_database_element(table_name, elem);
     return true;
   } else if(expr_type == "select") {
@@ -272,8 +268,7 @@ Expression Engine::evaluate(Expression const& unk_expression) {
     const std::vector<Expression> result = impl.get_column(table_name, col_name);
     return ComplexExpression{Symbol("vector"), impl.get_column(table_name, col_name)};
   } else {
-    throw std::runtime_error("Expression \"" + expr_type
-  + "\" not implemented for backend GPU");
+    throw std::runtime_error("Expression \"" + expr_type + "\" not implemented for backend GPU");
   }
 }
 

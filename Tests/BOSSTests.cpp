@@ -164,42 +164,50 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
 #endif // WSINTERFACE
 
 #ifdef GPUINTERFACE
-#include "../Source/BOSS.hpp"
-#include "../Source/Utilities.hpp"
-using std::get;
-using std::string;
-using boss::utilities::operator""_;
 TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::GPU::Engine) { // NOLINT
-  using namespace std;
-  using namespace boss;
   static auto engine = TestType();
-  SECTION("Basics") {
-    REQUIRE(get<int>(engine.evaluate("Plus"_(5, 4))) == 9);
-    REQUIRE(get<int>(engine.evaluate("Plus"_(5, 2, 2))) == 9);
-    REQUIRE(get<int>(engine.evaluate("Plus"_(5, 2, 2))) == 9);
-    /*
-    REQUIRE(get<int>(engine.evaluate({"Plus", {Expression{"Plus", {2, 3}}, 2, 2}})) == 9);
-    REQUIRE(get<int>(engine.evaluate({"Plus", {Expression{"Plus", {3, 2}}, 2, 2}})) == 9);
-    REQUIRE(get<string>(engine.evaluate({"StringJoin", {"howdie", " ", "world"}})) ==
-            "howdie world");
-    REQUIRE(get<bool>(engine.evaluate({"Greater", {5, 2}})));
-    REQUIRE(!get<bool>(engine.evaluate({"Greater", {2, 5}})));
-    REQUIRE(get<Expression::Symbol>(engine.evaluate({"Symbol", {"x"}})).getName() == "x");
-    REQUIRE(get<Expression>(engine.evaluate({"UndefinedFunction", {9}})).getHead() ==
-            "UndefinedFunction");*/
-  }
-  SECTION("Database Basics") {
-    const std::string tb_name = "T1";
-    
+  static const std::string tb_name = "T1";
+  static auto close_to = [](float a, float b) { return fabs(a - b) <= 1e-8; };
+  static auto setup_table = [](TestType& engine, size_t num_elems) {
     engine.evaluate("create_table"_(tb_name));
-    engine.evaluate("create_column"_("table"_(tb_name), std::string("ColA"), std::string("number")));
-    engine.evaluate("insert"_("table"_(tb_name), "number"_(42)));
-    const auto entire_col = get<ComplexExpression>(engine.evaluate(
-      "select"_("table"_(tb_name), std::string("ColA"), std::string("*"))
-    ));
+    engine.evaluate(
+        "create_column"_("table"_(tb_name), std::string("ColA"), std::string("number")));
+    for(size_t i = 0; i < num_elems; i++) {
+      engine.evaluate("insert"_("table"_(tb_name), "number"_(int(i + 1))));
+    }
+  };
+  static auto get_table_column = [](TestType& engine) {
+    return get<boss::ComplexExpression>(
+        engine.evaluate("select"_("table"_(tb_name), std::string("ColA"), std::string("*"))));
+  };
+
+  SECTION("Basic Tests") {
+    CHECK(get<int>(engine.evaluate("Plus"_(5, 4))) == 9); // NOLINT
+    CHECK(get<int>(engine.evaluate("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<int>(engine.evaluate("Plus"_(5, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                                           2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2))) ==
+          75);
+    CHECK(close_to(get<float>(engine.evaluate("Plus"_(5.0f, 2.0f, 2.0f))), 9.0f));
+    CHECK(close_to(
+        get<float>(engine.evaluate("Plus"_(5.0f, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                                           2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2))),
+        75.0f));
+  }
+
+  SECTION("Database Basics") {
+    setup_table(engine, 1);
+    const auto entire_col = get_table_column(engine);
     REQUIRE(entire_col.getHead().getName() == "vector");
     REQUIRE(entire_col.getArguments().size() == 1);
-    REQUIRE(get<int>(entire_col.getArguments()[0]) == 42);
+    CHECK(get<int>(entire_col.getArguments()[0]) == 1);
+  }
+
+  SECTION("Database Resize") {
+    setup_table(engine, boss::engines::GPU::EngineImplementation::DEFAULT_COL_ALLOC + 1);
+    const auto entire_col = get_table_column(engine);
+    CHECK(entire_col.getArguments().size() > boss::engines::GPU::EngineImplementation::DEFAULT_COL_ALLOC);
+    CHECK(get<int>(entire_col.getArguments()[0]) == 1);
+    CHECK(get<int>(entire_col.getArguments().back()) == entire_col.getArguments().size());
   }
 }
 #endif // GPUINTERFACE

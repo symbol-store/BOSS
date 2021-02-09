@@ -48,6 +48,18 @@ template <class... Fs> struct overload : Fs... {
 
 template <class... Ts> overload(Ts&&...) -> overload<std::remove_reference_t<Ts>...>;
 
+template <typename... Types> struct variant_cast_proxy {
+  std::variant<Types...> v;
+  template <typename... ToTypes> operator std::variant<ToTypes...>() const {
+    return std::visit(
+        [](auto&& arg) -> std::variant<ToTypes...> { return arg; }, v);
+  }
+};
+template <typename... Types>
+auto variant_cast(const std::variant<Types...>& v) -> variant_cast_proxy<Types...> {
+  return {v};
+}
+
 } // namespace boss::utilities
 
 static std::ostream& operator<<(std::ostream& out, boss::Symbol const& thing) {
