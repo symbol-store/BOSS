@@ -141,8 +141,9 @@ struct EngineImplementation {
       return type != nullptr ? "Pattern"_(name, "Blank"_(*type)) : "Pattern"_(name, "Blank"_());
     };
 
-    auto DefineFunction = [&](Symbol const& name, const vector<Expression>& arguments) {
-      eval(SetDelayed(namespaced(ComplexExpression(name, arguments)), "Function"_("List"_())));
+    auto DefineFunction = [&](Symbol const& name, const vector<Expression>& arguments,
+                              Expression const& definition) {
+      eval(SetDelayed(namespaced(ComplexExpression(name, arguments)), definition));
     };
     eval(SetDelayed(namespaced("Function"_(Argument("arg"_), Argument("definition"_))),
                     "Function"_("arg"_, "definition"_)));
@@ -157,23 +158,23 @@ struct EngineImplementation {
                     "AppendTo"_("relation"_, "List"_("tuple"_))));
     eval("SetAttributes"_(namespaced("InsertInto"_), "HoldFirst"_));
 
-    eval(SetDelayed(namespaced("Project"_("Pattern"_("input"_, "Blank"_()),
-                                          "Pattern"_("projection"_, "Blank"_()))),
-                    "Map"_("projection"_, "relation"_)));
-    eval(SetDelayed(namespaced("Select"_("Pattern"_("input"_, "Blank"_()),
-                                         "Pattern"_("predicate"_, "Blank"_()))),
-                    "Select"_("input"_, "predicate"_)));
-    eval(SetDelayed(namespaced("GroupBy"_("Pattern"_("input"_, "Blank"_()),
-                                          "Pattern"_("groupFunction"_, "Blank"_()),
-                                          "Pattern"_("aggregateFunction"_, "Blank"_()))),
-                    "Length"_("input"_)));
-    eval(SetDelayed(
-        namespaced("Join"_("Pattern"_("left"_, "Blank"_("List"_)),
-                           "Pattern"_("right"_, "Blank"_("List"_)),
-                           "Pattern"_("predicate"_, "Blank"_("Function"_)))),
-        "Map"_("Flatten"_, "Select"_("Flatten"_("Outer"_("List"_, "left"_, "right"_, 1), 1),
-                                     "Function"_("both"_, "predicate"_("First"_("both"_),
-                                                                       "Last"_("both"_)))))));
+    DefineFunction("Project"_,
+                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("projection"_, "Blank"_())},
+                   "Map"_("projection"_, "relation"_));
+    DefineFunction("Select"_,
+                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("predicate"_, "Blank"_())},
+                   "Select"_("input"_, "predicate"_));
+    DefineFunction("GroupBy"_,
+                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
+                    "Pattern"_("aggregateFunction"_, "Blank"_())},
+                   "Length"_("input"_));
+    DefineFunction(
+        "Join"_,
+        {"Pattern"_("left"_, "Blank"_("List"_)), "Pattern"_("right"_, "Blank"_("List"_)),
+         "Pattern"_("predicate"_, "Blank"_("Function"_))},
+        "Map"_("Flatten"_,
+               "Select"_("Flatten"_("Outer"_("List"_, "left"_, "right"_, 1), 1),
+                         "Function"_("both"_, "predicate"_("First"_("both"_), "Last"_("both"_))))));
     eval("Set"_("BOSSVersion"_, 1));
   };
 
