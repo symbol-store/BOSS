@@ -75,6 +75,7 @@ jobs:
     - name: test
       run: |
         echo "${{ secrets.MATHEMATICA_LICENSE }}" > mathpass
+        cat mathpass
         chmod +x ./Tests && ./Tests
     needs: [build]
 
