@@ -134,7 +134,7 @@ struct EngineImplementation {
     auto eval = [this](Expression const& expression) { return evaluate(expression, ""); };
     for(std::string const& it :
         vector{"Plus", "StringJoin", "Greater", "Symbol", "UndefinedFunction", "Evaluate", "Set",
-               "Function", "List", "Equal", "Extract", "StringContainsQ"}) {
+               "List", "Equal", "Extract", "StringContainsQ"}) {
       eval(Set(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
     auto Argument = [&](Symbol const& name, Symbol const* type = nullptr) {

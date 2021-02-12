@@ -68,6 +68,7 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
           eval("Join"_("Adjacency1"_, "Adjacency2"_,
                        "Function"_("List"_("left"_, "right"_),
                                    "Equal"_("Extract"_("left"_, 2), "Extract"_("right"_, 1)))));
+      INFO(get<boss::ComplexExpression>(result));
       REQUIRE(get<boss::ComplexExpression>(result).getArguments().size() == dataSetSize);
     }
   }
