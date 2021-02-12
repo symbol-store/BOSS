@@ -147,6 +147,7 @@ struct EngineImplementation {
     };
     eval(SetDelayed(namespaced("Function"_(Argument("arg"_), Argument("definition"_))),
                     "Function"_("arg"_, "definition"_)));
+    eval("SetAttributes"_(namespaced("Function"_), "HoldRest"_));
 
     eval(SetDelayed(namespaced("CreateTable"_("Pattern"_("relation"_, "Blank"_()),
                                               "Pattern"_("attributes"_, "BlankSequence"_()))),
