@@ -81,7 +81,7 @@ list(APPEND AllTargets BOSS Tests Benchmarks)
 find_package(SWIG 4) # at least swig 4.0 for C++17 support
 
 if(SWIG_FOUND)
-  message(STATUS "Found Swig files: ${SWIG_USE_FILE}")
+  message(VERBOSE "Found Swig files: ${SWIG_USE_FILE}")
   INCLUDE(${SWIG_USE_FILE})
   set_source_files_properties(${SwigFiles} PROPERTIES CPLUSPLUS ON)
 
@@ -156,7 +156,7 @@ target_link_libraries(Benchmarks Threads::Threads)
 
 add_dependencies(Benchmarks googlebenchmark)
 if(ITT_NOTIFY_INCLUDE_DIR)
-  message(STATUS "found itt notify header in ${ITT_NOTIFY_INCLUDE_DIR}")
+  message(VERBOSE "found itt notify header in ${ITT_NOTIFY_INCLUDE_DIR}")
   target_include_directories(Benchmarks SYSTEM PUBLIC ${ITT_NOTIFY_INCLUDE_DIR})
   target_link_libraries(Benchmarks ${ITT_NOTIFY_INCLUDE_DIR}/../lib64/libittnotify.a)
   target_link_libraries(Benchmarks dl)

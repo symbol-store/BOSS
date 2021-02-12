@@ -1,5 +1,4 @@
 #pragma once
-#include "BOSS.hpp"
 #include "Expression.hpp"
 #include <ostream>
 
