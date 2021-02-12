@@ -29,7 +29,7 @@ public:
   }
 
   template <typename... Ts> ComplexExpression operator()(Ts... args /*a*/) const {
-    return ComplexExpression{s, {convert<decltype(args)>(args)...}};
+    return ComplexExpression{s, {convertConstCharToStringAndOnToExpression<decltype(args)>(args)...}};
   };
   friend Expression operator|(Expression const& expression, ExpressionBuilder const& builder) {
     return builder(expression);
