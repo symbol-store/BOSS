@@ -41,11 +41,12 @@
   #lang racket
   (load-extension "RacketBOSS.so")
   (require rackunit)
-  (check-equal? (eval '((lambda () ;; run in dynamic scope (as boss definitions are dynamically loaded)
-  ;;
-                          (CreateTable 'Customer "FirstName" "LastName")
-                          (InsertInto 'Customer "Holger" "Pirk")
-                          (GroupBy 'Customer '(Function 0) 'Count)
-                          ))) 1 "Group By Query")
+  (check-equal?
+   (eval
+    '((lambda () ;; run in dynamic scope (as boss definitions are dynamically loaded)
+        (CreateTable 'Customer "FirstName" "LastName")
+        (InsertInto 'Customer "Holger" "Pirk")
+        (GroupBy 'Customer '(Function 0) 'Count)
+        ))) 1 "Group By Query")
 #+end_src
 
