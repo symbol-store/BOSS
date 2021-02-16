@@ -40,7 +40,7 @@ jobs:
       run: |
         mkdir ${{ matrix.build-type }}
         cd ${{ matrix.build-type }}
-        cmake -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_CLANG_TIDY=clang-tidy ..
+        cmake -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_CLANG_TIDY=clang-tidy ..
         cd ..
     - name: build
       run: cmake --build ${{ matrix.build-type }}
@@ -92,9 +92,11 @@ jobs:
       uses: actions/download-artifact@v2
       with:
         name: Debug
+        path: Debug
     - name: test
       run: |
         echo "${{ secrets.MATHEMATICA_LICENSE }}" > mathpass
+        cp Debug/RacketBOSS.so
         emacs --batch --eval "(require 'org)" --eval '(add-to-list (quote org-babel-tangle-lang-exts) (quote ("racket" . "rkt")))' --eval '(org-babel-tangle-file "Readme.org")'
         racket -e '(load "Readme.rkt")' -e "(require 'Readme)"
         chmod +x ./Tests && ./Tests

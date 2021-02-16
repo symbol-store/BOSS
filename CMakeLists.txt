@@ -78,7 +78,7 @@ set_property(TARGET Benchmarks PROPERTY CXX_STANDARD 17)
 
 list(APPEND AllTargets BOSS Tests Benchmarks)
 
-find_package(SWIG 4) # at least swig 4.0 for C++17 support
+find_package(SWIG 3) # at least swig 4.0 for C++17 support
 
 if(SWIG_FOUND)
   message(VERBOSE "Found Swig files: ${SWIG_USE_FILE}")
@@ -93,9 +93,9 @@ if(SWIG_FOUND)
     target_compile_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC -DMZ_PRECISE_GC)
     if(APPLE)
       target_compile_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC -DOS_X)
+      target_link_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC  -bundle -flat_namespace -undefined suppress)
     endif(APPLE)
     target_compile_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC -Wno-reserved-user-defined-literal)
-    target_link_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC  -bundle -flat_namespace -undefined suppress)
     set_property(TARGET ${SWIG_MODULE_RacketBOSS_REAL_NAME} PROPERTY SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
     target_include_directories(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_include_directories(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC "${Racket_INCLUDE_DIR}")

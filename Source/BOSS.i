@@ -17,6 +17,7 @@
 #endif
 
   #include <sstream>
+  #include <functional>
 
   using boss::utilities::operator""_;
 %}
