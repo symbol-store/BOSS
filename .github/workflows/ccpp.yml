@@ -41,6 +41,7 @@ jobs:
         mkdir ${{ matrix.build-type }}
         cd ${{ matrix.build-type }}
         cmake -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_CLANG_TIDY=clang-tidy ..
+        cmake -L .
         cd ..
     - name: build
       run: cmake --build ${{ matrix.build-type }}
