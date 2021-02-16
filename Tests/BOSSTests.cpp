@@ -38,7 +38,7 @@ TEMPLATE_TEST_CASE("Simpletons", "" // NOLINT
   SECTION("Symbols") {
     CHECK(get<boss::Symbol>(eval("Symbol"_((string) "x"))).getName() == "x");
 
-    auto expression = get<boss::ComplexExpression>(eval("UndefinedFunction"_(9)));
+    auto expression = get<boss::ComplexExpression>(eval("UndefinedFunction"_(9))); // NOLINT
 
     CHECK(expression.getHead().getName() == "UndefinedFunction");
     CHECK(get<int>(expression.getArguments()[0]) == 9);
