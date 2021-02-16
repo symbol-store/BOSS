@@ -101,6 +101,5 @@ jobs:
         cp Debug/RacketBOSS.so .
         emacs --batch --eval "(require 'org)" --eval '(add-to-list (quote org-babel-tangle-lang-exts) (quote ("racket" . "rkt")))' --eval '(org-babel-tangle-file "Readme.org")'
         racket -e '(load "Readme.rkt")' -e "(require 'Readme)"
-        chmod +x ./Tests && ./Tests
     needs: [build]
 
