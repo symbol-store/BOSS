@@ -45,6 +45,14 @@ ExternalProject_Add(catch2
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCATCH_BUILD_TESTING=NO -DBUILD_TESTING=NO -DCATCH_ENABLE_WERROR=NO -DCATCH_INSTALL_DOCS=NO -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DDCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS}
   )
 
+ExternalProject_Add(nlohmann_json
+  URL https://github.com/nlohmann/json/releases/download/v3.9.1/include.zip
+  DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND ""
+  INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/nlohmann ${BOSS_BINARY_DIR}/deps/include/nlohmann
+  )
+
 set(VTune_DIR "" CACHE PATH "Where to look for VTune installation")
 find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
 
@@ -58,11 +66,13 @@ find_path(Racket_INCLUDE_DIR "escheme.h" HINTS ${Racket_ROOT}/include ${Racket_R
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+find_package(SWIG 4) # at least swig 4.0 for C++17 support
+
+
 #################################### Targets ####################################
 
-
-
 set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp)
+set(SerializationFiles Source/Serialization/JsonSchemaLoader.cpp)
 set(ExecutableFiles Source/main.cpp)
 set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
@@ -78,7 +88,10 @@ set_property(TARGET Benchmarks PROPERTY CXX_STANDARD 17)
 
 list(APPEND AllTargets BOSS Tests Benchmarks)
 
-find_package(SWIG 4) # at least swig 4.0 for C++17 support
+add_library(Serialization STATIC ${SerializationFiles})
+set_target_properties(Serialization PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(Serialization PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+target_include_directories(Serialization SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
 
 if(SWIG_FOUND)
   message(VERBOSE "Found Swig files: ${SWIG_USE_FILE}")
@@ -169,6 +182,7 @@ target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBR
 target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main.a)
 
 foreach (Target IN LISTS AllTargets)
+  target_link_libraries(${Target} Serialization)
   target_link_libraries(${Target} Threads::Threads)
   set_property(TARGET ${Target} PROPERTY CXX_STANDARD 17)
   target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
