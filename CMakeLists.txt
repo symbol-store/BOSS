@@ -68,7 +68,7 @@ set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 set(SwigFiles Source/BOSS.i)
 
-add_library(WolframBOSS OBJECT Source/Engines/Wolfram.cpp ${ImplementationFiles})
+add_library(WolframBOSS STATIC Source/Engines/Wolfram.cpp ${ImplementationFiles})
 
 list(APPEND AllBackends WolframBOSS)
 
