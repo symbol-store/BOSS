@@ -68,7 +68,7 @@ set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 set(SwigFiles Source/BOSS.i)
 
-add_library(WolframBOSS SHARED Source/Engines/Wolfram.cpp ${ImplementationFiles})
+add_library(WolframBOSS OBJECT Source/Engines/Wolfram.cpp ${ImplementationFiles})
 
 list(APPEND AllBackends WolframBOSS)
 
@@ -180,6 +180,7 @@ endif(Mathematica_WSTP_FOUND)
 
 foreach (Backend IN LISTS AllBackends)
   target_link_libraries(${Backend} Threads::Threads)
+  set_target_properties(${Backend} PROPERTIES POSITION_INDEPENDENT_CODE ON)
   set_target_properties(${Backend} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
   target_include_directories(${Backend} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
