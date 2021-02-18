@@ -92,6 +92,7 @@ add_library(Serialization STATIC ${SerializationFiles})
 set_target_properties(Serialization PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(Serialization PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 target_include_directories(Serialization SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
+add_dependencies(Serialization nlohmann_json)
 
 if(SWIG_FOUND)
   message(VERBOSE "Found Swig files: ${SWIG_USE_FILE}")
