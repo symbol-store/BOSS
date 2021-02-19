@@ -92,7 +92,9 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
       [&](Expression const& expression) -> Scheme_Object* {
     return std::visit(
         boss::utilities::overload(
+            [&](bool a) { return a?scheme_make_true():scheme_make_false(); },
             [&](int a) { return scheme_make_integer(a); },
+            [&](float a) { return scheme_make_float(a); },
             [&](char const* a) { return scheme_make_string(a); },
             [&](Symbol const& a) { return scheme_make_symbol(a.getName().c_str()); },
             [&](std::string const& a) { return scheme_make_string(a.c_str()); },

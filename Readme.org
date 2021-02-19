@@ -41,12 +41,56 @@
   #lang racket
   (load-extension "RacketBOSS.so")
   (require rackunit)
-  (check-equal?
-   (eval
+
+  (eval
     '((lambda () ;; run in dynamic scope (as boss definitions are dynamically loaded)
         (CreateTable 'Customer "FirstName" "LastName")
         (InsertInto 'Customer "Holger" "Pirk")
-        (GroupBy 'Customer '(Function 0) 'Count)
+        )))
+
+  (check-equal?
+   (eval
+    '((lambda ()
+        (GroupBy 'Customer '(Function tuple 0) 'Count)
         ))) 1 "Group By Query")
+
+
+  (check-equal?
+   (eval
+    '((lambda ()
+        (Plus 1 2 3)
+        ))) 6 "Arithmetic")
+
+
+  (check-equal?
+   (eval
+    '((lambda ()
+        (Greater 1 0)
+        ))) #t "Predicate")
+
+
+  (check-equal?
+   (eval
+    '((lambda ()
+        (Select 'Customer '(Function tuple (Greater 1 0)))
+        #t
+        ))) #t "Selection Query")
+
+  (check-equal?
+   (eval
+    '((lambda ()
+        (GroupBy (Select 'Customer '(Function t (Greater 1 0))) '(Function 0) 'Count)
+        ))) 1 "Selection + Group By Query")
+
+  (check-equal?
+   (eval
+    '((lambda ()
+        (GroupBy
+         (Select
+          (Select 'Customer
+                  '(Function t (Greater 1 0)))
+          '(Function t (Greater 1 0)))
+         '(Function 0) 'Count)
+        ))) 1 "Selection + Group By Query")
 #+end_src
 

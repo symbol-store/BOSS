@@ -3,9 +3,21 @@ std::string getRacketMacroShims() {
   // NOLINTNEXTLINE
   return
       R"(
-    (define-syntax-rule (Plus a b) (evaluate (new-Expression (new-ComplexExpression `Plus `(,(new-Expression a) ,(new-Expression b))))))
-    (define-syntax-rule (CreateTable name columns ...) (evaluate (new-Expression (new-ComplexExpression 'CreateTable (append (list (new-Expression (new-Symbol (symbol->string name)))) (map new-Expression (list columns ...)))))))
-    (define-syntax-rule (InsertInto name values ...) (evaluate (new-Expression (new-ComplexExpression 'InsertInto (append (list (new-Expression (new-Symbol (symbol->string name)))) (map new-Expression (list values ...)))))))
-    (define-syntax-rule (GroupBy input groupFunction aggregationFunction) (evaluate (new-Expression (new-ComplexExpression `GroupBy `(,(new-Expression (new-Symbol (symbol->string input))) ,(new-Expression (new-ComplexExpression `Function `(,(new-Expression 0)) )) ,(new-Expression (new-Symbol (symbol->string aggregationFunction))))))))
+(require racket/match)
+(define (convert-to-boss-expression x)
+  (match x
+    [(list head arguments ...) (new-Expression (new-ComplexExpression head (map convert-to-boss-expression arguments)))]
+    [(and i (? integer?)) (new-Expression i)]
+    [(and s (? string?)) (new-Expression s)]
+    [(and s (? symbol?)) (new-Expression (new-Symbol (symbol->string s)))]
+    [_ 'unknown]
+    )
+  )
+    (define-syntax-rule (Plus args ...) (evaluate (convert-to-boss-expression (list 'Plus args ...))))
+    (define-syntax-rule (Greater args ...) (evaluate (convert-to-boss-expression (list 'Greater args ...))))
+    (define-syntax-rule (CreateTable args ...) (evaluate (convert-to-boss-expression (list 'CreateTable args ...))))
+    (define-syntax-rule (InsertInto args ...) (evaluate (convert-to-boss-expression (list 'InsertInto args ...))))
+    (define-syntax-rule (GroupBy args ...) (evaluate (convert-to-boss-expression (list 'GroupBy args ...))))
+    (define-syntax-rule (Select args ...) (evaluate (convert-to-boss-expression (list 'Select args ...))))
 )";
 }
