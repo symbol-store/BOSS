@@ -39,58 +39,42 @@
 *** Racket example
 #+begin_src racket :exports both :tangle yes :main no :cache no 
   #lang racket
+  ;; utilities
   (load-extension "RacketBOSS.so")
   (require rackunit)
 
+  (define-syntax-rule (expect producer expected message)
+    (check-equal?
+     (eval
+      '((lambda ()
+          producer
+        ))) expected message)
+    )
+
+
+  ;; init db
   (eval
-    '((lambda () ;; run in dynamic scope (as boss definitions are dynamically loaded)
-        (CreateTable 'Customer "FirstName" "LastName")
-        (InsertInto 'Customer "Holger" "Pirk")
-        )))
+   '((lambda () ;; run in dynamic scope (as boss definitions are dynamically loaded)
+       (CreateTable 'Customer "FirstName" "LastName")
+       (InsertInto 'Customer "Holger" "Pirk")
+       )))
 
-  (check-equal?
-   (eval
-    '((lambda ()
-        (GroupBy 'Customer '(Function tuple 0) 'Count)
-        ))) 1 "Group By Query")
-
-
-  (check-equal?
-   (eval
-    '((lambda ()
-        (Plus 1 2 3)
-        ))) 6 "Arithmetic")
-
-
-  (check-equal?
-   (eval
-    '((lambda ()
-        (Greater 1 0)
-        ))) #t "Predicate")
+  ;; tests
+  (expect (GroupBy 'Customer '(Function tuple 0) 'Count) 1 "Grouping")
+  (expect (Plus 1 2 3) 6 "Arithmetic")
+  (expect (Greater 1 0) #t "Logic")
+  (expect (GroupBy
+           (Select 'Customer
+                   '(Function t (Greater 1 0)))
+           '(Function 0) 'Count) 1 "Select + Aggregate")
+  (expect (GroupBy
+           (Select
+            (Select 'Customer
+                    '(Function t (Greater 1 0)))
+            '(Function t (Greater 1 0)))
+           '(Function 0) 'Count) 1 "Select + Select + Aggregate")
 
 
-  (check-equal?
-   (eval
-    '((lambda ()
-        (Select 'Customer '(Function tuple (Greater 1 0)))
-        #t
-        ))) #t "Selection Query")
 
-  (check-equal?
-   (eval
-    '((lambda ()
-        (GroupBy (Select 'Customer '(Function t (Greater 1 0))) '(Function 0) 'Count)
-        ))) 1 "Selection + Group By Query")
-
-  (check-equal?
-   (eval
-    '((lambda ()
-        (GroupBy
-         (Select
-          (Select 'Customer
-                  '(Function t (Greater 1 0)))
-          '(Function t (Greater 1 0)))
-         '(Function 0) 'Count)
-        ))) 1 "Selection + Group By Query")
 #+end_src
 
