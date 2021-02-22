@@ -1,7 +1,6 @@
 
 #include "JsonSchemaLoader.hpp"
 
-#include "../Engine.hpp"
 #include "../Expression.hpp"
 #include "../Utilities.hpp"
 
@@ -9,6 +8,7 @@
 using json = nlohmann::json;
 
 #include <fstream>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -18,7 +18,10 @@ namespace boss::serialization {
 
 class JsonEventConsumer : public json::json_sax_t {
 public:
-  explicit JsonEventConsumer(Engine& engine) : m_engine(engine) { m_parseStack.push_back(PS_Root); }
+  explicit JsonEventConsumer(std::function<void(Expression const&)>&& evaluate)
+      : m_evaluateFunc(evaluate) {
+    m_parseStack.push_back(PS_Root);
+  }
 
   bool null() override {
     switch(m_parseStack.back()) {
@@ -168,13 +171,13 @@ public:
       Symbol tableSymbol(m_table.name);
       auto createTable = "CreateTable"_(tableSymbol);
 
-      m_engine.evaluate(createTable);
+      m_evaluateFunc(createTable);
 
       for(auto const& column : m_table.columns) {
         // TODO: mark specific type to columns
         // check column.datatype.name with "INTEGER", etc
         auto addColumn = "AddColumn"_(tableSymbol, column.name);
-        m_engine.evaluate(addColumn);
+        m_evaluateFunc(addColumn);
       }
 
       m_table.clear();
@@ -327,7 +330,7 @@ public:
   }
 
 private:
-  Engine& m_engine;
+  std::function<void(Expression const&)> m_evaluateFunc;
 
   enum ParseState {
     PS_Root,
@@ -448,12 +451,12 @@ JsonSchemaLoader::JsonSchemaLoader(std::string const& filepath) : m_iFileStream(
   }
 }
 
-bool JsonSchemaLoader::loadTables(Engine& engine) {
+bool JsonSchemaLoader::loadTables(std::function<void(Expression const&)>&& evaluate) {
   if(m_iFileStream.fail()) {
     throw std::runtime_error("file is not open");
   }
 
-  JsonEventConsumer consumer(engine);
+  JsonEventConsumer consumer(std::move(evaluate));
   json::sax_parse(m_iFileStream, &consumer);
   return true;
 }

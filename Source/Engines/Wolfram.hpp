@@ -15,7 +15,7 @@ public:
   Engine(Engine&&) = default;
   Engine& operator=(Engine&&) = default;
   Engine();
-  Expression evaluate(Expression const& e) override;
+  Expression evaluate(Expression const& e);
   ~Engine();
   friend class EngineImplementation;
 };

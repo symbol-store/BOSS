@@ -48,12 +48,16 @@ Expression evaluate(Expression const& arg) {
 
 bool loadDatabaseSchema(std::string const& filepath) {
   boss::serialization::JsonSchemaLoader schemaLoader(filepath);
+  auto loadWith = [&schemaLoader, &filepath](auto& engine) {
+    return schemaLoader.loadTables(engine);
+  };
+
   switch(currentEngine()) {
   case BulkEngine:
     break;
 #ifdef WSINTERFACE
   case WolframEngine:
-    return schemaLoader.loadTables(wolframEngine());
+    return loadWith(wolframEngine());
 #endif // WSINTERFACE
   case NoEngine:
     break;
@@ -63,12 +67,16 @@ bool loadDatabaseSchema(std::string const& filepath) {
 
 bool loadTableData(std::string const& tableName, std::string const& filepath) {
   using boss::serialization::TableDataLoader;
+  auto loadWith = [&tableName, &filepath](auto& engine) {
+    return TableDataLoader::load(engine, boss::Symbol(tableName), filepath);
+  };
+
   switch(currentEngine()) {
   case BulkEngine:
     break;
 #ifdef WSINTERFACE
   case WolframEngine:
-    return TableDataLoader::load(wolframEngine(), boss::Symbol(tableName), filepath);
+    return loadWith(wolframEngine());
 #endif // WSINTERFACE
   case NoEngine:
     break;

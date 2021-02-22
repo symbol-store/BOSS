@@ -4,7 +4,7 @@ namespace boss {
 class Engine {
 
 public:
-  virtual Expression evaluate(Expression const& e) = 0;
+  Expression evaluate(Expression const& e);
 };
 
 } // namespace boss

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../Engine.hpp"
 #include "../Expression.hpp"
 #include "../Utilities.hpp"
 
@@ -18,6 +17,7 @@ namespace boss::serialization {
 
 class TableDataLoader {
 public:
+  template <typename Engine>
   static bool load(Engine& engine, Symbol const& table, std::string const& filepath) {
     if(filepath.rfind(".tbl") != std::string::npos) {
       return loadFromTBL(engine, table, filepath);
@@ -30,16 +30,18 @@ public:
     throw std::runtime_error("unsuppported file format for " + filepath);
   }
 
+  template <typename Engine>
   static bool loadFromTBL(Engine& engine, Symbol const& table, std::string const& filepath) {
     return load(TableInfo(engine, table), engine, filepath, '|', false);
   }
 
+  template <typename Engine>
   static bool loadFromCSV(Engine& engine, Symbol const& table, std::string const& filepath) {
     return load(TableInfo(engine, table), engine, filepath, ',', true);
   }
 
 private:
-  struct TableInfo {
+  template <typename Engine> struct TableInfo {
     TableInfo(Engine& engine, Symbol const& table) : table(table) {
       size_t numColumns = std::get<int>(engine.evaluate("ColumnCount"_(table)));
       for(int index = 0; index < numColumns; ++index) {
@@ -53,7 +55,8 @@ private:
     std::map<std::string, int> columnIndices;
   };
 
-  static void readColumnHeader(std::ifstream& iFileStream, TableInfo const& info,
+  template <typename Engine>
+  static void readColumnHeader(std::ifstream& iFileStream, TableInfo<Engine> const& info,
                                std::vector<int>& outputIndices, char separator) {
     if(!iFileStream.good()) {
       return;
@@ -131,7 +134,8 @@ private:
     return true;
   }
 
-  static bool load(TableInfo const& info, Engine& engine, std::string const& filepath,
+  template <typename Engine>
+  static bool load(TableInfo<Engine> const& info, Engine& engine, std::string const& filepath,
                    char separator, bool hasHeader) {
     std::ifstream iFileStream(filepath, std::ios::in);
     if(iFileStream.fail()) {
