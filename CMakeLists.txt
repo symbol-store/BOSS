@@ -53,46 +53,99 @@ ExternalProject_Add(nlohmann_json
   INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/nlohmann ${BOSS_BINARY_DIR}/deps/include/nlohmann
   )
 
+########################## Other Library Dependencies ##########################
+
 set(VTune_DIR "" CACHE PATH "Where to look for VTune installation")
 find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
 
 set(CMAKE_MODULE_PATH "${BOSS_SOURCE_DIR}/CMake/Mathematica/CMake/Mathematica" ${CMAKE_MODULE_PATH})
 find_package(Mathematica COMPONENTS WSTP)
 
+find_package(SWIG 4) # at least swig 4.0 for C++17 support
+
 set(Racket_ROOT "" CACHE PATH "Where to look for Racket API")
 find_path(Racket_LIB_DIR "mzdyn3m.o" HINTS ${Racket_ROOT}/lib ${Racket_ROOT}/lib/racket)
 find_path(Racket_INCLUDE_DIR "escheme.h" HINTS ${Racket_ROOT}/include ${Racket_ROOT}/include/racket)
 
+find_package(Python3 COMPONENTS Interpreter Development NumPy)
+if(NOT Python3_FOUND)
+  find_package(Python3 COMPONENTS Interpreter Development)
+endif(NOT Python3_FOUND)
+
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-find_package(SWIG 4) # at least swig 4.0 for C++17 support
+#################################### Backends ####################################
 
+# Wolfram BOSS
+add_library(WolframBOSS STATIC Source/Engines/Wolfram.cpp ${ImplementationFiles})
+if(Mathematica_WSTP_FOUND)
+  target_include_directories(WolframBOSS PUBLIC ${Mathematica_INCLUDE_DIRS})
+  target_link_libraries(WolframBOSS ${Mathematica_WSTP_LIBRARY})
+  if(UNIX AND NOT APPLE)
+    target_link_libraries(WolframBOSS uuid)
+  endif()
+  target_link_libraries(WolframBOSS dl)
+  target_compile_definitions(WolframBOSS PUBLIC "${Mathematica_WSTP_DEFINITIONS}" "-DMATHEMATICA_KERNEL_EXECUTABLE=${Mathematica_KERNEL_EXECUTABLE}")
+endif(Mathematica_WSTP_FOUND)
 
-#################################### Targets ####################################
+list(APPEND AllBackends WolframBOSS)
 
-set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp)
+############################ Backends Common Properties ############################
+
+foreach (Backend IN LISTS AllBackends)
+  target_link_libraries(${Backend} Threads::Threads)
+  set_target_properties(${Backend} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  set_target_properties(${Backend} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+  target_include_directories(${Backend} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
+  if(UNIX AND NOT APPLE)
+    target_link_libraries(${Backend} rt)
+  endif()  
+endforeach()
+
+#################################### Utilities ####################################
+
 set(SerializationFiles Source/Serialization/JsonSchemaLoader.cpp)
-set(ExecutableFiles Source/main.cpp)
-set(TestFiles Tests/BOSSTests.cpp)
-set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
-set(SwigFiles Source/BOSS.i)
-
-add_executable(BOSS ${ImplementationFiles} ${ExecutableFiles})
-
-add_executable(Tests ${ImplementationFiles} ${TestFiles})
-add_dependencies(Tests catch2)
-
-add_executable(Benchmarks ${ImplementationFiles} ${BenchmarkFiles})
-set_property(TARGET Benchmarks PROPERTY CXX_STANDARD 17)
-
-list(APPEND AllTargets BOSS Tests Benchmarks)
 
 add_library(Serialization STATIC ${SerializationFiles})
 set_target_properties(Serialization PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(Serialization PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 target_include_directories(Serialization SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
 add_dependencies(Serialization nlohmann_json)
+
+############################### Executable Targets ###############################
+
+set(ImplementationFiles Source/BOSS.cpp)
+set(ExecutableFiles Source/main.cpp)
+set(TestFiles Tests/BOSSTests.cpp)
+set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
+
+# BOSS
+add_executable(BOSS ${ImplementationFiles} ${ExecutableFiles})
+
+# Tests
+add_executable(Tests ${ImplementationFiles} ${TestFiles})
+add_dependencies(Tests catch2)
+
+# Benchmarks
+add_executable(Benchmarks ${ImplementationFiles} ${BenchmarkFiles})
+target_link_libraries(Benchmarks Threads::Threads)
+add_dependencies(Benchmarks googlebenchmark)
+if(ITT_NOTIFY_INCLUDE_DIR)
+  message(VERBOSE "found itt notify header in ${ITT_NOTIFY_INCLUDE_DIR}")
+  target_include_directories(Benchmarks SYSTEM PUBLIC ${ITT_NOTIFY_INCLUDE_DIR})
+  target_link_libraries(Benchmarks ${ITT_NOTIFY_INCLUDE_DIR}/../lib64/libittnotify.a)
+  target_link_libraries(Benchmarks dl)
+  target_compile_options(Benchmarks PUBLIC -DWITH_ITT_NOTIFY)
+endif(ITT_NOTIFY_INCLUDE_DIR)
+target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark.a)
+target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main.a)
+
+list(APPEND AllTargets BOSS Tests Benchmarks)
+
+################################# Swig Bindings #################################
+
+set(SwigFiles Source/BOSS.i)
 
 if(SWIG_FOUND)
   message(VERBOSE "Found Swig files: ${SWIG_USE_FILE}")
@@ -104,7 +157,6 @@ if(SWIG_FOUND)
     message(VERBOSE "Found Racket include dir: ${Racket_INCLUDE_DIR}")
     set_property(SOURCE ${SwigFiles} PROPERTY COMPILE_OPTIONS "")
     swig_add_library(RacketBOSS TYPE MODULE LANGUAGE mzscheme SOURCES ${SwigFiles} ${ImplementationFiles} "${Racket_LIB_DIR}/mzdyn3m.o")
-    set_property(TARGET ${SWIG_MODULE_RacketBOSS_REAL_NAME} PROPERTY CXX_STANDARD 17)
     set_property(TARGET ${SWIG_MODULE_RacketBOSS_REAL_NAME} PROPERTY CXX_CLANG_TIDY "") # no clang-tidy
     target_compile_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC -DMZ_PRECISE_GC)
     if(APPLE)
@@ -118,20 +170,13 @@ if(SWIG_FOUND)
     list(APPEND AllTargets ${SWIG_MODULE_RacketBOSS_REAL_NAME})
   endif(Racket_LIB_DIR AND Racket_INCLUDE_DIR)
 
-  find_package(Python3 COMPONENTS Interpreter Development NumPy)
-  if(NOT Python3_FOUND)
-    find_package(Python3 COMPONENTS Interpreter Development)
-  endif(NOT Python3_FOUND)
-
   if(Python3_FOUND)
     message(VERBOSE "Found Python include dir: ${Python3_INCLUDE_DIRS}")
     set_property(SOURCE ${SwigFiles} PROPERTY COMPILE_OPTIONS "-builtin;-O")
     swig_add_library(PyBOSS TYPE SHARED LANGUAGE python SOURCES ${SwigFiles} ${ImplementationFiles})
-    set_property(TARGET ${SWIG_MODULE_PyBOSS_REAL_NAME} PROPERTY CXX_STANDARD 17)
     set_property(TARGET ${SWIG_MODULE_PyBOSS_REAL_NAME} PROPERTY SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
     target_include_directories(${SWIG_MODULE_PyBOSS_REAL_NAME} SYSTEM PUBLIC ${Python3_INCLUDE_DIRS})
     target_include_directories(${SWIG_MODULE_PyBOSS_REAL_NAME} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-    target_include_directories(${SWIG_MODULE_PyBOSS_REAL_NAME} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
     set_property(TARGET ${SWIG_MODULE_PyBOSS_REAL_NAME} PROPERTY CXX_CLANG_TIDY "") # no clang-tidy
     list(APPEND AllTargets ${SWIG_MODULE_PyBOSS_REAL_NAME})
     if(Python3_NumPy_FOUND)
@@ -167,38 +212,21 @@ if(SWIG_FOUND)
   endif(Python3_FOUND)
 endif(SWIG_FOUND)
 
-set(THREADS_PREFER_PTHREAD_FLAG ON)
-find_package(Threads REQUIRED)
-target_link_libraries(Benchmarks Threads::Threads)
-
-add_dependencies(Benchmarks googlebenchmark)
-if(ITT_NOTIFY_INCLUDE_DIR)
-  message(VERBOSE "found itt notify header in ${ITT_NOTIFY_INCLUDE_DIR}")
-  target_include_directories(Benchmarks SYSTEM PUBLIC ${ITT_NOTIFY_INCLUDE_DIR})
-  target_link_libraries(Benchmarks ${ITT_NOTIFY_INCLUDE_DIR}/../lib64/libittnotify.a)
-  target_link_libraries(Benchmarks dl)
-  target_compile_options(Benchmarks PUBLIC -DWITH_ITT_NOTIFY)
-endif(ITT_NOTIFY_INCLUDE_DIR)
-target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark.a)
-target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main.a)
+############################ Targets Common Properties ############################
 
 foreach (Target IN LISTS AllTargets)
   target_link_libraries(${Target} Serialization)
   target_link_libraries(${Target} Threads::Threads)
-  set_property(TARGET ${Target} PROPERTY CXX_STANDARD 17)
+  set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
   target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Target} rt)
-  endif()
-  
-  if(Mathematica_WSTP_FOUND)
-    target_include_directories(${Target} PUBLIC ${Mathematica_INCLUDE_DIRS})
-    target_link_libraries(${Target} ${Mathematica_WSTP_LIBRARY})
-    if(UNIX AND NOT APPLE)
-      target_link_libraries(${Target} uuid)
-    endif()
-    target_link_libraries(${Target} dl)
-    target_compile_definitions(${Target} PUBLIC "${Mathematica_WSTP_DEFINITIONS}" "-DMATHEMATICA_KERNEL_EXECUTABLE=${Mathematica_KERNEL_EXECUTABLE}")
-  endif(Mathematica_WSTP_FOUND)
+  endif() 
+  # Link backends to targets
+  foreach (Target IN LISTS AllTargets)
+    foreach (Backend IN LISTS AllBackends)
+      target_link_libraries(${Target} ${Backend})
+    endforeach()
+  endforeach()
 endforeach()
 
