@@ -2,6 +2,7 @@
 #include "Wolfram.hpp"
 #include "../Utilities.hpp"
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -17,22 +18,20 @@ using std::vector;
 using boss::utilities::operator""_;
 using std::string_literals::operator""s;
 using std::endl;
-#ifdef NDEBUG
-struct NOOPConsole {
-  template <typename T> NOOPConsole const& operator<<(T /*unused*/) const { return *this; }
-  NOOPConsole const& operator<<(std::ostream& (*/*pf*/)(std::ostream&)) const { return *this; };
-
-} const console;
-#else
-std::ostream& console = std::cout; // NOLINT
-#endif // NDEBUG
+struct NOOPConsole : public std::ostringstream {
+  template <typename T> std::ostream& operator<<(T /*unused*/) { return *this; }
+  std::ostream& operator<<(std::ostream& (*/*pf*/)(std::ostream&)) { return *this; };
+  ~NOOPConsole(){};
+};
+static NOOPConsole noOpConsole;
 
 struct EngineImplementation {
   constexpr static char const* const DefaultNamespace = "BOSS`";
   WSENV environment = {};
   WSLINK link = {};
 
-  void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier) {
+  void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier,
+                           std::ostream& console) {
     std::visit(boss::utilities::overload(
                    [&](int a) {
                      console << a;
@@ -61,7 +60,7 @@ struct EngineImplementation {
                        if(it != expression.getArguments().begin()) {
                          console << ", ";
                        }
-                       putExpressionOnLink(argument, namespaceIdentifier);
+                       putExpressionOnLink(argument, namespaceIdentifier, console);
                      }
                      console << "]";
                    }),
@@ -120,6 +119,9 @@ struct EngineImplementation {
     throw std::logic_error("unsupported return type: " + std::to_string(resultType));
   }
 
+  static utilities::ExpressionBuilder namespaced(utilities::ExpressionBuilder const& builder) {
+    return utilities::ExpressionBuilder(Symbol(DefaultNamespace + Symbol(builder).getName()));
+  }
   static Symbol namespaced(Symbol const& name) { return Symbol(DefaultNamespace + name.getName()); }
   static ComplexExpression namespaced(ComplexExpression const& name) {
     return ComplexExpression(Symbol(DefaultNamespace + name.getHead().getName()),
@@ -132,9 +134,9 @@ struct EngineImplementation {
     auto Function = "Function"_;
     auto List = "List"_;
     auto eval = [this](Expression const& expression) { return evaluate(expression, ""); };
-    for(std::string const& it :
-        vector{"Plus", "StringJoin", "Greater", "Symbol", "UndefinedFunction", "Evaluate", "Set",
-               "List", "Equal", "Extract", "StringContainsQ"}) {
+    for(std::string const& it : vector{"Plus", "Times", "And", "UnixTime", "StringJoin", "Greater",
+                                       "Symbol", "UndefinedFunction", "Evaluate", "Set", "Values",
+                                       "List", "Equal", "Extract", "StringContainsQ"}) {
       eval(Set(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
     auto Argument = [&](Symbol const& name, Symbol const* type = nullptr) {
@@ -151,31 +153,68 @@ struct EngineImplementation {
 
     eval(SetDelayed(namespaced("CreateTable"_("Pattern"_("relation"_, "Blank"_()),
                                               "Pattern"_("attributes"_, "BlankSequence"_()))),
-                    Set("relation"_, List())));
+                    "CompoundExpression"_(Set("Database"_("relation"_), List()),
+                                          Set("Schema"_("relation"_), "List"_("attributes"_)))));
     eval("SetAttributes"_(namespaced("CreateTable"_), "HoldFirst"_));
 
     eval(SetDelayed(namespaced("InsertInto"_("Pattern"_("relation"_, "Blank"_()),
                                              "Pattern"_("tuple"_, "BlankSequence"_()))),
-                    "AppendTo"_("relation"_, "List"_("tuple"_))));
+                    "AppendTo"_("Database"_("relation"_),
+                                "Association"_("Thread"_(
+                                    "Rule"_("Schema"_("relation"_), "List"_("tuple"_)))))));
     eval("SetAttributes"_(namespaced("InsertInto"_), "HoldFirst"_));
+
+    DefineFunction("Return"_, {"Pattern"_("result"_, "Blank"_("List"_))},
+                   "Map"_("Function"_("x"_, "If"_("MatchQ"_("x"_, "Blank"_("Association"_)),
+                                                  "Values"_("x"_), "x"_)),
+                          "result"_));
+    DefineFunction("Return"_, {"Pattern"_("result"_, "Blank"_())}, "result"_);
+
+    DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_("Symbol"_))},
+                   "Database"_("input"_));
+    DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_())}, "input"_);
+    eval("SetAttributes"_(namespaced("GetPersistentTableIfSymbol"_), "HoldAll"_));
 
     DefineFunction("Project"_,
                    {"Pattern"_("input"_, "Blank"_()), "Pattern"_("projection"_, "Blank"_())},
-                   "Map"_("projection"_, "relation"_));
+                   "Map"_("projection"_, namespaced("GetPersistentTableIfSymbol"_)("input"_)));
     DefineFunction("Select"_,
                    {"Pattern"_("input"_, "Blank"_()), "Pattern"_("predicate"_, "Blank"_())},
-                   "Select"_("input"_, "predicate"_));
-    DefineFunction("GroupBy"_,
-                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
-                    "Pattern"_("aggregateFunction"_, "Blank"_())},
-                   "Length"_("input"_));
+                   "Select"_(namespaced("GetPersistentTableIfSymbol"_)("input"_), "predicate"_));
+    DefineFunction(
+        "GroupBy"_,
+        {"Pattern"_("input"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
+         "Pattern"_("aggregateFunction"_, "Blank"_())},
+        "Switch"_("aggregateFunction"_, //
+                  namespaced("Count"_),
+                  "Length"_(namespaced("GetPersistentTableIfSymbol"_)("input"_)), "Blank"_(),
+                  "Fold"_("Plus"_, "Map"_("Extract"_("Key"_("First"_("aggregateFunction"_))),
+                                          namespaced("GetPersistentTableIfSymbol"_)("input"_)))));
+    eval("SetAttributes"_(namespaced("GroupBy"_), "HoldAll"_));
+
+    DefineFunction("Where"_, {"Pattern"_("condition"_, "Blank"_())},
+                   "Function"_("tuple"_, "ReplaceAll"_("condition"_, "tuple"_)));
+    eval("SetAttributes"_(namespaced("Where"_), "HoldFirst"_));
+
+    DefineFunction(
+        "As"_, {"Pattern"_("projections"_, "BlankSequence"_())},
+        "Function"_("tuple"_,
+                    "Association"_("Thread"_("Rule"_(
+                        "Part"_("List"_("projections"_), "Span"_(1, "All"_, 2)),
+                        "ReplaceAll"_("Part"_("List"_("projections"_), "Span"_(2, "All"_, 2)),
+                                      "tuple"_))))));
+    eval("SetAttributes"_(namespaced("As"_), "HoldAll"_));
+
     DefineFunction(
         "Join"_,
-        {"Pattern"_("left"_, "Blank"_("List"_)), "Pattern"_("right"_, "Blank"_("List"_)),
+        {"Pattern"_("left"_, "Blank"_()), "Pattern"_("right"_, "Blank"_()),
          "Pattern"_("predicate"_, "Blank"_("Function"_))},
         "Map"_("Flatten"_,
-               "Select"_("Flatten"_("Outer"_("List"_, "left"_, "right"_, 1), 1),
-                         "Function"_("both"_, "predicate"_("First"_("both"_), "Last"_("both"_))))));
+               "Select"_(
+                   "Flatten"_("Outer"_("List"_, namespaced("GetPersistentTableIfSymbol"_)("left"_),
+                                       namespaced("GetPersistentTableIfSymbol"_)("right"_), 1),
+                              1),
+                   "Function"_("both"_, "predicate"_("First"_("both"_), "Last"_("both"_))))));
     eval("Set"_("BOSSVersion"_, 1));
   };
 
@@ -204,8 +243,15 @@ struct EngineImplementation {
   }
 
   Expression evaluate(Expression const& e,
-                      std::string const& namespaceIdentifier = DefaultNamespace) {
-    putExpressionOnLink(e, namespaceIdentifier);
+                      std::string const& namespaceIdentifier = DefaultNamespace,
+                      std::ostream& console =
+#ifdef NDEBUG
+                          noOpConsole
+#else
+                          std::cout
+#endif // NDEBUG
+  ) {
+    putExpressionOnLink("Return"_(e), namespaceIdentifier, console);
     console << endl;
     WSEndPacket(link);
     int pkt = 0;
