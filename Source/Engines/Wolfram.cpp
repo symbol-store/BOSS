@@ -21,9 +21,8 @@ using std::endl;
 struct NOOPConsole : public std::ostringstream {
   template <typename T> std::ostream& operator<<(T /*unused*/) { return *this; }
   std::ostream& operator<<(std::ostream& (*/*pf*/)(std::ostream&)) { return *this; };
-  ~NOOPConsole(){};
 };
-static NOOPConsole noOpConsole;
+static NOOPConsole noOpConsole; // NOLINT
 
 struct EngineImplementation {
   constexpr static char const* const DefaultNamespace = "BOSS`";
