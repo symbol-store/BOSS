@@ -1,4 +1,8 @@
 #include <string>
+/**
+ * This is some racket code that establishes a convenient interface to BOSS --
+ * right now I am just doing it using a raw string literal (maybe we'll use our expression builder at some point)
+ */
 std::string getRacketMacroShims() {
   // NOLINTNEXTLINE
   return
@@ -13,11 +17,11 @@ std::string getRacketMacroShims() {
          [_ 'unknown]
          )
   )
+(define-syntax-rule (InsertInto args ...) ((lambda () (evaluate (convert-to-boss-expression '(InsertInto args ...))) (void))))
 (define-syntax-rule (Plus args ...) (evaluate (convert-to-boss-expression '(Plus args ...))))
 (define-syntax-rule (Where args ...) (evaluate (convert-to-boss-expression '(Where args ...))))
 (define-syntax-rule (Greater args ...) (evaluate (convert-to-boss-expression '(Greater args ...))))
 (define-syntax-rule (CreateTable args ...) (evaluate (convert-to-boss-expression '(CreateTable args ...))))
-(define-syntax-rule (InsertInto args ...) ((lambda () (evaluate (convert-to-boss-expression '(InsertInto args ...))) (void))))
 (define-syntax-rule (GroupBy args ...) (evaluate (convert-to-boss-expression '(GroupBy args ...))))
 (define-syntax-rule (Select args ...) (evaluate (convert-to-boss-expression '(Select args ...))))
 (define-syntax-rule (Project args ...) (evaluate (convert-to-boss-expression '(Project args ...))))

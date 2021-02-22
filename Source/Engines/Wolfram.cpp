@@ -127,52 +127,33 @@ struct EngineImplementation {
                              name.getArguments());
   }
 
-  void loadShimLayer() {
-    auto Set = "Set"_;
-    auto SetDelayed = "SetDelayed"_;
-    auto Function = "Function"_;
-    auto List = "List"_;
-    auto eval = [this](Expression const& expression) { return evaluate(expression, ""); };
-    for(std::string const& it : vector{"Plus", "Times", "And", "UnixTime", "StringJoin", "Greater",
-                                       "Symbol", "UndefinedFunction", "Evaluate", "Set", "Values",
-                                       "List", "Equal", "Extract", "StringContainsQ"}) {
-      eval(Set(namespaced(Symbol(it)), Symbol("System`" + it)));
+  void evalWithoutNamespace(Expression const& expression) { evaluate(expression, ""); };
+
+  void DefineFunction(Symbol const& name, const vector<Expression>& arguments,
+                      Expression const& definition, vector<Symbol> const& attributes = {}) {
+    evalWithoutNamespace("SetDelayed"_(namespaced(ComplexExpression(name, arguments)), definition));
+    for(auto& it : attributes) {
+      evalWithoutNamespace("SetAttributes"_(namespaced(name), it));
     }
-    auto Argument = [&](Symbol const& name, Symbol const* type = nullptr) {
-      return type != nullptr ? "Pattern"_(name, "Blank"_(*type)) : "Pattern"_(name, "Blank"_());
-    };
+  };
 
-    auto DefineFunction = [&](Symbol const& name, const vector<Expression>& arguments,
-                              Expression const& definition) {
-      eval(SetDelayed(namespaced(ComplexExpression(name, arguments)), definition));
-    };
-    eval(SetDelayed(namespaced("Function"_(Argument("arg"_), Argument("definition"_))),
-                    "Function"_("arg"_, "definition"_)));
-    eval("SetAttributes"_(namespaced("Function"_), "HoldRest"_));
+  void loadRelationalOperators() {
+    DefineFunction("Where"_, {"Pattern"_("condition"_, "Blank"_())},
+                   "Function"_("tuple"_, "ReplaceAll"_("condition"_, "tuple"_)), {"HoldFirst"_});
 
-    eval(SetDelayed(namespaced("CreateTable"_("Pattern"_("relation"_, "Blank"_()),
-                                              "Pattern"_("attributes"_, "BlankSequence"_()))),
-                    "CompoundExpression"_(Set("Database"_("relation"_), List()),
-                                          Set("Schema"_("relation"_), "List"_("attributes"_)))));
-    eval("SetAttributes"_(namespaced("CreateTable"_), "HoldFirst"_));
-
-    eval(SetDelayed(namespaced("InsertInto"_("Pattern"_("relation"_, "Blank"_()),
-                                             "Pattern"_("tuple"_, "BlankSequence"_()))),
-                    "AppendTo"_("Database"_("relation"_),
-                                "Association"_("Thread"_(
-                                    "Rule"_("Schema"_("relation"_), "List"_("tuple"_)))))));
-    eval("SetAttributes"_(namespaced("InsertInto"_), "HoldFirst"_));
-
-    DefineFunction("Return"_, {"Pattern"_("result"_, "Blank"_("List"_))},
-                   "Map"_("Function"_("x"_, "If"_("MatchQ"_("x"_, "Blank"_("Association"_)),
-                                                  "Values"_("x"_), "x"_)),
-                          "result"_));
-    DefineFunction("Return"_, {"Pattern"_("result"_, "Blank"_())}, "result"_);
+    DefineFunction(
+        "As"_, {"Pattern"_("projections"_, "BlankSequence"_())},
+        "Function"_("tuple"_,
+                    "Association"_("Thread"_("Rule"_(
+                        "Part"_("List"_("projections"_), "Span"_(1, "All"_, 2)),
+                        "ReplaceAll"_("Part"_("List"_("projections"_), "Span"_(2, "All"_, 2)),
+                                      "tuple"_))))),
+        {"HoldAll"_});
 
     DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_("Symbol"_))},
                    "Database"_("input"_));
-    DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_())}, "input"_);
-    eval("SetAttributes"_(namespaced("GetPersistentTableIfSymbol"_), "HoldAll"_));
+    DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_())}, "input"_,
+                   {"HoldAll"_});
 
     DefineFunction("Project"_,
                    {"Pattern"_("input"_, "Blank"_()), "Pattern"_("projection"_, "Blank"_())},
@@ -192,22 +173,8 @@ struct EngineImplementation {
 
     DefineFunction("GroupBy"_,
                    {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
-                   namespaced("GroupBy"_)("input"_, "Function"_(0), "aggregateFunction"_));
-
-    eval("SetAttributes"_(namespaced("GroupBy"_), "HoldAll"_));
-
-    DefineFunction("Where"_, {"Pattern"_("condition"_, "Blank"_())},
-                   "Function"_("tuple"_, "ReplaceAll"_("condition"_, "tuple"_)));
-    eval("SetAttributes"_(namespaced("Where"_), "HoldFirst"_));
-
-    DefineFunction(
-        "As"_, {"Pattern"_("projections"_, "BlankSequence"_())},
-        "Function"_("tuple"_,
-                    "Association"_("Thread"_("Rule"_(
-                        "Part"_("List"_("projections"_), "Span"_(1, "All"_, 2)),
-                        "ReplaceAll"_("Part"_("List"_("projections"_), "Span"_(2, "All"_, 2)),
-                                      "tuple"_))))));
-    eval("SetAttributes"_(namespaced("As"_), "HoldAll"_));
+                   namespaced("GroupBy"_)("input"_, "Function"_(0), "aggregateFunction"_),
+                   {"HoldAll"_});
 
     DefineFunction(
         "Join"_,
@@ -219,7 +186,46 @@ struct EngineImplementation {
                                        namespaced("GetPersistentTableIfSymbol"_)("right"_), 1),
                               1),
                    "Function"_("both"_, "predicate"_("First"_("both"_), "Last"_("both"_))))));
-    eval("Set"_("BOSSVersion"_, 1));
+  }
+
+  void loadDDLOperators() {
+    DefineFunction(
+        "CreateTable"_,
+        {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("attributes"_, "BlankSequence"_())},
+        "CompoundExpression"_("Set"_("Database"_("relation"_), "List"_()),
+                              "Set"_("Schema"_("relation"_), "List"_("attributes"_))),
+        {"HoldFirst"_});
+
+    DefineFunction(
+        "InsertInto"_,
+        {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("tuple"_, "BlankSequence"_())},
+        "AppendTo"_("Database"_("relation"_),
+                    "Association"_("Thread"_("Rule"_("Schema"_("relation"_), "List"_("tuple"_))))),
+        {"HoldFirst"_});
+  }
+
+  void loadShimLayer() {
+    evalWithoutNamespace("Set"_("BOSSVersion"_, 1));
+
+    for(std::string const& it : vector{"Plus", "Times", "And", "UnixTime", "StringJoin", "Greater",
+                                       "Symbol", "UndefinedFunction", "Evaluate", "Set", "Values",
+                                       "List", "Equal", "Extract", "StringContainsQ"}) {
+      evalWithoutNamespace("Set"_(namespaced(Symbol(it)), Symbol("System`" + it)));
+    }
+
+    DefineFunction("Function"_,
+                   {"Pattern"_("arg"_, "Blank"_()), "Pattern"_("definition"_, "Blank"_())},
+                   "Function"_("arg"_, "definition"_), {"HoldRest"_});
+
+    DefineFunction("Return"_, {"Pattern"_("result"_, "Blank"_("List"_))},
+                   "Map"_("Function"_("x"_, "If"_("MatchQ"_("x"_, "Blank"_("Association"_)),
+                                                  "Values"_("x"_), "x"_)),
+                          "result"_));
+    DefineFunction("Return"_, {"Pattern"_("result"_, "Blank"_())}, "result"_);
+
+    loadDDLOperators();
+
+    loadRelationalOperators();
   };
 
   EngineImplementation() {

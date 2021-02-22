@@ -41,7 +41,6 @@ jobs:
         mkdir ${{ matrix.build-type }}
         cd ${{ matrix.build-type }}
         cmake -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
-        cmake -L .
         cd ..
     - name: build
       run: cmake --build ${{ matrix.build-type }}
@@ -76,7 +75,6 @@ jobs:
     - name: test
       run: |
         echo "${{ secrets.MATHEMATICA_LICENSE }}" > mathpass
-        cat mathpass
         chmod +x ./Tests && ./Tests
     needs: [build]
 
