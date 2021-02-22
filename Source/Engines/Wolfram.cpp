@@ -141,6 +141,9 @@ struct EngineImplementation {
     DefineFunction("Where"_, {"Pattern"_("condition"_, "Blank"_())},
                    "Function"_("tuple"_, "ReplaceAll"_("condition"_, "tuple"_)), {"HoldFirst"_});
 
+    DefineFunction("Column"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("column"_, "Blank"_())},
+                   "Extract"_("input"_, "column"_), {"HoldFirst"_});
+
     DefineFunction(
         "As"_, {"Pattern"_("projections"_, "BlankSequence"_())},
         "Function"_("tuple"_,

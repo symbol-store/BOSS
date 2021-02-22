@@ -46,11 +46,6 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
                   .getArguments()[0]) == "Hello World!");
   }
 
-  SECTION("State") {
-    eval("Set"_("thingy"_, 9)); // NOLINT
-    REQUIRE(eval("Evaluate"_("thingy"_)) == Value(9));
-  }
-
   SECTION("Relational") {
     eval("CreateTable"_("Customer"_, "FirstName", "LastName"));
     eval("InsertInto"_("Customer"_, "John", "McCarthy"));
@@ -65,11 +60,11 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
     }
 
     SECTION("Aggregation") {
-      REQUIRE(eval("GroupBy"_("Customer"_, "List"_(), "Count"_)) == Value(3));
+      REQUIRE(eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_)) == Value(3));
       REQUIRE(eval("GroupBy"_(
                   ("Select"_("Customer"_,
                              "Function"_("tuple"_,
-                                         "StringContainsQ"_("Madden", "Extract"_("tuple"_, 2))))),
+                                         "StringContainsQ"_("Madden", "Column"_("tuple"_, 2))))),
                   "Function"_(0), "Count"_)) == Value(1));
     }
 
@@ -84,7 +79,7 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
       auto const& result =
           eval("Join"_("Adjacency1"_, "Adjacency2"_,
                        "Function"_("List"_("left"_, "right"_),
-                                   "Equal"_("Extract"_("left"_, 2), "Extract"_("right"_, 1)))));
+                                   "Equal"_("Column"_("left"_, 2), "Column"_("right"_, 1)))));
       INFO(get<boss::ComplexExpression>(result));
       REQUIRE(get<boss::ComplexExpression>(result).getArguments().size() == dataSetSize);
     }
