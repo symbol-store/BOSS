@@ -1,5 +1,5 @@
-#include "Engines/MLIREngine/Dialect/MemoryOps.h"
-#include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>

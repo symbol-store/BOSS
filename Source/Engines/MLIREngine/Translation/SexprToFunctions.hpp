@@ -1,5 +1,5 @@
 #pragma once
-#include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include <memory>
 #include <mlir/Pass/Pass.h>
 

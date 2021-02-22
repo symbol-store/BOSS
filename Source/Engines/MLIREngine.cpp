@@ -1,6 +1,6 @@
 #include "Engines/MLIREngine.hpp"
 #include "Engines/MLIREngine/Analysis/AnalysisPasses.hpp"
-#include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/IR/MLIRGenerator.hpp"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Translation/SexprToFunctions.hpp"
@@ -95,7 +95,6 @@ Expression Engine::evaluate(Expression const& e) {
   sexprtype::ReturnTypes returnType = sexprtype::ReturnTypes::UNKNOWN;
 
   ::mlir::PassManager passManager(module->getContext());
-  auto& funcPassManager = passManager.nest<::mlir::FuncOp>();
 
   passManager.addPass(createTypeInferencePass());
   passManager.addPass(createLowerToFunctionsPass(returnType));

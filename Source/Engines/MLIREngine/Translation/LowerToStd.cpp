@@ -1,8 +1,8 @@
-#include "Engines/MLIREngine/Dialect/MemoryDialect.h"
-#include "Engines/MLIREngine/Dialect/MemoryOps.h"
-#include "Engines/MLIREngine/Dialect/SExprDialect.h"
-#include "Engines/MLIREngine/Dialect/SExprOps.h"
-#include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryDialect.h"
+#include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 #include <array>
 #include <atomic>

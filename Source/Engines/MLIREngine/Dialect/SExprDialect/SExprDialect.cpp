@@ -1,6 +1,6 @@
-#include "Engines/MLIREngine/Dialect/SExprDialect.h"
-#include "Engines/MLIREngine/Dialect/SExprOps.h"
-#include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include <mlir/IR/Dialect.h>
 #include <mlir/IR/DialectImplementation.h>
 #include <mlir/IR/Types.h>

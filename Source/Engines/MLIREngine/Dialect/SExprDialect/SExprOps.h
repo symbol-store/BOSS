@@ -1,6 +1,6 @@
 #pragma once
 
-#include "TypeInferenceInterface.h"
+#include "Engines/MLIREngine/Dialect/TypeInferenceInterface.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/RegionKindInterface.h"

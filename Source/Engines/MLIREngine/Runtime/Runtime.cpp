@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <stdlib.h>
 
-#include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include <mlir/IR/StandardTypes.h>
 
 #include "Runtime.hpp"

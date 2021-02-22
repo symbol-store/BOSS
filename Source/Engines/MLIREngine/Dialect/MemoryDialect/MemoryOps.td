@@ -5,7 +5,7 @@ include "MemoryDialect.td"
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/RegionKindInterface.td"
-include "TypeInferenceInterface.td"
+include "../TypeInferenceInterface.td"
 
 def SymbolOrValueType : Type<CPred<"$_self.isa<SymbolOrValueType>()">,
                               "symbolOrValue type">;

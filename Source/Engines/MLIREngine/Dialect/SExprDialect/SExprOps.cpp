@@ -1,8 +1,8 @@
 #include "SExprOps.h"
 #include "SExprTypes.h"
 
-#include "Engines/MLIREngine/Dialect/SExprDialect.h"
-#include "Engines/MLIREngine/Dialect/SExprOps.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/TypeInferenceInterface.h"
 #include <exception>
 #include <iostream>

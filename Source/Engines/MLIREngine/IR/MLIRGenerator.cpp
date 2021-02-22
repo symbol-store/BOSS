@@ -1,8 +1,8 @@
 #include "Engines/MLIREngine/IR/MLIRGenerator.hpp"
-#include "Engines/MLIREngine/Dialect/MemoryDialect.h"
-#include "Engines/MLIREngine/Dialect/SExprDialect.h"
-#include "Engines/MLIREngine/Dialect/SExprOps.h"
-#include "Engines/MLIREngine/Dialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryDialect.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Expression.hpp"
 #include "Utilities.hpp"
 #include <mlir/Dialect/SCF/SCF.h>
