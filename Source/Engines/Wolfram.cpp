@@ -190,6 +190,11 @@ struct EngineImplementation {
                   "Length"_(namespaced("GetPersistentTableIfSymbol"_)("input"_)), "Blank"_(),
                   "Fold"_("Plus"_, "Map"_("Extract"_("Key"_("First"_("aggregateFunction"_))),
                                           namespaced("GetPersistentTableIfSymbol"_)("input"_)))));
+
+    DefineFunction("GroupBy"_,
+                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
+                   namespaced("GroupBy"_)("input"_, "Function"_(0), "aggregateFunction"_));
+
     eval("SetAttributes"_(namespaced("GroupBy"_), "HoldAll"_));
 
     DefineFunction("Where"_, {"Pattern"_("condition"_, "Blank"_())},
