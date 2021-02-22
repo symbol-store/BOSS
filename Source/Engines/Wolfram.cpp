@@ -132,7 +132,7 @@ struct EngineImplementation {
   void DefineFunction(Symbol const& name, const vector<Expression>& arguments,
                       Expression const& definition, vector<Symbol> const& attributes = {}) {
     evalWithoutNamespace("SetDelayed"_(namespaced(ComplexExpression(name, arguments)), definition));
-    for(auto& it : attributes) {
+    for(auto const& it : attributes) {
       evalWithoutNamespace("SetAttributes"_(namespaced(name), it));
     }
   };
