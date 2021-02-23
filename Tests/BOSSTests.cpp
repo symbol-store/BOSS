@@ -54,7 +54,7 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
     SECTION("Selection") {
       auto const& sam = eval(
           "Select"_("Customer"_,
-                    "Function"_("tuple"_, "StringContainsQ"_("Madden", "Extract"_("tuple"_, 2)))));
+                    "Function"_("tuple"_, "StringContainsQ"_("Madden", "Column"_("tuple"_, 2)))));
       REQUIRE(sam == "List"_("List"_("Sam", "Madden")));
       REQUIRE(sam != "List"_("List"_("Barbara", "Liskov")));
     }
