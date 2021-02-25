@@ -9,6 +9,7 @@
 
 #include "../../Expression.hpp"
 
+#include <algorithm>
 #include <map>
 
 namespace boss::engines::bulk {
@@ -28,7 +29,8 @@ public:
       : m_factory(other.m_factory), m_decomposed(other.m_decomposed), m_ordered(other.m_ordered) {
     if(!clear) {
       for(auto const& [key, otherBatchPtr] : other.m_batches) {
-        insert(key.first, key.second, std::move(otherBatchPtr->clone(clear)));
+        // just a shallow copy
+        insert(key.first, key.second, otherBatchPtr);
       }
     }
   }
@@ -38,8 +40,8 @@ public:
   Dispatcher& operator=(Dispatcher const& other) = delete;
   Dispatcher& operator=(Dispatcher&& other) = delete;
 
+  bool isDecomposed() const { return m_decomposed; }
   void setDecomposed(bool value) { m_decomposed = value; }
-  void setOrdered(bool value) { m_ordered = value; }
 
   auto begin() const { return m_batches.begin(); }
   auto end() const { return m_batches.end(); }
@@ -47,113 +49,165 @@ public:
   auto begin() { return m_batches.begin(); }
   auto end() { return m_batches.end(); }
 
-  void clear() { m_batches.clear(); }
+  void clear() {
+    m_batches.clear();
+    m_indexedBatches.clear();
+  }
 
   size_t size() const {
     if(m_decomposed) {
+      return m_batches.empty() ? 0 : m_batches.begin()->second->size();
+    }
+    if(!m_ordered) {
       size_t totalSize = 0;
-      visitBatches(
-          [&totalSize](auto const& /*key*/, auto const& batch) { totalSize += batch.size(); });
+      visitBatches([&totalSize](auto const& /*key*/, auto const& batchPtr) {
+        totalSize += batchPtr->size();
+      });
       return totalSize;
     }
-    return m_batches.empty() ? 0 : m_batches.begin()->second->size();
+    return m_batches.size();
   }
 
   void resize(size_t size, Expression const& val) {
-    if(m_decomposed) {
-      // TODO: implements if needed
-    } else {
+    if(m_ordered) {
       if(size < m_batches.size()) {
         BatchMap newBatches;
         for(auto& [key, batchPtr] : m_batches) {
           newBatches[key] = std::move(batchPtr);
         }
         m_batches.swap(newBatches);
-      } else {
+        m_indexedBatches.clear();
+      } else if(size > m_batches.size()) {
         size_t sizeDiff = size - m_batches.size();
         size_t indexOffset = m_batches.empty() ? 0 : 1 + m_batches.rbegin()->first.second;
         for(size_t argIndex = 0; argIndex < sizeDiff; ++argIndex) {
-          insert(val, argIndex + indexOffset, BatchPtr());
+          insert(val, argIndex + indexOffset, m_factory.createBatch(val));
         }
+        m_indexedBatches.clear();
       }
+    } else {
+      // TODO: implements if needed
     }
   }
 
-  BatchPtr extract(Batch const& srcBatch, size_t index) const {
-    return extract(srcBatch, index, m_batches.begin());
+  template <typename Func> void visitEvaluated(Func&& visitor) const {
+    for(auto const& [argument, batchPtr] : m_batches) {
+      Batch::ReadablePtr evaluatedPtr;
+      if(!batchPtr->evaluate(evaluatedPtr)) {
+        visitor(argument, batchPtr, false);
+        continue;
+      }
+      auto key = m_factory.toKey(*evaluatedPtr);
+      visitor(DispatchKey(key, argument.second), std::move(evaluatedPtr), true);
+    }
   }
 
-  template <typename BatchIterator>
-  BatchPtr extract(Batch const& srcBatch, size_t index, BatchIterator it) const {
+  Batch::ReadablePtr extract(Batch const& srcBatch, size_t index) const {
     if(m_decomposed) {
-      auto const& [key, batchPtr] = *it;
-      // first find which batch contains the index
-      // TODO: optimise the search...
-      auto const& batch = *batchPtr;
-      size_t batchSize = batch.size();
-      if(index >= batchSize) {
-        return extract(srcBatch, index - batchSize, ++it);
-      }
-      return m_factory.extractFromBatch(batch, index);
+      // need to recompose a new row from every column
+      // Notes:
+      // 1. we have to go through that even if a relation has only one row (size() == 1)
+      //    so it creates the right decomposed batch and avoid an infinite loop...)
+      // 2. we have to go through that
+      //    even if a dispatched batch has only one column (m_batches.size() == 1)
+      //    otherwise we end up exporting a column as value directly instead of a list
+      return m_factory.recomposeBatch(srcBatch, index, false);
     }
 
-    // need to recompose a new row from every column
-    // Notes:
-    // 1. we have to go through that even if a relation has only one row (size() == 1)
-    //    so it creates the right decomposed batch and avoid an infinite loop...)
-    // 2. we have to go through that even if a dispatched batch has only one column
-    // (m_batches.size() == 1)
-    //    otherwise we end up exporting a column as value directly instead of a list
-    return m_factory.recomposeBatch(srcBatch, index);
+    refreshIndexes();
+
+    if(m_ordered) {
+      return m_indexedBatches[index].second->second;
+    }
+
+    auto nextIt = std::upper_bound(
+        m_indexedBatches.begin(), m_indexedBatches.end(), index,
+        [](size_t index, auto const& indexedPair) { return index < indexedPair.first; });
+    auto it = std::prev(nextIt);
+
+    size_t startIndex = it->first;
+    auto& mapIt = it->second;
+    auto const& batchPtr = mapIt->second;
+    return m_factory.extractFromBatch(*batchPtr, index - startIndex);
   }
 
-  BatchPtr reduce(Batch const& srcBatch, size_t index) const {
-    if(m_decomposed) {
+  Batch::ReadablePtr reduce(Batch const& srcBatch, size_t index) const {
+    if(!m_ordered) {
       auto destBatchPtr = srcBatch.clone(true);
       m_factory.reduceCompoundBatch(*destBatchPtr, srcBatch, index);
       return std::move(destBatchPtr);
     }
-    return std::next(begin(), static_cast<ptrdiff_t>(index))->second->clone();
+
+    refreshIndexes();
+
+    return m_indexedBatches[index].second->second;
   }
 
-  void insert(Expression const& argument, size_t argIndex, BatchPtr batchPtr) {
-    DispatchKey key(argument, m_decomposed && !m_ordered ? 0 : argIndex);
+  void insert(Expression const& argument, size_t argIndex, Batch::ReadablePtr batchPtr) {
+    m_indexedBatches.clear();
+    DispatchKey key(argument, m_ordered ? argIndex : 0);
     auto& existingBatchPtr = m_batches[key];
     if(existingBatchPtr) {
       if(existingBatchPtr->isRLE()) {
         // need to recreate a non-RLE to be safe
-        existingBatchPtr = m_factory.convertToNonRLE(*existingBatchPtr);
-        // and so far the other batch too need to be same type
-        batchPtr = m_factory.convertToNonRLE(*batchPtr);
+        existingBatchPtr = m_factory.convertToNonRLE(std::move(existingBatchPtr));
       }
-      existingBatchPtr->merge(std::move(batchPtr));
-    } else {
-      existingBatchPtr = std::move(batchPtr);
+      if(batchPtr->isRLE()) {
+        // and so far the other batch too need to be same type
+        batchPtr = m_factory.convertToNonRLE(std::move(batchPtr));
+      }
+      if(existingBatchPtr->typeId() == batchPtr->typeId()) {
+        auto writablePtr = Batch::WritablePtr::asWritable(existingBatchPtr);
+        writablePtr->merge(std::move(batchPtr));
+        existingBatchPtr = std::move(writablePtr);
+      }
+      return;
     }
+
+    if(!m_ordered || m_decomposed) {
+      batchPtr = m_factory.convertToDecomposed(std::move(batchPtr));
+    }
+
+    existingBatchPtr = std::move(batchPtr);
   }
 
   void insert(Expression const& argument, size_t argIndex = 0) {
-    DispatchKey key(argument, m_decomposed && !m_ordered ? 0 : argIndex);
+    m_indexedBatches.clear();
+    DispatchKey key(argument, m_ordered ? argIndex : 0);
     auto& batchPtr = m_batches[key];
     if(!batchPtr) {
-      bool allowDecomposedDispatch = !m_decomposed;
-      batchPtr = m_factory.createBatch(argument, allowDecomposedDispatch);
+      bool decomposedDispatch = !m_ordered || m_decomposed;
+      batchPtr = m_factory.createBatch(argument, decomposedDispatch);
     }
 
     if(!std::holds_alternative<Symbol>(argument) &&
        !std::holds_alternative<ComplexExpression>(argument)) {
-      auto& batch = *batchPtr;
+      auto const& batch = *batchPtr;
       if(batch.isRLE() && !batch.canContain(argument)) {
         // there are more than one single value
         // make it a normal value batch
-        batchPtr = m_factory.convertToNonRLE(batch);
+        batchPtr = m_factory.convertToNonRLE(std::move(batchPtr));
       }
     }
 
-    batchPtr->insert(argument);
+    auto writablePtr = Batch::WritablePtr::asWritable(batchPtr);
+    writablePtr->insert(argument);
+    batchPtr = std::move(writablePtr);
+  }
+
+  void merge(Dispatcher const& other) {
+    if(!other.m_batches.empty()) {
+      m_indexedBatches.clear();
+    }
+    for(auto const& [argument, batchPtr] : other.m_batches) {
+      insert(argument.first, argument.second, batchPtr);
+    }
   }
 
   void merge(Dispatcher&& other) {
+    if(!other.m_batches.empty()) {
+      m_indexedBatches.clear();
+    }
     for(auto& [argument, batchPtr] : other.m_batches) {
       insert(argument.first, argument.second, std::move(batchPtr));
     }
@@ -161,7 +215,7 @@ public:
 
   template <typename Func> void visitBatches(Func&& visitor) const {
     for(auto const& [argument, batchPtr] : m_batches) {
-      visitor(argument, *batchPtr);
+      visitor(argument, batchPtr);
     }
   }
 
@@ -238,12 +292,27 @@ private:
     }
   };
 
-  using BatchMap = std::map<DispatchKey, BatchPtr, compareDispatchKey>;
+  void refreshIndexes() const {
+    if(m_indexedBatches.empty()) {
+      m_indexedBatches.reserve(m_batches.size());
+      // regenerate the cache
+      size_t cumulatedIndex = 0;
+      for(auto it = m_batches.begin(); it != m_batches.end(); ++it) {
+        auto const& batchPtr = it->second;
+        m_indexedBatches.emplace_back(cumulatedIndex, it);
+        cumulatedIndex += batchPtr->size();
+      }
+    }
+  }
+
+  using BatchMap = std::map<DispatchKey, Batch::ReadablePtr, compareDispatchKey>;
   BatchMap m_batches;
+
+  mutable std::vector<std::pair<size_t, BatchMap::const_iterator>> m_indexedBatches;
 
   BatchFactory const& m_factory;
   bool m_decomposed;
-  bool m_ordered;
+  bool const m_ordered;
 };
 
 } // namespace boss::engines::bulk

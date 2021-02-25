@@ -11,7 +11,7 @@
 
 namespace boss::engines::bulk {
 
-template <typename T> class SymbolPool {
+template <typename BatchType> class SymbolPool {
 private:
   SymbolPool() = default;
 
@@ -27,11 +27,10 @@ public:
     return instance;
   }
 
-  using SymbolPtr = std::unique_ptr<T>;
-
+  using SymbolPtr = ReadableBatchPtr<BatchType>;
   SymbolPtr& findSymbol(Symbol const& symbol) { return m_symbolMap[symbol.getName()]; }
 
-  void registerSymbol(Symbol const& symbol, T& value) {
+  void registerSymbol(Symbol const& symbol, BatchType& value) {
     m_symbolMap[symbol.getName()] = SymbolPtr(&value);
   }
 
@@ -41,7 +40,6 @@ private:
   SymbolMapping m_symbolMap;
 };
 
-using DefaultSymbolPool = SymbolPool<Batch const>;
-using WritableBatchPool = SymbolPool<Batch>;
+using DefaultSymbolPool = SymbolPool<Batch>;
 
 } // namespace boss::engines::bulk

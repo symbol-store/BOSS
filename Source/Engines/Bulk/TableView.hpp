@@ -15,13 +15,14 @@ public:
   static constexpr UniqueId::type UniqueId = UniqueId::forType<TableView>();
 
   using ColumnBatchType = ValueBatch<std::string>;
-  using ColumnBatchPtr = std::unique_ptr<ColumnBatchType>;
+  using ColumnWritablePtr = WritableBatchPtr<ColumnBatchType>;
+  using ColumnReadablePtr = ReadableBatchPtr<ColumnBatchType>;
 
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
   explicit TableView(BatchFactory const& factory)
-      : CompoundBatch(factory, true, false), m_columns(new ColumnBatchType()) {}
+      : CompoundBatch(factory, false, false), m_columns(new ColumnBatchType()) {}
 
   TableView(TableView const& other, bool clear = false)
       : CompoundBatch(other, clear), m_columns(other.m_columns->cloneAsValueBatch()) {}
@@ -31,21 +32,25 @@ public:
   TableView& operator=(TableView const& other) = delete;
   TableView& operator=(TableView&& other) = delete;
 
-  BatchPtr clone(bool clear = false) const override { return cloneAsTableView(clear); }
-
-  using CompoundBatch::CompoundBatchPtr;
-  CompoundBatchPtr cloneAsCompoundBatch(bool clear = false) const override {
-    return cloneAsTableView(clear);
+  WritablePtr clone(bool clear = false) const override {
+    return WritablePtr(cloneAsTableView(clear));
+  }
+  WritableBatchPtr<CompoundBatch> cloneAsCompoundBatch(bool clear = false) const override {
+    return WritableBatchPtr<CompoundBatch>(cloneAsTableView(clear));
+  }
+  virtual WritableBatchPtr<TableView> cloneAsTableView(bool clear = false) const {
+    return WritableBatchPtr(new TableView(*this, clear));
   }
 
-  using TableViewPtr = std::unique_ptr<TableView>;
-  TableViewPtr cloneAsTableView(bool clear = false) const {
-    return TableViewPtr(new TableView(*this, clear));
+  template <typename BatchType, std::enable_if_t<std::is_base_of_v<BatchType, TableView>, int> = 0>
+  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+    return cloneAsTableView(clear);
   }
 
   void addColumn(std::string const& name) { m_columns->insert(name); }
 
-  ColumnBatchPtr const& columns() { return m_columns; }
+  ColumnWritablePtr& columns() { return m_columns; }
+  ColumnReadablePtr columns() const { return m_columns; }
 
   std::string const& columnName(size_t index) const {
     return *std::next(m_columns->begin(), index); // NOLINT
@@ -64,19 +69,37 @@ public:
 
   size_t numColumns() const { return m_columns->size(); }
 
-  BatchPtr evaluate() const override {
-    auto evaluatedPtr = CompoundBatch::evaluate();
+  bool evaluate(ReadablePtr& outputPtr) const override {
+    // set the local columns to be accessible by the rows evaluation
+    auto& symbolPtr = DefaultSymbolPool::instance().findSymbol(Symbol("$columns"));
+    auto backupSymbol = std::move(symbolPtr);
+    symbolPtr = Batch::ReadablePtr(m_columns);
+
+    ReadablePtr evaluatedPtr;
+    bool evaluated = CompoundBatch::evaluate(evaluatedPtr);
+
+    // reset to any previous local columns symbol
+    symbolPtr = std::move(backupSymbol);
+
+    if(!evaluated) {
+      outputPtr.reset();
+      return false;
+    }
 
     // put back missing info
+    auto writablePtr = WritablePtr::asWritable(evaluatedPtr);
     BatchHelper<TableView>::visit(
         [this](auto& tableView) { tableView.m_columns = m_columns->cloneAsValueBatch(); },
-        *evaluatedPtr);
+        *writablePtr);
 
-    return evaluatedPtr;
+    outputPtr = std::move(writablePtr);
+    return true;
   }
 
+  void merge(ReadablePtr&& other) override { CompoundBatch::merge<TableView>(std::move(other)); }
+
 private:
-  ColumnBatchPtr m_columns;
+  ColumnWritablePtr m_columns;
 };
 
 } // namespace boss::engines::bulk

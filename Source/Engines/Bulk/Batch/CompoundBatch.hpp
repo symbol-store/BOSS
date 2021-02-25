@@ -4,6 +4,7 @@
 
 #include "../BatchHelper.hpp"
 #include "../Dispatcher.hpp"
+#include "../SymbolPool.hpp"
 
 #include "../../../Utilities.hpp"
 
@@ -21,7 +22,6 @@ public:
   using ValueType = ComplexExpression;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<CompoundBatch>();
 
-  UniqueId::type baseId() const override { return UniqueId; }
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
@@ -31,16 +31,11 @@ public:
     return std::holds_alternative<ValueType>(val);
   }
 
-  using BatchList = std::vector<std::unique_ptr<Batch>>;
+  explicit CompoundBatch(BatchFactory const& factory, bool decomposed = false, bool ordered = true)
+      : m_dispatcher(factory, decomposed, ordered), m_symbol(ordered ? "List"_ : "MultiSet"_) {}
 
-  explicit CompoundBatch(BatchFactory const& factory, bool decomposedDispatch = false,
-                         bool ordered = true)
-      : m_dispatcher(factory, decomposedDispatch, ordered),
-        m_symbol(ordered ? "List"_ : "MultiSet"_) {}
-
-  explicit CompoundBatch(BatchFactory const& factory, bool decomposedDispatch, bool ordered,
-                         Symbol const& symbol)
-      : m_dispatcher(factory, decomposedDispatch, ordered), m_symbol(symbol) {}
+  explicit CompoundBatch(BatchFactory const& factory, Symbol const& symbol, bool decomposed = false)
+      : m_dispatcher(factory, decomposed, symbol.getName() != "MultiSet"), m_symbol(symbol) {}
 
   CompoundBatch(CompoundBatch const& other, bool clear = false)
       : m_dispatcher(other.m_dispatcher, clear), m_symbol(other.m_symbol) {}
@@ -50,16 +45,24 @@ public:
   CompoundBatch& operator=(CompoundBatch const& other) = delete;
   CompoundBatch& operator=(CompoundBatch&& other) = delete;
 
-  void setDecomposedDispatch(bool value) { m_dispatcher.setDecomposed(value); }
-  void setOrdered(bool value) { m_dispatcher.setOrdered(value); }
+  bool isDecomposed() const { return m_dispatcher.isDecomposed(); }
+  void setDecomposed(bool value) { m_dispatcher.setDecomposed(value); }
 
   Symbol const& getHead() const { return m_symbol; }
+  void setHead(Symbol const& symbol) { m_symbol = symbol; }
+  void setHead(Symbol&& symbol) { m_symbol = std::move(symbol); }
 
-  BatchPtr clone(bool clear = false) const override { return cloneAsCompoundBatch(clear); }
+  WritablePtr clone(bool clear = false) const override {
+    return WritablePtr(cloneAsCompoundBatch(clear));
+  }
+  virtual WritableBatchPtr<CompoundBatch> cloneAsCompoundBatch(bool clear = false) const {
+    return WritableBatchPtr(new CompoundBatch(*this, clear));
+  }
 
-  using CompoundBatchPtr = std::unique_ptr<CompoundBatch>;
-  virtual CompoundBatchPtr cloneAsCompoundBatch(bool clear = false) const {
-    return CompoundBatchPtr(new CompoundBatch(*this, clear));
+  template <typename BatchType,
+            std::enable_if_t<std::is_base_of_v<BatchType, CompoundBatch>, int> = 0>
+  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+    return cloneAsCompoundBatch(clear);
   }
 
   void clear() override { m_dispatcher.clear(); }
@@ -75,7 +78,7 @@ public:
   template <typename DispatcherIterator> class Iterator {
   public:
     explicit Iterator(DispatcherIterator dispatcherIt) : m_dispatcherIt(dispatcherIt) {}
-    BatchPtr& operator*() const { return m_dispatcherIt->second; }
+    ReadablePtr& operator*() const { return m_dispatcherIt->second; }
     bool operator!=(Iterator const& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
     bool operator!=(Iterator&& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
     Iterator operator+(size_t incr) const { return Iterator(std::next(m_dispatcherIt, incr)); }
@@ -88,7 +91,7 @@ public:
   template <typename DispatcherIterator> class ConstIterator {
   public:
     explicit ConstIterator(DispatcherIterator dispatcherIt) : m_dispatcherIt(dispatcherIt) {}
-    BatchPtr const& operator*() const { return m_dispatcherIt->second; }
+    ReadablePtr const& operator*() const { return m_dispatcherIt->second; }
     bool operator!=(ConstIterator const& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
     bool operator!=(ConstIterator&& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
     ConstIterator operator+(size_t incr) const {
@@ -106,9 +109,6 @@ public:
   auto begin() { return Iterator(m_dispatcher.begin()); }
   auto end() { return Iterator(m_dispatcher.end()); }
 
-  BatchPtr const& at(size_t index) const { return *(begin() + index); }
-  BatchPtr& at(size_t index) { return *(begin() + index); }
-
   template <typename Func> void visitBatches(Func&& visitor) const {
     return m_dispatcher.visitBatches(std::forward<Func>(visitor));
   }
@@ -117,8 +117,8 @@ public:
     return m_dispatcher.visitBatches<BatchHelper>(std::forward<Func>(visitor));
   }
 
-  BatchPtr extract(size_t index) const { return m_dispatcher.extract(*this, index); }
-  BatchPtr reduce(size_t index) const { return m_dispatcher.reduce(*this, index); }
+  virtual ReadablePtr extract(size_t index) const { return m_dispatcher.extract(*this, index); }
+  virtual ReadablePtr reduce(size_t index) const { return m_dispatcher.reduce(*this, index); }
 
   void insert(Expression const& expression) override { insert(std::get<ValueType>(expression)); }
 
@@ -130,25 +130,47 @@ public:
     }
   }
 
-  void insert(Expression const& arg, size_t argIndex, BatchPtr batchPtr) {
+  void insert(Expression const& arg, size_t argIndex, ReadablePtr batchPtr) {
     m_dispatcher.insert(arg, argIndex, std::move(batchPtr));
   }
 
-  void merge(BatchPtr&& other) override {
+  bool evaluate(ReadablePtr& outputPtr) const override {
+    // set the local tuple to be accessible by the row values
+    auto& symbolPtr = DefaultSymbolPool::instance().findSymbol(Symbol("$tuple"));
+    auto backupSymbol = std::move(symbolPtr);
+    symbolPtr = Batch::ReadablePtr(shared_from_this());
+
+    bool anyEvaluated = false;
+    auto newCompoundPtr = cloneAsCompoundBatch(true);
+    auto& newCompoundBatch = *newCompoundPtr;
+    m_dispatcher.visitEvaluated(
+        [&newCompoundBatch, &anyEvaluated](auto const& key, auto batchPtr, bool evaluated) {
+          newCompoundBatch.insert(key.first, key.second, std::move(batchPtr));
+          anyEvaluated |= evaluated;
+        });
+
+    // reset to any previous local tuple symbol
+    symbolPtr = std::move(backupSymbol);
+
+    if(!anyEvaluated) {
+      outputPtr.reset();
+      return false;
+    }
+
+    outputPtr = std::move(newCompoundPtr);
+    return true;
+  }
+
+  void merge(ReadablePtr&& other) override {
     BatchHelper<CompoundBatch>::visit(
-        [this](auto&& batch) { m_dispatcher.merge(std::move(batch.m_dispatcher)); }, *other);
+        [this](auto const& batch) { m_dispatcher.merge(batch.m_dispatcher); }, *other);
   }
 
-  BatchPtr evaluate() const override {
-    auto newBatchPtr = cloneAsCompoundBatch(true);
-    auto& newCompoundBatch = *newBatchPtr;
-    m_dispatcher.visitBatches([&newCompoundBatch](auto const& key, auto const& batch) {
-      newCompoundBatch.insert(key.first, key.second, batch.evaluate());
-    });
-    return newBatchPtr;
+protected:
+  template <typename DerivedBatchType> void merge(ReadablePtr&& other) {
+    BatchHelper<DerivedBatchType>::visit(
+        [this](auto const& batch) { m_dispatcher.merge(batch.m_dispatcher); }, *other);
   }
-
-  Symbol const& getHead() { return m_symbol; }
 
 private:
   Dispatcher m_dispatcher;

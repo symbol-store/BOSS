@@ -18,11 +18,14 @@ Engine::~Engine() { delete &m_batchFactory; }
 }
 
 Expression Engine::evaluate(Expression const& e) {
-  auto batchPtr = m_batchFactory.createBatch(e, true);
+  auto batchPtr = m_batchFactory.createBatch(e);
   auto& batch = *batchPtr;
   batch.insert(e);
-  auto outputPtr = batch.evaluate();
-  return m_batchFactory.revertToExpression(*outputPtr);
+  Batch::ReadablePtr outputPtr;
+  if(!batch.evaluate(outputPtr)) {
+    return e;
+  }
+  return m_batchFactory.revertToExpression(std::move(outputPtr));
 }
 
 } // namespace boss::engines::bulk

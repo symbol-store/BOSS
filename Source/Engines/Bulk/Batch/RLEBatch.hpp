@@ -10,7 +10,6 @@ public:
   using IsRLE = std::bool_constant<true>;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<RLEBatch<T>>();
 
-  UniqueId::type baseId() const override { return UniqueId; }
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
@@ -35,19 +34,25 @@ public:
   explicit RLEBatch(ValueType const& value) : m_value(value), m_count(0) {}
   explicit RLEBatch(ValueType&& value) : m_value(std::move(value)), m_count(0) {}
 
-  RLEBatch(RLEBatch const& other) : m_value(other.m_value), m_count(other.m_count) {}
-  RLEBatch(RLEBatch&& other) noexcept
-      : m_value(std::move(other.m_value)), m_count(std::move(other.m_count)) {}
+  RLEBatch(RLEBatch const& other, bool clear = false)
+      : m_value(other.m_value), m_count(clear ? 0 : other.m_count) {}
+  RLEBatch(RLEBatch&& other, bool clear = false) noexcept
+      : m_value(std::move(other.m_value)), m_count(clear ? 0 : std::move(other.m_count)) {}
 
   ~RLEBatch() override = default;
   RLEBatch& operator=(RLEBatch const& other) = delete;
   RLEBatch& operator=(RLEBatch&& other) = delete;
 
-  BatchPtr clone(bool clear = false) const override { return cloneAsRLEBatch(clear); }
+  WritablePtr clone(bool clear = false) const override {
+    return WritablePtr(cloneAsRLEBatch(clear));
+  }
+  virtual WritableBatchPtr<RLEBatch> cloneAsRLEBatch(bool clear = false) const {
+    return WritableBatchPtr(new RLEBatch(*this, clear));
+  }
 
-  using RLEBatchPtr = std::unique_ptr<RLEBatch>;
-  virtual RLEBatchPtr cloneAsRLEBatch(bool clear = false) const {
-    return RLEBatchPtr(clear ? new RLEBatch(m_value) : new RLEBatch(*this));
+  template <typename BatchType, std::enable_if_t<std::is_base_of_v<BatchType, RLEBatch>, int> = 0>
+  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+    return cloneAsRLEBatch(clear);
   }
 
   void clear() override { m_count = 0; }
@@ -112,13 +117,16 @@ public:
     ++m_count;
   }
 
-  void merge(BatchPtr&& other) override {
-    auto& batch = *static_cast<RLEBatch*>(other.get());
+  void merge(ReadablePtr&& other) override {
+    auto const& batch = *static_cast<RLEBatch const*>(other.get());
     m_value = batch.m_value;
     m_count += batch.m_count;
   }
 
-  BatchPtr evaluate() const override { return this->clone(); }
+  bool evaluate(ReadablePtr& outputPtr) const override {
+    outputPtr.reset();
+    return false;
+  }
 
 private:
   ValueType m_value;

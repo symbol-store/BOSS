@@ -21,8 +21,7 @@ public:
   static constexpr bool includes = ((std::is_same_v<Type, BatchTypes>) || ...);
 
   static bool isAllowed(Batch const& batch) {
-    return (... || (batch.typeId() == UniqueId::forType<BatchTypes>())) ||
-           (... || (batch.baseId() == UniqueId::forType<BatchTypes>()));
+    return (... || (batch.typeId() == UniqueId::forType<BatchTypes>()));
   }
 };
 
@@ -30,7 +29,6 @@ template <typename... AllowedBatches> class ForTypes {
 public:
   template <typename Func> class Evaluator {
   public:
-    Evaluator(std::string const& symbol, Func const& func) : m_symbol(symbol), m_func(func) {}
     Evaluator(std::string const& symbol, Func&& func) : m_symbol(symbol), m_func(func) {}
     ~Evaluator() = default;
     Evaluator(Evaluator const&) = default;
@@ -40,8 +38,12 @@ public:
 
     std::string const& getSymbol() const { return m_symbol; }
 
-    template <typename... BatchIn> BatchPtr operator()(BatchIn const&... in) const {
-      return m_func(in...);
+    template <typename... BatchIn> Batch::ReadablePtr operator()(BatchIn const&... in) const {
+      return Batch::ReadablePtr(m_func(in...));
+    }
+
+    template <typename... BatchIn> Batch::ReadablePtr operator()(BatchIn&&... in) const {
+      return Batch::ReadablePtr(m_func(std::forward<BatchIn>(in)...));
     }
 
     static constexpr bool isExactType(size_t index, Batch const& batch) {
@@ -59,26 +61,15 @@ public:
       }
     }
 
-    template <size_t Index, typename Vis> static bool visitExactType(Vis&& visitor, Batch& batch) {
-      if constexpr(Index < sizeof...(AllowedBatches)) {
-        using AllowedBatchTypes = std::tuple_element_t<Index, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::BatchHelper::visit(visitor, batch);
-      } else {
-        using AllowedBatchTypes =
-            std::tuple_element_t<sizeof...(AllowedBatches) - 1, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::BatchHelper::visit(visitor, batch);
-      }
-    };
-
     template <size_t Index, typename Vis>
-    static bool visitExactType(Vis&& visitor, BatchPtr& batchPtr) {
+    static bool visitExactType(Vis&& visitor, Batch const& batch) {
       if constexpr(Index < sizeof...(AllowedBatches)) {
         using AllowedBatchTypes = std::tuple_element_t<Index, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::BatchHelper::visit(visitor, batchPtr);
+        return AllowedBatchTypes::BatchHelper::visit(visitor, batch);
       } else {
         using AllowedBatchTypes =
             std::tuple_element_t<sizeof...(AllowedBatches) - 1, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::BatchHelper::visit(visitor, batchPtr);
+        return AllowedBatchTypes::BatchHelper::visit(visitor, batch);
       }
     };
 

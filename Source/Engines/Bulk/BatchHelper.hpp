@@ -12,16 +12,21 @@ public:
   template <typename Func> static bool visit(Func&& func, Batch const& batch) {
     return visit(std::forward<Func>(func), batch, BatchTypeList{});
   }
+  template <typename Func> static bool visit(Func&& func, Batch&& batch) {
+    return visit(std::forward<Func>(func), std::forward<Batch>(batch), BatchTypeList{});
+  }
 
   template <typename Func, template <typename...> typename List, typename... BatchType>
   static bool visit(Func&& func, Batch& batch, List<BatchType...> /*unused*/) {
-    return (... || visit<std::decay_t<Func>, BatchType>(func, batch)) ||
-           (... || visitBase<std::decay_t<Func>, BatchType>(func, batch));
+    return (... || visit<std::decay_t<Func>, BatchType>(func, batch));
   }
   template <typename Func, template <typename...> typename List, typename... BatchType>
   static bool visit(Func&& func, Batch const& batch, List<BatchType...> /*unused*/) {
-    return (... || visit<std::decay_t<Func>, BatchType>(func, batch)) ||
-           (... || visitBase<std::decay_t<Func>, BatchType>(func, batch));
+    return (... || visit<std::decay_t<Func>, BatchType>(func, batch));
+  }
+  template <typename Func, template <typename...> typename List, typename... BatchType>
+  static bool visit(Func&& func, Batch&& batch, List<BatchType...> /*unused*/) {
+    return (... || visit<std::decay_t<Func>, BatchType>(func, std::forward<BatchType>(batch)));
   }
 
 private:
@@ -44,19 +49,9 @@ private:
     }
     return false;
   }
-  template <typename Func, typename BatchType> static bool visitBase(Func& func, Batch& batch) {
-    if(batch.baseId() == UniqueId::forType<BatchType>()) {
-      auto& specificBatch = *static_cast<BatchType*>(&batch);
-      func(specificBatch);
-      return true;
-    }
-    return false;
-  }
-  template <typename Func, typename BatchType>
-  static bool visitBase(Func& func, Batch const& batch) {
-    if(batch.baseId() == UniqueId::forType<BatchType>()) {
-      auto const& specificBatch = *static_cast<BatchType const*>(&batch);
-      func(specificBatch);
+  template <typename Func, typename BatchType> static bool visit(Func& func, Batch&& batch) {
+    if(batch.typeId() == UniqueId::forType<BatchType>()) {
+      func(std::forward(static_cast<BatchType&&>(batch)));
       return true;
     }
     return false;
