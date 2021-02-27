@@ -8,7 +8,7 @@ on:
 
 jobs:
   format-check:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     container:
       image: docker.pkg.github.com/little-big-h/buildenvironment/image:latest
       credentials:
