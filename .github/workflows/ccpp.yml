@@ -43,7 +43,7 @@ jobs:
         cmake -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
         cd ..
     - name: build
-      run: cmake --build ${{ matrix.build-type }}
+      run: cmake --build ${{ matrix.build-type }} -- -j $(nproc)
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:
@@ -58,7 +58,7 @@ jobs:
     needs: [format-check]
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     strategy:
       matrix:
         build-type: [Release, Debug, Sanitize]
@@ -79,7 +79,7 @@ jobs:
     needs: [build]
 
   racket-test:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     container:
       image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
       credentials:
