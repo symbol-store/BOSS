@@ -72,10 +72,11 @@ jobs:
       uses: actions/download-artifact@v2
       with:
         name: ${{ matrix.build-type }}
+        path: ${{ matrix.build-type }}
     - name: test
       run: |
         echo "${{ secrets.MATHEMATICA_LICENSE }}" > mathpass
-        chmod +x ./Tests && ./Tests
+        chmod +x ./${{ matrix.build-type }}/Tests && ./${{ matrix.build-type }}/Tests
     needs: [build]
 
   racket-test:
