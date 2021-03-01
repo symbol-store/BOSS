@@ -1,7 +1,8 @@
 #include <string>
 /**
  * This is some racket code that establishes a convenient interface to BOSS --
- * right now I am just doing it using a raw string literal (maybe we'll use our expression builder at some point)
+ * right now I am just doing it using a raw string literal (maybe we'll use our expression builder
+ * at some point)
  */
 std::string getRacketMacroShims() {
   // NOLINTNEXTLINE

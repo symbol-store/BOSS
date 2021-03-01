@@ -62,11 +62,11 @@ TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
 
     SECTION("Aggregation") {
       REQUIRE(eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_)) == Value(3));
-      REQUIRE(eval("GroupBy"_(
-                  ("Select"_("Customer"_,
-                             "Function"_("tuple"_,
-                                         "StringContainsQ"_("Madden", "Column"_("tuple"_, 2))))),
-                  "Function"_(0), "Count"_)) == Value(1));
+      REQUIRE(
+          eval("GroupBy"_(("Select"_("Customer"_,
+                                     "Function"_("tuple"_, "StringContainsQ"_(
+                                                               "Madden", "Column"_("tuple"_, 2))))),
+                          "Function"_(0), "Count"_)) == Value(1));
     }
 
     SECTION("Join") {
