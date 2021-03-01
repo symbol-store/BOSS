@@ -230,7 +230,7 @@ struct EngineImplementation {
 
     loadRelationalOperators();
   };
-  
+
   EngineImplementation() {
     environment = WSInitialize(nullptr);
     if(environment == nullptr) {
@@ -238,8 +238,8 @@ struct EngineImplementation {
     }
     auto error = 0;
     link = WSOpenString(
-        environment, "-linkmode launch -linkname \"" STRING(MATHEMATICA_KERNEL_EXECUTABLE) "\" -wstp",
-        &error);
+        environment,
+        "-linkmode launch -linkname \"" STRING(MATHEMATICA_KERNEL_EXECUTABLE) "\" -wstp", &error);
     if(error != 0) {
       throw std::runtime_error("could not open wstp link -- error code: " + to_string(error));
     }
