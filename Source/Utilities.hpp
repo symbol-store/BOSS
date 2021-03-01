@@ -7,9 +7,30 @@ class ExpressionBuilder {
   Symbol const s;
 
 public:
+  explicit ExpressionBuilder(Symbol const& s) : s(s){};
   explicit ExpressionBuilder(const std::string& s) : s(Symbol(s)){};
+  /**
+   * This thing is a bit hacky: when construction Expression, some standard
+   * libraries convert char const* to int or bool, not to std::string -- so I do
+   * it explicitly
+   */
+  template <typename T>
+  Expression convertConstCharToStringAndOnToExpression(
+      std::enable_if_t<std::is_same_v<T, char const*>, T> v) const {
+    return Expression(std::string(v));
+  }
+  /**
+   * default overload for conversion
+   */
+  template <typename T>
+  Expression convertConstCharToStringAndOnToExpression(
+      std::enable_if_t<!std::is_same_v<T, char const*>, T> v) const {
+    return Expression(v);
+  }
+
   template <typename... Ts> ComplexExpression operator()(Ts... args /*a*/) const {
-    return ComplexExpression{s, {args...}};
+    return ComplexExpression{s,
+                             {convertConstCharToStringAndOnToExpression<decltype(args)>(args)...}};
   };
   friend Expression operator|(Expression const& expression, ExpressionBuilder const& builder) {
     return builder(expression);

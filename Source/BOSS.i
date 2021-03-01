@@ -9,23 +9,59 @@
   #include "Source/Utilities.hpp"
 
   #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#ifdef SWIGPYTHON
+#if defined(SWIGMZSCHEME)
+  #include "Source/Shims/RacketMacros.cpp"
+#elif defined(SWIGPYTHON)
   #include "numpy/arrayobject.h"
   #include "numpy/ndarraytypes.h"
 #endif
 
   #include <sstream>
+  #include <functional>
 
   using boss::utilities::operator""_;
 %}
 
 %init %{
-#ifdef SWIGPYTHON
+#if defined(SWIGMZSCHEME)
+  scheme_eval_string_all(getRacketMacroShims().c_str(), menv, 1);
+  scheme_set_type_printer(swig_type, [](Scheme_Object* v, int dis, Scheme_Print_Params* pp) {
+    auto ttv = reinterpret_cast<struct swig_mz_proxy*>(v);
+    std::stringstream out;
+    if(ttv->type == &_swigt__p_Symbol) {
+      out << reinterpret_cast<Symbol*>(ttv->object);
+    } else if(ttv->type == &_swigt__p_ComplexExpression) {
+      out << *reinterpret_cast<ComplexExpression*>(ttv->object);
+    } else if(ttv->type == &_swigt__p_Expression) {
+      out << *reinterpret_cast<Expression*>(ttv->object);
+    } else if(ttv->type == &_swigt__p_ExpressionArguments) {
+      auto arguments = *reinterpret_cast<ExpressionArguments*>(ttv->object);
+      std::stringstream out;
+      auto it = arguments.begin();
+      out << *it;
+      for(++it; it != arguments.end(); ++it) {
+        out << ", " << *it;
+      }
+    } else if(ttv->type == &_swigt__p_std__vectorT_Expression_t) {
+      auto arguments = *reinterpret_cast<std::vector<Expression>*>(ttv->object);
+      std::stringstream out;
+      auto it = arguments.begin();
+      out << *it;
+      for(++it; it != arguments.end(); ++it) {
+        out << ", " << *it;
+      }
+    } else {
+      out << std::string("unknown type: ") << ttv->type->name;
+    }
+    scheme_print_bytes(pp, out.str().c_str(), 0, out.str().length());
+  });
+#elif defined(SWIGPYTHON)
   import_array();
 #endif
 %}
 
 %{
+using boss::Symbol;
 using boss::Expression;
 using boss::Symbol;
 using boss::AtomicExpression;
@@ -40,10 +76,39 @@ public:
 
 #if defined(SWIGMZSCHEME)
 namespace std {%template(ExpressionArguments) vector<Expression>;}
+%typemap(in) Symbol const& {
+  if(SCHEME_SYMBOLP($input)){
+    $1 = new Symbol(std::string(SCHEME_SYM_VAL($input)));
+  } else if(SCHEME_BYTE_STRINGP($input)) {
+    $1 = new Symbol(std::string(SCHEME_BYTE_STR_VAL($input)));
+  } else if(SCHEME_TYPE($input) == swig_type) {
+    $1 = static_cast<Symbol*>(reinterpret_cast<struct swig_mz_proxy*>($input)->object);
+  } else {
+    throw std::logic_error("trying to construct symbol from unknown type");
+  }
+}
 %typemap(out) Expression {
-  std::stringstream output;
-  output << $1;
-  $result = scheme_make_byte_string(output.str().c_str());
+  std::function<Scheme_Object*(Expression const&)> convert =
+      [&](Expression const& expression) -> Scheme_Object* {
+    return std::visit(
+        boss::utilities::overload(
+            [&](bool a) { return a?scheme_make_true():scheme_make_false(); },
+            [&](int a) { return scheme_make_integer(a); },
+            [&](float a) { return scheme_make_float(a); },
+            [&](char const* a) { return scheme_make_string(a); },
+            [&](Symbol const& a) { return scheme_make_symbol(a.getName().c_str()); },
+            [&](std::string const& a) { return scheme_make_string(a.c_str()); },
+            [&](ComplexExpression const& expression) {
+              std::vector<Scheme_Object*> arguments;
+              arguments.push_back(convert(expression.getHead()));
+              for(auto const& arg : expression.getArguments())
+                arguments.push_back(convert(arg));
+              return scheme_apply(scheme_builtin_value("list"), arguments.size(),
+                                  arguments.data());
+            }),
+        expression);
+  };
+  $result = convert($1);
 }
 #elif defined(SWIGPYTHON)
 %inline %{
@@ -204,6 +269,7 @@ public:
   Expression(int);
   Expression(float);
   Expression(std::string);
+  Expression(Symbol const&);
   Expression(ComplexExpression);
 };
 
