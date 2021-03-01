@@ -11,8 +11,9 @@ using boss::utilities::operator""_;
 using Value = boss::Expression;
 
 TEMPLATE_TEST_CASE("Simpletons", "", boss::engines::wolfram::Engine) { // NOLINT
-  static auto eval = [e = TestType()](boss::Expression const& expression) mutable {
-    return e.evaluate(expression);
+  TestType engine;
+  static auto eval = [&engine](boss::Expression const& expression) mutable {
+    return engine.evaluate(expression);
   };
 
   SECTION("Addition") {

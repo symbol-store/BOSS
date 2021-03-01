@@ -37,7 +37,7 @@ public:
   };
   operator Symbol() const { return Symbol(s); } // NOLINT
 };
-static ExpressionBuilder operator""_(const char* name, unsigned long /*unused*/) {
+static ExpressionBuilder operator""_(const char* name, size_t /*unused*/) {
   return ExpressionBuilder(name);
 };
 
