@@ -51,6 +51,13 @@ ExternalProject_Add(catch2
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCATCH_BUILD_TESTING=NO -DBUILD_TESTING=NO -DCATCH_ENABLE_WERROR=NO -DCATCH_INSTALL_DOCS=NO -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DDCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS}
   )
 
+ExternalProject_Add(arrow
+  URL https://github.com/apache/arrow/archive/apache-arrow-3.0.0.zip
+  SOURCE_SUBDIR cpp
+  DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
+  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS} -DCMAKE_C_FLAGS=${DCMAKE_C_FLAGS} -DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS} -DCMAKE_LINKER=${CMAKE_LINKER}
+)
+
 ########################## Other Library Dependencies ##########################
 
 set(VTune_DIR "" CACHE PATH "Where to look for VTune installation")
@@ -103,30 +110,31 @@ foreach (Backend IN LISTS AllBackends)
   target_include_directories(${Backend} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Backend} rt)
-  endif()  
+  endif()
 endforeach()
 
 ############################### Executable Targets ###############################
 
-set(ImplementationFiles Source/BOSS.cpp Source/Expression.cpp)
+set(ImplementationFiles Source/BOSS.cpp Source/Expression.cpp Source/Database.cpp)
 set(ExecutableFiles Source/main.cpp)
-set(TestFiles Tests/BOSSTests.cpp)
+set(TestFiles Tests/BOSSTests.cpp Tests/DatabaseTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
 # BOSS
 add_executable(BOSS ${ImplementationFiles} ${ExecutableFiles})
+add_dependencies(BOSS arrow)
 
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
-add_dependencies(Tests catch2)
+add_dependencies(Tests catch2 arrow)
 
 # Benchmarks
 add_executable(Benchmarks ${ImplementationFiles} ${BenchmarkFiles})
 target_link_libraries(Benchmarks Threads::Threads)
 if(WIN32)
-  target_link_libraries(Benchmarks shlwapi.lib)  
+  target_link_libraries(Benchmarks shlwapi.lib)
 endif(WIN32)
-add_dependencies(Benchmarks googlebenchmark)
+add_dependencies(Benchmarks googlebenchmark arrow)
 if(ITT_NOTIFY_INCLUDE_DIR)
   message(VERBOSE "found itt notify header in ${ITT_NOTIFY_INCLUDE_DIR}")
   target_include_directories(Benchmarks SYSTEM PUBLIC ${ITT_NOTIFY_INCLUDE_DIR})
@@ -215,11 +223,13 @@ endif(SWIG_FOUND)
 
 foreach (Target IN LISTS AllTargets)
   target_link_libraries(${Target} Threads::Threads)
+  target_link_libraries(${Target} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}arrow.a)
+  target_link_libraries(${Target} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}arrow_bundled_dependencies.a)
   set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
   target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Target} rt)
-  endif() 
+  endif()
   # Link backends to targets
   foreach (Target IN LISTS AllTargets)
     foreach (Backend IN LISTS AllBackends)
@@ -227,4 +237,3 @@ foreach (Target IN LISTS AllTargets)
     endforeach()
   endforeach()
 endforeach()
-
