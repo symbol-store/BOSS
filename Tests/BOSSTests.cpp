@@ -4,9 +4,9 @@
 #include "../Source/Utilities.hpp"
 #include <catch2/catch.hpp>
 #ifdef WSINTERFACE
+using boss::Expression;
 using std::get;
 using std::string;
-using boss::Expression;
 using boss::utilities::operator""_;
 
 TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NOLINT
@@ -46,7 +46,7 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
   }
 
   SECTION("Relational") {
-    eval("CreateTable"_("Customer"_, "FirstName", "LastName"));
+    eval("CreateTable"_("Customer"_, "FirstName"_, "LastName"_));
     eval("InsertInto"_("Customer"_, "John", "McCarthy"));
     eval("InsertInto"_("Customer"_, "Sam", "Madden"));
     eval("InsertInto"_("Customer"_, "Barbara", "Liskov"));
@@ -59,12 +59,12 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
     }
 
     SECTION("Aggregation") {
-      REQUIRE(eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_)) == Expression(3));
-      REQUIRE(eval("GroupBy"_(
-                  ("Select"_("Customer"_,
-                             "Function"_("tuple"_,
-                                         "StringContainsQ"_("Madden", "Column"_("tuple"_, 2))))),
-                  "Function"_(0), "Count"_)) == Expression(1));
+      REQUIRE(eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_)) == "List"_("List"_(3)));
+      REQUIRE(
+          eval("GroupBy"_(("Select"_("Customer"_,
+                                     "Function"_("tuple"_, "StringContainsQ"_(
+                                                               "Madden", "Column"_("tuple"_, 2))))),
+                          "Function"_(0), "Count"_)) == "List"_("List"_(1)));
     }
 
     SECTION("Join") {
@@ -90,72 +90,77 @@ TEMPLATE_TEST_CASE("Relational", "[relational]", boss::engines::wolfram::Engine)
     return e.evaluate(expression);
   };
   SECTION("TableCreation") {
-    eval("CreateTable"_("Customer"_));
-    eval("AddColumn"_("Customer"_, "ID", "FirstName", "LastName", "BirthYear", "Country"));
-    CHECK(std::get<int>(eval("Length"_("Customer"_))) == 0);
-    auto const& emptyTable = eval("Customer"_);
+    eval("CreateTable"_("Customer"_, "ID"_, "FirstName"_, "LastName"_, "BirthYear"_, "Country"_));
+    INFO(eval("Length"_("Select"_("Customer"_, "Function"_(true)))));
+
+    REQUIRE(std::get<int>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
+    auto const& emptyTable = eval("Select"_("Customer"_, "Function"_(true)));
     CHECK(std::get<int>(eval("Length"_(emptyTable))) == 0);
-    eval("InsertInto"_("Customer"_, "List"_(1, "John", "McCarthy", 1927, "USA")));  // NOLINT
-    eval("InsertInto"_("Customer"_, "List"_(2, "Sam", "Madden", 1976, "USA")));     // NOLINT
-    eval("InsertInto"_("Customer"_, "List"_(3, "Barbara", "Liskov", 1939, "USA"))); // NOLINT
-    CHECK(get<int>(eval("Length"_("Customer"_))) == 3);
-    auto const& fullTable = eval("Customer"_);
+    eval("InsertInto"_("Customer"_, 1, "John", "McCarthy", 1927, "USA"));  // NOLINT
+    eval("InsertInto"_("Customer"_, 2, "Sam", "Madden", 1976, "USA"));     // NOLINT
+    eval("InsertInto"_("Customer"_, 3, "Barbara", "Liskov", 1939, "USA")); // NOLINT
+    INFO("Select"_("Customer"_, "Function"_(true)));
+    CHECK(eval("Length"_("Select"_("Customer"_, "Function"_(true)))) == Expression(3));
+    auto const& fullTable = eval("Select"_("Customer"_, "Function"_(true)));
     CHECK(get<int>(eval("Length"_(fullTable))) == 3);
-    CHECK(get<std::string>(eval("Extract"_("Extract"_("Customer"_, 2), 3))) == "Madden");
-  }
+    CHECK(get<std::string>(eval("Extract"_("Extract"_("Select"_("Customer"_, "Function"_(true)), 2),
+                                           3))) == "Madden");
 
-  SECTION("Selection") {
-    auto const& sam = eval(
-        "Select"_("Customer"_, "Function"_("List"_("tuple"_),
-                                           "StringContainsQ"_("Madden", "Column"_("tuple"_, 3)))));
-    CHECK(get<int>(eval("Length"_(sam))) == 1);
-    auto const& samRow = eval("Extract"_(sam, 1));
-    CHECK(get<int>(eval("Length"_(samRow))) == 5);
-    CHECK(get<string>(eval("Extract"_(samRow, 2))) == "Sam");
-    CHECK(get<string>(eval("Extract"_(samRow, 3))) == "Madden");
-    auto const& none = eval("Select"_("Customer"_, "Function"_(false)));
-    CHECK(get<int>(eval("Length"_(none))) == 0);
-    auto const& all = eval("Select"_("Customer"_, "Function"_(true)));
-    CHECK(get<int>(eval("Length"_(all))) == 3);
-    auto const& johnRow = eval("Extract"_(all, 1));
-    auto const& barbaraRow = eval("Extract"_(all, 3));
-    CHECK(get<string>(eval("Extract"_(johnRow, 2))) == "John");
-    CHECK(get<string>(eval("Extract"_(barbaraRow, 2))) == "Barbara");
-  }
+    SECTION("Selection") {
+      auto const& sam = eval("Select"_(
+          "Customer"_,
+          "Function"_("List"_("tuple"_), "StringContainsQ"_("Madden", "Column"_("tuple"_, 3)))));
+      CHECK(get<int>(eval("Length"_(sam))) == 1);
+      auto const& samRow = eval("Extract"_(sam, 1));
+      CHECK(get<int>(eval("Length"_(samRow))) == 5);
+      CHECK(get<string>(eval("Extract"_(samRow, 2))) == "Sam");
+      CHECK(get<string>(eval("Extract"_(samRow, 3))) == "Madden");
+      auto const& none = eval("Select"_("Customer"_, "Function"_(false)));
+      CHECK(get<int>(eval("Length"_(none))) == 0);
+      auto const& all = eval("Select"_("Customer"_, "Function"_(true)));
+      CHECK(get<int>(eval("Length"_(all))) == 3);
+      auto const& johnRow = eval("Extract"_(all, 1));
+      auto const& barbaraRow = eval("Extract"_(all, 3));
+      CHECK(get<string>(eval("Extract"_(johnRow, 2))) == "John");
+      CHECK(get<string>(eval("Extract"_(barbaraRow, 2))) == "Barbara");
+    }
 
-  SECTION("Projection") {
-    auto const& empty = eval("Project"_("Customer"_, "List"_()));
-    CHECK(get<int>(eval("Length"_(empty))) == 0);
-    auto const& fullnames = eval("Project"_("Customer"_, "List"_("FirstName", "LastName")));
-    CHECK(get<int>(eval("Length"_(fullnames))) == 3);
-    auto const& firstNames = eval("Project"_("Customer"_, "List"_("FirstName")));
-    CHECK(get<string>(eval("Extract"_("Extract"_(firstNames, 1), 1))) ==
-          get<string>(eval("Extract"_("Extract"_(fullnames, 1), 1))));
-    auto const& lastNames = eval("Project"_("Customer"_, "List"_("LastName")));
-    CHECK(get<string>(eval("Extract"_("Extract"_(lastNames, 1), 1))) ==
-          get<string>(eval("Extract"_("Extract"_(fullnames, 1), 2))));
-  }
+    SECTION("Projection") {
+      auto const& fullnames = eval(
+          "Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
+      INFO("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
+      INFO(fullnames);
+      CHECK(get<int>(eval("Length"_(fullnames))) == 3);
+      auto const& firstNames = eval("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_)));
+      INFO(eval("Extract"_("Extract"_(fullnames, 1), 1)));
+      CHECK(get<string>(eval("Extract"_("Extract"_(firstNames, 1), 1))) ==
+            get<string>(eval("Extract"_("Extract"_(fullnames, 1), 1))));
+      auto const& lastNames = eval("Project"_("Customer"_, "As"_("LastName"_, "LastName"_)));
+      INFO("lastnames=" << eval("Extract"_("Extract"_(lastNames, 1), 1)));
+      INFO("fullnames=" << eval("Extract"_("Extract"_(fullnames, 1), 2)));
+      CHECK(get<string>(eval("Extract"_("Extract"_(lastNames, 1), 1))) ==
+            get<string>(eval("Extract"_("Extract"_(fullnames, 1), 2))));
+    }
 
-  SECTION("Sorting") {
-    auto const& sortedByLastName =
-        eval("SortBy"_("Customer"_, "Function"_("List"_("tuple"_), "Column"_("tuple"_, 3))));
-    auto const& liskovRow = eval("Extract"_(sortedByLastName, 1));
-    auto const& MaddenRow = eval("Extract"_(sortedByLastName, 2));
-    CHECK(get<string>(eval("Extract"_(liskovRow, 3))) == "Liskov");
-    CHECK(get<string>(eval("Extract"_(MaddenRow, 3))) == "Madden");
-  }
+    SECTION("Sorting") {
+      auto const& sortedByLastName = eval("SortBy"_("Select"_("Customer"_, "Function"_(true)),
+                                                    "Function"_("tuple"_, "Column"_("tuple"_, 3))));
+      auto const& liskovRow = eval("Extract"_(sortedByLastName, 1));
+      auto const& MaddenRow = eval("Extract"_(sortedByLastName, 2));
+      CHECK(get<string>(eval("Extract"_(liskovRow, 3))) == "Liskov");
+      CHECK(get<string>(eval("Extract"_(MaddenRow, 3))) == "Madden");
+    }
 
-  SECTION("Aggregation") {
-    auto const& countRows = eval("GroupBy"_("Customer"_, "Function"_(0),
-                                            "Function"_("List"_("tuple"_), "Count"_("tuple"_))));
-    CHECK(get<int>(eval("Extract"_(countRows, 1))) == 3);
-    CHECK(
-        get<int>(eval("Extract"_(
-            "GroupBy"_(("Select"_("Customer"_, "Function"_("List"_("tuple"_),
-                                                           "StringContainsQ"_(
-                                                               "Madden", "Column"_("tuple"_, 3))))),
-                       "Function"_(0), "Function"_("List"_("tuple"_), "Count"_("tuple"_))),
-            1))) == 1);
+    SECTION("Aggregation") {
+      auto const& countRows = eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_));
+      INFO("countRows=" << countRows << "\n" << eval("Extract"_("Extract"_(countRows, 1))));
+      CHECK(get<int>(eval("Extract"_("Extract"_(countRows, 1),1))) == 3);
+      CHECK(get<int>(eval("Extract"_("Extract"_(
+                "GroupBy"_(
+                    ("Select"_("Customer"_, "Where"_("StringContainsQ"_("Madden", "LastName"_)))),
+                    "Function"_(0), "Count"_),
+                1),1))) == 1);
+    }
   }
 }
 
