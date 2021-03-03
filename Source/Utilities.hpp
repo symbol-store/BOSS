@@ -67,7 +67,7 @@ static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing
                    out << "]";
                  },
                  [&](std::string const& value) { out << "\"" << value << "\""; },
-                 [&](bool value) { out << (value?"True":"False"); },
+                 [&](bool value) { out << (value ? "True" : "False"); },
                  [&](auto value) { out << value; }),
              thing);
   return out;
