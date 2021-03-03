@@ -1,1 +1,8 @@
 .dir-locals.el
+.vscode
+.vs
+build/
+Debug/
+Release/
+MinSizeRel/
+RelWithDebInfo/
