@@ -30,7 +30,7 @@ struct EngineImplementation {
   WSENV environment = {};
   WSLINK link = {};
 
-  char const* removeNamespace(char const* symbolName) {
+  static char const* removeNamespace(char const* symbolName) {
     if(strncmp(DefaultNamespace, symbolName, strlen(DefaultNamespace)) == 0) {
       return symbolName + strlen(DefaultNamespace);
     }
