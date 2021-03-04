@@ -18,7 +18,7 @@ jobs:
     - uses: actions/checkout@v2
     - name: check
       run: |
-        find . -name '*.cpp' -or -name '*.hpp' -exec clang-format -i -style=file '{}' ';'
+        find . \( -name '*.cpp' -or -name '*.hpp' \) -exec clang-format -i -style=file '{}' ';'
         git status -s
         exit $(git status -s | wc -l)
 
