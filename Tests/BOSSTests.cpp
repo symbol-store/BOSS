@@ -9,8 +9,6 @@ using std::get;
 using std::string;
 using boss::utilities::operator""_;
 
-using Value = boss::Expression;
-
 TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NOLINT
   TestType engine;
   static auto eval = [&engine](boss::Expression const& expression) mutable {
@@ -48,7 +46,7 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
                   .getArguments()[0]) == "Hello World!");
   }
 
-  SECTION("Relational") {
+  SECTION("Relational (simple)") {
     eval("CreateTable"_("Customer"_, "FirstName"_, "LastName"_));
     eval("InsertInto"_("Customer"_, "John", "McCarthy"));
     eval("InsertInto"_("Customer"_, "Sam", "Madden"));
@@ -86,13 +84,8 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
       REQUIRE(get<boss::ComplexExpression>(result).getArguments().size() == dataSetSize);
     }
   }
-}
 
-TEMPLATE_TEST_CASE("Relational", "[relational]", boss::engines::wolfram::Engine) { // NOLINT
-  static auto eval = [e = TestType()](boss::Expression const& expression) mutable {
-    return e.evaluate(expression);
-  };
-  SECTION("TableCreation") {
+  SECTION("Relational (with multiple column types)") {
     eval("CreateTable"_("Customer"_, "ID"_, "FirstName"_, "LastName"_, "BirthYear"_, "Country"_));
     INFO(eval("Length"_("Select"_("Customer"_, "Function"_(true)))));
 
@@ -157,12 +150,13 @@ TEMPLATE_TEST_CASE("Relational", "[relational]", boss::engines::wolfram::Engine)
     SECTION("Aggregation") {
       auto const& countRows = eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_));
       INFO("countRows=" << countRows << "\n" << eval("Extract"_("Extract"_(countRows, 1))));
-      CHECK(get<int>(eval("Extract"_("Extract"_(countRows, 1),1))) == 3);
-      CHECK(get<int>(eval("Extract"_("Extract"_(
-                "GroupBy"_(
-                    ("Select"_("Customer"_, "Where"_("StringContainsQ"_("Madden", "LastName"_)))),
-                    "Function"_(0), "Count"_),
-                1),1))) == 1);
+      CHECK(get<int>(eval("Extract"_("Extract"_(countRows, 1), 1))) == 3);
+      CHECK(get<int>(eval("Extract"_(
+                "Extract"_("GroupBy"_(("Select"_("Customer"_, "Where"_("StringContainsQ"_(
+                                                                  "Madden", "LastName"_)))),
+                                      "Function"_(0), "Count"_),
+                           1),
+                1))) == 1);
     }
   }
 }
