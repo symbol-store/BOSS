@@ -1,23 +1,23 @@
 #pragma once
 #ifdef WSINTERFACE
 #include "../Engine.hpp"
+#include <string>
 #include <wstp.h>
 
 namespace boss::engines::wolfram {
 class Engine : public boss::Engine {
 private:
-  WSENV environment = {};
-  WSLINK link = {};
+  class EngineImplementation& impl;
+  friend class EngineImplementation;
 
 public:
   Engine(Engine&) = delete;
   Engine& operator=(Engine&) = delete;
   Engine(Engine&&) = default;
-  Engine& operator=(Engine&&) = default;
+  Engine& operator=(Engine&&) = delete;
   Engine();
   Expression evaluate(Expression const& e);
   ~Engine();
-  friend class EngineImplementation;
 };
 } // namespace boss::engines::wolfram
 #endif // WSINTERFACE
