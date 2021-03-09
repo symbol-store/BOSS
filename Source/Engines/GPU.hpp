@@ -1,7 +1,13 @@
 #pragma once
 #ifdef GPUINTERFACE
 #include "../Engine.hpp"
+//#include <CL/cl2.hpp>
+#if __has_include("CL/cl2.hpp")
 #include <CL/cl2.hpp>
+#else
+#include <CL/cl.hpp>
+#endif
+
 #include <unordered_map>
 
 namespace boss::engines::GPU {
@@ -63,7 +69,7 @@ public:
   Engine();
   Expression evaluate(Expression const& e);
   ~Engine(){};
-  friend class EngineImplementation;
+  friend struct EngineImplementation;
 };
 } // namespace boss::engines::GPU
 

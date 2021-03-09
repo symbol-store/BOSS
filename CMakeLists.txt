@@ -76,6 +76,17 @@ find_package(Threads REQUIRED)
 #################################### Backends ####################################
 # GPU backend
 find_package(OpenCL)
+add_library(GPUBOSS STATIC Source/Engines/GPU.cpp ${ImplementationFiles} Source/Engines/GpuUtil.hpp)
+if(OpenCL_FOUND)
+  set_target_properties(GPUBOSS
+    PROPERTIES
+      CXX_STANDARD 17
+      CXX_STANDARD_REQUIRED YES)
+  target_include_directories(GPUBOSS PUBLIC ${OpenCL_INCLUDE_DIRS})
+  target_link_libraries(GPUBOSS ${OpenCL_LIBRARIES})
+  target_compile_definitions(GPUBOSS PUBLIC "-DGPUINTERFACE")
+endif()
+list(APPEND AllBackends GPUBOSS)
 
 # Wolfram BOSS
 add_library(WolframBOSS STATIC Source/Engines/Wolfram.cpp ${ImplementationFiles})
@@ -230,10 +241,3 @@ foreach (Target IN LISTS AllTargets)
   endforeach()
 endforeach()
 
-if(OpenCL_FOUND)
-  foreach (Target Tests Benchmarks BOSS)
-    target_include_directories(${Target} PUBLIC ${OpenCL_INCLUDE_DIRS})
-    target_link_libraries(${Target} ${OpenCL_LIBRARIES})
-    target_compile_definitions(${Target} PUBLIC "-DGPUINTERFACE")
-  endforeach()
-endif()

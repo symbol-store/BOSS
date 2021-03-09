@@ -3,12 +3,12 @@
 #include "../Source/BOSS.hpp"
 #include "../Source/Utilities.hpp"
 #include <catch2/catch.hpp>
-#ifdef WSINTERFACE
 using boss::Expression;
 using std::get;
 using std::string;
 using boss::utilities::operator""_;
 
+#ifdef WSINTERFACE
 TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NOLINT
   TestType engine;
   static auto eval = [&engine](boss::Expression const& expression) mutable {

@@ -6,3 +6,5 @@ Debug/
 Release/
 MinSizeRel/
 RelWithDebInfo/
+cmake-build-debug/
+.idea/

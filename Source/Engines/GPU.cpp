@@ -1,68 +1,26 @@
 #ifdef GPUINTERFACE
 #include "GPU.hpp"
 #include "../Utilities.hpp"
-#include "CL/cl2.hpp"
+#include "GpuUtil.hpp"
+#include <algorithm>
 #include <exception>
 #include <iostream>
 #include <numeric>
-#include <sstream>
 #include <vector>
 
 namespace boss::engines::GPU {
 
-const std::string kernel_src =
+const char* const kernel_src =
 #include "kernels.cl"
     ;
-
-std::string metric_size(unsigned int size) {
-  std::ostringstream os;
-  float sz = size;
-  auto sizes = {"", "K", "M", "G", "T", "P"};
-  int count = 0;
-  while(sz > 1024 && count < (sizes.size() - 1)) {
-    count++;
-    sz /= 1024;
-  }
-  os << sz << sizes.begin()[count];
-  return os.str();
-}
-
-template <int idx> void setArgsHelper(cl::Kernel& kernel) {}
-
-template <int idx, typename Arg, typename... Args>
-void setArgsHelper(cl::Kernel& kernel, Arg a, Args... args) {
-  kernel.setArg(idx, a);
-  setArgsHelper<idx + 1>(kernel, args...);
-}
-
-template <typename... Args> void setKernelArgs(cl::Kernel& kernel, Args... args) {
-  setArgsHelper<0>(kernel, args...);
-}
-
-AtomicExpression get_type_from_string(std::string type) {
-  if(type == "number") {
-    return AtomicExpression{int(0)};
-  }
-  throw std::runtime_error("Unknown string type " + type);
-}
-
-std::string get_table_name(const Expression& arg) {
-  const auto e = std::get<ComplexExpression>(arg);
-  const auto& e_type = e.getHead();
-  if(e_type.getName() != std::string("table"))
-    throw std::runtime_error("Unknown table type " + e_type.getName());
-  const auto tb_name = std::get<std::string>(e.getArguments()[0]);
-  return tb_name;
-}
 
 // Implementation //
 
 EngineImplementation::EngineImplementation()
-    : device(get_cl_device()), ctx(device), cqueue(ctx, device) {
+    : device(get_cl_device()), ctx(device), cqueue(ctx, device), cl2(get_cl2(device)) {
   auto cl_ver = device.getInfo<CL_DEVICE_OPENCL_C_VERSION>();
   std::cout << "CL version: " << cl_ver << "\n";
-  cl2 = cl_ver[9] >= '2'; // "OpenCL C X.x (vendor info)"
-  auto build_opts = cl2 ? "-cl-std=CL2.0" : "";
+  const auto* build_opts = cl2 ? "-cl-std=CL2.0" : "";
   cl::Program program(ctx, kernel_src);
   if(program.build({device}, build_opts) != CL_SUCCESS) {
     throw std::runtime_error("Failed to compile kernel");
@@ -90,20 +48,20 @@ cl::Buffer EngineImplementation::allocate_memory(size_t num_Ts, T* begin, cl_mem
 cl::Device EngineImplementation::get_cl_device() {
   std::vector<cl::Platform> all_platforms;
   cl::Platform::get(&all_platforms);
-  if(all_platforms.size() == 0) {
+  if(all_platforms.empty()) {
     throw std::runtime_error("Failed to find OpenCL platforms");
   }
   auto platform = all_platforms[0];
   std::cout << "Using platform \"" << platform.getInfo<CL_PLATFORM_NAME>() << "\"\n";
   std::vector<cl::Device> all_devices;
   platform.getDevices(CL_DEVICE_TYPE_ALL, &all_devices);
-  if(all_devices.size() == 0) {
+  if(all_devices.empty()) {
     throw std::runtime_error("Failed to find device on platform");
   }
   auto device = all_devices[0];
   std::cout << "Using device \"" << device.getInfo<CL_DEVICE_NAME>() << "\"\n";
-  std::cout << "Memory available: " << metric_size(device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>())
-            << "\n";
+  std::cout << "Memory available: "
+            << metric_size((unsigned int)device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>()) << "\n";
   return device;
 }
 
@@ -127,13 +85,12 @@ std::variant<int, float> EngineImplementation::plus(const std::vector<Expression
     try {
       std::transform(args.begin(), args.end(), std::back_inserter(cast_args),
                      [](const Expression& e) -> decltype(common_type) {
-                       if(auto e_int_ptr = std::get_if<int>(&e)) {
-                         return *e_int_ptr;
-                       } else {
-                         return std::get<float>(e);
+                       if(const auto* e_int_ptr = std::get_if<int>(&e)) {
+                         return static_cast<decltype(common_type)>(*e_int_ptr);
                        }
+                       return static_cast<decltype(common_type)>(std::get<float>(e));
                      });
-    } catch(std::bad_variant_access& e) {
+    } catch([[maybe_unused]] std::bad_variant_access& e) {
       // Shouldn't be able to get here
       throw std::runtime_error("Bad variant, must have changed since initial check");
     }
@@ -155,7 +112,7 @@ std::variant<int, float> EngineImplementation::plus(const std::vector<Expression
     cqueue.enqueueReadBuffer(res, true, 0, sizeof(common_type) * num_wgs, &results[0]);
     return std::accumulate(results.begin(), results.end(), decltype(common_type){0});
   };
-  if(std::get_if<int>(&common_type)) {
+  if(std::get_if<int>(&common_type) != nullptr) {
     return accu_with_type(int{}, accu_int);
   } else {
     return accu_with_type(float{}, accu_float);
@@ -196,10 +153,10 @@ void EngineImplementation::insert_database_element(std::string db_name,
   // Needs to be tagged correctly too, so turn to POD and copy to GPU, then call kernel insert. (Not
   // done yet)
   const auto write_val = [this, &db](int col, int val) {
-    cqueue.enqueueWriteBuffer(db.columns[col].storage, /*block*/ true,
+    cqueue.enqueueWriteBuffer(db.columns[col].storage, /*block*/ (cl_bool) true,
                               /*offset*/ sizeof(int) * db.size, sizeof(int), &val);
   };
-  for(auto i = 0; i < value.size(); i++) {
+  for(auto i = 0U; i < value.size(); i++) {
     std::visit(boss::utilities::overload{
                    [i, &write_val](int val) { write_val(i, val); },
                    [i, &write_val](const ComplexExpression& e) {
@@ -210,7 +167,7 @@ void EngineImplementation::insert_database_element(std::string db_name,
                            "Error in GPU db_insert: can't evaluate expressions in insert yet");
                      }
                    },
-                   [](const auto& e) { throw std::runtime_error("Can't handle type on GPU"); }},
+                   [](const auto&) { throw std::runtime_error("Can't handle type on GPU"); }},
                value[i]);
   }
   db.size++;
@@ -224,7 +181,7 @@ std::vector<Expression> EngineImplementation::get_column(std::string db_name,
   std::vector<Expression> ret;
   ret.reserve(db.size);
   std::vector<int> gpu_ret(db.size);
-  cqueue.enqueueReadBuffer(col.storage, /*block*/ true, /*off*/ 0, col.type_size * db.size,
+  cqueue.enqueueReadBuffer(col.storage, /*block*/ (cl_bool)true, /*off*/ 0, col.type_size * db.size,
                            &gpu_ret[0]);
   std::transform(gpu_ret.begin(), gpu_ret.end(), std::back_inserter(ret),
                  [](const auto& it) { return Expression(it); });
@@ -234,9 +191,10 @@ std::vector<Expression> EngineImplementation::get_column(std::string db_name,
 Engine::Engine() : impl(EngineImplementation()){};
 
 Expression Engine::evaluate(Expression const& unk_expression) {
-  const auto e_ptr = std::get_if<ComplexExpression>(&unk_expression);
-  if(e_ptr == nullptr)
+  const auto* const e_ptr = std::get_if<ComplexExpression>(&unk_expression);
+  if(e_ptr == nullptr) {
     return unk_expression; // Not a complex expression
+  }
   const auto e = *e_ptr;
   const auto expr_type = e.getHead().getName();
   std::cout << e << '\n';
@@ -250,8 +208,9 @@ Expression Engine::evaluate(Expression const& unk_expression) {
     const auto table_name = get_table_name(e.getArguments()[0]);
     const auto col_name = std::get<std::string>(e.getArguments()[1]);
     const auto col_type_name = std::get<std::string>(e.getArguments()[2]);
-    if(col_type_name != "number")
+    if(col_type_name != "number") {
       throw std::runtime_error("Unknown column type " + col_type_name);
+    }
     impl.create_database_column(table_name, col_name, col_type_name);
     return true;
   } else if(expr_type == "insert") {
@@ -263,10 +222,11 @@ Expression Engine::evaluate(Expression const& unk_expression) {
     const auto table_name = get_table_name(e.getArguments()[0]);
     const auto col_name = std::get<std::string>(e.getArguments()[1]);
     const auto predicate = std::get<std::string>(e.getArguments()[2]);
-    if(predicate != "*")
+    if(predicate != "*") {
       throw std::runtime_error("Currently only supports predicate \"*\"");
+    }
     const std::vector<Expression> result = impl.get_column(table_name, col_name);
-    return ComplexExpression{Symbol("vector"), impl.get_column(table_name, col_name)};
+    return ComplexExpression{Symbol("vector"), result};
   } else {
     throw std::runtime_error("Expression \"" + expr_type + "\" not implemented for backend GPU");
   }
