@@ -97,6 +97,11 @@ struct EngineImplementation {
       WSGetInteger(link, &result);
       return result;
     }
+    if(resultType == WSTKREAL) {
+      float result = 0;
+      WSGetFloat(link, &result);
+      return result;
+    }
     if(resultType == WSTKFUNC) {
       auto const* resultHead = "";
       auto numberOfArguments = 0;
@@ -223,6 +228,8 @@ struct EngineImplementation {
         "AppendTo"_("Database"_("relation"_),
                     "Association"_("Thread"_("Rule"_("Schema"_("relation"_), "List"_("tuple"_))))),
         {"HoldFirst"_});
+
+    DefineFunction("Columns"_, {"Pattern"_("input"_, "Blank"_("Symbol"_))}, "Schema"_("input"_));
   }
 
   void loadShimLayer() {
@@ -231,7 +238,7 @@ struct EngineImplementation {
     for(std::string const& it :
         vector{"Plus", "Length", "Times", "And", "UnixTime", "StringJoin", "Greater", "Symbol",
                "UndefinedFunction", "Evaluate", "Set", "SortBy", "Values", "List", "Equal",
-               "Extract", "StringContainsQ"}) {
+               "Extract", "StringContainsQ", "ToString", "ToExpression"}) {
       evalWithoutNamespace("Set"_(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
 
