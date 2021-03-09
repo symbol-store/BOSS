@@ -59,6 +59,21 @@ ExternalProject_Add(nlohmann_json
   INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/nlohmann ${BOSS_BINARY_DIR}/deps/include/nlohmann
   )
 
+if(WIN32)
+  set(ARROW_STATIC_LIB_NAME "arrow_static")
+else()
+  set(ARROW_STATIC_LIB_NAME "arrow")
+endif(WIN32)
+
+ExternalProject_Add(arrow
+  URL https://github.com/apache/arrow/archive/apache-arrow-3.0.0.zip
+  SOURCE_SUBDIR cpp
+  DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
+  CMAKE_ARGS -DARROW_BUILD_SHARED=OFF -DARROW_BUILD_STATIC=ON -DARROW_JSON=ON -DARROW_CSV=ON
+    -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS} -DCMAKE_C_FLAGS=${DCMAKE_C_FLAGS} -DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS} -DCMAKE_LINKER=${CMAKE_LINKER}
+  BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_STATIC_LIB_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX}
+)
+
 ########################## Other Library Dependencies ##########################
 
 set(VTune_DIR "" CACHE PATH "Where to look for VTune installation")
@@ -116,13 +131,15 @@ endforeach()
 
 #################################### Utilities ####################################
 
-set(SerializationFiles Source/Serialization/JsonSchemaLoader.cpp)
+set(SerializationFiles Source/Serialization/JsonSchemaLoader.cpp Source/Serialization/TableDataLoader.cpp)
 
 add_library(Serialization STATIC ${SerializationFiles})
 set_target_properties(Serialization PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(Serialization PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 target_include_directories(Serialization SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
 add_dependencies(Serialization nlohmann_json)
+target_compile_options(Serialization PUBLIC -DARROW_STATIC)
+target_link_libraries(Serialization PRIVATE ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_STATIC_LIB_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
 
 ############################### Executable Targets ###############################
 

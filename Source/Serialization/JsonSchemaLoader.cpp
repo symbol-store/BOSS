@@ -174,8 +174,8 @@ public:
       for(auto const& column : m_table.columns) {
         createTableArguments.emplace_back(column.name);
       }
-      
-      ComplexExpression createTable("CreateTable"_, std::move(createTableArguments));
+
+      ComplexExpression createTable("CreateTable"_, createTableArguments);
       m_evaluateFunc(createTable);
 
       m_table.clear();

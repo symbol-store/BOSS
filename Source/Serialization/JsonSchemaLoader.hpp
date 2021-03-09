@@ -14,7 +14,7 @@ public:
 
   template <typename Engine> bool loadTables(Engine& engine) {
     return loadTables([&engine](Expression const& expression) { engine.evaluate(expression); });
-  };
+  }
 
 private:
   std::ifstream m_iFileStream;

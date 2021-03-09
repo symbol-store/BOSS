@@ -3,13 +3,9 @@
 #include "../Expression.hpp"
 #include "../Utilities.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <fstream>
-#include <iostream>
-#include <map>
-#include <sstream>
+#include <functional>
 #include <string>
+#include <vector>
 
 using boss::utilities::operator""_;
 
@@ -27,7 +23,7 @@ public:
       return loadFromCSV(engine, table, filepath);
     }
 
-    throw std::runtime_error("unsuppported file format for " + filepath);
+    throw std::runtime_error("unsupported file format for " + filepath);
   }
 
   template <typename Engine>
@@ -43,162 +39,28 @@ public:
 private:
   template <typename Engine> struct TableInfo {
     TableInfo(Engine& engine, Symbol const& table) : table(table) {
-      size_t numColumns = std::get<int>(engine.evaluate("Length"_("Columns"_(table))));
+      size_t const numColumns = std::get<int>(engine.evaluate("Length"_("Columns"_(table))));
+      columnNames.reserve(numColumns);
       for(int index = 0; index < numColumns; ++index) {
         auto const& getColumnName = "Extract"_("Columns"_(table), index + 1);
-        auto columnName = std::get<std::string>(engine.evaluate(getColumnName));
-        columnIndices[columnName] = index;
+        columnNames.emplace_back(std::get<std::string>(engine.evaluate(getColumnName)));
       }
     }
 
     Symbol const& table;
-    std::map<std::string, int> columnIndices;
+    std::vector<std::string> columnNames;
   };
-
-  template <typename Engine>
-  static void readColumnHeader(std::ifstream& iFileStream, TableInfo<Engine> const& info,
-                               std::vector<int>& outputIndices, char separator) {
-    if(!iFileStream.good()) {
-      return;
-    }
-
-    std::string header;
-    if(!std::getline(iFileStream, header)) {
-      return;
-    }
-
-    std::istringstream headerStream(header);
-
-    std::string columnName;
-    while(std::getline(headerStream, columnName, separator)) {
-      int columnIndex = -1; // -1 means ignored
-
-      // check for whitespaces (and trim)
-      if(!columnName.empty()) {
-        size_t startPos = columnName.find_first_not_of(" \r\n\t");
-        size_t endPos = columnName.find_last_not_of(" \r\n\t");
-        columnName = columnName.substr(startPos, 1 + endPos - startPos);
-      }
-
-      if(columnName.empty()) {
-        // allow empty headers as far as we can keep count of column indices
-        if(outputIndices.empty() || outputIndices.back() == (int)outputIndices.size() - 1) {
-          columnIndex = static_cast<int>(outputIndices.size());
-        } else {
-          std::cerr << "WARNING: empty column name at column #" << columnIndex << std::endl;
-        }
-      } else {
-        // try to find the column name in the schema, if not ignore
-        auto it = info.columnIndices.find(columnName);
-        if(it != info.columnIndices.end()) {
-          columnIndex = it->second;
-        } else {
-          std::cerr << "WARNING: unrecognised column name '";
-          std::cerr << columnName << "'" << std::endl;
-        }
-      }
-
-      outputIndices.push_back(columnIndex);
-    }
-  }
-
-  static bool readRow(std::ifstream& iFileStream, std::vector<std::string>& outputValues,
-                      std::vector<int> const& indices, char separator) {
-    std::string line;
-    if(!std::getline(iFileStream, line)) {
-      // eof
-      return false;
-    }
-
-    if(line.back() == '\r') {
-      line.resize(line.size() - 1);
-    }
-
-    if(line.empty()) {
-      // skip any empty line
-      return false;
-    }
-
-    std::istringstream lineStream(line);
-
-    outputValues.resize(indices.size());
-    for(int index : indices) {
-      std::string nextValue;
-      if(std::getline(lineStream, nextValue, separator)) {
-        if(index >= 0) {
-          outputValues[index] = nextValue;
-        }
-      }
-    }
-
-    return true;
-  }
 
   template <typename Engine>
   static bool load(TableInfo<Engine> const& info, Engine& engine, std::string const& filepath,
                    char separator, bool hasHeader) {
-    std::ifstream iFileStream(filepath, std::ios::in);
-    if(iFileStream.fail()) {
-      throw std::runtime_error("failed to open " + filepath);
-    }
-
-    // TODO: use numRows to reserve
-    size_t numRows = hasHeader ? 0 : 1; // count eof too (but not column header)
-    std::string unused;
-    while(std::getline(iFileStream, unused)) {
-      ++numRows;
-    }
-    // rewind
-    iFileStream.clear();
-    iFileStream.seekg(0);
-
-    size_t numColumns = info.columnIndices.size();
-
-    std::vector<int> indices;
-    indices.reserve(numColumns);
-
-    if(hasHeader) {
-      readColumnHeader(iFileStream, info, indices, separator);
-    } else {
-      for(int i = 0; i < numColumns; ++i) {
-        indices.push_back(i);
-      }
-    }
-
-    std::vector<std::string> rowValues;
-    rowValues.reserve(numColumns);
-
-    while(iFileStream.good()) {
-      rowValues.clear();
-      if(!readRow(iFileStream, rowValues, indices, separator)) {
-        continue;
-      }
-
-      // then create a tuple from those values
-
-      ExpressionArguments insertRowArguments;
-      insertRowArguments.reserve(1 + info.columnIndices.size());
-      insertRowArguments.emplace_back(info.table);
-
-      for(auto const& rowValueStr : rowValues) {
-        // convert string to the right column type
-        if(!rowValueStr.empty()) {
-          // let this internal function decide which type is it
-          insertRowArguments.emplace_back("ToExpression"_(rowValueStr));
-          continue;
-        }
-
-        // default: add as missing value
-        // TODO: get from schema what to do for missing data
-        expressionRow.emplace_back("Missing"_);
-      }
-
-      ComplexExpression insertRow("InsertInto"_, std::move(insertRowArguments));
-      engine.evaluate(insertRow);
-    }
-
-    return true;
+    return loadInternal(filepath, info.table, separator, hasHeader, info.columnNames,
+                        [&engine](Expression const& expr) { engine.evaluate(expr); });
   }
+
+  static bool loadInternal(std::string const& filepath, Symbol const& table, char separator,
+                           bool hasHeader, std::vector<std::string> const& columnNames,
+                           std::function<void(Expression const&)>&& evaluate);
 };
 
 } // namespace boss::serialization
