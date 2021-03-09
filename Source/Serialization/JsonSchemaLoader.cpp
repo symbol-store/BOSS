@@ -168,17 +168,15 @@ public:
     } break;
 
     case PS_Table: {
-      Symbol tableSymbol(m_table.name);
-      auto createTable = "CreateTable"_(tableSymbol);
-
-      m_evaluateFunc(createTable);
-
+      ExpressionArguments createTableArguments;
+      createTableArguments.reserve(1 + m_table.columns.size());
+      createTableArguments.emplace_back(Symbol(m_table.name));
       for(auto const& column : m_table.columns) {
-        // TODO: mark specific type to columns
-        // check column.datatype.name with "INTEGER", etc
-        auto addColumn = "AddColumn"_(tableSymbol, column.name);
-        m_evaluateFunc(addColumn);
+        createTableArguments.emplace_back(column.name);
       }
+      
+      ComplexExpression createTable("CreateTable"_, std::move(createTableArguments));
+      m_evaluateFunc(createTable);
 
       m_table.clear();
     } break;

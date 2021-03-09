@@ -43,7 +43,7 @@ public:
 private:
   template <typename Engine> struct TableInfo {
     TableInfo(Engine& engine, Symbol const& table) : table(table) {
-      size_t numColumns = std::get<int>(engine.evaluate("ColumnCount"_(table)));
+      size_t numColumns = std::get<int>(engine.evaluate("Length"_("Columns"_(table))));
       for(int index = 0; index < numColumns; ++index) {
         auto const& getColumnName = "Extract"_("Columns"_(table), index + 1);
         auto columnName = std::get<std::string>(engine.evaluate(getColumnName));
@@ -176,14 +176,15 @@ private:
 
       // then create a tuple from those values
 
-      ExpressionArguments expressionRow;
-      expressionRow.reserve(info.columnIndices.size());
+      ExpressionArguments insertRowArguments;
+      insertRowArguments.reserve(1 + info.columnIndices.size());
+      insertRowArguments.emplace_back(info.table);
 
       for(auto const& rowValueStr : rowValues) {
         // convert string to the right column type
         if(!rowValueStr.empty()) {
           // let this internal function decide which type is it
-          expressionRow.emplace_back("Convert"_(rowValueStr));
+          insertRowArguments.emplace_back("ToExpression"_(rowValueStr));
           continue;
         }
 
@@ -192,7 +193,7 @@ private:
         expressionRow.emplace_back("Missing"_);
       }
 
-      auto insertRow = "InsertInto"_(info.table, (("List"_(std::move(expressionRow)))));
+      ComplexExpression insertRow("InsertInto"_, std::move(insertRowArguments));
       engine.evaluate(insertRow);
     }
 
