@@ -44,6 +44,15 @@ jobs:
         cd ..
     - name: build
       run: cmake --build ${{ matrix.build-type }} -- -j $(nproc)
+    - name: Upload CMake logs (on failure)
+      uses: actions/upload-artifact@v2
+      if: failure()
+      with:
+        name: CMakeLogs_${{ matrix.build-type }}
+        retention-days: 1
+        path: |
+          ${{ matrix.build-type }}/**/CMakeOutput.log
+          ${{ matrix.build-type }}/**/CMakeError.log
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:
