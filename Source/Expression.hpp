@@ -37,5 +37,8 @@ public:
   ExpressionArguments const& getArguments() const { return arguments; };
   Symbol const& getHead() const { return head; };
 };
-
 } // namespace boss
+bool operator==(boss::Expression const& r1, boss::Expression const& r2);
+static bool operator!=(boss::Expression const& r1, boss::Expression const& r2) {
+  return !(r1 == r2);
+};
