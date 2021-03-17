@@ -21,8 +21,8 @@ public:
   explicit ReadableBatchPtr(std::shared_ptr<BatchType const>&& batchPtr)
       : m_batchPtr(std::move(std::const_pointer_cast<BatchType>(batchPtr))), m_writable(false) {}
 
-  ReadableBatchPtr(ReadableBatchPtr& other) = delete;
-  ReadableBatchPtr& operator=(ReadableBatchPtr& other) = delete;
+  //ReadableBatchPtr(ReadableBatchPtr& other) = delete;
+  //ReadableBatchPtr& operator=(ReadableBatchPtr& other) = delete;
 
   ReadableBatchPtr(ReadableBatchPtr&& other) noexcept = default;
   ReadableBatchPtr& operator=(ReadableBatchPtr&& other) noexcept = default;
@@ -154,21 +154,18 @@ public:
     }
   }
 
-  static WritableBatchPtr asWritable(ReadableBatchPtr<BatchType>&& batchPtr, bool clear = false) {
+  static WritableBatchPtr asWritable(ReadableBatchPtr<BatchType>&& batchPtr) {
     if(!batchPtr) {
       return WritableBatchPtr<BatchType>();
     }
     if(batchPtr.isWritable()) {
       WritableBatchPtr<BatchType> writablePtr(batchPtr.sharedPtr());
-      if(clear) {
-        writablePtr->clear();
-      }
       return writablePtr;
     }
     if constexpr(std::is_same_v<BatchType, Batch>) {
-      return batchPtr->clone(clear);
+      return batchPtr->clone();
     } else {
-      return batchPtr->template cloneAs<BatchType>(clear);
+      return batchPtr->template cloneAs<BatchType>();
     }
   }
 

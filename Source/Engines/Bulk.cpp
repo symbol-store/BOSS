@@ -7,7 +7,9 @@ namespace boss::engines::bulk {
 
 using BatchTemplatesImpl = BatchTemplates<bool, int, float, std::string>;
 
-Engine::Engine() : m_batchFactory(createBatchFactory()) {}
+Engine::Engine() : m_batchFactory(createBatchFactory()) {
+  DefaultSymbolPool::instance().clear();
+}
 
 Engine::~Engine() { delete &m_batchFactory; }
 

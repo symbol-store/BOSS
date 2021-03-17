@@ -129,7 +129,7 @@ private:
           using ValueTypeB = typename BatchTypeB::ValueType;
           return evaluateElements(
               templates,
-              []([[maybe_unused]] auto const& a, [[maybe_unused]] auto const& b) -> bool {
+              [](/*[[maybe_unused]]*/ auto const& a, /*[[maybe_unused]]*/ auto const& b) -> bool {
                 if constexpr(std::is_convertible_v<ValueTypeB, ValueTypeA>) {
                   return static_cast<ValueTypeA>(a) == static_cast<ValueTypeB>(b);
                 } else {
@@ -146,7 +146,7 @@ private:
           using ValueTypeB = typename BatchTypeB::ValueType;
           return evaluateElements(
               templates,
-              []([[maybe_unused]] auto const& a, [[maybe_unused]] auto const& b) -> bool {
+              [](/*[[maybe_unused]]*/ auto const& a, /*[[maybe_unused]]*/ auto const& b) -> bool {
                 if constexpr(std::is_convertible_v<ValueTypeB, ValueTypeA>) {
                   return static_cast<ValueTypeA>(a) != static_cast<ValueTypeB>(b);
                 } else {
@@ -420,8 +420,12 @@ private:
               templates,
               [&templates, &tableViewPool](auto const& table, auto const& columnName) -> Symbol {
                 auto& symbolPtr = tableViewPool.findSymbol(table);
-                auto* tableView = new TableView(templates);
-                if(!symbolPtr || symbolPtr->typeId() != UniqueId::forType<TableView>()) {
+                TableView* tableView = nullptr;
+                if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
+                  tableView =
+                      static_cast<TableView*>(Batch::WritablePtr::asWritable(symbolPtr).get());
+                } else {
+                  tableView = new TableView(templates);
                   symbolPtr = Batch::WritablePtr(tableView);
                 }
                 tableView->addColumn(columnName);
@@ -522,7 +526,7 @@ private:
 
   static void selection(BatchTemplates& templates) {
     auto select = [](auto&& tableViewPtr, auto&& predicatePtr) -> Batch::WritablePtr {
-      auto tableOutPtr = WritableBatchPtr<TableView>::asWritable(tableViewPtr, true);
+      auto tableOutPtr = tableViewPtr->template cloneAs<TableView>(true);
       auto& tableOut = *tableOutPtr;
 
       auto forEachBatchOfRows = [&tableOut](auto const& tableKey, CompoundBatch const& batch,
@@ -553,26 +557,27 @@ private:
         }
       };
 
-      tableViewPtr->template visitBatches([&predicatePtr, &forEachBatchOfRows](
-                                              auto const& tableKey, auto const& batchOfRowsPtr) {
-        // TODO: need to evaluate later more precisely
-        // so only the rows actually used as criteria are evaluated
-        // but for now it causes issues for where to set the "$tuple" information
-        // (since the rows wouldn't be explicitely evaluated as a CBatch)
-        Batch::ReadablePtr evaluatedRowsPtr;
-        bool evaluated = batchOfRowsPtr->evaluate(evaluatedRowsPtr);
-        BatchHelper<CompoundBatch>::visit(
-            [&predicatePtr, &forEachBatchOfRows, &tableKey](auto const& batchofRows) {
-              auto toKeepPtr = predicatePtr->evaluateWith(std::vector<Batch const*>{&batchofRows});
-              auto const& toKeep = *toKeepPtr;
-              BatchHelper<ValueBatch<bool>, RLEBatch<bool>>::visit(
-                  [&](auto const& toKeepAsBool) {
-                    forEachBatchOfRows(tableKey, batchofRows, toKeepAsBool);
-                  },
-                  toKeep);
-            },
-            evaluated ? *evaluatedRowsPtr : *batchOfRowsPtr);
-      });
+      tableViewPtr->/*template*/ visitBatches(
+          [&predicatePtr, &forEachBatchOfRows](auto const& tableKey, auto const& batchOfRowsPtr) {
+            // TODO: need to evaluate later more precisely
+            // so only the rows actually used as criteria are evaluated
+            // but for now it causes issues for where to set the "$tuple" information
+            // (since the rows wouldn't be explicitely evaluated as a CBatch)
+            Batch::ReadablePtr evaluatedRowsPtr;
+            bool evaluated = batchOfRowsPtr->evaluate(evaluatedRowsPtr);
+            BatchHelper<CompoundBatch>::visit(
+                [&predicatePtr, &forEachBatchOfRows, &tableKey](auto const& batchofRows) {
+                  auto toKeepPtr =
+                      predicatePtr->evaluateWith(std::vector<Batch const*>{&batchofRows});
+                  auto const& toKeep = *toKeepPtr;
+                  BatchHelper<ValueBatch<bool>, RLEBatch<bool>>::visit(
+                      [&](auto const& toKeepAsBool) {
+                        forEachBatchOfRows(tableKey, batchofRows, toKeepAsBool);
+                      },
+                      toKeep);
+                },
+                evaluated ? *evaluatedRowsPtr : *batchOfRowsPtr);
+          });
 
       return Batch::WritablePtr(std::move(tableOutPtr));
     };
@@ -647,7 +652,7 @@ private:
     // sortFunction: Function(tuple) return the key used for sorting
     // e.g to sort by first column: "Function"_(List_("tuple"_), "Column"_("tuple"_, 1))
     auto sortBy = [](auto&& tableViewPtr, auto&& sortFunctionPtr) -> Batch::WritablePtr {
-      auto tableOutPtr = WritableBatchPtr<TableView>::asWritable(tableViewPtr, true);
+      auto tableOutPtr = tableViewPtr->template cloneAs<TableView>(true);
       auto& tableOut = *tableOutPtr;
 
       auto forEachBatchOfRows = [&tableOut](auto const& tableKey, CompoundBatch const& batch,

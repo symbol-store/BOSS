@@ -16,6 +16,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -272,14 +273,14 @@ public:
     }
 
     auto const& batch = *batchPtr;
-    Symbol const* rootHead = nullptr;
+    std::optional<Symbol> rootHead;
     ExpressionArguments arguments;
     arguments.reserve(batch.size());
     BatchHelper::visit(
         [this, &arguments, &rootHead, batchPtr{std::move(batchPtr)}](auto const& batch) {
           using BatchType = std::decay_t<decltype(batch)>;
           if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-            rootHead = &batch.getHead();
+            rootHead = batch.getHead();
             size_t batchSize = batch.size();
             for(size_t index = 0; index < batchSize; ++index) {
               auto extractedPtr = batch.extract(index);
@@ -293,11 +294,11 @@ public:
         },
         batch);
 
-    if(arguments.size() == 1 && rootHead == nullptr) {
+    if(arguments.size() == 1 && !rootHead) {
       return arguments[0];
     }
 
-    Symbol const& head = rootHead != nullptr ? *rootHead : Symbol("List");
+    Symbol const& head = rootHead ? *rootHead : Symbol("List");
     return ComplexExpression(head, arguments);
   }
 

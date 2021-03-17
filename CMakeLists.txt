@@ -94,6 +94,9 @@ endif(Mathematica_WSTP_FOUND)
 
 # Bulk BOSS
 add_library(BulkBOSS STATIC Source/Engines/Bulk.cpp ${ImplementationFiles})
+if(WIN32)
+  target_compile_options(BulkBOSS PUBLIC /bigobj)
+endif(WIN32)
 
 list(APPEND AllBackends WolframBOSS BulkBOSS)
 

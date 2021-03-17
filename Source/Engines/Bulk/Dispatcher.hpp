@@ -150,11 +150,11 @@ public:
     if(existingBatchPtr) {
       if(existingBatchPtr->isRLE()) {
         // need to recreate a non-RLE to be safe
-        existingBatchPtr = m_factory.convertToNonRLE(std::move(existingBatchPtr));
+        existingBatchPtr = m_factory.convertToNonRLE(/*std::move(*/existingBatchPtr/*)*/);
       }
       if(batchPtr->isRLE()) {
         // and so far the other batch too need to be same type
-        batchPtr = m_factory.convertToNonRLE(std::move(batchPtr));
+        batchPtr = m_factory.convertToNonRLE(/*std::move(*/batchPtr/*)*/);
       }
       if(existingBatchPtr->typeId() == batchPtr->typeId()) {
         auto writablePtr = Batch::WritablePtr::asWritable(existingBatchPtr);
