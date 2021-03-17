@@ -62,8 +62,7 @@ jobs:
           ${{ matrix.build-type }}
           !${{ matrix.build-type }}/deps
           !${{ matrix.build-type }}/CMakeFiles
-          !${{ matrix.build-type }}/catch2-prefix
-          !${{ matrix.build-type }}/googlebenchmark-prefix
+          !${{ matrix.build-type }}/*-prefix
     needs: [format-check]
 
   test:
