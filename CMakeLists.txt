@@ -71,6 +71,7 @@ if(WIN32)
   set(ARROW_STATIC_LIB_NAME "arrow_static")
 else()
   set(ARROW_STATIC_LIB_NAME "arrow")
+  set(ARROW_BUNDLED_DEPENDENCIES "arrow_bundled_dependencies")
 endif(WIN32)
 
 ExternalProject_Add(arrow
@@ -149,6 +150,9 @@ add_dependencies(Serialization nlohmann_json)
 add_dependencies(Serialization arrow)
 target_compile_options(Serialization PUBLIC -DARROW_STATIC)
 target_link_libraries(Serialization ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_STATIC_LIB_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
+if(ARROW_BUNDLED_DEPENDENCIES)
+  target_link_libraries(Serialization ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_BUNDLED_DEPENDENCIES}${CMAKE_STATIC_LIBRARY_SUFFIX})
+endif(ARROW_BUNDLED_DEPENDENCIES)
 
 ############################### Executable Targets ###############################
 
