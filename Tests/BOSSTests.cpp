@@ -9,7 +9,12 @@ using std::get;
 using std::string;
 using boss::utilities::operator""_;
 
-TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NOLINT
+#ifdef WSINTERFACE
+TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine,
+                   boss::engines::wolfram::Engine) { // NOLINT
+#else
+TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLINT
+#endif // WSINTERFACE
   TestType engine;
   static auto eval = [&engine](boss::Expression const& expression) mutable {
     return engine.evaluate(expression);
@@ -48,24 +53,41 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
 
   SECTION("Relational (simple)") {
     eval("CreateTable"_("Customer"_, "FirstName"_, "LastName"_));
-    eval("InsertInto"_("Customer"_, "John", "McCarthy"));
-    eval("InsertInto"_("Customer"_, "Sam", "Madden"));
-    eval("InsertInto"_("Customer"_, "Barbara", "Liskov"));
+    if constexpr(std::is_same_v<TestType, boss::engines::bulk::Engine>) {
+      // temporary fix until this is fixed in bulk backend
+      eval("InsertInto"_("Customer"_, "List"_("John", "McCarthy")));
+      eval("InsertInto"_("Customer"_, "List"_("Sam", "Madden")));
+      eval("InsertInto"_("Customer"_, "List"_("Barbara", "Liskov")));
+    } else {
+      eval("InsertInto"_("Customer"_, "John", "McCarthy"));
+      eval("InsertInto"_("Customer"_, "Sam", "Madden"));
+      eval("InsertInto"_("Customer"_, "Barbara", "Liskov"));
+    }
     SECTION("Selection") {
       auto const& sam = eval(
           "Select"_("Customer"_,
                     "Function"_("tuple"_, "StringContainsQ"_("Madden", "Column"_("tuple"_, 2)))));
-      REQUIRE(sam == "List"_("List"_("Sam", "Madden")));
-      REQUIRE(sam != "List"_("List"_("Barbara", "Liskov")));
+      CHECK(get<string>(eval("Extract"_("Extract"_(sam, 1), 1))) == "Sam");
+      CHECK(get<string>(eval("Extract"_("Extract"_(sam, 1), 2))) == "Madden");
     }
 
     SECTION("Aggregation") {
-      REQUIRE(eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_)) == "List"_("List"_(3)));
-      REQUIRE(
-          eval("GroupBy"_(("Select"_("Customer"_,
-                                     "Function"_("tuple"_, "StringContainsQ"_(
+      INFO(eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_)))
+      CHECK(eval("Extract"_("Extract"_("GroupBy"_("Customer"_, "Function"_(0), "Count"_), 1), 1)) ==
+            Expression(3));
+      INFO(eval("GroupBy"_(
+          ("Select"_("Customer"_,
+                     "Function"_("tuple"_, "StringContainsQ"_("Madden", "Column"_("tuple"_, 2))))),
+          "Function"_(0), "Count"_)))
+      CHECK(
+          eval("Extract"_(
+              "Extract"_("GroupBy"_(("Select"_("Customer"_,
+                                               "Function"_("tuple"_,
+                                                           "StringContainsQ"_(
                                                                "Madden", "Column"_("tuple"_, 2))))),
-                          "Function"_(0), "Count"_)) == "List"_("List"_(1)));
+                                    "Function"_(0), "Count"_),
+                         1),
+              1)) == Expression(1));
     }
 
     SECTION("Join") {
@@ -81,7 +103,7 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
                        "Function"_("List"_("left"_, "right"_),
                                    "Equal"_("Column"_("left"_, 2), "Column"_("right"_, 1)))));
       INFO(get<boss::ComplexExpression>(result));
-      REQUIRE(get<boss::ComplexExpression>(result).getArguments().size() == dataSetSize);
+      CHECK(get<boss::ComplexExpression>(result).getArguments().size() == dataSetSize);
     }
   }
 
@@ -89,12 +111,19 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
     eval("CreateTable"_("Customer"_, "ID"_, "FirstName"_, "LastName"_, "BirthYear"_, "Country"_));
     INFO(eval("Length"_("Select"_("Customer"_, "Function"_(true)))));
 
-    REQUIRE(std::get<int>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
+    CHECK(std::get<int>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
     auto const& emptyTable = eval("Select"_("Customer"_, "Function"_(true)));
     CHECK(std::get<int>(eval("Length"_(emptyTable))) == 0);
-    eval("InsertInto"_("Customer"_, 1, "John", "McCarthy", 1927, "USA"));  // NOLINT
-    eval("InsertInto"_("Customer"_, 2, "Sam", "Madden", 1976, "USA"));     // NOLINT
-    eval("InsertInto"_("Customer"_, 3, "Barbara", "Liskov", 1939, "USA")); // NOLINT
+    if constexpr(std::is_same_v<TestType, boss::engines::bulk::Engine>) {
+      // temporary fix until this is fixed in bulk backend
+      eval("InsertInto"_("Customer"_, "List"_(1, "John", "McCarthy", 1927, "USA")));  // NOLINT
+      eval("InsertInto"_("Customer"_, "List"_(2, "Sam", "Madden", 1976, "USA")));     // NOLINT
+      eval("InsertInto"_("Customer"_, "List"_(3, "Barbara", "Liskov", 1939, "USA"))); // NOLINT
+    } else {
+      eval("InsertInto"_("Customer"_, 1, "John", "McCarthy", 1927, "USA"));  // NOLINT
+      eval("InsertInto"_("Customer"_, 2, "Sam", "Madden", 1976, "USA"));     // NOLINT
+      eval("InsertInto"_("Customer"_, 3, "Barbara", "Liskov", 1939, "USA")); // NOLINT
+    }
     INFO("Select"_("Customer"_, "Function"_(true)));
     CHECK(eval("Length"_("Select"_("Customer"_, "Function"_(true)))) == Expression(3));
     auto const& fullTable = eval("Select"_("Customer"_, "Function"_(true)));
@@ -103,9 +132,9 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
                                            3))) == "Madden");
 
     SECTION("Selection") {
-      auto const& sam = eval("Select"_(
-          "Customer"_,
-          "Function"_("List"_("tuple"_), "StringContainsQ"_("Madden", "Column"_("tuple"_, 3)))));
+      auto const& sam = eval(
+          "Select"_("Customer"_,
+                    "Function"_("tuple"_, "StringContainsQ"_("Madden", "Column"_("tuple"_, 3)))));
       CHECK(get<int>(eval("Length"_(sam))) == 1);
       auto const& samRow = eval("Extract"_(sam, 1));
       CHECK(get<int>(eval("Length"_(samRow))) == 5);
@@ -122,16 +151,20 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
     }
 
     SECTION("Projection") {
-      auto const& fullnames = eval(
-          "Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
-      INFO("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
+      auto const& fullnames =
+          eval("Project"_("Customer"_, "Function"_("tuple"_, "List"_("Column"_("tuple"_, 2),
+                                                                     "Column"_("tuple"_, 3)))));
+      INFO("Project"_("Customer"_, "Function"_("tuple"_, "List"_("Column"_("tuple"_, 2),
+                                                                 "Column"_("tuple"_, 3)))));
       INFO(fullnames);
       CHECK(get<int>(eval("Length"_(fullnames))) == 3);
-      auto const& firstNames = eval("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_)));
+      auto const& firstNames =
+          eval("Project"_("Customer"_, "Function"_("tuple"_, "List"_("Column"_("tuple"_, 2)))));
       INFO(eval("Extract"_("Extract"_(fullnames, 1), 1)));
       CHECK(get<string>(eval("Extract"_("Extract"_(firstNames, 1), 1))) ==
             get<string>(eval("Extract"_("Extract"_(fullnames, 1), 1))));
-      auto const& lastNames = eval("Project"_("Customer"_, "As"_("LastName"_, "LastName"_)));
+      auto const& lastNames =
+          eval("Project"_("Customer"_, "Function"_("tuple"_, "List"_("Column"_("tuple"_, 3)))));
       INFO("lastnames=" << eval("Extract"_("Extract"_(lastNames, 1), 1)));
       INFO("fullnames=" << eval("Extract"_("Extract"_(fullnames, 1), 2)));
       CHECK(get<string>(eval("Extract"_("Extract"_(lastNames, 1), 1))) ==
@@ -151,12 +184,12 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
       auto const& countRows = eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_));
       INFO("countRows=" << countRows << "\n" << eval("Extract"_("Extract"_(countRows, 1))));
       CHECK(get<int>(eval("Extract"_("Extract"_(countRows, 1), 1))) == 3);
-      CHECK(get<int>(eval("Extract"_(
-                "Extract"_("GroupBy"_(("Select"_("Customer"_, "Where"_("StringContainsQ"_(
-                                                                  "Madden", "LastName"_)))),
-                                      "Function"_(0), "Count"_),
-                           1),
-                1))) == 1);
+      auto const& countMadden = eval("GroupBy"_(
+          ("Select"_("Customer"_,
+                     "Function"_("tuple"_, "StringContainsQ"_("Madden", "Column"_("tuple"_, 3))))),
+          "Function"_(0), "Count"_));
+      INFO("countMadden=" << countMadden);
+      CHECK(get<int>(eval("Extract"_("Extract"_(countMadden, 1), 1))) == 1);
     }
   }
 }
