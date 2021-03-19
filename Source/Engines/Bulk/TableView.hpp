@@ -14,7 +14,7 @@ public:
   using ValueType = CompoundBatch::ValueType;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<TableView>();
 
-  using ColumnBatchType = ValueBatch<std::string>;
+  using ColumnBatchType = ValueBatch<Symbol>;
   using ColumnWritablePtr = WritableBatchPtr<ColumnBatchType>;
   using ColumnReadablePtr = ReadableBatchPtr<ColumnBatchType>;
 
@@ -47,19 +47,19 @@ public:
     return cloneAsTableView(clear);
   }
 
-  void addColumn(std::string const& name) { m_columns->insert(name); }
+  void addColumn(Symbol const& column) { m_columns->insert(column); }
 
   ColumnWritablePtr& columns() { return m_columns; }
   ColumnReadablePtr columns() const { return m_columns; }
 
   std::string const& columnName(size_t index) const {
-    return *std::next(m_columns->begin(), index); // NOLINT
+    return std::next(m_columns->begin(), index)->getName(); // NOLINT
   }
 
   int columnIndex(std::string const& name) const {
     int index = 0;
-    for(auto const& columnName : *m_columns) {
-      if(columnName == name) {
+    for(auto const& column : *m_columns) {
+      if(column.getName() == name) {
         return index;
       }
       ++index;

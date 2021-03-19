@@ -233,15 +233,22 @@ private:
               new FunctionBatch(templates, FunctionBatch::ParameterList{}, std::move(bodyPtr)));
         });
 
-    templates.template argBatchTypes<CompoundBatch, AnyExpressionBatch>()
+    templates
+        .template argBatchTypes<AllowedBatches<CompoundBatch, SymbolBatch>, AnyExpressionBatch>()
         .template registerFunction<2>("Function", [&templates](auto&& argBatchPtr,
                                                                auto bodyBatchPtr) {
+          using ArgsBatchPtrType = std::decay_t<decltype(argBatchPtr)>;
+          using ArgsBatchType = typename ArgsBatchPtrType::BatchType;
           FunctionBatch::ParameterList args;
-          args.reserve(argBatchPtr->size());
-          for(auto const& symbolBatchPtr : *argBatchPtr) {
-            if(symbolBatchPtr->typeId() == UniqueId::forType<SymbolBatch>()) {
-              args.emplace_back(*static_cast<SymbolBatch const*>(symbolBatchPtr.get())->begin());
+          if constexpr(std::is_base_of_v<CompoundBatch, ArgsBatchType>) {
+            args.reserve(argBatchPtr->size());
+            for(auto const& symbolBatchPtr : *argBatchPtr) {
+              if(symbolBatchPtr->typeId() == UniqueId::forType<SymbolBatch>()) {
+                args.emplace_back(*static_cast<SymbolBatch const*>(symbolBatchPtr.get())->begin());
+              }
             }
+          } else {
+            args.emplace_back(*argBatchPtr.get()->begin());
           }
           Batch::ReadablePtr bodyPtr(std::move(bodyBatchPtr));
           return Batch::WritablePtr(new FunctionBatch(templates, args, std::move(bodyPtr)));
@@ -414,11 +421,11 @@ private:
               batchPtr);
         });
 
-    templates.template argTypes<Symbol, std::string>().template registerFunction<2>(
+    templates.template argTypes<Symbol, Symbol>().template registerFunction<2>(
         "CreateTable", [&templates, &tableViewPool](auto&& tableBatchPtr, auto&& columnBatchPtr) {
           return evaluateElements(
               templates,
-              [&templates, &tableViewPool](auto const& table, auto const& columnName) -> Symbol {
+              [&templates, &tableViewPool](auto const& table, auto const& column) -> Symbol {
                 auto& symbolPtr = tableViewPool.findSymbol(table);
                 TableView* tableView = nullptr;
                 if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
@@ -428,7 +435,7 @@ private:
                   tableView = new TableView(templates);
                   symbolPtr = Batch::WritablePtr(tableView);
                 }
-                tableView->addColumn(columnName);
+                tableView->addColumn(column);
                 return table;
               },
               tableBatchPtr, columnBatchPtr);
@@ -450,16 +457,16 @@ private:
   static void manageColumns(BatchTemplates& templates) {
     auto& tableViewPool = DefaultSymbolPool::instance();
 
-    templates.template argTypes<Symbol, std::string>().template registerFunction<2>(
+    templates.template argTypes<Symbol, Symbol>().template registerFunction<2>(
         "AddColumn", [&templates, &tableViewPool](auto&& tableBatchPtr, auto&& columnBatchPtr) {
           return evaluateElements(
               templates,
-              [&tableViewPool](auto const& table, auto const& columnName) -> Symbol {
+              [&tableViewPool](auto const& table, auto const& column) -> Symbol {
                 auto& symbolPtr = tableViewPool.findSymbol(table);
                 if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
                   auto& tableView =
                       *static_cast<TableView*>(Batch::WritablePtr::asWritable(symbolPtr).get());
-                  tableView.addColumn(columnName);
+                  tableView.addColumn(column);
                 }
                 return table;
               },
@@ -597,27 +604,20 @@ private:
       // fill the indexes
       std::vector<size_t> indexes;
       indexes.reserve(columnsPtr->size());
-      // TODO: handle columns as a batch of string
+      // TODO: handle columns directly as a ValueBatch<Symbol> or SymbolBatch
       // but wouldn't work until we load an homogenous list as value/rle batch
       for(auto& columnBatchPtr : *columnsPtr) {
-        Batch::ReadablePtr columnNamePtr = std::move(columnBatchPtr);
         BatchHelper<SymbolBatch>::visit(
-            [&columnNamePtr](auto& symbolBatch) { symbolBatch.evaluate(columnNamePtr); },
-            *columnNamePtr);
-        if(!columnNamePtr) {
-          continue;
-        }
-        BatchHelper<ValueBatch<std::string>, RLEBatch<std::string>>::visit(
             [&indexes, &tableViewPtr, &tableOut](auto& columnBatch) {
-              auto const& columnName = *columnBatch.begin();
-              int index = tableViewPtr->columnIndex(columnName);
+              auto const& column = *columnBatch.begin();
+              int index = tableViewPtr->columnIndex(column.getName());
               if(index < 0) {
                 return;
               }
               indexes.push_back(index);
-              tableOut.addColumn(columnName);
+              tableOut.addColumn(column);
             },
-            *columnNamePtr);
+            *columnBatchPtr);
       }
 
       // copy the new batches from the indexes
@@ -759,7 +759,7 @@ private:
       auto InsertRows = [&tableOut](auto const& batch) {
         // TODO: set proper column names
         for(size_t colIndex = tableOut.numColumns(); colIndex < batch.size(); ++colIndex) {
-          tableOut.addColumn("aggr" + std::to_string(++colIndex));
+          tableOut.addColumn(Symbol("aggr" + std::to_string(++colIndex)));
         }
       };
 

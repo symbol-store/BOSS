@@ -33,18 +33,21 @@ template <typename... SupportedTypes> class BatchTemplates : public BatchFactory
 public:
   using CompoundBatchHelper =
       BatchHelper<CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
+
   using BatchHelper =
-      BatchHelper<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., SymbolBatch,
-                  CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
+      BatchHelper<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., ValueBatch<Symbol>,
+                  SymbolBatch, CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
 
   using AnyBatch =
-      AllowedBatches<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., SymbolBatch,
-                     CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
-  using NonSymbolicBatch = AllowedBatches<ValueBatch<SupportedTypes>...,
-                                          RLEBatch<SupportedTypes>..., CompoundBatch, TableView>;
+      AllowedBatches<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., ValueBatch<Symbol>,
+                     SymbolBatch, CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
 
-  using AnySimpleBatch =
-      AllowedBatches<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., SymbolBatch>;
+  using NonSymbolicBatch =
+      AllowedBatches<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., ValueBatch<Symbol>,
+                     CompoundBatch, TableView>;
+
+  using AnySimpleBatch = AllowedBatches<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>...,
+                                        ValueBatch<Symbol>, SymbolBatch>;
 
   using AnyCompoundBatch =
       AllowedBatches<CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
@@ -318,7 +321,7 @@ public:
               arguments.emplace_back(toKey(*batchPtr));
             }
             key = ComplexExpression(batch.getHead(), std::move(arguments));
-          } else if constexpr(std::is_base_of_v<SymbolBatch, BatchType>) {
+          } else if constexpr(std::is_same_v<ValueType, Symbol>) {
             key = *batch.begin();
           } else {
             key = ValueType();

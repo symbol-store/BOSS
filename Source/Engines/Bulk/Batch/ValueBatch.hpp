@@ -20,8 +20,9 @@ public:
   bool canContain(Expression const& val) const override {
     return std::holds_alternative<ValueType>(val);
   }
-
-  explicit ValueBatch(size_t size = 0) : m_values(size) {}
+  
+  explicit ValueBatch() : m_values() {}
+  explicit ValueBatch(size_t size) : m_values(size) {}
   explicit ValueBatch(std::vector<ValueType> const& values) : m_values(values) {}
   explicit ValueBatch(std::vector<ValueType>&& values) : m_values(std::move(values)) {}
   ValueBatch(size_t size, ValueType const& value) : m_values(size, value) {}
