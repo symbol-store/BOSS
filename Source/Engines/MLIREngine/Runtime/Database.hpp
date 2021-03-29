@@ -1,46 +1,25 @@
+#pragma once
+#include "Expression.hpp"
+#include "arrow/api.h"
 #include <map>
+#include <memory>
 #include <string>
 #include <tuple>
 #include <vector>
 
-enum class SymbolArgumentType;
-
-struct Buffer {
-  int size;
-  void* data;
-};
-
 class Table {
 public:
-  int getNumColumns() { return columnTypes.size(); }
-  SymbolArgumentType getTypeForColumn(std::string& name);
+  void bulk_load(std::shared_ptr<arrow::Schema> schema,
+                 std::vector<std::map<std::string, boss::Expression>> tuples);
 
-  std::vector<Buffer>::iterator buffersBegin() { return buffers.begin(); }
-  std::vector<Buffer>::iterator buffersEnd() { return buffers.end(); }
-
-  using schema = std::vector<std::tuple<std::string, SymbolArgumentType>>;
-
-  schema::iterator schemaBegin() { return columnTypes.begin(); }
-  schema::iterator schemaEnd() { return columnTypes.end(); }
-
-  Buffer getLastBuffer() { return *buffers.rbegin(); }
-  void createNewBuffer();
-
-  schema& getSchema() { return columnTypes; }
+  std::shared_ptr<arrow::ChunkedArray> getColumnDataPtr(std::string name, bool symbolic);
 
 private:
-  // Schema
-  schema columnTypes;
-
-  // All memory areas
-  std::vector<Buffer> buffers;
+  std::shared_ptr<arrow::Table> data = nullptr;
 };
 
 class Database {
-  Table getTable(std::string name);
-
-  void createTable(std::string name, Table::schema&& schema);
-
+public:
 private:
   std::map<std::string, Table> tables;
 };

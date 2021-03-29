@@ -7,3 +7,4 @@ add_mlir_interface(TypeInferenceInterface
 
 add_subdirectory(MemoryDialect)
 add_subdirectory(SExprDialect)
+add_subdirectory(DatabaseDialect)

@@ -1,3 +1,4 @@
+#include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseDialect.h"
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryDialect.h"
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
