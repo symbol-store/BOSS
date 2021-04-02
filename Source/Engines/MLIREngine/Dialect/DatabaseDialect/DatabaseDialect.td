@@ -14,6 +14,8 @@ def Database_Dialect : Dialect {
         This dialect represents database operations.
     }];
     let cppNamespace = "::mlir::database";
+
+    code extraClassDeclaration = "void printType(mlir::Type type, mlir::DialectAsmPrinter& printer) const override;";
 }
 
 //===----------------------------------------------------------------------===//

@@ -6,6 +6,7 @@
 #include "Engines/MLIREngine/Translation/SexprToFunctions.hpp"
 #include "Engines/MLIREngine/Translation/SexprToLLVM.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
+#include "Engines/MLIREngine/Translation/SexprToDatabase.h"
 
 #include <llvm/IR/Module.h>
 #include <mlir/ExecutionEngine/ExecutionEngine.h>
@@ -43,8 +44,6 @@ int64_t runJit(::mlir::ModuleOp module) {
   int64_t output; // NOLINT
 
   void* args[1] = {(void*)&output}; // NOLINT
-
-  // engine->registerSymbols(llvm::function_ref(sayHello));
 
   auto status = engine->invoke("entry", args);
   if(status) {
@@ -96,15 +95,18 @@ Expression Engine::evaluate(Expression const& e) {
 
   ::mlir::PassManager passManager(module->getContext());
 
-  passManager.addPass(createTypeInferencePass());
+  passManager.addPass(createTypeInferencePass(database));
   passManager.addPass(createLowerToFunctionsPass(returnType));
+//  passManager.addNestedPass<::mlir::FuncOp>(createLowerToDatabasePass());
   passManager.addNestedPass<::mlir::FuncOp>(createLowerToStdPass());
-  passManager.addPass(::mlir::createInlinerPass());
-  passManager.addPass(createLowerToLLVMPass());
+//  passManager.addPass(::mlir::createInlinerPass());
+//  passManager.addPass(createLowerToLLVMPass());
 
   if(::mlir::failed(passManager.run(module.get()))) {
     throw std::runtime_error("Compilation failed");
   }
+
+  module->dump();
 
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);

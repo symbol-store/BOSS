@@ -1,4 +1,5 @@
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseDialect.h"
+#include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseOps.h"
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryDialect.h"
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
@@ -26,6 +27,8 @@ namespace {
 using namespace mlir;
 
 std::atomic<int> stringCounter{0};
+
+std::mutex printMutex;
 
 struct EndOpLowering : public OpConversionPattern<sexpr::EndOp> {
   EndOpLowering(MLIRContext* ctx, TypeConverter& converter)
@@ -164,35 +167,50 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
     auto symbolName = s.name();
 
-    // Todo use const map as dispatch table
-    if(symbolName == "Plus") {
-      return replaceBinaryOp<mlir::AddIOp>(s, rewriter);
-    }
-    if(symbolName == "Minus") {
-      return replaceBinaryOp<mlir::SubIOp>(s, rewriter);
-    }
-    if(symbolName == "Mul") {
-      return replaceBinaryOp<mlir::MulIOp>(s, rewriter);
-    }
-    if(symbolName == "IDiv") {
-      return replaceBinaryOp<mlir::SignedDivIOp>(s, rewriter);
-    }
-    if(symbolName == "Eval") {
-      rewriter.replaceOp(s.getOperation(), s.getOperands());
-      return success();
-    }
-    if(symbolName == "StringJoin") {
-      return rewriteStringJoin(s, operands, rewriter);
-    }
-    if(symbolName == "Greater") {
-      return replaceBooleanCompareOp<CmpIPredicate::sgt>(s, operands, rewriter);
-    }
-    if(symbolName == "Symbol") {
-      auto allocOp =
-          rewriter.create<memory::AllocateSymbolOp, Value const&>(s.getLoc(), operands[0]);
-      rewriter.replaceOp(s.getOperation(), allocOp.getResult());
+    // Dispatch table to insert appropriate
+    const std::map<std::string, std::function<LogicalResult()>> dispatchTable{
+        {"Plus", [&]() { return replaceBinaryOp<mlir::AddIOp>(s, rewriter); }},
+        {"Minus", [&]() { return replaceBinaryOp<mlir::SubIOp>(s, rewriter); }},
+        {"Mul", [&]() { return replaceBinaryOp<mlir::MulIOp>(s, rewriter); }},
+        {"IDiv", [&]() { return replaceBinaryOp<mlir::SignedDivIOp>(s, rewriter); }},
+        {"Eval",
+         [&]() {
+           rewriter.replaceOp(s.getOperation(), s.getOperands());
+           return success();
+         }},
+        {"StringJoin", [&]() { return rewriteStringJoin(s, operands, rewriter); }},
+        {"Greater",
+         [&]() { return replaceBooleanCompareOp<CmpIPredicate::sgt>(s, operands, rewriter); }},
+        {"Symbol",
+         [&]() {
+           auto allocOp =
+               rewriter.create<memory::AllocateSymbolOp, Value const&>(s.getLoc(), operands[0]);
+           rewriter.replaceOp(s.getOperation(), allocOp.getResult());
 
-      return success();
+           return success();
+         }},
+        {"GetRelation", [&]() {
+          auto stringVal = s.getOperand(0);
+          auto stringConstantOp = stringVal.getDefiningOp<sexpr::StringConstantOp>();
+
+          if (!stringConstantOp) {
+            return failure();
+          }
+
+          auto relationName = stringConstantOp.value().str();
+          auto newOp = rewriter.create<database::GetRelationOp>(s.getLoc(), relationName, converter.convertType(s.getResult().getType()));
+
+          rewriter.replaceOp(s, newOp.getResult());
+
+          return success();
+        }}
+
+    };
+
+    auto it = dispatchTable.find(std::string{symbolName});
+    if(it != dispatchTable.end()) {
+      // Function is defined, replace operation
+      return it->second();
     }
 
     // Function is not defined here
@@ -347,7 +365,7 @@ void SexprToStdLoweringPass::runOnFunction() {
 
   // Register legality of dialects and operations
   target.addLegalDialect<mlir::StandardOpsDialect, mlir::scf::SCFDialect,
-                         mlir::memory::MemoryDialect>();
+                         mlir::memory::MemoryDialect, database::DatabaseDialect>();
   target.addIllegalDialect<sexpr::SExprDialect>();
   target.addLegalOp<FuncOp>();
   target.addDynamicallyLegalOp<mlir::CallOp>(

@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <sstream>
 
+namespace runtime {
+
 // temporary encoding function. This will need to be improved
 std::string encodeExpression(boss::Expression const& e) {
   std::string returnValue;
   std::visit(boss::utilities::overload(
-                 [&](boss::ComplexExpression e) {
+                 [&](boss::ComplexExpression const& e) {
                    std::stringstream str;
 
                    str << "ComplexExpression{" << e.getHead() << ",";
@@ -19,10 +21,10 @@ std::string encodeExpression(boss::Expression const& e) {
                    str << "}";
                    returnValue = str.str();
                  },
-                 [&](boss::Symbol e) { returnValue = "Symbol{" + e.getName() + "}"; },
+                 [&](boss::Symbol const& e) { returnValue = "Symbol{" + e.getName() + "}"; },
                  [&](bool e) { returnValue = e; }, [&](int e) { returnValue = e; },
                  [&](float e) { returnValue = e; },
-                 [&](std::string e) { returnValue = "string{" + e + "}"; }),
+                 [&](std::string const& e) { returnValue = "string{" + e + "}"; }),
              e);
   return returnValue;
 }
@@ -111,3 +113,4 @@ std::shared_ptr<arrow::ChunkedArray> Table::getColumnDataPtr(std::string name, b
   }
   return data->GetColumnByName(name);
 }
+} // namespace runtime

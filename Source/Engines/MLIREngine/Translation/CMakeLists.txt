@@ -4,6 +4,7 @@ add_mlir_conversion_library(SExprToStd
   LowerToFunctions.cpp
   LowerToLLVM.cpp
   LowerToStd.cpp
+  LowerToDatabaseOps.cpp
 
   LINK_LIBS PUBLIC
   ${dialect_libs}
