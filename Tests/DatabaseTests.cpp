@@ -6,6 +6,29 @@
 
 using boss::utilities::operator""_;
 
+runtime::Table createTestTable() {
+  runtime::Table table;
+
+  // Create a schema
+  std::shared_ptr<arrow::Field> field_a, field_a_sym, field_b, field_b_sym;
+  std::shared_ptr<arrow::Schema> schema;
+
+  field_a = arrow::field("A", arrow::int32());
+  field_a_sym = arrow::field("A_symbols", arrow::binary());
+  field_b = arrow::field("B", arrow::boolean());
+  field_b_sym = arrow::field("B_symbols", arrow::binary());
+
+  schema = std::make_shared<arrow::Schema, std::vector<std::shared_ptr<arrow::Field>>>(
+      {field_a, field_a_sym, field_b, field_b_sym});
+
+  // load tuples into the table
+  table.bulk_load(schema, {{{"A", 1}, {"B", false}},
+                           {{"A", 2}, {"B", false}},
+                           {{"A", boss::Symbol("undef")}, {"B", false}}});
+
+  return table;
+}
+
 TEST_CASE("DATABASE TEST") {
 
   SECTION("RawValues") {
@@ -39,24 +62,7 @@ TEST_CASE("DATABASE TEST") {
   }
 
   SECTION("TableTest") {
-    runtime::Table table;
-
-    // Create a schema
-    std::shared_ptr<arrow::Field> field_a, field_a_sym, field_b, field_b_sym;
-    std::shared_ptr<arrow::Schema> schema;
-
-    field_a = arrow::field("A", arrow::int32());
-    field_a_sym = arrow::field("A_symbols", arrow::binary());
-    field_b = arrow::field("B", arrow::boolean());
-    field_b_sym = arrow::field("B_symbols", arrow::binary());
-
-    schema = std::make_shared<arrow::Schema, std::vector<std::shared_ptr<arrow::Field>>>(
-        {field_a, field_a_sym, field_b, field_b_sym});
-
-    // load tuples into the table
-    table.bulk_load(schema, {{{"A", 1}, {"B", false}},
-                             {{"A", 2}, {"B", false}},
-                             {{"A", boss::Symbol("undef")}, {"B", false}}});
+    runtime::Table table = createTestTable();
 
     // Get columns from table
     auto colA =
@@ -75,11 +81,11 @@ TEST_CASE("DATABASE TEST") {
 
   SECTION("QueryTests") {
     runtime::Database database;
-    runtime::Table table;
+    runtime::Table table = createTestTable();
+
     database.addRelation("Relation1", std::move(table));
 
     boss::engines::mlir::Engine e(std::move(database));
-
 
     CHECK(std::get<boss::ComplexExpression>(e.evaluate("GetRelation"_((std::string)"Relation1"))).getHead().getName() == "GetRelation");
   }

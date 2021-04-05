@@ -2,34 +2,29 @@
 
 #include <mlir/IR/StandardTypes.h>
 #include <mlir/IR/TypeSupport.h>
+#include "Engines/MLIREngine/Runtime/Database.hpp"
 
-using namespace mlir;
+struct TupleStreamTypeStorage : public mlir::TypeStorage {
+  TupleStreamTypeStorage(runtime::Table* relation) : relation(relation) {}
 
-struct RelationTypeStorage : public TypeStorage {
-  RelationTypeStorage(Type relationType) : relationType(relationType) {}
+  using KeyTy = runtime::Table*;
 
-  using KeyTy = Type;
+  bool operator==(const KeyTy key) const { return (*key) == (*relation); }
 
-  bool operator==(const KeyTy& key) const { return key == relationType; }
+  static llvm::hash_code hashKey(const KeyTy key) { return llvm::hash_value(key->getSchema()->fingerprint()); }
 
-  static RelationTypeStorage* construct(TypeStorageAllocator& allocator, const KeyTy& key) {
-    return new(allocator.allocate<RelationTypeStorage>()) RelationTypeStorage(key);
+  static TupleStreamTypeStorage* construct(mlir::TypeStorageAllocator& allocator, KeyTy key) {
+    return new(allocator.allocate<TupleStreamTypeStorage>()) TupleStreamTypeStorage(key);
   }
 
-  Type relationType;
+  runtime::Table* relation;
 };
 
-class RelationType : public Type::TypeBase<RelationType, Type, RelationTypeStorage> {
+class TupleStreamType : public mlir::Type::TypeBase<TupleStreamType, mlir::Type, TupleStreamTypeStorage> {
 public:
   using Base::Base;
 
-  static RelationType get(MLIRContext* context, Type type) {
-    return Base::get<Type>(context, type);
+  static TupleStreamType get(mlir::MLIRContext* context, runtime::Table* relation) {
+    return Base::get<runtime::Table*>(context, relation);
   }
-
-  static RelationType getChecked(MLIRContext* context, Type relationType) {
-    return Base::get<Type>(context, relationType);
-  }
-
-  Type relationType() { return getImpl()->relationType; }
 };

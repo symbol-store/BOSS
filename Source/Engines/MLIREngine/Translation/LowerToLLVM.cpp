@@ -1,10 +1,13 @@
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
+#include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
 #include <mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/StandardOps/IR/Ops.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -97,6 +100,20 @@ struct SexprToLLVMLoweringPass
     registry.insert<LLVM::LLVMDialect>();
   }
   void runOnOperation() final;
+};
+
+struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationOp> {
+  GetRelationOpLowering(MLIRContext* ctx, TypeConverter& converter) : OpConversionPattern(ctx), converter(converter) {}
+
+  LogicalResult matchAndRewrite(database::GetRelationOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    rewriter.replaceOpWithNewOp<mlir::ConstantIntOp>(op, 0, 32);
+
+    return success();
+  }
+
+  TypeConverter& converter;
+
 };
 
 struct PrintMemrefOpLowering : public OpConversionPattern<memory::PrintMemrefOp> {
@@ -257,12 +274,16 @@ void SexprToLLVMLoweringPass::runOnOperation() {
     return llvm::Optional<Type>{};
   });
 
+  typeConverter.addConversion([](TupleStreamType t) -> llvm::Optional<Type> {
+    return LLVM::LLVMIntegerType::get(t.getContext(), 32);
+  });
+
   OwningRewritePatternList patterns;
   populateLoopToStdConversionPatterns(patterns, &getContext());
   populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
   patterns
-      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering>(
+      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering, GetRelationOpLowering>(
           &getContext(), typeConverter);
 
   auto module = getOperation();

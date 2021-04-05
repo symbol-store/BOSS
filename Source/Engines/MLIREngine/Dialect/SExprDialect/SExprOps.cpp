@@ -142,7 +142,7 @@ const std::map<std::string,
            auto table = database.getRelation(std::string(relationName));
 
            return SymbolOrValueType::get(symbol.getContext(), sOrV,
-                                         RelationType::get(symbol.getContext(), mlir::NoneType()));
+                                         TupleStreamType::get(symbol.getContext(), &table));
          }}};
 
 // ==== Entry point functions for type inference =======

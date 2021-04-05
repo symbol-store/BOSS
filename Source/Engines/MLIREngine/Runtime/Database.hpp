@@ -16,6 +16,12 @@ public:
 
   std::shared_ptr<arrow::ChunkedArray> getColumnDataPtr(std::string name, bool symbolic);
 
+  bool operator==(const Table& other) const { return other.data == data; }
+
+  std::shared_ptr<arrow::Schema> getSchema() {
+    return data->schema();
+  }
+
 private:
   std::shared_ptr<arrow::Table> data = nullptr;
 };

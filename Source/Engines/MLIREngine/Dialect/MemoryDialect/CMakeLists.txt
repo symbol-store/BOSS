@@ -9,3 +9,6 @@ add_mlir_dialect_library(MLIRMemory
 
   LINK_LIBS PUBLIC MLIRIR
 )
+
+set_property(TARGET obj.MLIRMemory PROPERTY CXX_STANDARD 17)
+target_include_directories(obj.MLIRMemory SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)

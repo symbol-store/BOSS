@@ -11,3 +11,6 @@ add_mlir_conversion_library(SExprToStd
   MLIRIR
   MLIRTranslation
 )
+
+set_property(TARGET obj.SExprToStd PROPERTY CXX_STANDARD 17)
+target_include_directories(obj.SExprToStd SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
