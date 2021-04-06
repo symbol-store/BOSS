@@ -198,7 +198,13 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
           }
 
           auto relationName = stringConstantOp.value().str();
-          auto newOp = rewriter.create<database::GetRelationOp>(s.getLoc(), relationName, converter.convertType(s.getResult().getType()));
+          auto tupleStream = converter.convertType(s.getResult().getType()).dyn_cast_or_null<TupleStreamType>();
+
+          if (!tupleStream) {
+            return failure();
+          }
+
+          auto newOp = rewriter.create<database::GetRelationOp>(s.getLoc(), relationName, tupleStream);
 
           rewriter.replaceOp(s, newOp.getResult());
 

@@ -10,6 +10,8 @@
 
 #include "Runtime.hpp"
 
+using namespace boss::mlir::types;
+
 extern "C" SymbolExpression* allocateSymbol(char* name) {
   SymbolExpression* newMemory = (SymbolExpression*)malloc(sizeof(SymbolExpression));
 
@@ -28,31 +30,11 @@ extern "C" void setSExpressionArgs(SymbolExpression* baseExpr, int64_t argc, ...
 
   for(int i = 0; i < argc; i++) {
     args[i] = SymbolArgument{va_arg(argValuesAndTypes, SymbolArgumentValue),
-                             va_arg(argValuesAndTypes, SymbolArgumentType)};
+                             va_arg(argValuesAndTypes, RuntimeTypes)};
   }
 
   va_end(argValuesAndTypes);
 
   baseExpr->argc = argc;
   baseExpr->arguments = args;
-}
-
-SymbolArgumentType llvmTypeToRuntimeArgType(mlir::Type type) {
-  if(type.isInteger(1)) {
-    return SymbolArgumentType::Bool;
-  } else if(type.isIntOrIndex()) {
-    return SymbolArgumentType::Int;
-  } else if(type.isIntOrFloat()) {
-    return SymbolArgumentType::Float;
-  } else if(type.isa<mlir::MemRefType>()) {
-    return SymbolArgumentType::String;
-  } else if(type.isa<SymbolOrValueType>()) {
-    if(type.cast<SymbolOrValueType>().isSymbolic() == sexprtype::SymbolOrValue::SYMBOL) {
-      return SymbolArgumentType::Symbol;
-    } else {
-      throw std::runtime_error("Unknwon Type");
-    }
-  } else {
-    throw std::runtime_error("Unknown type");
-  }
 }

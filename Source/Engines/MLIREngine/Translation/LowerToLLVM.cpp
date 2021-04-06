@@ -2,6 +2,7 @@
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
+#include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
@@ -212,7 +213,7 @@ struct AllocateSymbolicFunctionOpLowering
       auto runtimeType = rewriter.create<LLVM::ConstantOp>(
           loc, LLVM::LLVMType::getInt64Ty(context),
           rewriter.getIntegerAttr(rewriter.getIndexType(),
-                                  (int64_t)llvmTypeToRuntimeArgType(argument.getType())));
+                                  (int64_t)boss::mlir::conversion::mlirTypeToRuntimeType(argument.getType(), false)));
 
       // Extract memref
       if(argument.getType().isa<mlir::MemRefType>()) {

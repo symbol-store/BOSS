@@ -5,6 +5,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/TypeInferenceInterface.h"
+#include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include <exception>
 #include <iostream>
 #include <map>
@@ -138,11 +139,11 @@ const std::map<std::string,
            }
 
            auto relationName = stringOp.value();
-
            auto table = database.getRelation(std::string(relationName));
+           auto tupleStreamType = boss::mlir::conversion::arrowSchemaToTupleStreamType(symbol.getContext(), table.getSchema());
 
            return SymbolOrValueType::get(symbol.getContext(), sOrV,
-                                         TupleStreamType::get(symbol.getContext(), &table));
+                                         tupleStreamType);
          }}};
 
 // ==== Entry point functions for type inference =======

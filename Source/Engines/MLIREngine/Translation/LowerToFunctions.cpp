@@ -2,6 +2,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Translation/SexprToFunctions.hpp"
+#include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include <iostream>
 #include <mlir/Dialect/StandardOps/IR/Ops.h>
 #include <mlir/Pass/Pass.h>
@@ -11,6 +12,7 @@
 
 namespace {
 using namespace mlir;
+using namespace boss::mlir::types;
 
 FuncOp generateFunctionsRecursive(sexpr::CombineOp& c, OpBuilder& builder, Region* moduleRegion,
                                   int depth) {
@@ -42,42 +44,21 @@ FuncOp generateFunctionsRecursive(sexpr::CombineOp& c, OpBuilder& builder, Regio
 struct SexprToFunctionsLoweringPass
     : public PassWrapper<SexprToFunctionsLoweringPass, OperationPass<ModuleOp>> {
 
-  SexprToFunctionsLoweringPass(sexprtype::ReturnTypes& returnType)
+  SexprToFunctionsLoweringPass(RuntimeTypes& returnType)
       : PassWrapper(), returnType(returnType) {}
 
   void getDependentDialects(DialectRegistry& registry) const override {
     registry.insert<StandardOpsDialect>();
   }
 
-  sexprtype::ReturnTypes& returnType;
+  RuntimeTypes& returnType;
 
   void runOnOperation() final;
 };
 
 // Sets the return type enum so we know what type the expression returns as a whole
-void setReturnType(sexprtype::ReturnTypes& returnType, mlir::Type const& actualType) {
-  if(!actualType.isa<SymbolOrValueType>()) {
-    throw std::runtime_error("Unexpected root return type: Expected SymbolOrValue");
-  }
-
-  auto symbolOrValue = actualType.cast<SymbolOrValueType>();
-  if(symbolOrValue.isSymbolic() == sexprtype::SymbolOrValue::SYMBOL) {
-    returnType = sexprtype::ReturnTypes::SYMBOL;
-    return;
-  }
-
-  auto baseType = symbolOrValue.getBaseType();
-
-  if(baseType.isa<StringType>()) {
-    returnType = sexprtype::ReturnTypes::STRING;
-  } else if(baseType.isa<IntegerType>()) {
-    if(baseType.cast<IntegerType>().getWidth() == 1)
-      returnType = sexprtype::ReturnTypes::BOOLEAN; // Is boolean
-    else
-      returnType = sexprtype::ReturnTypes::INT; // Is integer
-  } else {
-    returnType = sexprtype::ReturnTypes::UNKNOWN;
-  }
+void setReturnType(RuntimeTypes& returnType, mlir::Type const& actualType) {
+  returnType = boss::mlir::conversion::mlirTypeToRuntimeType(actualType, true);
 }
 
 void SexprToFunctionsLoweringPass::runOnOperation() {
@@ -123,6 +104,6 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
 
 }; // namespace
 
-std::unique_ptr<mlir::Pass> createLowerToFunctionsPass(sexprtype::ReturnTypes& returnType) {
+std::unique_ptr<mlir::Pass> createLowerToFunctionsPass(RuntimeTypes& returnType) {
   return std::make_unique<SexprToFunctionsLoweringPass>(returnType);
 }

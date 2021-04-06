@@ -1,6 +1,6 @@
 #pragma once
-#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include <memory>
 #include <mlir/Pass/Pass.h>
+#include "Engines/MLIREngine/Types/Types.hpp"
 
-std::unique_ptr<mlir::Pass> createLowerToFunctionsPass(sexprtype::ReturnTypes& returnType);
+std::unique_ptr<mlir::Pass> createLowerToFunctionsPass(boss::mlir::types::RuntimeTypes& returnType);

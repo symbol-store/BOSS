@@ -1,8 +1,7 @@
 #pragma once
 
 #include <mlir/IR/Types.h>
-
-enum class SymbolArgumentType { Int = 0, Bool = 1, Float, String, Symbol };
+#include "Engines/MLIREngine/Types/Types.hpp"
 
 struct SymbolExpression;
 
@@ -15,9 +14,9 @@ union SymbolArgumentValue {
 };
 
 struct SymbolArgument {
-  SymbolArgument(SymbolArgumentValue value, SymbolArgumentType type) : type(type), value(value) {}
+  SymbolArgument(SymbolArgumentValue value, boss::mlir::types::RuntimeTypes type) : type(type), value(value) {}
 
-  SymbolArgumentType type;
+  boss::mlir::types::RuntimeTypes type;
   SymbolArgumentValue value;
 };
 
@@ -28,5 +27,3 @@ struct SymbolExpression {
 };
 
 extern "C" SymbolExpression* allocateSymbol(char* name);
-
-SymbolArgumentType llvmTypeToRuntimeArgType(mlir::Type type);
