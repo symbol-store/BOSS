@@ -189,27 +189,35 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
            return success();
          }},
-        {"GetRelation", [&]() {
-          auto stringVal = s.getOperand(0);
-          auto stringConstantOp = stringVal.getDefiningOp<sexpr::StringConstantOp>();
+        {"GetRelation",
+         [&]() {
+           auto stringVal = s.getOperand(0);
+           auto stringConstantOp = stringVal.getDefiningOp<sexpr::StringConstantOp>();
 
-          if (!stringConstantOp) {
-            return failure();
-          }
+           if(!stringConstantOp) {
+             return failure();
+           }
 
-          auto relationName = stringConstantOp.value().str();
-          auto tupleStream = converter.convertType(s.getResult().getType()).dyn_cast_or_null<TupleStreamType>();
+           auto relationName = stringConstantOp.value().str();
+           auto tupleStream =
+               converter.convertType(s.getResult().getType()).dyn_cast_or_null<TupleStreamType>();
 
-          if (!tupleStream) {
-            return failure();
-          }
+           if(!tupleStream) {
+             return failure();
+           }
 
-          auto newOp = rewriter.create<database::GetRelationOp>(s.getLoc(), relationName, tupleStream);
+           auto newOp =
+               rewriter.create<database::GetRelationOp>(s.getLoc(), relationName, tupleStream);
 
-          rewriter.replaceOp(s, newOp.getResult());
+           rewriter.replaceOp(s, newOp.getResult());
 
-          return success();
-        }}
+           return success();
+         }},
+        {"CollectTuples",
+         [&]() {
+            rewriter.replaceOpWithNewOp<database::CollectTuplesOp>(s, RelationType::get(s.getContext()), operands.front());
+            return success();
+         }}
 
     };
 

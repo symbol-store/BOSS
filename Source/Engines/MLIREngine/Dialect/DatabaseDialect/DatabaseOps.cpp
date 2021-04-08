@@ -4,3 +4,7 @@
 
 #define GET_OP_CLASSES
 #include "DatabaseOps.cpp.inc"
+
+TupleStreamType mlir::database::GetRelationOp::getTupleStream() {
+  return getType().cast<TupleStreamType>();
+}

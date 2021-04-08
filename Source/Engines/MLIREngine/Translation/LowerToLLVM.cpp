@@ -1,10 +1,11 @@
-#include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseOps.h"
-#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
-#include "Engines/MLIREngine/Types/TypeConversions.hpp"
+#include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
+#include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include <iostream>
+#include <mutex>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
 #include <mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
@@ -14,6 +15,8 @@
 
 namespace {
 using namespace mlir;
+
+std::mutex printMutex;
 
 static StringRef symbolStructName{"SymbolStruct"};
 static StringRef symbolArgStructName{"SymbolArgStruct"};
@@ -97,24 +100,71 @@ static Value getOrCreateGlobalString(Location loc, OpBuilder& builder, StringRef
 
 struct SexprToLLVMLoweringPass
     : public PassWrapper<SexprToLLVMLoweringPass, OperationPass<ModuleOp>> {
+
+  SexprToLLVMLoweringPass(runtime::Database& database) : database(database){};
+
   void getDependentDialects(DialectRegistry& registry) const override {
     registry.insert<LLVM::LLVMDialect>();
   }
   void runOnOperation() final;
+
+  runtime::Database& database;
+};
+
+struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTuplesOp> {
+  CollectTuplesOpLowering(MLIRContext* ctx, TypeConverter& converter) : OpConversionPattern(ctx), converter(converter) {}
+
+  LogicalResult matchAndRewrite(database::CollectTuplesOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    // TODO correct implementation
+    rewriter.replaceOp(op, operands.front());
+    return success();
+  }
+
+  TypeConverter converter;
 };
 
 struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationOp> {
-  GetRelationOpLowering(MLIRContext* ctx, TypeConverter& converter) : OpConversionPattern(ctx), converter(converter) {}
+  GetRelationOpLowering(MLIRContext* ctx, TypeConverter& converter, runtime::Database& database)
+      : OpConversionPattern(ctx), converter(converter), database(database) {}
 
   LogicalResult matchAndRewrite(database::GetRelationOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
-    rewriter.replaceOpWithNewOp<mlir::ConstantIntOp>(op, 0, 32);
 
+    mlir::SmallVector<Value, 4> newValues;
+
+    std::cout << "Here" << std::endl;
+
+    auto relation = database.getRelation(op.relationName().str());
+    auto resultTupleStream = op.getTupleStream();
+
+    for(auto const& [name, type] : resultTupleStream.getTupleTypes()) {
+      // TODO change symbolic to false, maybe, yes. Maybe means some value of tuple is symbolic.
+      auto arrayPtr = relation.getColumnDataPtr(name, false);
+
+      auto* rawBuffer = arrayPtr->chunk(0).get();
+
+      auto bufferAddress = rewriter.create<ConstantIntOp>(
+          op.getLoc(), reinterpret_cast<size_t>(rawBuffer), sizeof(size_t));
+      auto ptr = rewriter.create<LLVM::IntToPtrOp>(
+          op.getLoc(),
+          LLVM::LLVMPointerType::get(converter.convertType(type).cast<LLVM::LLVMType>()),
+          bufferAddress.getResult());
+
+      auto value = rewriter.create<LLVM::LoadOp>(op.getLoc(), ptr);
+      newValues.push_back(value);
+    }
+
+    for (auto const& val : newValues) {
+      val.getDefiningOp()->dump();
+    }
+
+    rewriter.replaceOp(op, newValues);
     return success();
   }
 
   TypeConverter& converter;
-
+  runtime::Database& database;
 };
 
 struct PrintMemrefOpLowering : public OpConversionPattern<memory::PrintMemrefOp> {
@@ -212,8 +262,9 @@ struct AllocateSymbolicFunctionOpLowering
     for(auto argument : functionArguments) {
       auto runtimeType = rewriter.create<LLVM::ConstantOp>(
           loc, LLVM::LLVMType::getInt64Ty(context),
-          rewriter.getIntegerAttr(rewriter.getIndexType(),
-                                  (int64_t)boss::mlir::conversion::mlirTypeToRuntimeType(argument.getType(), false)));
+          rewriter.getIntegerAttr(
+              rewriter.getIndexType(),
+              (int64_t)boss::mlir::conversion::mlirTypeToRuntimeType(argument.getType(), false)));
 
       // Extract memref
       if(argument.getType().isa<mlir::MemRefType>()) {
@@ -275,8 +326,17 @@ void SexprToLLVMLoweringPass::runOnOperation() {
     return llvm::Optional<Type>{};
   });
 
-  typeConverter.addConversion([](TupleStreamType t) -> llvm::Optional<Type> {
-    return LLVM::LLVMIntegerType::get(t.getContext(), 32);
+  typeConverter.addConversion(
+      [](TupleStreamType t, SmallVectorImpl<Type>& result) -> llvm::Optional<LogicalResult> {
+        for(auto const& nameAndType : t.getTupleTypes()) {
+          result.push_back(nameAndType.second);
+        }
+        return success();
+      });
+
+  typeConverter.addConversion([](RelationType t) -> llvm::Optional<Type> {
+    // TODO change to correct type
+    return IntegerType::get(32, t.getContext());
   });
 
   OwningRewritePatternList patterns;
@@ -284,17 +344,25 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
   patterns
-      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering, GetRelationOpLowering>(
+      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering, CollectTuplesOpLowering>(
           &getContext(), typeConverter);
 
+  patterns.insert<GetRelationOpLowering>(&getContext(), typeConverter, database);
+
   auto module = getOperation();
+
+  printMutex.lock();
+  module.dump();
+  printMutex.unlock();
 
   if(failed(applyFullConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
-} // namespace
+}
+
+// namespace
 }; // namespace
 
-std::unique_ptr<mlir::Pass> createLowerToLLVMPass() {
-  return std::make_unique<SexprToLLVMLoweringPass>();
+std::unique_ptr<mlir::Pass> createLowerToLLVMPass(runtime::Database& database) {
+  return std::make_unique<SexprToLLVMLoweringPass>(database);
 }

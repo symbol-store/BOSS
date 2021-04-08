@@ -2,4 +2,4 @@
 #include <memory>
 #include <mlir/Pass/Pass.h>
 
-std::unique_ptr<mlir::Pass> createLowerToLLVMPass();
+std::unique_ptr<mlir::Pass> createLowerToLLVMPass(runtime::Database& database);

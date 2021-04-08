@@ -10,15 +10,14 @@
 #include <mlir/Dialect/StandardOps/IR/Ops.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/Function.h>
-#include <mlir/IR/RegionKindInterface.h>
-#include <mlir/IR/Verifier.h>
 #include <stack>
-#include <tuple>
 #include <utility>
+
+using namespace mlir;
 
 MLIRGenerator::MLIRGenerator() : builder(&context) {
   context.getOrLoadDialect<mlir::sexpr::SExprDialect>();
-  context.getOrLoadDialect<scf::SCFDialect>();
+  context.getOrLoadDialect<mlir::scf::SCFDialect>();
   context.getOrLoadDialect<mlir::memory::MemoryDialect>();
   context.getOrLoadDialect<mlir::database::DatabaseDialect>();
 

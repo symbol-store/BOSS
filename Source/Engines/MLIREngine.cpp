@@ -70,7 +70,7 @@ Expression Engine::evaluate(Expression const& e) {
   passManager.addPass(createLowerToFunctionsPass(returnType));
   passManager.addNestedPass<::mlir::FuncOp>(createLowerToStdPass());
   passManager.addPass(::mlir::createInlinerPass());
-  passManager.addPass(createLowerToLLVMPass());
+  passManager.addPass(createLowerToLLVMPass(database));
 
   if(::mlir::failed(passManager.run(module.get()))) {
     throw std::runtime_error("Compilation failed");
@@ -95,6 +95,9 @@ Expression Engine::evaluate(Expression const& e) {
     return static_cast<bool>(jitResult);
   case RuntimeTypes::SYMBOL:
     return boss::mlir::conversion::mExpressionFromSExpression(reinterpret_cast<SymbolExpression*>(jitResult));
+  case RuntimeTypes::TUPLE_STREAM:
+    return static_cast<int>(jitResult);
+//    throw std::runtime_error("Not implemented");
   default:
     throw std::runtime_error("Return Type is Unknown");
   }

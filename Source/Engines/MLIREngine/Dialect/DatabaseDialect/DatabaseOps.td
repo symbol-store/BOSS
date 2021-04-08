@@ -7,6 +7,8 @@ include "mlir/IR/OpBase.td"
 def TupleStreamType : Type<CPred<"$_self.isa<TupleStreamType>()">,
                               "Type relationType">;
 
+def RelationType : Type<CPred<"$_self.isa<RelationType>()">>;
+
 def StringType : Type<CPred<"$_self.isa<StringType>()">>;
 
 def GetRelationOp : Database_Op<"getRelation", []> {
@@ -24,6 +26,18 @@ def GetRelationOp : Database_Op<"getRelation", []> {
         $_state.addTypes(databaseResultType);
       }]>
     ];
+
+    code extraClassDeclaration = "TupleStreamType getTupleStream();";
+}
+
+def CollectTuplesOp : Database_Op<"collectTuples", []> {
+  let arguments = (ins
+    TupleStreamType:$inputStream
+  );
+
+  let results = (outs
+    RelationType:$resultRelation
+  );
 }
 
 

@@ -5,7 +5,7 @@
 namespace boss::mlir::conversion {
 using namespace boss::mlir::types;
 
-TupleStreamType arrowSchemaToTupleStreamType(MLIRContext* context, std::shared_ptr<arrow::Schema> schema) {
+TupleStreamType arrowSchemaToTupleStreamType(::mlir::MLIRContext* context, std::shared_ptr<arrow::Schema> schema) {
   TupleStreamTypeStorage::KeyTy types;
 
   for (auto const& field : schema->fields()) {
@@ -16,7 +16,7 @@ TupleStreamType arrowSchemaToTupleStreamType(MLIRContext* context, std::shared_p
 }
 
 struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
-  explicit ArrowToMlirTypeVisitor(::mlir::Type& resultType, MLIRContext* context): resultType(resultType), context(context) {}
+  explicit ArrowToMlirTypeVisitor(::mlir::Type& resultType, ::mlir::MLIRContext* context): resultType(resultType), context(context) {}
 
   arrow::Status Visit(const arrow::NullType& type) override {
     resultType = ::mlir::NoneType::get(context);
@@ -44,10 +44,10 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
   }
 
   ::mlir::Type& resultType;
-  MLIRContext* context;
+  ::mlir::MLIRContext* context;
 };
 
-::mlir::Type arrowTypeToMLIRType(MLIRContext* context, arrow::DataType* arrowType) {
+::mlir::Type arrowTypeToMLIRType(::mlir::MLIRContext* context, arrow::DataType* arrowType) {
   ::mlir::Type mlirType;
   ArrowToMlirTypeVisitor visitor{mlirType, context};
   auto status = arrowType->Accept(&visitor);
@@ -65,6 +65,8 @@ boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type, 
     return RuntimeTypes::FLOAT;
   } else if(type.isa<::mlir::MemRefType>() || type.isa<StringType>()) {
     return RuntimeTypes::STRING;
+  } else if (type.isa<TupleStreamType>()) {
+    return RuntimeTypes::TUPLE_STREAM;
   }
 
   // Its not a base type, try to cast it to a symbolOrValueType

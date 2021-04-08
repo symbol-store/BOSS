@@ -33,4 +33,10 @@ public:
   static TupleStreamType get(mlir::MLIRContext* context, TupleStreamTypeStorage::KeyTy const& tupleType) {
     return Base::get<TupleStreamTypeStorage::KeyTy>(context, tupleType);
   }
+
+  TupleStreamTypeStorage::KeyTy const& getTupleTypes() { return getImpl()->tupleType; }
+};
+
+class RelationType : public mlir::Type::TypeBase<RelationType, mlir::Type, mlir::TypeStorage> {
+  using Base::Base;
 };

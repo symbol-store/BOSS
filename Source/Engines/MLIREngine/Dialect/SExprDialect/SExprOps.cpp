@@ -6,6 +6,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/TypeInferenceInterface.h"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
+#include "Engines/MLIREngine/Types/TypeInference.hpp"
 #include <exception>
 #include <iostream>
 #include <map>
@@ -35,116 +36,6 @@ void mlir::sexpr::SymbolOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Operati
 // ================ Type Inference ===============================
 
 // ==== Functions to infer type of operator results ====
-
-static const auto inferArithmeticType = [](mlir::sexpr::SymbolOp& symbol, auto  /*sOrV*/, runtime::Database const&  /*database*/) {
-  auto const& types = symbol.getOperandTypes();
-  Optional<Type> baseType;
-  // Check all input types are the same
-  for(const auto& type : types) {
-    // Check that it is an integer
-    // Cast is safe as this is already checked
-    if(!type.cast<SymbolOrValueType>().getBaseType().isIntOrIndexOrFloat()) {
-      throw std::runtime_error("Expected a type for arithmetic operation");
-    }
-    // Check that all args are of the same type
-    if(baseType.hasValue()) {
-      if(baseType.getValue() != type) {
-        throw std::runtime_error("Expected a type for arithmetic operation");
-      }
-    } else {
-      baseType = type;
-    }
-  }
-
-  if(!baseType.hasValue()) {
-    throw std::runtime_error("Expected a type for arithmetic operation");
-  }
-
-  return baseType.getValue().dyn_cast<SymbolOrValueType>().getBaseType();
-};
-
-static const auto inferBooleanCompareFunction = [](auto& symbol, auto  /*sOrV*/, runtime::Database const& database) {
-  auto const& types = symbol.getOperandTypes();
-  Optional<Type> baseType;
-  // Check all input types are the same
-  for(const auto& type : types) {
-    // Check that it is an integer
-    // Cast is safe as this is already checked
-    if(!type.template cast<SymbolOrValueType>().getBaseType().isIntOrFloat()) {
-      throw std::runtime_error("Expected a type for arithmetic operation");
-    }
-    // Check that all args are of the same type
-    if(baseType.hasValue()) {
-      if(baseType.getValue() != type) {
-        throw std::runtime_error("Expected a type for arithmetic operation");
-      }
-    } else {
-      baseType = type;
-    }
-  }
-
-  if(!baseType.hasValue()) {
-    throw std::runtime_error("Expected a type for arithmetic operation");
-  }
-
-  return IntegerType::get(1, symbol.getContext());
-};
-
-// Returns base type that was inferred
-const std::map<std::string,
-               std::function<mlir::Type(mlir::sexpr::SymbolOp&, sexprtype::SymbolOrValue, runtime::Database const&)>>
-    operatorToType{
-        {"Plus", inferArithmeticType},
-        {"Minus", inferArithmeticType},
-        {"Mul", inferArithmeticType},
-        {"Div", inferArithmeticType},
-        {"Greater", inferBooleanCompareFunction},
-        {"Symbol",
-         [](auto& symbol, auto  /*sOrV*/, auto const&  /*database*/) {
-           return SymbolOrValueType::get(symbol.getContext(), sexprtype::SymbolOrValue::SYMBOL,
-                                         llvm::Optional<Type>{});
-         }},
-        {"StringJoin",
-         [](auto& symbol, auto sOrV, auto const&  /*database*/) {
-           if(sOrV != sexprtype::SymbolOrValue::VALUE) {
-             return StringType::get(symbol.getContext(), 0);
-           };
-           int length = 0;
-           for(const auto& type : symbol.getOperandTypes()) {
-             auto val = type.template dyn_cast<SymbolOrValueType>()
-                            .getBaseType()
-                            .template dyn_cast<StringType>();
-             if(!val) {
-               throw std::runtime_error("Expected a string as argument");
-             }
-             length += val.getLength();
-           }
-
-           return StringType::get(symbol.getContext(), length);
-         }},
-        {"GetRelation", [](mlir::sexpr::SymbolOp& symbol, auto sOrV, runtime::Database const& database) -> mlir::Type {
-
-           // The first argument must be a string constant!
-           auto firstOperand = symbol.getOperands().begin();
-           if (firstOperand == symbol.getOperands().end()) {
-             // error: no operands
-             return mlir::NoneType();
-           }
-
-           auto stringOp = mlir::dyn_cast_or_null<mlir::sexpr::StringConstantOp>((*firstOperand).getDefiningOp());
-
-           if (stringOp == nullptr) {
-             // error: Operand is not a string constant
-             return mlir::NoneType();
-           }
-
-           auto relationName = stringOp.value();
-           auto table = database.getRelation(std::string(relationName));
-           auto tupleStreamType = boss::mlir::conversion::arrowSchemaToTupleStreamType(symbol.getContext(), table.getSchema());
-
-           return SymbolOrValueType::get(symbol.getContext(), sOrV,
-                                         tupleStreamType);
-         }}};
 
 // ==== Entry point functions for type inference =======
 
@@ -176,14 +67,13 @@ void mlir::sexpr::SymbolOp::inferType(runtime::Database const& database) {
       hasSymbol ? sexprtype::SymbolOrValue::SYMBOL : sexprtype::SymbolOrValue::VALUE;
 
   // Infer base type
-  auto inferenceFuncIterator = operatorToType.find(std::string{this->name()});
-  if(inferenceFuncIterator == operatorToType.end()) {
+  if (!boss::mlir::inference::isRegisteredSymbol(this->name().str())) {
     this->getResult().setType(SymbolOrValueType::get(
         this->getContext(), sexprtype::SymbolOrValue::SYMBOL, llvm::Optional<Type>{}));
     return;
   }
 
-  auto baseType = (inferenceFuncIterator->second)(*this, symOrVal, database);
+  auto baseType = boss::mlir::inference::inferSymbolType(*this, symOrVal, database);
 
   // TODO is this right?
   if(baseType.isa<SymbolOrValueType>()) {
@@ -219,11 +109,6 @@ void mlir::sexpr::EndOp::inferType(runtime::Database const& database) {
   if(!parent) {
     return;
   }
-
-  // auto resultType = parent.getResult().getType();
-
-  // auto newType = SymbolOrValueType::get(resultType.getContext(), inputType.isSymbolic(),
-  //                                       inputType.getBaseTypeChecked());
 
   parent.getResult().setType(inputType);
 }
