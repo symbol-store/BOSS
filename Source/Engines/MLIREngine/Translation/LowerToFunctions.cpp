@@ -3,6 +3,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Translation/SexprToFunctions.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
+#include <mlir/IR/BlockAndValueMapping.h>
 #include <iostream>
 #include <mlir/Dialect/StandardOps/IR/Ops.h>
 #include <mlir/Pass/Pass.h>
@@ -14,31 +15,27 @@ namespace {
 using namespace mlir;
 using namespace boss::mlir::types;
 
-FuncOp generateFunctionsRecursive(sexpr::CombineOp& c, OpBuilder& builder, Region* moduleRegion,
-                                  int depth) {
+Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function) {
+  // Recursively flatten al child combineOps
+  for(auto combineOp : c.getRegion().getOps<sexpr::CombineOp>()) {
+    auto val = flattenCallsRecursive(combineOp, builder, function);
 
-  builder.setInsertionPointToStart(&moduleRegion->getBlocks().front());
-  auto funcType = builder.getFunctionType(llvm::None, c.getResult().getType());
-  auto func = builder.create<FuncOp, llvm::StringRef, mlir::FunctionType&>(
-      builder.getUnknownLoc(), "fn" + std::to_string(depth), funcType);
-
-  func.setVisibility(mlir::SymbolTable::Visibility::Private);
-
-  func.addEntryBlock();
-
-  func.getBody().takeBody(c.getRegion());
-
-  builder.setInsertionPointAfter(c.getOperation());
-  auto call = builder.create<mlir::CallOp, mlir::FuncOp&>(builder.getUnknownLoc(), func);
-  c.replaceAllUsesWith(call.getOperation());
-
-  c.erase();
-
-  for(auto combineOp : func.getRegion().getOps<sexpr::CombineOp>()) {
-    generateFunctionsRecursive(combineOp, builder, moduleRegion, depth + 1);
+    combineOp.replaceAllUsesWith(val);
+    combineOp.erase();
   }
 
-  return func;
+  // Clone all the operations into the function body
+  for (auto& op : c.getRegion().getBlocks().front().without_terminator()) {
+    auto* clone = op.clone();
+    op.replaceAllUsesWith(clone->getResults());
+    function.getRegion().getBlocks().front().push_back(clone);
+  }
+
+  // Extract what the combine op returned, so it can be passed to the caller
+  auto terminator = *c.getRegion().getOps<sexpr::EndOp>().begin();
+  auto returnVal = terminator.getOperand();
+
+  return returnVal;
 }
 
 struct SexprToFunctionsLoweringPass
@@ -61,6 +58,7 @@ void setReturnType(RuntimeTypes& returnType, mlir::Type const& actualType) {
   returnType = boss::mlir::conversion::mlirTypeToRuntimeType(actualType, true);
 }
 
+/// This pass flattens all nested CombineOps into straight-line code
 void SexprToFunctionsLoweringPass::runOnOperation() {
   // Make a builder
   OpBuilder builder(getOperation().getContext());
@@ -86,20 +84,16 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
   auto funcType = builder.getFunctionType(llvm::None, rootCombine.getResult().getType());
   auto func = builder.create<FuncOp, llvm::StringRef, mlir::FunctionType&>(builder.getUnknownLoc(),
                                                                            "entry", funcType);
-
   auto* entry = func.addEntryBlock();
-
   builder.setInsertionPointToStart(entry);
 
-  auto* newOp = builder.clone(*rootCombine.getOperation());
-  builder.create<ReturnOp, ValueRange>(builder.getUnknownLoc(), newOp->getResult(0));
+  auto lastVal = flattenCallsRecursive(rootCombine, builder, func);
 
+  // Create new returnOp
+  builder.create<ReturnOp>(rootCombine.getLoc(), lastVal);
+
+  // Erase the combine that we flattened
   rootCombine.erase();
-
-  auto newCombineOp = mlir::dyn_cast<sexpr::CombineOp, Operation>(
-      func.getBody().getBlocks().front().getOperations().front());
-
-  generateFunctionsRecursive(newCombineOp, builder, &getOperation().getBodyRegion(), 0);
 }
 
 }; // namespace
