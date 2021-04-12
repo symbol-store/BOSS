@@ -14,4 +14,6 @@ TupleStreamType arrowSchemaToTupleStreamType(::mlir::MLIRContext* context, std::
 
 boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type, bool extractSymbol);
 
+size_t mlirTypeToArrowRawBuffer(arrow::ChunkedArray* array, ::mlir::Type type, int chunk);
+
 } // namespace boss

@@ -3,6 +3,7 @@
 
 include "DatabaseDialect.td"
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def TupleStreamType : Type<CPred<"$_self.isa<TupleStreamType>()">,
                               "Type relationType">;
@@ -38,6 +39,44 @@ def CollectTuplesOp : Database_Op<"collectTuples", []> {
   let results = (outs
     RelationType:$resultRelation
   );
+}
+
+def ExtractFieldFromTupleOp : Database_Op<"extractFieldFromTupStream", []> {
+  let arguments = (ins
+    TupleStreamType:$tupleStream,
+    StrAttr:$fieldName
+   );
+
+   let results = (outs
+    AnyType:$fieldValue
+   );
+
+   let builders = [
+    OpBuilderDAG<(ins "Value":$tupleStream, "std::string":$fieldName, "Type":$resultType), [{
+      $_state.addAttribute("fieldName", $_builder.getStringAttr(fieldName));
+      $_state.addTypes(resultType);
+      $_state.addOperands(tupleStream);
+    }]>
+   ];
+
+   let hasCanonicalizer = 1;
+}
+
+def PackFieldsIntoTupleOp : Database_Op<"packFieldsIntoTupStream", [NoSideEffect]> {
+  let arguments = (ins
+    Variadic<AnyType>:$fields
+  );
+
+  let results = (outs
+    TupleStreamType:$tupleStream
+  );
+
+  let builders = [
+    OpBuilderDAG<(ins "ValueRange":$values, "TupleStreamType":$resultType), [{
+      $_state.addTypes(resultType);
+      $_state.addOperands(values);
+    }]>
+  ];
 }
 
 

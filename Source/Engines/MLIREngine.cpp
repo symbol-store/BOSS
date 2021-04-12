@@ -8,18 +8,13 @@
 #include "Engines/MLIREngine/Translation/SexprToFunctions.hpp"
 #include "Engines/MLIREngine/Translation/SexprToLLVM.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
+#include "Engines/MLIREngine/Translation/LowerDatabase.hpp"
 
 #include <llvm/IR/Module.h>
 #include <mlir/ExecutionEngine/ExecutionEngine.h>
-#include <mlir/ExecutionEngine/OptUtils.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Target/LLVMIR.h>
 #include <mlir/Transforms/Passes.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/ErrorOr.h>
-#include <llvm/Support/MemoryBuffer.h>
-#include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 
@@ -70,6 +65,8 @@ Expression Engine::evaluate(Expression const& e) {
   passManager.addPass(createLowerToFunctionsPass(returnType));
   passManager.addNestedPass<::mlir::FuncOp>(createLowerToStdPass());
   passManager.addPass(::mlir::createInlinerPass());
+  passManager.addPass(createLowerToDatabasePass(database));
+  passManager.addPass(::mlir::createCanonicalizerPass());
   passManager.addPass(createLowerToLLVMPass(database));
 
   if(::mlir::failed(passManager.run(module.get()))) {
@@ -95,7 +92,8 @@ Expression Engine::evaluate(Expression const& e) {
     return static_cast<bool>(jitResult);
   case RuntimeTypes::SYMBOL:
     return boss::mlir::conversion::mExpressionFromSExpression(reinterpret_cast<SymbolExpression*>(jitResult));
-  case RuntimeTypes::TUPLE_STREAM:
+  case RuntimeTypes::RELATION:
+    // TODO correct cast
     return static_cast<int>(jitResult);
 //    throw std::runtime_error("Not implemented");
   default:

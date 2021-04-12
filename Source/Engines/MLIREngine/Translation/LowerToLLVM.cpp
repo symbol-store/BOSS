@@ -111,62 +111,6 @@ struct SexprToLLVMLoweringPass
   runtime::Database& database;
 };
 
-struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTuplesOp> {
-  CollectTuplesOpLowering(MLIRContext* ctx, TypeConverter& converter) : OpConversionPattern(ctx), converter(converter) {}
-
-  LogicalResult matchAndRewrite(database::CollectTuplesOp op, ArrayRef<Value> operands,
-                                ConversionPatternRewriter& rewriter) const override {
-    // TODO correct implementation
-    rewriter.replaceOp(op, operands.front());
-    return success();
-  }
-
-  TypeConverter converter;
-};
-
-struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationOp> {
-  GetRelationOpLowering(MLIRContext* ctx, TypeConverter& converter, runtime::Database& database)
-      : OpConversionPattern(ctx), converter(converter), database(database) {}
-
-  LogicalResult matchAndRewrite(database::GetRelationOp op, ArrayRef<Value> operands,
-                                ConversionPatternRewriter& rewriter) const override {
-
-    mlir::SmallVector<Value, 4> newValues;
-
-    std::cout << "Here" << std::endl;
-
-    auto relation = database.getRelation(op.relationName().str());
-    auto resultTupleStream = op.getTupleStream();
-
-    for(auto const& [name, type] : resultTupleStream.getTupleTypes()) {
-      // TODO change symbolic to false, maybe, yes. Maybe means some value of tuple is symbolic.
-      auto arrayPtr = relation.getColumnDataPtr(name, false);
-
-      auto* rawBuffer = arrayPtr->chunk(0).get();
-
-      auto bufferAddress = rewriter.create<ConstantIntOp>(
-          op.getLoc(), reinterpret_cast<size_t>(rawBuffer), sizeof(size_t));
-      auto ptr = rewriter.create<LLVM::IntToPtrOp>(
-          op.getLoc(),
-          LLVM::LLVMPointerType::get(converter.convertType(type).cast<LLVM::LLVMType>()),
-          bufferAddress.getResult());
-
-      auto value = rewriter.create<LLVM::LoadOp>(op.getLoc(), ptr);
-      newValues.push_back(value);
-    }
-
-    for (auto const& val : newValues) {
-      val.getDefiningOp()->dump();
-    }
-
-    rewriter.replaceOp(op, newValues);
-    return success();
-  }
-
-  TypeConverter& converter;
-  runtime::Database& database;
-};
-
 struct PrintMemrefOpLowering : public OpConversionPattern<memory::PrintMemrefOp> {
   PrintMemrefOpLowering(MLIRContext* ctx, TypeConverter& converter)
       : OpConversionPattern(ctx), converter(converter) {}
@@ -327,16 +271,16 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   });
 
   typeConverter.addConversion(
-      [](TupleStreamType t, SmallVectorImpl<Type>& result) -> llvm::Optional<LogicalResult> {
+      [&typeConverter](TupleStreamType t, SmallVectorImpl<Type>& result) -> llvm::Optional<LogicalResult> {
         for(auto const& nameAndType : t.getTupleTypes()) {
-          result.push_back(nameAndType.second);
+          result.push_back(typeConverter.convertType(nameAndType.second));
         }
         return success();
       });
 
   typeConverter.addConversion([](RelationType t) -> llvm::Optional<Type> {
     // TODO change to correct type
-    return IntegerType::get(32, t.getContext());
+    return LLVM::LLVMIntegerType::get(t.getContext(), 32);
   });
 
   OwningRewritePatternList patterns;
@@ -344,10 +288,8 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
   patterns
-      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering, CollectTuplesOpLowering>(
+      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering>(
           &getContext(), typeConverter);
-
-  patterns.insert<GetRelationOpLowering>(&getContext(), typeConverter, database);
 
   auto module = getOperation();
 
