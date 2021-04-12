@@ -292,10 +292,10 @@ void SexprToLLVMLoweringPass::runOnOperation() {
           &getContext(), typeConverter);
 
   auto module = getOperation();
-
-  printMutex.lock();
-  module.dump();
-  printMutex.unlock();
+//
+//  printMutex.lock();
+//  module.dump();
+//  printMutex.unlock();
 
   if(failed(applyFullConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
