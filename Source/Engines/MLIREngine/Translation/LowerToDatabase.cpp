@@ -5,6 +5,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
+#include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryDialect.h"
 #include "LowerDatabase.hpp"
 #include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
@@ -83,8 +84,7 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
                                                                    firstFieldName, firstFieldType);
 
     rewriter.restoreInsertionPoint(savedInsertionPoint);
-    rewriter.replaceOpWithNewOp<LLVM::ConstantOp>(op, LLVM::LLVMType::getInt32Ty(rewriter.getContext()),
-                                                  rewriter.getIntegerAttr(rewriter.getIndexType(), 42));
+    rewriter.replaceOpWithNewOp<ConstantIndexOp>(op, 42);
 
     return success();
   }
@@ -93,8 +93,8 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
 };
 
 struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationOp> {
-  GetRelationOpLowering(MLIRContext* ctx, TypeConverter& converter, runtime::Database& database)
-      : OpConversionPattern(ctx), converter(converter), database(database) {}
+  GetRelationOpLowering(MLIRContext* ctx, runtime::Database& database)
+      : OpConversionPattern(ctx), database(database) {}
 
   LogicalResult matchAndRewrite(database::GetRelationOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
@@ -122,18 +122,7 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
       // TODO: Chunked array chunks?
       auto rawBuffer = boss::mlir::conversion::mlirTypeToArrowRawBuffer(arrayPtr.get(), type, 0);
 
-      // TODO generate loop here
-
-      auto bufferAddress = rewriter.create<LLVM::ConstantOp>(
-          op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
-          rewriter.getIntegerAttr(rewriter.getIndexType(), rawBuffer));
-
-      auto ptr = rewriter.create<LLVM::IntToPtrOp>(
-          op.getLoc(),
-          LLVM::LLVMPointerType::get(converter.convertType(type).cast<LLVM::LLVMType>()),
-          bufferAddress.getResult());
-
-      auto value = rewriter.create<LLVM::LoadOp>(op.getLoc(), ptr);
+      auto value = rewriter.create<memory::LoadConstantAddressOp>(op.getLoc(), rawBuffer, type);
       newValues.push_back(value);
     }
 
@@ -142,7 +131,6 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     return success();
   }
 
-  TypeConverter& converter;
   runtime::Database& database;
 };
 
@@ -156,25 +144,19 @@ void DatabaseLoweringPass::runOnOperation() {
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
   target.addLegalDialect<::mlir::StandardOpsDialect>();
-  target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
+  target.addLegalDialect<memory::MemoryDialect>();
 
   OwningRewritePatternList patterns;
 
-  TypeConverter databaseTypeConverter;
+  TypeConverter typeConverter;
 
-  databaseTypeConverter.addConversion([](Type t) {
+  typeConverter.addConversion([](Type t) {
     return t;
   });
 
-  databaseTypeConverter.addConversion([&](RelationType t) {
+  typeConverter.addConversion([&](RelationType t) {
     // TODO use correct type
-    return LLVM::LLVMIntegerType::get(&getContext(), 32);
-  });
-
-  LLVMTypeConverter llvmTypeConverter(&getContext());
-  llvmTypeConverter.addConversion([&](RelationType t) {
-    // TODO use correct type
-    return LLVM::LLVMIntegerType::get(&getContext(), 32);
+    return mlir::IndexType::get(t.getContext());
   });
 
   target.addDynamicallyLegalOp<mlir::FuncOp>([&](Operation* op) {
@@ -187,9 +169,8 @@ void DatabaseLoweringPass::runOnOperation() {
     return true;
   });
 
-  patterns.insert<GetRelationOpLowering>(&getContext(), llvmTypeConverter, database);
-  patterns.insert<FuncOpSignatureConversion>(&getContext(), databaseTypeConverter);
-  patterns.insert<CollectTuplesOpLowering>(&getContext(), llvmTypeConverter);
+  patterns.insert<GetRelationOpLowering>(&getContext(), database);
+  patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
 
   auto module = getOperation();
 

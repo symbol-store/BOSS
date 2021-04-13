@@ -136,6 +136,30 @@ struct PrintMemrefOpLowering : public OpConversionPattern<memory::PrintMemrefOp>
   TypeConverter& converter;
 };
 
+struct LoadConstantAddressOpLowering : public OpConversionPattern<memory::LoadConstantAddressOp> {
+  LoadConstantAddressOpLowering(MLIRContext* ctx, TypeConverter& converter)
+  : OpConversionPattern(ctx), converter(converter) {}
+
+  LogicalResult matchAndRewrite(memory::LoadConstantAddressOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+
+    auto bufferAddress = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), op.address()));
+
+    auto ptr = rewriter.create<LLVM::IntToPtrOp>(
+        op.getLoc(),
+        LLVM::LLVMPointerType::get(converter.convertType(op.getType()).cast<LLVM::LLVMType>()),
+        bufferAddress.getResult());
+
+    rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, ptr);
+
+    return success();
+  }
+
+  TypeConverter& converter;
+};
+
 struct AllocateSymbolOpLowering : public OpConversionPattern<memory::AllocateSymbolOp> {
   AllocateSymbolOpLowering(MLIRContext* ctx, TypeConverter& converter)
       : OpConversionPattern(ctx), converter(converter) {}
@@ -288,7 +312,7 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
   patterns
-      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering>(
+      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering, LoadConstantAddressOpLowering>(
           &getContext(), typeConverter);
 
   auto module = getOperation();

@@ -47,4 +47,17 @@ def AllocateSymbolicFunctionOp : Memory_Op<"allocateSymbolicFuncOp", []> {
   ];
 }
 
+def LoadConstantAddressOp : Memory_Op<"loadConstantAddressOp", [NoSideEffect]> {
+  let arguments = (ins I64Attr:$address);
+
+  let results = (outs AnyType:$loadedValue);
+
+  let builders = [
+    OpBuilderDAG<(ins "size_t":$address, "Type":$resultType), [{
+      $_state.addTypes(resultType);
+      $_state.addAttribute("address", $_builder.getI64IntegerAttr(address));
+    }]>
+  ];
+}
+
 #endif // S
