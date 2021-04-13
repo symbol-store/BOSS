@@ -69,6 +69,9 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
   LogicalResult matchAndRewrite(database::CollectTuplesOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
 
+    auto savedInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPointAfter(operands.front().getDefiningOp());
+
     auto tupleStream = op.getOperand().getType().cast<TupleStreamType>();
 
     auto firstFieldName = tupleStream.getConcreteTupleTypes().front().first;
@@ -76,8 +79,12 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
 
     // TODO correct implementation
 
-    rewriter.replaceOpWithNewOp<database::ExtractFieldFromTupleOp>(op, op.getOperand(),
+    rewriter.create<database::ExtractFieldFromTupleOp>(op.getLoc(), op.getOperand(),
                                                                    firstFieldName, firstFieldType);
+
+    rewriter.restoreInsertionPoint(savedInsertionPoint);
+    rewriter.replaceOpWithNewOp<LLVM::ConstantOp>(op, LLVM::LLVMType::getInt32Ty(rewriter.getContext()),
+                                                  rewriter.getIntegerAttr(rewriter.getIndexType(), 42));
 
     return success();
   }
@@ -95,7 +102,16 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     mlir::SmallVector<Value, 4> newValues;
 
     auto relation = database.getRelation(op.relationName().str());
-    auto resultTupleStream = op.getTupleStream();
+
+    // Create loop
+    auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
+    auto upperBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
+    auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
+    auto loop = rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
+    PatternRewriter::InsertionGuard insertionGuard(rewriter);
+    rewriter.setInsertionPointToStart(loop.getBody());
+
+    auto resultTupleStream = rewriter.getType<TupleStreamType>(op.getTupleStream().getTupleTypes(), loop.getBody());
 
     for(auto const& [name, type] : resultTupleStream.getConcreteTupleTypes()) {
       // TODO change symbolic to false, maybe, yes. Maybe means some value of tuple is symbolic.
@@ -175,12 +191,13 @@ void DatabaseLoweringPass::runOnOperation() {
   patterns.insert<FuncOpSignatureConversion>(&getContext(), databaseTypeConverter);
   patterns.insert<CollectTuplesOpLowering>(&getContext(), llvmTypeConverter);
 
-
   auto module = getOperation();
 
   if(failed(applyPartialConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
+
+  module.dump();
 }
 
 // namespace

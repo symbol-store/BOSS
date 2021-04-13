@@ -7,13 +7,13 @@ using namespace boss::mlir::types;
 
 TupleStreamType arrowSchemaToTupleStreamType(::mlir::MLIRContext* context,
                                              std::shared_ptr<arrow::Schema> schema) {
-  TupleStreamTypeStorage::KeyTy types;
+  TupleStreamTypeStorage::TupleHeader types;
 
   for(auto const& field : schema->fields()) {
     types.emplace_back(field->name(), arrowTypeToMLIRType(context, field->type().get()));
   }
 
-  return TupleStreamType::get(context, types);
+  return TupleStreamType::get(context, types, nullptr);
 }
 
 struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
