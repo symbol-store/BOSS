@@ -103,7 +103,15 @@ TEST_CASE("DATABASE TEST") {
     database.addRelation("Relation1", std::move(table));
     boss::engines::mlir::Engine e(std::move(database));
 
+    auto result = std::get<size_t>(e.evaluate("CollectTuples"_("GetRelation"_((std::string)"Relation1"))));
 
-    CHECK(std::get<int>(e.evaluate("CollectTuples"_("GetRelation"_((std::string)"Relation1")))) == 42);
+    auto* resultTable = reinterpret_cast<runtime::Table*>(result);
+
+    CHECK(resultTable->getSchema()->num_fields() == 2);
+
+    CHECK(std::static_pointer_cast<arrow::Int32Array>(resultTable->getColumnDataPtr("A", false)->chunk(0))->Value(0) == 42);
+    CHECK(std::static_pointer_cast<arrow::Int32Array>(resultTable->getColumnDataPtr("A", false)->chunk(0))->Value(1) == 2);
+    CHECK(std::static_pointer_cast<arrow::Int32Array>(resultTable->getColumnDataPtr("B", false)->chunk(0))->Value(0) == 43);
+    CHECK(std::static_pointer_cast<arrow::Int32Array>(resultTable->getColumnDataPtr("B", false)->chunk(0))->Value(1) == 1);
   }
 }

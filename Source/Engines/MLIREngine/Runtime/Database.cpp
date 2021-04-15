@@ -1,4 +1,6 @@
 #include "Database.hpp"
+#include "Engines/MLIREngine/Types/TypeConversions.hpp"
+#include "Engines/MLIREngine/Types/Types.hpp"
 #include "Utilities.hpp"
 #include <algorithm>
 #include <sstream>
@@ -22,7 +24,7 @@ std::string encodeExpression(boss::Expression const& e) {
                    returnValue = str.str();
                  },
                  [&](boss::Symbol const& e) { returnValue = "Symbol{" + e.getName() + "}"; },
-                 [&](bool e) { returnValue = e; }, [&](int e) { returnValue = e; },
+                 [&](bool e) { returnValue = e; }, [&](int e) { returnValue = e; }, [&](size_t e) { returnValue = e; },
                  [&](float e) { returnValue = e; },
                  [&](std::string const& e) { returnValue = "string{" + e + "}"; }),
              e);
@@ -44,6 +46,7 @@ void appendToBuilder(boss::Expression const& e, arrow::ArrayBuilder* builder) {
                  },
                  [&](bool e) { dynamic_cast<arrow::BooleanBuilder*>(builder)->Append(e); },
                  [&](int e) { dynamic_cast<arrow::Int32Builder*>(builder)->Append(e); },
+                 [&](size_t e) { dynamic_cast<arrow::Int64Builder*>(builder)->Append(e); },
                  [&](float e) { dynamic_cast<arrow::FloatBuilder*>(builder)->Append(e); },
                  [&](std::string e) { dynamic_cast<arrow::StringBuilder*>(builder)->Append(e); }),
              e);
@@ -113,4 +116,54 @@ std::shared_ptr<arrow::ChunkedArray> Table::getColumnDataPtr(std::string name, b
   }
   return data->GetColumnByName(name);
 }
+
+std::map<std::string, arrow::ArrayBuilder*>* getBuildersForSchema(arrow::Schema* schema) {
+  auto* resultMap = new std::map<std::string, arrow::ArrayBuilder*>;
+
+  for(auto const& field : schema->fields()) {
+    // TODO could I use unique_ptr?
+    switch(field->type()->id()) {
+    case arrow::Type::type::INT32:
+      resultMap->operator[](field->name()) = new arrow::Int32Builder();
+      break;
+    case arrow::Type::type::BOOL:
+      resultMap->operator[](field->name()) = new arrow::BooleanBuilder();
+      break;
+    case arrow::Type::type::BINARY:
+      resultMap->operator[](field->name()) = new arrow::BinaryBuilder();
+      break;
+    case arrow::Type::type::STRING:
+      resultMap->operator[](field->name()) = new arrow::StringBuilder();
+      break;
+    case arrow::Type::type::FLOAT:
+      resultMap->operator[](field->name()) = new arrow::FloatBuilder();
+      break;
+    }
+  }
+  return resultMap;
+}
+
+Table* constructTable(arrow::Schema* schema, std::map<std::string, arrow::ArrayBuilder*>* builders) {
+  // TODO
+  std::vector<std::shared_ptr<arrow::Array>> columns;
+
+  for(auto const& field : schema->fields()) {
+    columns.push_back(builders->operator[](field->name())->Finish().ValueOrDie());
+  }
+
+  auto sharedSchema = std::shared_ptr<arrow::Schema>(std::shared_ptr<arrow::Schema>(), schema);
+
+  auto arrowTable = arrow::Table::Make(sharedSchema, columns);
+
+  return new Table(Table::fromArrowTable(arrowTable));
+}
+
+void addToRelation_Int(arrow::ArrayBuilder* builder, int value) {
+  auto status = dynamic_cast<arrow::Int32Builder*>(builder)->Append(value);
+}
+
+void addToRelation_Bool(arrow::ArrayBuilder* builder, bool value) {
+  auto status = dynamic_cast<arrow::BooleanBuilder*>(builder)->Append(value);
+}
+
 } // namespace runtime

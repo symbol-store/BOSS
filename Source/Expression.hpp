@@ -18,7 +18,7 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
   using type = std::variant<Args0..., Args1...>;
 };
 
-using AtomicExpression = std::variant<bool, int, float, std::string, Symbol>;
+using AtomicExpression = std::variant<bool, int, size_t, float, std::string, Symbol>;
 class ComplexExpression;
 using Expression = variant_amend<AtomicExpression, ComplexExpression>::type;
 using ExpressionArguments = std::vector<Expression>;

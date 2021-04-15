@@ -1,11 +1,11 @@
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseDialect.h"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseOps.h"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
+#include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryDialect.h"
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
-#include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryDialect.h"
 #include "LowerDatabase.hpp"
 #include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
@@ -53,9 +53,8 @@ struct FuncOpSignatureConversion : public OpConversionPattern<mlir::FuncOp> {
       return failure();
     }
 
-    rewriter.updateRootInPlace(op, [&](){
-      op.setType(rewriter.getFunctionType(convertedInputs, convertedResults));
-    });
+    rewriter.updateRootInPlace(
+        op, [&]() { op.setType(rewriter.getFunctionType(convertedInputs, convertedResults)); });
 
     return success();
   }
@@ -75,17 +74,28 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
 
     auto tupleStream = op.getOperand().getType().cast<TupleStreamType>();
 
-    auto firstFieldName = tupleStream.getConcreteTupleTypes().front().first;
-    auto firstFieldType = converter.convertType(tupleStream.getConcreteTupleTypes().front().second);
+    auto* schema = boss::mlir::conversion::tupleStreamTypeToArrowSchema(tupleStream);
+    auto* builders = runtime::getBuildersForSchema(schema);
 
-    // TODO correct implementation
+    for(auto const& [name, type] : tupleStream.getConcreteTupleTypes()) {
+      auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
+          op.getLoc(), op.getOperand(), name, type);
 
-    rewriter.create<database::ExtractFieldFromTupleOp>(op.getLoc(), op.getOperand(),
-                                                                   firstFieldName, firstFieldType);
+      auto builderPtr = reinterpret_cast<size_t>(builders->operator[](name));
+      rewriter.create<database::AppendToRelationOp>(
+          op.getLoc(), extractedVal.getResult(), builderPtr,
+          boss::mlir::conversion::mlirTypeToRuntimeType(type, false));
+    }
 
     rewriter.restoreInsertionPoint(savedInsertionPoint);
-    rewriter.replaceOpWithNewOp<ConstantIndexOp>(op, 42);
 
+    auto newOp = rewriter.create<database::FinalizeRelationOp>(
+        op.getLoc(), reinterpret_cast<size_t>(builders), reinterpret_cast<size_t>(schema));
+
+    op.dump();
+    newOp.dump();
+
+    rewriter.replaceOp(op, newOp.getResult());
     return success();
   }
 
@@ -101,17 +111,20 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
 
     mlir::SmallVector<Value, 4> newValues;
 
+    auto resultTupleStream =
+        rewriter.getType<TupleStreamType>(op.getTupleStream().getTupleTypes());
+
     auto relation = database.getRelation(op.relationName().str());
+    // TODO loop for different types
+    auto relationLength = relation.getLength();
 
     // Create loop
     auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
-    auto upperBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
+    auto upperBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), relationLength);
     auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
     auto loop = rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
     PatternRewriter::InsertionGuard insertionGuard(rewriter);
     rewriter.setInsertionPointToStart(loop.getBody());
-
-    auto resultTupleStream = rewriter.getType<TupleStreamType>(op.getTupleStream().getTupleTypes(), loop.getBody());
 
     for(auto const& [name, type] : resultTupleStream.getConcreteTupleTypes()) {
       // TODO change symbolic to false, maybe, yes. Maybe means some value of tuple is symbolic.
@@ -122,7 +135,7 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
       // TODO: Chunked array chunks?
       auto rawBuffer = boss::mlir::conversion::mlirTypeToArrowRawBuffer(arrayPtr.get(), type, 0);
 
-      auto value = rewriter.create<memory::LoadConstantAddressOp>(op.getLoc(), rawBuffer, type);
+      auto value = rewriter.create<memory::LoadConstantAddressOp>(op.getLoc(), rawBuffer, type, loop.getInductionVar());
       newValues.push_back(value);
     }
 
@@ -139,8 +152,8 @@ void DatabaseLoweringPass::runOnOperation() {
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
 
   target.addIllegalDialect<mlir::database::DatabaseDialect>();
-  target.addLegalOp<database::ExtractFieldFromTupleOp>();
-  target.addLegalOp<database::PackFieldsIntoTupleOp>();
+  target.addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
+                    database::FinalizeRelationOp, database::AppendToRelationOp>();
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
   target.addLegalDialect<::mlir::StandardOpsDialect>();
@@ -150,9 +163,7 @@ void DatabaseLoweringPass::runOnOperation() {
 
   TypeConverter typeConverter;
 
-  typeConverter.addConversion([](Type t) {
-    return t;
-  });
+  typeConverter.addConversion([](Type t) { return t; });
 
   typeConverter.addConversion([&](RelationType t) {
     // TODO use correct type
@@ -161,8 +172,8 @@ void DatabaseLoweringPass::runOnOperation() {
 
   target.addDynamicallyLegalOp<mlir::FuncOp>([&](Operation* op) {
     auto funcType = mlir::dyn_cast<mlir::FuncOp>(op).getType();
-    for (auto const& result : funcType.getResults()) {
-      if (result.isa<RelationType>()) {
+    for(auto const& result : funcType.getResults()) {
+      if(result.isa<RelationType>()) {
         return false;
       }
     }

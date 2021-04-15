@@ -5,21 +5,22 @@
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include <iostream>
-#include <mutex>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
 #include <mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Dialect/StandardOps/IR/Ops.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
+#include <mutex>
 
 namespace {
 using namespace mlir;
 
 std::mutex printMutex;
 
-static StringRef symbolStructName{"SymbolStruct"};
-static StringRef symbolArgStructName{"SymbolArgStruct"};
+static const StringRef symbolStructName{"SymbolStruct"};
+static const StringRef symbolArgStructName{"SymbolArgStruct"};
+static const StringRef voidStructName{"VoidStruct"};
 
 /// Insert or get a function into the llvm namespace
 static FlatSymbolRefAttr getOrInsertFunction(std::string name, LLVM::LLVMType functionType,
@@ -138,7 +139,7 @@ struct PrintMemrefOpLowering : public OpConversionPattern<memory::PrintMemrefOp>
 
 struct LoadConstantAddressOpLowering : public OpConversionPattern<memory::LoadConstantAddressOp> {
   LoadConstantAddressOpLowering(MLIRContext* ctx, TypeConverter& converter)
-  : OpConversionPattern(ctx), converter(converter) {}
+      : OpConversionPattern(ctx), converter(converter) {}
 
   LogicalResult matchAndRewrite(memory::LoadConstantAddressOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
@@ -147,12 +148,16 @@ struct LoadConstantAddressOpLowering : public OpConversionPattern<memory::LoadCo
         op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
         rewriter.getIntegerAttr(rewriter.getIndexType(), op.address()));
 
-    auto ptr = rewriter.create<LLVM::IntToPtrOp>(
+    auto ptrType = LLVM::LLVMPointerType::get(converter.convertType(op.getType()).cast<LLVM::LLVMType>());
+
+    auto basePtr = rewriter.create<LLVM::IntToPtrOp>(
         op.getLoc(),
-        LLVM::LLVMPointerType::get(converter.convertType(op.getType()).cast<LLVM::LLVMType>()),
+        ptrType,
         bufferAddress.getResult());
 
-    rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, ptr);
+    auto effectivePtr = rewriter.create<LLVM::GEPOp>(op.getLoc(), ptrType, basePtr.getResult(), operands.front());
+
+    rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, effectivePtr);
 
     return success();
   }
@@ -255,6 +260,96 @@ struct AllocateSymbolicFunctionOpLowering
   TypeConverter& converter;
 };
 
+struct AppendToRelationOpLowering : public OpConversionPattern<database::AppendToRelationOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  template <boss::mlir::types::RuntimeTypes /*type*/>
+  mlir::Operation* createAppendCall(ConversionPatternRewriter& rewriter /*rewriter*/, ModuleOp /*module*/ module,
+                                       Value /*operand*/ operand, Location /*loc*/ loc,
+                                       size_t /*relationBuilderPtr*/ relationBuilderPtr) const {
+    return nullptr;
+  }
+
+  template <>
+  mlir::Operation* createAppendCall<boss::mlir::types::RuntimeTypes::INT>(
+      ConversionPatternRewriter& rewriter, ModuleOp module, Value operand, Location loc,
+      size_t relationBuilderPtr) const {
+    auto voidType = LLVM::LLVMVoidType::get(rewriter.getContext());
+    auto intType = LLVM::LLVMIntegerType::get(rewriter.getContext(), 64);
+    auto funcType = LLVM::LLVMFunctionType::get(
+        voidType, {intType, LLVM::LLVMIntegerType::get(rewriter.getContext(), 32)});
+
+    auto insertFunction = getOrInsertFunction("addToRelation_Int", funcType, rewriter, module);
+
+    auto relationPtrConstant = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), relationBuilderPtr));
+
+    ::mlir::ValueRange funcOperands{relationPtrConstant.getResult(), operand};
+
+    auto funcOp = dyn_cast_or_null<LLVM::LLVMFuncOp>(module.lookupSymbol(insertFunction));
+
+    if(!funcOp) {
+      return nullptr;
+    }
+
+    return rewriter.create<LLVM::CallOp>(loc, funcOp, funcOperands);
+  }
+
+  LogicalResult matchAndRewrite(database::AppendToRelationOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto parentModule = op.getParentOfType<ModuleOp>();
+
+    mlir::Operation* callOp = nullptr;
+    switch((boss::mlir::types::RuntimeTypes)op.runtimeType()) {
+    case boss::mlir::types::RuntimeTypes::INT:
+      callOp = createAppendCall<boss::mlir::types::RuntimeTypes::INT>(
+          rewriter, parentModule, operands.front(), op.getLoc(), op.relationBuilderPtr());
+      break;
+    case boss::mlir::types::RuntimeTypes::BOOLEAN:
+      callOp = createAppendCall<boss::mlir::types::RuntimeTypes::BOOLEAN>(
+          rewriter, parentModule, operands.front(), op.getLoc(), op.relationBuilderPtr());
+      break;
+    default:
+      throw std::runtime_error("Type not currently implemented");
+    }
+
+    if(callOp == nullptr) {
+      return failure();
+    }
+
+    rewriter.replaceOp(op, callOp->getResults());
+
+    return success();
+  }
+};
+
+struct FinalizeRelationOpLowering : public OpConversionPattern<database::FinalizeRelationOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(database::FinalizeRelationOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto parentModule = op.getParentOfType<ModuleOp>();
+    auto intType = LLVM::LLVMIntegerType::get(op.getContext(), 64);
+    auto funcType = LLVM::LLVMFunctionType::get(intType, {intType, intType});
+
+    auto finalizeFunction = getOrInsertFunction("constructTable", funcType, rewriter, parentModule);
+
+    auto relationPtrConstant = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), op.relationBuildersPtr()));
+    auto schemaPtr = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), op.schemaPtr()));
+
+    rewriter.replaceOpWithNewOp<LLVM::CallOp>(
+        op, LLVM::LLVMIntegerType::get(rewriter.getContext(), 64), finalizeFunction,
+        ::mlir::ValueRange{schemaPtr.getResult(), relationPtrConstant.getResult()});
+
+    return success();
+  }
+};
+
 void SexprToLLVMLoweringPass::runOnOperation() {
   LLVMConversionTarget target(getContext());
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
@@ -263,6 +358,9 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   options.useBarePtrCallConv = true;
 
   LLVMTypeConverter typeConverter(&getContext(), options);
+
+  // Insert void struct type
+  //  LLVM::LLVMPointerType::createStructTy(&getContext(), voidStructName);
 
   // Insert S-Expression struct type
   auto symbolStruct = LLVM::LLVMStructType::createStructTy(&getContext(), symbolStructName);
@@ -295,7 +393,8 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   });
 
   typeConverter.addConversion(
-      [&typeConverter](TupleStreamType t, SmallVectorImpl<Type>& result) -> llvm::Optional<LogicalResult> {
+      [&typeConverter](TupleStreamType t,
+                       SmallVectorImpl<Type>& result) -> llvm::Optional<LogicalResult> {
         for(auto const& nameAndType : t.getTupleTypes()) {
           result.push_back(typeConverter.convertType(nameAndType.second));
         }
@@ -311,15 +410,17 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   populateLoopToStdConversionPatterns(patterns, &getContext());
   populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
-  patterns
-      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering, LoadConstantAddressOpLowering>(
-          &getContext(), typeConverter);
+  patterns.insert<PrintMemrefOpLowering, AllocateSymbolOpLowering,
+                  AllocateSymbolicFunctionOpLowering, LoadConstantAddressOpLowering>(&getContext(),
+                                                                                     typeConverter);
+
+  patterns.insert<FinalizeRelationOpLowering, AppendToRelationOpLowering>(&getContext());
 
   auto module = getOperation();
-//
-//  printMutex.lock();
-//  module.dump();
-//  printMutex.unlock();
+  //
+  //  printMutex.lock();
+  //  module.dump();
+  //  printMutex.unlock();
 
   if(failed(applyFullConversion(module, target, std::move(patterns)))) {
     signalPassFailure();

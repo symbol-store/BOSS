@@ -73,6 +73,8 @@ Expression Engine::evaluate(Expression const& e) {
     throw std::runtime_error("Compilation failed");
   }
 
+  module->dump();
+
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);
   if(!llvmModule) {
@@ -91,9 +93,7 @@ Expression Engine::evaluate(Expression const& e) {
   case RuntimeTypes::SYMBOL:
     return boss::mlir::conversion::mExpressionFromSExpression(reinterpret_cast<SymbolExpression*>(jitResult));
   case RuntimeTypes::RELATION:
-    // TODO correct cast
-    return static_cast<int>(jitResult);
-//    throw std::runtime_error("Not implemented");
+    return static_cast<size_t>(jitResult);
   default:
     throw std::runtime_error("Return Type is Unknown");
   }

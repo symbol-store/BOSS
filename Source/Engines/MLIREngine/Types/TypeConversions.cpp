@@ -1,6 +1,8 @@
 #include "TypeConversions.hpp"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
 #include <mlir/IR/StandardTypes.h>
+#include <arrow/api.h>
 
 namespace boss::mlir::conversion {
 using namespace boss::mlir::types;
@@ -13,7 +15,17 @@ TupleStreamType arrowSchemaToTupleStreamType(::mlir::MLIRContext* context,
     types.emplace_back(field->name(), arrowTypeToMLIRType(context, field->type().get()));
   }
 
-  return TupleStreamType::get(context, types, nullptr);
+  return TupleStreamType::get(context, types);
+}
+
+arrow::Schema* tupleStreamTypeToArrowSchema(TupleStreamType& t) {
+  std::vector<std::shared_ptr<arrow::Field>> fields;
+
+  for (auto const& [name, type] : t.getConcreteTupleTypes()) {
+    fields.emplace_back(std::make_shared<arrow::Field>(name, mlirTypeToArrowType(type)));
+  }
+
+  return new arrow::Schema(fields);
 }
 
 struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
@@ -64,6 +76,21 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
   }
 
   return visitor.resultType;
+}
+
+std::shared_ptr<arrow::DataType> mlirTypeToArrowType(::mlir::Type const& type) {
+  if(type.isInteger(1)) {
+    return arrow::boolean();
+  } else if(type.isInteger(32)) {
+    return arrow::int32();
+  } else if(type.isIntOrIndex()) {
+    return arrow::int64();
+  } else if(type.isIntOrFloat()) {
+    return arrow::float32();
+  } else if(type.isa<::mlir::MemRefType>() || type.isa<StringType>()) {
+    return arrow::binary();
+  }
+  return {};
 }
 
 boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type,

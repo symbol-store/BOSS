@@ -79,5 +79,40 @@ def PackFieldsIntoTupleOp : Database_Op<"packFieldsIntoTupStream", [NoSideEffect
   ];
 }
 
+def AppendToRelationOp : Database_Op<"appendToRelationOp"> {
+  let arguments = (ins
+    AnyType:$value,
+    I64Attr:$relationBuilderPtr,
+    I64Attr:$runtimeType
+  );
+
+  let builders = [
+    OpBuilderDAG<(ins "Value":$value, "size_t":$relationBuilderPtr, "boss::mlir::types::RuntimeTypes":$runtimeType), [{
+      $_state.addOperands(value);
+      $_state.addAttribute("relationBuilderPtr", $_builder.getI64IntegerAttr(relationBuilderPtr));
+      $_state.addAttribute("runtimeType", $_builder.getI64IntegerAttr((size_t)runtimeType));
+    }]>
+  ];
+}
+
+def FinalizeRelationOp : Database_Op<"finalizeRelationOp"> {
+  let arguments = (ins
+    I64Attr:$relationBuildersPtr,
+    I64Attr:$schemaPtr
+  );
+
+  let results = (outs
+    Index:$relationPtr
+  );
+
+  let builders = [
+    OpBuilderDAG<(ins "size_t":$relationBuildersPtr, "size_t":$schemaPtr), [{
+      $_state.addAttribute("relationBuildersPtr", $_builder.getI64IntegerAttr(relationBuildersPtr));
+      $_state.addAttribute("schemaPtr", $_builder.getI64IntegerAttr(schemaPtr));
+      $_state.addTypes($_builder.getIndexType());
+    }]>
+  ];
+}
+
 
 #endif

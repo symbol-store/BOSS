@@ -1,14 +1,18 @@
 #pragma once
 #include "Expression.hpp"
 #include "arrow/api.h"
+#include "Engines/MLIREngine/Types/Types.hpp"
 #include <map>
 #include <memory>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <variant>
 #include <vector>
+#include <map>
 
 namespace runtime {
+
 class Table {
 public:
   void bulk_load(std::shared_ptr<arrow::Schema> schema,
@@ -20,6 +24,16 @@ public:
 
   std::shared_ptr<arrow::Schema> getSchema() {
     return data->schema();
+  }
+
+  size_t getLength() {
+    return data->num_rows();
+  }
+
+  static Table fromArrowTable(std::shared_ptr<arrow::Table> arrowTable) {
+    Table table;
+    table.data = std::move(arrowTable);
+    return table;
   }
 
 private:
@@ -36,4 +50,11 @@ public:
 private:
   std::map<std::string, Table> tables;
 };
+
+std::map<std::string, arrow::ArrayBuilder*>* getBuildersForSchema(arrow::Schema* schema);
+extern "C" Table* constructTable(arrow::Schema*, std::map<std::string, arrow::ArrayBuilder*>* builders);
+extern "C" void addToRelation_Int(arrow::ArrayBuilder* builder, int value);
+extern "C" void addToRelation_Bool(arrow::ArrayBuilder* builder, bool value);
+// TODO implement other addToRelation_X
+
 } // namespace runtime
