@@ -26,7 +26,7 @@ public:
     return data->schema();
   }
 
-  size_t getLength() {
+  [[nodiscard]] size_t getLength() const {
     return data->num_rows();
   }
 

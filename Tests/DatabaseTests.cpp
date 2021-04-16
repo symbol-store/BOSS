@@ -29,6 +29,27 @@ runtime::Table createTestTable() {
   return table;
 }
 
+runtime::Table createTestTableIntsOnly() {
+  runtime::Table table;
+
+  // Create a schema
+  std::shared_ptr<arrow::Field> field_a, field_a_sym, field_b, field_b_sym;
+  std::shared_ptr<arrow::Schema> schema;
+
+  field_a = arrow::field("A", arrow::int32());
+  field_a_sym = arrow::field("A_symbols", arrow::binary());
+  field_b = arrow::field("B", arrow::int32());
+  field_b_sym = arrow::field("B_symbols", arrow::binary());
+
+  schema = std::make_shared<arrow::Schema, std::vector<std::shared_ptr<arrow::Field>>>(
+      {field_a, field_a_sym, field_b, field_b_sym});
+
+  // load tuples into the table
+  table.bulk_load(schema, {{{"A", 42}, {"B", 43}}, {{"A", 2}, {"B", 1}}});
+
+  return table;
+}
+
 TEST_CASE("DATABASE TEST") {
 
   SECTION("RawValues") {
@@ -80,38 +101,47 @@ TEST_CASE("DATABASE TEST") {
   }
 
   SECTION("QueryTests") {
+    auto table = createTestTableIntsOnly();
     runtime::Database database;
-    runtime::Table table;
-
-    // Create a schema
-    std::shared_ptr<arrow::Field> field_a, field_a_sym, field_b, field_b_sym;
-    std::shared_ptr<arrow::Schema> schema;
-
-    field_a = arrow::field("A", arrow::int32());
-    field_a_sym = arrow::field("A_symbols", arrow::binary());
-    field_b = arrow::field("B", arrow::int32());
-    field_b_sym = arrow::field("B_symbols", arrow::binary());
-
-    schema = std::make_shared<arrow::Schema, std::vector<std::shared_ptr<arrow::Field>>>(
-        {field_a, field_a_sym, field_b, field_b_sym});
-
-    // load tuples into the table
-    table.bulk_load(schema, {{{"A", 42}, {"B", 43}},
-                             {{"A", 2}, {"B", 1}}});
-
 
     database.addRelation("Relation1", std::move(table));
     boss::engines::mlir::Engine e(std::move(database));
 
-    auto result = std::get<size_t>(e.evaluate("CollectTuples"_("GetRelation"_((std::string)"Relation1"))));
+    auto result =
+        std::get<size_t>(e.evaluate("CollectTuples"_("GetRelation"_((std::string) "Relation1"))));
 
     auto* resultTable = reinterpret_cast<runtime::Table*>(result);
 
     CHECK(resultTable->getSchema()->num_fields() == 2);
 
-    CHECK(std::static_pointer_cast<arrow::Int32Array>(resultTable->getColumnDataPtr("A", false)->chunk(0))->Value(0) == 42);
-    CHECK(std::static_pointer_cast<arrow::Int32Array>(resultTable->getColumnDataPtr("A", false)->chunk(0))->Value(1) == 2);
-    CHECK(std::static_pointer_cast<arrow::Int32Array>(resultTable->getColumnDataPtr("B", false)->chunk(0))->Value(0) == 43);
-    CHECK(std::static_pointer_cast<arrow::Int32Array>(resultTable->getColumnDataPtr("B", false)->chunk(0))->Value(1) == 1);
+    CHECK(std::static_pointer_cast<arrow::Int32Array>(
+              resultTable->getColumnDataPtr("A", false)->chunk(0))
+              ->Value(0) == 42);
+    CHECK(std::static_pointer_cast<arrow::Int32Array>(
+              resultTable->getColumnDataPtr("A", false)->chunk(0))
+              ->Value(1) == 2);
+    CHECK(std::static_pointer_cast<arrow::Int32Array>(
+              resultTable->getColumnDataPtr("B", false)->chunk(0))
+              ->Value(0) == 43);
+    CHECK(std::static_pointer_cast<arrow::Int32Array>(
+              resultTable->getColumnDataPtr("B", false)->chunk(0))
+              ->Value(1) == 1);
+  }
+
+  SECTION("ProjectionTest") {
+    auto table = createTestTableIntsOnly();
+    runtime::Database database;
+
+    database.addRelation("Relation1", std::move(table));
+    boss::engines::mlir::Engine e(std::move(database));
+
+    auto result = std::get<size_t>(e.evaluate(
+        "CollectTuples"_("Project"_("List"_((std::string) "B"), "GetRelation"_((std::string) "Relation1")))));
+
+    auto* resultTable = reinterpret_cast<runtime::Table*>(result);
+
+    CHECK(resultTable->getSchema()->num_fields() == 1);
+    CHECK(resultTable->getSchema()->fields().front()->name() == "B");
+    CHECK(resultTable->getLength() == e.getDatabase().getRelation("Relation1").getLength());
   }
 }

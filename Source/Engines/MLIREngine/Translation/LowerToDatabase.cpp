@@ -92,9 +92,6 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
     auto newOp = rewriter.create<database::FinalizeRelationOp>(
         op.getLoc(), reinterpret_cast<size_t>(builders), reinterpret_cast<size_t>(schema));
 
-    op.dump();
-    newOp.dump();
-
     rewriter.replaceOp(op, newOp.getResult());
     return success();
   }
@@ -147,6 +144,27 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
   runtime::Database& database;
 };
 
+struct ProjectionOpLowering : public OpConversionPattern<database::ProjectionOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(database::ProjectionOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    mlir::SmallVector<Value, 4> newValues;
+    auto outputTupleStream = op.getType().cast<TupleStreamType>();
+
+    rewriter.setInsertionPointAfter(operands.front().getDefiningOp());
+
+    for (auto const& [name, type] : outputTupleStream.getConcreteTupleTypes()) {
+      auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
+          op.getLoc(), op.getOperand(), name, type);
+      newValues.push_back(extractedVal.getResult());
+    }
+
+    rewriter.replaceOpWithNewOp<database::PackFieldsIntoTupleOp>(op, newValues, outputTupleStream);
+    return success();
+  }
+};
+
 void DatabaseLoweringPass::runOnOperation() {
   ConversionTarget target(getContext());
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
@@ -182,14 +200,13 @@ void DatabaseLoweringPass::runOnOperation() {
 
   patterns.insert<GetRelationOpLowering>(&getContext(), database);
   patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
+  patterns.insert<ProjectionOpLowering>(&getContext());
 
   auto module = getOperation();
 
   if(failed(applyPartialConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
-
-  module.dump();
 }
 
 // namespace

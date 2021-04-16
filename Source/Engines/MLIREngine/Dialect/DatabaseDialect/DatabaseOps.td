@@ -6,7 +6,7 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def TupleStreamType : Type<CPred<"$_self.isa<TupleStreamType>()">,
-                              "Type relationType">;
+                              "Type tupleStreamType">;
 
 def RelationType : Type<CPred<"$_self.isa<RelationType>()">>;
 
@@ -38,6 +38,16 @@ def CollectTuplesOp : Database_Op<"collectTuples", []> {
 
   let results = (outs
     RelationType:$resultRelation
+  );
+}
+
+def ProjectionOp : Database_Op<"projectionOp", []> {
+  let arguments = (ins
+    TupleStreamType:$inputStream
+  );
+
+  let results = (outs
+    TupleStreamType:$outputType
   );
 }
 

@@ -217,6 +217,10 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
          [&]() {
             rewriter.replaceOpWithNewOp<database::CollectTuplesOp>(s, RelationType::get(s.getContext()), operands.front());
             return success();
+         }},
+        {"Project", [&]() {
+           rewriter.replaceOpWithNewOp<database::ProjectionOp>(s, converter.convertType(s.getType()), operands[1]);
+           return success();
          }}
 
     };

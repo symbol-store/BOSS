@@ -70,66 +70,109 @@ static const auto inferBooleanCompareFunction = [](auto& symbol, auto /*sOrV*/,
 const std::map<std::string,
                std::function<::mlir::Type(::mlir::sexpr::SymbolOp&, sexprtype::SymbolOrValue,
                                           runtime::Database const&)>>
-    operatorToType{{"Plus", inferArithmeticType},
-                   {"Minus", inferArithmeticType},
-                   {"Mul", inferArithmeticType},
-                   {"Div", inferArithmeticType},
-                   {"Greater", inferBooleanCompareFunction},
-                   {"Symbol",
-                    [](auto& symbol, auto /*sOrV*/, auto const& /*database*/) {
-                      return SymbolOrValueType::get(symbol.getContext(),
-                                                    sexprtype::SymbolOrValue::SYMBOL,
-                                                    llvm::Optional<::mlir::Type>{});
-                    }},
-                   {"StringJoin",
-                    [](auto& symbol, auto sOrV, auto const& /*database*/) {
-                      if(sOrV != sexprtype::SymbolOrValue::VALUE) {
-                        return StringType::get(symbol.getContext(), 0);
-                      };
-                      int length = 0;
-                      for(const auto& type : symbol.getOperandTypes()) {
-                        auto val = type.template dyn_cast<SymbolOrValueType>()
-                                       .getBaseType()
-                                       .template dyn_cast<StringType>();
-                        if(!val) {
-                          throw std::runtime_error("Expected a string as argument");
-                        }
-                        length += val.getLength();
-                      }
+    operatorToType{
+        {"Plus", inferArithmeticType},
+        {"Minus", inferArithmeticType},
+        {"Mul", inferArithmeticType},
+        {"Div", inferArithmeticType},
+        {"Greater", inferBooleanCompareFunction},
+        {"Symbol",
+         [](auto& symbol, auto /*sOrV*/, auto const& /*database*/) {
+           return SymbolOrValueType::get(symbol.getContext(), sexprtype::SymbolOrValue::SYMBOL,
+                                         llvm::Optional<::mlir::Type>{});
+         }},
+        {"StringJoin",
+         [](auto& symbol, auto sOrV, auto const& /*database*/) {
+           if(sOrV != sexprtype::SymbolOrValue::VALUE) {
+             return StringType::get(symbol.getContext(), 0);
+           };
+           int length = 0;
+           for(const auto& type : symbol.getOperandTypes()) {
+             auto val = type.template dyn_cast<SymbolOrValueType>()
+                            .getBaseType()
+                            .template dyn_cast<StringType>();
+             if(!val) {
+               throw std::runtime_error("Expected a string as argument");
+             }
+             length += val.getLength();
+           }
 
-                      return StringType::get(symbol.getContext(), length);
-                    }},
-                   {"GetRelation",
-                    [](::mlir::sexpr::SymbolOp& symbol, auto sOrV,
-                       runtime::Database const& database) -> ::mlir::Type {
-                      // The first argument must be a string constant!
-                      auto firstOperand = symbol.getOperands().begin();
-                      if(firstOperand == symbol.getOperands().end()) {
-                        // error: no operands
-                        return ::mlir::NoneType();
-                      }
+           return StringType::get(symbol.getContext(), length);
+         }},
+        {"GetRelation",
+         [](::mlir::sexpr::SymbolOp& symbol, auto sOrV,
+            runtime::Database const& database) -> ::mlir::Type {
+           // The first argument must be a string constant!
+           auto firstOperand = symbol.getOperands().begin();
+           if(firstOperand == symbol.getOperands().end()) {
+             // error: no operands
+             return ::mlir::NoneType();
+           }
 
-                      auto stringOp = ::mlir::dyn_cast_or_null<::mlir::sexpr::StringConstantOp>(
-                          (*firstOperand).getDefiningOp());
+           auto stringOp = ::mlir::dyn_cast_or_null<::mlir::sexpr::StringConstantOp>(
+               (*firstOperand).getDefiningOp());
 
-                      if(stringOp == nullptr) {
-                        // error: Operand is not a string constant
-                        return ::mlir::NoneType();
-                      }
+           if(stringOp == nullptr) {
+             // error: Operand is not a string constant
+             return ::mlir::NoneType();
+           }
 
-                      auto relationName = stringOp.value();
-                      auto table = database.getRelation(std::string(relationName));
-                      auto tupleStreamType = boss::mlir::conversion::arrowSchemaToTupleStreamType(
-                          symbol.getContext(), table.getSchema());
+           auto relationName = stringOp.value();
+           auto table = database.getRelation(std::string(relationName));
+           auto tupleStreamType = boss::mlir::conversion::arrowSchemaToTupleStreamType(
+               symbol.getContext(), table.getSchema());
 
-                      return SymbolOrValueType::get(symbol.getContext(), sOrV, tupleStreamType);
-                    }},
-                   {"CollectTuples",
-                    [](::mlir::sexpr::SymbolOp& symbol, auto sOrV,
-                       runtime::Database const& database) -> ::mlir::Type {
-                      // TODO change to correct type
-                      return RelationType::get(symbol.getContext());
-                    }}};
+           return SymbolOrValueType::get(symbol.getContext(), sOrV, tupleStreamType);
+         }},
+        {"CollectTuples",
+         [](::mlir::sexpr::SymbolOp& symbol, auto sOrV, runtime::Database const& database)
+             -> ::mlir::Type { return RelationType::get(symbol.getContext()); }},
+        {"Project",
+         [](::mlir::sexpr::SymbolOp& symbol, auto sOrV, runtime::Database const& database) -> ::mlir::Type {
+           // Parse operands: 1. (List ...), 2. TupleStream
+           std::vector<::mlir::StringRef> columns;
+           auto listCombine = ::mlir::dyn_cast_or_null<::mlir::sexpr::CombineOp>(symbol.getOperands().front().getDefiningOp());
+           auto stream = symbol.getOperands()[1].getType().dyn_cast_or_null<SymbolOrValueType>().getBaseType().dyn_cast_or_null<TupleStreamType>();
+           if ((!listCombine) || (!stream)) {
+             symbol.emitError("Unexpected operands");
+             return ::mlir::NoneType::get(symbol.getContext());
+           }
+
+           // Find the (List ...) symbol in the arguments
+           auto symbols = listCombine.getOps<::mlir::sexpr::SymbolOp>();
+           if (symbols.empty()) {
+             symbol.emitError("No symbol in region");
+             return ::mlir::NoneType::get(symbol.getContext());
+           }
+           auto listSymbol = *symbols.begin();
+           if (listSymbol.name() != "List") {
+            symbol.emitError("Expecting a list as first argument");
+            return ::mlir::NoneType::get(symbol.getContext());
+           }
+
+           // Extract all the strings from the list, and append them to the columns vector
+           for (auto const& arg : listSymbol.getOperands()) {
+             auto stringConst = ::mlir::dyn_cast_or_null<::mlir::sexpr::StringConstantOp>(arg.getDefiningOp());
+             if (!stringConst) {
+              symbol.emitError("Expecting a string constant in the list");
+              return ::mlir::NoneType::get(symbol.getContext());
+             }
+             columns.push_back(stringConst.value());
+           }
+
+            // Filter the TupleStream's columns by the columns in the "columns" vector
+            TupleStreamTypeStorage::TupleHeader types;
+            auto oldHeader = stream.getConcreteTupleTypes();
+            for(auto const& name : columns) {
+              auto typeIt = std::find_if(oldHeader.begin(), oldHeader.end(), [&name](auto elem) { return elem.first == name; });
+              if (typeIt == oldHeader.end()) {
+                symbol.emitError("Error: Column " + name + " does not exist");
+              }
+              types.emplace_back(name, typeIt->second);
+            }
+
+            return SymbolOrValueType::get(symbol.getContext(), sexprtype::SymbolOrValue::VALUE, TupleStreamType::get(symbol.getContext(), types));
+         }}};
 
 bool isRegisteredSymbol(std::string const& name) {
   return operatorToType.find(name) != operatorToType.end();

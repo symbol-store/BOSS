@@ -17,6 +17,8 @@ public:
   Engine& operator=(Engine&&) = default;
   Expression evaluate(Expression const& e);
   ~Engine() = default;
+
+  runtime::Database& getDatabase() { return database; }
 };
 
 }; // namespace boss::engines::mlir

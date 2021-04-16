@@ -57,6 +57,7 @@ Expression Engine::evaluate(Expression const& e) {
 
   auto module = generator.generateModule(e);
 
+  // Init return type to error. This gets updated by the lowerToFunctions pass.
   RuntimeTypes returnType = RuntimeTypes::ERROR;
 
   ::mlir::PassManager passManager(module->getContext());
@@ -72,8 +73,6 @@ Expression Engine::evaluate(Expression const& e) {
   if(::mlir::failed(passManager.run(module.get()))) {
     throw std::runtime_error("Compilation failed");
   }
-
-  module->dump();
 
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);

@@ -3,9 +3,9 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Translation/SexprToFunctions.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
-#include <mlir/IR/BlockAndValueMapping.h>
 #include <iostream>
 #include <mlir/Dialect/StandardOps/IR/Ops.h>
+#include <mlir/IR/BlockAndValueMapping.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <stdexcept>
@@ -19,13 +19,17 @@ Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp func
   // Recursively flatten al child combineOps
   for(auto combineOp : c.getRegion().getOps<sexpr::CombineOp>()) {
     auto val = flattenCallsRecursive(combineOp, builder, function);
-
     combineOp.replaceAllUsesWith(val);
-    combineOp.erase();
+  }
+
+  // Erase all the combineOps (cannot erase during normal iterator)
+  while(c.getRegion().getOps<sexpr::CombineOp>().begin() !=
+        c.getRegion().getOps<sexpr::CombineOp>().end()) {
+    (*c.getRegion().getOps<sexpr::CombineOp>().begin()).erase();
   }
 
   // Clone all the operations into the function body
-  for (auto& op : c.getRegion().getBlocks().front().without_terminator()) {
+  for(auto& op : c.getRegion().getBlocks().front().without_terminator()) {
     auto* clone = op.clone();
     op.replaceAllUsesWith(clone->getResults());
     function.getRegion().getBlocks().front().push_back(clone);
@@ -41,8 +45,7 @@ Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp func
 struct SexprToFunctionsLoweringPass
     : public PassWrapper<SexprToFunctionsLoweringPass, OperationPass<ModuleOp>> {
 
-  SexprToFunctionsLoweringPass(RuntimeTypes& returnType)
-      : PassWrapper(), returnType(returnType) {}
+  SexprToFunctionsLoweringPass(RuntimeTypes& returnType) : PassWrapper(), returnType(returnType) {}
 
   void getDependentDialects(DialectRegistry& registry) const override {
     registry.insert<StandardOpsDialect>();
