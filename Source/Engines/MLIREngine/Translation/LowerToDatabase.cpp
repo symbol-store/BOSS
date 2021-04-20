@@ -111,6 +111,9 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     auto resultTupleStream =
         rewriter.getType<TupleStreamType>(op.getTupleStream().getTupleTypes());
 
+    // ToDo here, use the new storage and check what type it is. Then generate the appropriate loop
+
+
     auto relation = database.getRelation(op.relationName().str());
     // TODO loop for different types
     auto relationLength = relation.getLength();
