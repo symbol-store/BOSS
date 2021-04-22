@@ -14,20 +14,18 @@ namespace new_runtime {
 
 class Relation {
 public:
-  Relation() { memoryPool = arrow::default_memory_pool(); }
+  void bulk_load(std::vector<std::map<std::string, boss::Expression>> const& tuples);
 
-  void bulk_load(std::vector<std::map<std::string, boss::Expression>> tuples);
+//  arrow::ChunkedArray* getColumn(std::string const& name) {
+//    return data->GetColumnByName(name).get();
+//  }
 
-  arrow::ChunkedArray* getColumn(std::string const& name) {
-    return data->GetColumnByName(name).get();
-  }
+//  std::shared_ptr<arrow::Schema> getSchema() { return data->schema(); }
 
-  std::shared_ptr<arrow::Schema> getSchema() { return data->schema(); }
+  std::shared_ptr<arrow::Array> get() { return relation; }
 
 private:
-  std::shared_ptr<arrow::Table> data = nullptr;
-
-  arrow::MemoryPool* memoryPool;
+  std::shared_ptr<arrow::Array> relation;
 };
 
 class Database {
