@@ -77,7 +77,7 @@ jobs:
     - name: test
       run: |
         wolframscript -username ${{ secrets.MATHEMATICA_USERNAME }} -password ${{ secrets.MATHEMATICA_PASSWORD }}
-        wolframscript -c "7 + 9"
+        expect -c 'spawn wolframscript' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Exit\[\]\r"'
         chmod +x ./${{ matrix.build-type }}/Tests && ./${{ matrix.build-type }}/Tests
     needs: [build]
 
