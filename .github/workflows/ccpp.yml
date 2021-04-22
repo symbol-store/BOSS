@@ -96,7 +96,7 @@ jobs:
         path: Debug
     - name: test
       run: |
-        echo "${{ secrets.MATHEMATICA_LICENSE }}" > mathpass
+        expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Exit\[\]\r"'
         find Debug
         cp Debug/RacketBOSS.so .
         emacs --batch --eval "(require 'org)" --eval '(add-to-list (quote org-babel-tangle-lang-exts) (quote ("racket" . "rkt")))' --eval '(org-babel-tangle-file "Readme.org")'
