@@ -1,6 +1,7 @@
+#include <cstring>
 #ifdef WSINTERFACE
-#include "Wolfram.hpp"
 #include "../Utilities.hpp"
+#include "Wolfram.hpp"
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -29,9 +30,20 @@ struct EngineImplementation {
   WSENV environment = {};
   WSLINK link = {};
 
+  static char const* removeNamespace(char const* symbolName) {
+    if(strncmp(DefaultNamespace, symbolName, strlen(DefaultNamespace)) == 0) {
+      return symbolName + strlen(DefaultNamespace);
+    }
+    return symbolName;
+  }
+
   void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier,
                            std::ostream& console) {
     std::visit(boss::utilities::overload(
+                   [&](bool a) {
+                     console << (a ? "True" : "False");
+                     WSPutSymbol(link, (a ? "True" : "False"));
+                   },
                    [&](int a) {
                      console << a;
                      WSPutInteger(link, a);
@@ -39,6 +51,10 @@ struct EngineImplementation {
                    [&](char const* a) {
                      console << a;
                      WSPutString(link, a);
+                   },
+                   [&](float a) {
+                     console << a;
+                     WSPutFloat(link, a);
                    },
                    [&](Symbol const& a) {
                      console << (namespaceIdentifier + a.getName());
@@ -86,20 +102,20 @@ struct EngineImplementation {
       auto numberOfArguments = 0;
       auto success = WSGetFunction(link, &resultHead, &numberOfArguments);
       if(success == 0) {
-        throw std::runtime_error("error when getting function"s + WSErrorMessage(link));
+        throw std::runtime_error("error when getting function "s + WSErrorMessage(link));
       }
       auto resultArguments = vector<Expression>();
       for(auto i = 0U; i < numberOfArguments; i++) {
         resultArguments.push_back(readExpressionFromLink());
       }
-      auto result = ComplexExpression(Symbol(resultHead), resultArguments);
+      auto result = ComplexExpression(Symbol(removeNamespace(resultHead)), resultArguments);
       WSReleaseSymbol(link, resultHead);
       return result;
     }
     if(resultType == WSTKSYM) {
-      char const* result = nullptr;
+      auto const* result = "";
       WSGetSymbol(link, &result);
-      auto resultingSymbol = Symbol(result);
+      auto resultingSymbol = Symbol(removeNamespace(result));
       WSReleaseSymbol(link, result);
       if(std::string("True") == resultingSymbol.getName()) {
         return true;
@@ -158,19 +174,21 @@ struct EngineImplementation {
     DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_())}, "input"_,
                    {"HoldAll"_});
 
-    DefineFunction("Project"_,
-                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("projection"_, "Blank"_())},
-                   "Map"_("projection"_, namespaced("GetPersistentTableIfSymbol"_)("input"_)));
-    DefineFunction("Select"_,
-                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("predicate"_, "Blank"_())},
-                   "Select"_(namespaced("GetPersistentTableIfSymbol"_)("input"_), "predicate"_));
+    DefineFunction(
+        "Project"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("projection"_, "Blank"_())},
+        "Map"_("projection"_, namespaced("GetPersistentTableIfSymbol"_)("input"_)), {"HoldAll"_});
+    DefineFunction(
+        "Select"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("predicate"_, "Blank"_())},
+        "Select"_(namespaced("GetPersistentTableIfSymbol"_)("input"_), "predicate"_), {"HoldAll"_});
     DefineFunction(
         "GroupBy"_,
         {"Pattern"_("input"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
          "Pattern"_("aggregateFunction"_, "Blank"_())},
         "Switch"_("aggregateFunction"_, //
                   namespaced("Count"_),
-                  "Length"_(namespaced("GetPersistentTableIfSymbol"_)("input"_)), "Blank"_(),
+                  "List"_("Association"_("Rule"_(
+                      "Count_", "Length"_(namespaced("GetPersistentTableIfSymbol"_)("input"_))))),
+                  "Blank"_(),
                   "Fold"_("Plus"_, "Map"_("Extract"_("Key"_("First"_("aggregateFunction"_))),
                                           namespaced("GetPersistentTableIfSymbol"_)("input"_)))));
 
@@ -210,15 +228,18 @@ struct EngineImplementation {
   void loadShimLayer() {
     evalWithoutNamespace("Set"_("BOSSVersion"_, 1));
 
-    for(std::string const& it : vector{"Plus", "Times", "And", "UnixTime", "StringJoin", "Greater",
-                                       "Symbol", "UndefinedFunction", "Evaluate", "Set", "Values",
-                                       "List", "Equal", "Extract", "StringContainsQ"}) {
+    for(std::string const& it :
+        vector{"Plus", "Length", "Times", "And", "UnixTime", "StringJoin", "Greater", "Symbol",
+               "UndefinedFunction", "Evaluate", "Set", "SortBy", "Values", "List", "Equal",
+               "Extract", "StringContainsQ"}) {
       evalWithoutNamespace("Set"_(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
 
     DefineFunction("Function"_,
                    {"Pattern"_("arg"_, "Blank"_()), "Pattern"_("definition"_, "Blank"_())},
                    "Function"_("arg"_, "definition"_), {"HoldRest"_});
+    DefineFunction("Function"_, {"Pattern"_("definition"_, "Blank"_())}, "Function"_("definition"_),
+                   {"HoldRest"_});
 
     DefineFunction("Return"_, {"Pattern"_("result"_, "Blank"_("List"_))},
                    "Map"_("Function"_("x"_, "If"_("MatchQ"_("x"_, "Blank"_("Association"_)),
