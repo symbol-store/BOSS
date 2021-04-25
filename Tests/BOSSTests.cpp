@@ -10,8 +10,8 @@ using std::string;
 using boss::utilities::operator""_;
 
 TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NOLINT
-  TestType engine;
-  static auto eval = [&engine](boss::Expression const& expression) mutable {
+  static TestType engine;
+  static auto eval = [](boss::Expression const& expression) mutable {
     return engine.evaluate(expression);
   };
 
