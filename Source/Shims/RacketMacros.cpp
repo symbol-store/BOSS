@@ -43,5 +43,8 @@ std::string getRacketMacroShims() {
 (define-syntax (Project syntax-object) (syntax-case syntax-object ()
   ((_ input projectionFunction) #'(evaluate (convert-to-boss-expression '(Project input projectionFunction))))
 ))
+(define-syntax (Join syntax-object) (syntax-case syntax-object ()
+  ((_ leftInput rightInput predicate) #'(evaluate (convert-to-boss-expression '(Join leftInput rightInput predicate))))
+))
 )";
 }

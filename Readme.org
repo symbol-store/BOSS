@@ -58,6 +58,12 @@
        (CreateTable Customer FirstName LastName)
        (InsertInto  Customer "Holger" "Pirk")
 
+       (CreateTable Part PPARTKEY Name)
+       (InsertInto  Part 637 "Blobfish")
+       (InsertInto  Part 674 "Banana Bread")
+       (InsertInto  Part 891 "Horse")
+       (InsertInto  Part 9437 "Adventure")
+
        (CreateTable Lineitem
                     ORDERKEY
                     PARTKEY
@@ -76,9 +82,15 @@
                     SHIPMODE
                     COMMENT
                     )
-       (InsertInto Lineitem 1 1552 93 1 17 2471035 004 002 "N" "O" (UnixTime "1996-03-13") (UnixTime "1996-02-12") (UnixTime "1996-03-22") "DELIVER IN PERSON" "TRUCK"   "egular courts above the")
-       (InsertInto Lineitem 1 674  75 2 36 5668812 009 006 "N" "O" (UnixTime "1996-04-12") (UnixTime "1996-02-28") (UnixTime "1996-04-20") "TAKE BACK RETURN"  "MAIL"    "ly final dependencies: slyly bold")
-       (InsertInto Lineitem 1 637  38 3 8  1230104 010 002 "N" "O" (UnixTime "1996-01-29") (UnixTime "1996-03-05") (UnixTime "1996-01-31") "TAKE BACK RETURN"  "REG AIR" "riously. regular, express dep")
+       (InsertInto Lineitem 1 1552 93 1 17 2471035 004 002 "N" "O"
+                   (UnixTime "1996-03-13") (UnixTime "1996-02-12") (UnixTime "1996-03-22")
+                   "DELIVER IN PERSON" "TRUCK"   "egular courts above the")
+       (InsertInto Lineitem 1 674  75 2 36 5668812 009 006 "N" "O"
+                   (UnixTime "1996-04-12") (UnixTime "1996-02-28") (UnixTime "1996-04-20")
+                   "TAKE BACK RETURN"  "MAIL"    "ly final dependencies: slyly bold")
+       (InsertInto Lineitem 1 637  38 3 8  1230104 010 002 "N" "O"
+                   (UnixTime "1996-01-29") (UnixTime "1996-03-05") (UnixTime "1996-01-31")
+                   "TAKE BACK RETURN"  "REG AIR" "riously. regular, express dep")
        )))
 
   (expect (GroupBy Customer (Function tuple 0) Count) '((1)) "Grouping")
@@ -214,4 +226,11 @@
   (expect
            (GroupBy Lineitem (By TAX) Count )
            '((2) (1)) "Grouping + Count Results")
+
+  (expect (Join Lineitem Part (Where (Equal PARTKEY PPARTKEY)))
+          '((1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000 829954800
+               "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold" 674 "Banana Bread")
+            (1 637 38 3 8 1230104 10 2 "N" "O" 822870000 825980400 823042800
+               "TAKE BACK RETURN" "REG AIR" "riously. regular, express dep" 637 "Blobfish")
+            ) "Join")
 #+end_src

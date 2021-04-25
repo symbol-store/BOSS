@@ -209,12 +209,11 @@ struct EngineImplementation {
         "Join"_,
         {"Pattern"_("left"_, "Blank"_()), "Pattern"_("right"_, "Blank"_()),
          "Pattern"_("predicate"_, "Blank"_("Function"_))},
-        "Map"_("Flatten"_,
-               "Select"_(
-                   "Flatten"_("Outer"_("List"_, namespaced("GetPersistentTableIfSymbol"_)("left"_),
-                                       namespaced("GetPersistentTableIfSymbol"_)("right"_), 1),
-                              1),
-                   "Function"_("both"_, "predicate"_("First"_("both"_), "Last"_("both"_))))));
+        "Select"_("Flatten"_("Outer"_("Composition"_("Merge"_("First"_), "List"_),
+                                      namespaced("GetPersistentTableIfSymbol"_)("left"_),
+                                      namespaced("GetPersistentTableIfSymbol"_)("right"_), 1),
+                             1),
+                  "predicate"_));
   }
 
   void loadDDLOperators() {
