@@ -70,7 +70,7 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
 
     SECTION("Join") {
       eval("CreateTable"_("Adjacency1"_, "From", "To"));
-      eval("CreateTable"_("Adjacency2"_, "From", "To"));
+      eval("CreateTable"_("Adjacency2"_, "From2", "To2"));
       auto const dataSetSize = 10;
       for(int i = 0U; i < dataSetSize; i++) {
         eval("InsertInto"_("Adjacency1"_, i, dataSetSize + i));
@@ -78,8 +78,8 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
       }
       auto const& result =
           eval("Join"_("Adjacency1"_, "Adjacency2"_,
-                       "Function"_("List"_("left"_, "right"_),
-                                   "Equal"_("Column"_("left"_, 2), "Column"_("right"_, 1)))));
+                       "Function"_("List"_("tuple"_),
+                                   "Equal"_("Column"_("tuple"_, 2), "Column"_("tuple"_, 3)))));
       INFO(get<boss::ComplexExpression>(result));
       REQUIRE(get<boss::ComplexExpression>(result).getArguments().size() == dataSetSize);
     }
