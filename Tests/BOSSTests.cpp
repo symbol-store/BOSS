@@ -9,9 +9,15 @@ using std::get;
 using std::string;
 using boss::utilities::operator""_;
 
+template <typename Engine> Engine& getEngine();
+template <> boss::engines::wolfram::Engine& getEngine<boss::engines::wolfram::Engine>() {
+  static boss::engines::wolfram::Engine e;
+  return e;
+};
+
 TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NOLINT
-  static TestType engine;
-  static auto eval = [](boss::Expression const& expression) mutable {
+  auto& engine = getEngine<TestType>();
+  auto eval = [&engine](boss::Expression const& expression) mutable {
     return engine.evaluate(expression);
   };
 
