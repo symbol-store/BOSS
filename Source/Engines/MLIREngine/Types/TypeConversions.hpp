@@ -8,8 +8,8 @@
 
 namespace boss::mlir::conversion {
 
-TupleStreamType arrowSchemaToTupleStreamType(::mlir::MLIRContext* context, std::shared_ptr<arrow::Schema> schema);
-arrow::Schema* tupleStreamTypeToArrowSchema(TupleStreamType& t);
+TupleStreamUnionType arrowSchemaToTupleStreamType(::mlir::MLIRContext* context, std::shared_ptr<arrow::Schema> schema);
+arrow::Schema* tupleStreamTypeToArrowSchema(TupleStreamUnionType& t);
 
 std::shared_ptr<arrow::DataType> mlirTypeToArrowType(::mlir::Type const& type);
 

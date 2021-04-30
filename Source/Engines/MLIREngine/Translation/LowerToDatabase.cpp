@@ -5,6 +5,7 @@
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
+#include "Engines/MLIREngine/Runtime/Storage.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include "LowerDatabase.hpp"
 #include <iostream>
@@ -24,14 +25,14 @@ std::mutex printMutex;
 
 struct DatabaseLoweringPass : public PassWrapper<DatabaseLoweringPass, OperationPass<ModuleOp>> {
 
-  DatabaseLoweringPass(runtime::Database& database) : database(database){};
+  DatabaseLoweringPass(new_runtime::Database& database) : database(database){};
 
   void getDependentDialects(DialectRegistry& registry) const override {
     registry.insert<LLVM::LLVMDialect>();
   }
   void runOnOperation() final;
 
-  runtime::Database& database;
+  new_runtime::Database& database;
 };
 
 struct FuncOpSignatureConversion : public OpConversionPattern<mlir::FuncOp> {
@@ -70,29 +71,48 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
                                 ConversionPatternRewriter& rewriter) const override {
 
     auto savedInsertionPoint = rewriter.saveInsertionPoint();
-    rewriter.setInsertionPointAfter(operands.front().getDefiningOp());
+    auto loc = op.getLoc();
 
-    auto tupleStream = op.getOperand().getType().cast<TupleStreamType>();
+    // TODO free somewhere
+    auto* databaseBuilder = new new_runtime::RelationBuilder;
 
-    auto* schema = boss::mlir::conversion::tupleStreamTypeToArrowSchema(tupleStream);
-    auto* builders = runtime::getBuildersForSchema(schema);
+    // TODO use operands or op.getOperands?
+    auto tupleStreamUnionTy = operands[0].getType().cast<TupleStreamUnionType>();
+    auto const& tupleStreams = tupleStreamUnionTy.getTupleStreams();
+    auto const& blocks = tupleStreamUnionTy.getBlocks();
+    auto tupleStreamUnionVal = operands[0];
 
-    for(auto const& [name, type] : tupleStream.getConcreteTupleTypes()) {
-      auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
-          op.getLoc(), op.getOperand(), name, type);
+    for(auto i = 0U; i < tupleStreamUnionTy.getNumChildStreams(); i++) {
+      auto const& tupleStreamTy = tupleStreams[i];
+      auto* block = blocks[i];
 
-      auto builderPtr = reinterpret_cast<size_t>(builders->operator[](name));
-      rewriter.create<database::AppendToRelationOp>(
-          op.getLoc(), extractedVal.getResult(), builderPtr,
-          boss::mlir::conversion::mlirTypeToRuntimeType(type, false));
+      rewriter.setInsertionPoint(block->getTerminator()->getPrevNode());
+
+      auto tupleStreamVal = rewriter.create<database::GetTupleStreamFromUnion>(
+          loc, tupleStreamTy, tupleStreamUnionVal, i);
+
+      for(auto const& [name, type] : tupleStreamTy.getFields()) {
+        auto val =
+            rewriter.create<database::ExtractFieldFromTupleOp>(loc, tupleStreamVal, name, type);
+
+        auto runtimeType = boss::mlir::conversion::mlirTypeToRuntimeType(type, false);
+        auto columnBuilder = databaseBuilder->getArrowBuilderForType(runtimeType);
+
+        rewriter.create<database::AppendToRelationOp>(op.getLoc(), val.getResult(),
+                                                      reinterpret_cast<size_t>(columnBuilder.get()),
+                                                      runtimeType);
+      }
     }
 
     rewriter.restoreInsertionPoint(savedInsertionPoint);
 
     auto newOp = rewriter.create<database::FinalizeRelationOp>(
-        op.getLoc(), reinterpret_cast<size_t>(builders), reinterpret_cast<size_t>(schema));
+        op.getLoc(), reinterpret_cast<size_t>(databaseBuilder));
 
     rewriter.replaceOp(op, newOp.getResult());
+
+    newOp.getParentOp()->dump();
+
     return success();
   }
 
@@ -100,73 +120,113 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
 };
 
 struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationOp> {
-  GetRelationOpLowering(MLIRContext* ctx, runtime::Database& database)
+  GetRelationOpLowering(MLIRContext* ctx, new_runtime::Database& database)
       : OpConversionPattern(ctx), database(database) {}
+
+  // Generates code to load the type
+  struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
+    ::mlir::Value result;
+
+    ArrayLoaderTypeVisitor(std::shared_ptr<arrow::Array> baseArray, mlir::Value offset,
+                           ConversionPatternRewriter& rewriter, mlir::Location loc)
+        : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc) {}
+
+    std::shared_ptr<arrow::Array> baseArray;
+    mlir::Value offset;
+    mlir::ConversionPatternRewriter& rewriter;
+    mlir::Location loc;
+
+    arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
+      auto integerArray = std::dynamic_pointer_cast<arrow::Int32Array>(baseArray);
+      auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
+          loc, reinterpret_cast<size_t>(integerArray.get()), rewriter.getI32Type(), offset);
+      result = loadOp.getResult();
+      return arrow::Status::OK();
+    }
+  };
 
   LogicalResult matchAndRewrite(database::GetRelationOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
 
-    mlir::SmallVector<Value, 4> newValues;
+    auto databasePtr = database.getRelation(op.relationName().str()).get();
+    auto loc = op.getLoc();
+    auto* context = op.getContext();
 
-    auto resultTupleStream =
-        rewriter.getType<TupleStreamType>(op.getTupleStream().getTupleTypes());
+    std::vector<::mlir::Block*> insertionPoints;
+    std::vector<::mlir::Value> tupleStreamValues;
+    auto tupleStreams = op.getTupleStream().getTupleStreams();
 
-    // ToDo here, use the new storage and check what type it is. Then generate the appropriate loop
+    // Create loop for each item in union
+    for(auto i = 0u; i < tupleStreams.size(); i++) {
+      // TODO assumes same order for types in union tuple header and in database union
+      auto childArray = std::dynamic_pointer_cast<arrow::StructArray>(databasePtr->field(i));
+      auto tupleStream = tupleStreams[i];
 
+      // Create loop
+      auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
+      auto upperBound =
+          rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), childArray->length());
+      auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
+      auto loop =
+          rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
+      PatternRewriter::InsertionGuard insertionGuard(rewriter);
+      rewriter.setInsertionPointToStart(loop.getBody());
 
-    auto relation = database.getRelation(op.relationName().str());
-    // TODO loop for different types
-    auto relationLength = relation.getLength();
+      // Save to insertion points
+      insertionPoints.push_back(loop.getBody());
 
-    // Create loop
-    auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
-    auto upperBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), relationLength);
-    auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
-    auto loop = rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
-    PatternRewriter::InsertionGuard insertionGuard(rewriter);
-    rewriter.setInsertionPointToStart(loop.getBody());
+      std::vector<::mlir::Value> loadedValues;
+      // Load values
+      for(auto const& field : childArray->fields()) {
+        // Different loading code based on type
+        ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc);
+        auto status = field->type()->Accept(&visitor);
+        if(!status.ok()) {
+          throw std::runtime_error(status.message());
+        }
+        loadedValues.push_back(visitor.result);
+      }
 
-    for(auto const& [name, type] : resultTupleStream.getConcreteTupleTypes()) {
-      // TODO change symbolic to false, maybe, yes. Maybe means some value of tuple is symbolic.
-      auto arrayPtr = relation.getColumnDataPtr(name, false);
-
-      // TODO: Generate different code depending on type (eg string, booleans)
-
-      // TODO: Chunked array chunks?
-      auto rawBuffer = boss::mlir::conversion::mlirTypeToArrowRawBuffer(arrayPtr.get(), type, 0);
-
-      auto value = rewriter.create<memory::LoadConstantAddressOp>(op.getLoc(), rawBuffer, type, loop.getInductionVar());
-      newValues.push_back(value);
+      // Pack values into a struct
+      tupleStreamValues.emplace_back(
+          rewriter.create<database::PackFieldsIntoTupleOp>(loc, loadedValues, tupleStream));
     }
 
-    rewriter.replaceOpWithNewOp<database::PackFieldsIntoTupleOp>(op, newValues, resultTupleStream);
+    // Add the block insertion points to the type
+    auto tupleStreamUnion = TupleStreamUnionType::get(context, tupleStreams, insertionPoints);
+
+    // Pack values into a UnionTupleStream
+    auto unionTuplePack =
+        rewriter.create<database::CreateUnionTupleStream>(loc, tupleStreamUnion);
+
+    rewriter.replaceOp(op, unionTuplePack.getResult());
 
     return success();
   }
 
-  runtime::Database& database;
+  new_runtime::Database& database;
 };
 
-struct ProjectionOpLowering : public OpConversionPattern<database::ProjectionOp> {
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(database::ProjectionOp op, ArrayRef<Value> operands,
-                                ConversionPatternRewriter& rewriter) const override {
-    mlir::SmallVector<Value, 4> newValues;
-    auto outputTupleStream = op.getType().cast<TupleStreamType>();
-
-    rewriter.setInsertionPointAfter(operands.front().getDefiningOp());
-
-    for (auto const& [name, type] : outputTupleStream.getConcreteTupleTypes()) {
-      auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
-          op.getLoc(), op.getOperand(), name, type);
-      newValues.push_back(extractedVal.getResult());
-    }
-
-    rewriter.replaceOpWithNewOp<database::PackFieldsIntoTupleOp>(op, newValues, outputTupleStream);
-    return success();
-  }
-};
+// struct ProjectionOpLowering : public OpConversionPattern<database::ProjectionOp> {
+//  using OpConversionPattern::OpConversionPattern;
+//
+//  LogicalResult matchAndRewrite(database::ProjectionOp op, ArrayRef<Value> operands,
+//                                ConversionPatternRewriter& rewriter) const override {
+//    mlir::SmallVector<Value, 4> newValues;
+//    auto outputTupleStream = op.getType().cast<TupleStreamUnionType>();
+//
+//    rewriter.setInsertionPointAfter(operands.front().getDefiningOp());
+//
+//    for(auto const& [name, type] : outputTupleStream.getConcreteTupleTypes()) {
+//      auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
+//          op.getLoc(), op.getOperand(), name, type);
+//      newValues.push_back(extractedVal.getResult());
+//    }
+//
+//    rewriter.replaceOpWithNewOp<database::PackFieldsIntoTupleOp>(op, newValues,
+//    outputTupleStream); return success();
+//  }
+//};
 
 void DatabaseLoweringPass::runOnOperation() {
   ConversionTarget target(getContext());
@@ -174,6 +234,7 @@ void DatabaseLoweringPass::runOnOperation() {
 
   target.addIllegalDialect<mlir::database::DatabaseDialect>();
   target.addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
+                    database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
                     database::FinalizeRelationOp, database::AppendToRelationOp>();
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
@@ -203,7 +264,7 @@ void DatabaseLoweringPass::runOnOperation() {
 
   patterns.insert<GetRelationOpLowering>(&getContext(), database);
   patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
-  patterns.insert<ProjectionOpLowering>(&getContext());
+  //  patterns.insert<ProjectionOpLowering>(&getContext());
 
   auto module = getOperation();
 
@@ -215,6 +276,6 @@ void DatabaseLoweringPass::runOnOperation() {
 // namespace
 } // namespace
 
-std::unique_ptr<mlir::Pass> createLowerToDatabasePass(runtime::Database& database) {
+std::unique_ptr<mlir::Pass> createLowerToDatabasePass(new_runtime::Database& database) {
   return std::make_unique<DatabaseLoweringPass>(database);
 }

@@ -4,6 +4,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
+#include "Engines/MLIREngine/Runtime/Storage.hpp"
 #include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
 #include <mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h>
@@ -102,14 +103,14 @@ static Value getOrCreateGlobalString(Location loc, OpBuilder& builder, StringRef
 struct SexprToLLVMLoweringPass
     : public PassWrapper<SexprToLLVMLoweringPass, OperationPass<ModuleOp>> {
 
-  SexprToLLVMLoweringPass(runtime::Database& database) : database(database){};
+  SexprToLLVMLoweringPass(new_runtime::Database& database) : database(database){};
 
   void getDependentDialects(DialectRegistry& registry) const override {
     registry.insert<LLVM::LLVMDialect>();
   }
   void runOnOperation() final;
 
-  runtime::Database& database;
+  new_runtime::Database& database;
 };
 
 struct PrintMemrefOpLowering : public OpConversionPattern<memory::PrintMemrefOp> {
@@ -338,13 +339,10 @@ struct FinalizeRelationOpLowering : public OpConversionPattern<database::Finaliz
     auto relationPtrConstant = rewriter.create<LLVM::ConstantOp>(
         op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
         rewriter.getIntegerAttr(rewriter.getIndexType(), op.relationBuildersPtr()));
-    auto schemaPtr = rewriter.create<LLVM::ConstantOp>(
-        op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
-        rewriter.getIntegerAttr(rewriter.getIndexType(), op.schemaPtr()));
 
     rewriter.replaceOpWithNewOp<LLVM::CallOp>(
         op, LLVM::LLVMIntegerType::get(rewriter.getContext(), 64), finalizeFunction,
-        ::mlir::ValueRange{schemaPtr.getResult(), relationPtrConstant.getResult()});
+        ::mlir::ValueRange{relationPtrConstant.getResult()});
 
     return success();
   }
@@ -392,15 +390,6 @@ void SexprToLLVMLoweringPass::runOnOperation() {
     return llvm::Optional<Type>{};
   });
 
-  typeConverter.addConversion(
-      [&typeConverter](TupleStreamType t,
-                       SmallVectorImpl<Type>& result) -> llvm::Optional<LogicalResult> {
-        for(auto const& nameAndType : t.getTupleTypes()) {
-          result.push_back(typeConverter.convertType(nameAndType.second));
-        }
-        return success();
-      });
-
   typeConverter.addConversion([](RelationType t) -> llvm::Optional<Type> {
     // TODO change to correct type
     return LLVM::LLVMIntegerType::get(t.getContext(), 32);
@@ -430,6 +419,6 @@ void SexprToLLVMLoweringPass::runOnOperation() {
 // namespace
 }; // namespace
 
-std::unique_ptr<mlir::Pass> createLowerToLLVMPass(runtime::Database& database) {
+std::unique_ptr<mlir::Pass> createLowerToLLVMPass(new_runtime::Database& database) {
   return std::make_unique<SexprToLLVMLoweringPass>(database);
 }

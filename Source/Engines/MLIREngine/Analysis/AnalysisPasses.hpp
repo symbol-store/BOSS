@@ -2,8 +2,8 @@
 #include <memory>
 #include <mlir/Pass/Pass.h>
 
-namespace runtime {
+namespace new_runtime {
 class Database;
 }
 
-std::unique_ptr<mlir::Pass> createTypeInferencePass(runtime::Database const& database);
+std::unique_ptr<mlir::Pass> createTypeInferencePass(new_runtime::Database const& database);

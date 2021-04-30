@@ -5,12 +5,15 @@ include "DatabaseDialect.td"
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
-def TupleStreamType : Type<CPred<"$_self.isa<TupleStreamType>()">,
-                              "Type tupleStreamType">;
+def TupleStreamUnionType : Type<CPred<"$_self.isa<TupleStreamUnionType>()">,
+                              "A type representing the union of several tuple streams">;
 
 def RelationType : Type<CPred<"$_self.isa<RelationType>()">>;
 
 def StringType : Type<CPred<"$_self.isa<StringType>()">>;
+
+def TupleStreamType : Type<CPred<"$_self.isa<TupleStreamType>()">,
+                                                    "A single tuple stream">;
 
 def GetRelationOp : Database_Op<"getRelation", []> {
   let arguments = (ins
@@ -18,22 +21,24 @@ def GetRelationOp : Database_Op<"getRelation", []> {
     );
 
     let results = (outs
-      TupleStreamType:$relation
+      TupleStreamUnionType:$relation
     );
 
     let builders = [
-      OpBuilder<"std::string name, TupleStreamType databaseResultType", [{
+      OpBuilder<"std::string name, TupleStreamUnionType databaseResultType", [{
         $_state.addAttribute("relationName", $_builder.getStringAttr(name));
         $_state.addTypes(databaseResultType);
       }]>
     ];
 
-    code extraClassDeclaration = "TupleStreamType getTupleStream();";
+    code extraClassDeclaration = "TupleStreamUnionType getTupleStream();";
+
+    let hasCanonicalizer = 1;
 }
 
 def CollectTuplesOp : Database_Op<"collectTuples", []> {
   let arguments = (ins
-    TupleStreamType:$inputStream
+    TupleStreamUnionType:$inputStream
   );
 
   let results = (outs
@@ -43,11 +48,11 @@ def CollectTuplesOp : Database_Op<"collectTuples", []> {
 
 def ProjectionOp : Database_Op<"projectionOp", []> {
   let arguments = (ins
-    TupleStreamType:$inputStream
+    TupleStreamUnionType:$inputStream
   );
 
   let results = (outs
-    TupleStreamType:$outputType
+    TupleStreamUnionType:$outputType
   );
 }
 
@@ -89,6 +94,27 @@ def PackFieldsIntoTupleOp : Database_Op<"packFieldsIntoTupStream", [NoSideEffect
   ];
 }
 
+
+def CreateUnionTupleStream : Database_Op<"createUnionTupleStreamOp", [NoSideEffect]> {
+  let results = (outs
+    TupleStreamUnionType:$unionTupleStream
+  );
+}
+
+def GetTupleStreamFromUnion : Database_Op<"getTupleStreamFromUnion", [NoSideEffect]> {
+  let arguments = (ins
+    TupleStreamUnionType:$tupleStream,
+    I32Attr:$fieldIndex
+  );
+
+  let results = (outs
+    AnyType:$fieldValue
+  );
+
+  let hasCanonicalizer = 1;
+}
+
+
 def AppendToRelationOp : Database_Op<"appendToRelationOp"> {
   let arguments = (ins
     AnyType:$value,
@@ -107,8 +133,7 @@ def AppendToRelationOp : Database_Op<"appendToRelationOp"> {
 
 def FinalizeRelationOp : Database_Op<"finalizeRelationOp"> {
   let arguments = (ins
-    I64Attr:$relationBuildersPtr,
-    I64Attr:$schemaPtr
+    I64Attr:$relationBuildersPtr
   );
 
   let results = (outs
@@ -116,9 +141,8 @@ def FinalizeRelationOp : Database_Op<"finalizeRelationOp"> {
   );
 
   let builders = [
-    OpBuilderDAG<(ins "size_t":$relationBuildersPtr, "size_t":$schemaPtr), [{
+    OpBuilderDAG<(ins "size_t":$relationBuildersPtr), [{
       $_state.addAttribute("relationBuildersPtr", $_builder.getI64IntegerAttr(relationBuildersPtr));
-      $_state.addAttribute("schemaPtr", $_builder.getI64IntegerAttr(schemaPtr));
       $_state.addTypes($_builder.getIndexType());
     }]>
   ];

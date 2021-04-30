@@ -200,7 +200,7 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
            auto relationName = stringConstantOp.value().str();
            auto tupleStream =
-               converter.convertType(s.getResult().getType()).dyn_cast_or_null<TupleStreamType>();
+               converter.convertType(s.getResult().getType()).dyn_cast_or_null<TupleStreamUnionType>();
 
            if(!tupleStream) {
              return failure();

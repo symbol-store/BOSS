@@ -39,7 +39,7 @@ void mlir::sexpr::SymbolOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Operati
 
 // ==== Entry point functions for type inference =======
 
-void mlir::sexpr::IntegerConstantOp::inferType(runtime::Database const& database) {
+void mlir::sexpr::IntegerConstantOp::inferType(new_runtime::Database const& database) {
   auto currentType = getResult().getType().cast<SymbolOrValueType>();
 
   auto newType = SymbolOrValueType::get(currentType.getContext(), sexprtype::SymbolOrValue::VALUE,
@@ -48,7 +48,7 @@ void mlir::sexpr::IntegerConstantOp::inferType(runtime::Database const& database
   this->getResult().setType(newType);
 }
 
-void mlir::sexpr::SymbolOp::inferType(runtime::Database const& database) {
+void mlir::sexpr::SymbolOp::inferType(new_runtime::Database const& database) {
   const auto& types = this->getOperandTypes();
 
   // Verify that we have a symbol or value type
@@ -84,7 +84,7 @@ void mlir::sexpr::SymbolOp::inferType(runtime::Database const& database) {
   }
 }
 
-void mlir::sexpr::StringConstantOp::inferType(runtime::Database const& database) {
+void mlir::sexpr::StringConstantOp::inferType(new_runtime::Database const& database) {
   auto currentType = getResult().getType().cast<SymbolOrValueType>();
 
   auto length = value().size();
@@ -95,13 +95,13 @@ void mlir::sexpr::StringConstantOp::inferType(runtime::Database const& database)
   this->getResult().setType(newType);
 }
 
-void mlir::sexpr::CombineOp::inferType(runtime::Database const& database) {
+void mlir::sexpr::CombineOp::inferType(new_runtime::Database const& database) {
   for(auto& child : getRegion().front().getOperations()) {
     mlir::dyn_cast<TypeInference, Operation>(&child).inferType(database);
   }
 }
 
-void mlir::sexpr::EndOp::inferType(runtime::Database const& database) {
+void mlir::sexpr::EndOp::inferType(new_runtime::Database const& database) {
   auto inputType = this->getOperand().getType().cast<SymbolOrValueType>();
 
   auto parent = mlir::dyn_cast<sexpr::CombineOp, Operation>(this->getParentOp());

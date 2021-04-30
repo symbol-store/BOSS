@@ -6,11 +6,11 @@ using namespace mlir;
 
 namespace {
 struct TypeInferencePass : PassWrapper<TypeInferencePass, OperationPass<ModuleOp>> {
-  explicit TypeInferencePass(const runtime::Database& database) : database(database) {}
+  explicit TypeInferencePass(const new_runtime::Database& database) : database(database) {}
   void runOnOperation() final;
 
 private:
-  runtime::Database const& database;
+  new_runtime::Database const& database;
 };
 } // namespace
 
@@ -22,6 +22,6 @@ void TypeInferencePass::runOnOperation() {
   dyn_cast<TypeInference, Operation>(ops.front()).inferType(database);
 }
 
-std::unique_ptr<mlir::Pass> createTypeInferencePass(runtime::Database const& database) {
+std::unique_ptr<mlir::Pass> createTypeInferencePass(new_runtime::Database const& database) {
   return std::make_unique<TypeInferencePass>(database);
 }

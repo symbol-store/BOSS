@@ -2,7 +2,7 @@
 
 #include <mlir/IR/OpDefinition.h>
 #include <mlir/IR/Operation.h>
-namespace runtime {
+namespace new_runtime {
 class Database;
 }
 

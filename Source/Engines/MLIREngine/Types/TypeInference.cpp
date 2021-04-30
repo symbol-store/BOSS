@@ -3,6 +3,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
+#include "Engines/MLIREngine/Runtime/Storage.hpp"
 #include "TypeConversions.hpp"
 #include <map>
 #include <mlir/IR/OpImplementation.h>
@@ -11,7 +12,7 @@
 namespace boss::mlir::inference {
 
 static const auto inferArithmeticType = [](::mlir::sexpr::SymbolOp& symbol, auto /*sOrV*/,
-                                           runtime::Database const& /*database*/) {
+                                           new_runtime::Database const& /*database*/) {
   auto const& types = symbol.getOperandTypes();
   ::mlir::Optional<::mlir::Type> baseType;
   // Check all input types are the same
@@ -39,7 +40,7 @@ static const auto inferArithmeticType = [](::mlir::sexpr::SymbolOp& symbol, auto
 };
 
 static const auto inferBooleanCompareFunction = [](auto& symbol, auto /*sOrV*/,
-                                                   runtime::Database const& database) {
+                                                   new_runtime::Database const& database) {
   auto const& types = symbol.getOperandTypes();
   ::mlir::Optional<::mlir::Type> baseType;
   // Check all input types are the same
@@ -69,7 +70,7 @@ static const auto inferBooleanCompareFunction = [](auto& symbol, auto /*sOrV*/,
 // Returns base type that was inferred
 const std::map<std::string,
                std::function<::mlir::Type(::mlir::sexpr::SymbolOp&, sexprtype::SymbolOrValue,
-                                          runtime::Database const&)>>
+                                          new_runtime::Database const&)>>
     operatorToType{
         {"Plus", inferArithmeticType},
         {"Minus", inferArithmeticType},
@@ -101,7 +102,7 @@ const std::map<std::string,
          }},
         {"GetRelation",
          [](::mlir::sexpr::SymbolOp& symbol, auto sOrV,
-            runtime::Database const& database) -> ::mlir::Type {
+            new_runtime::Database const& database) -> ::mlir::Type {
            // The first argument must be a string constant!
            auto firstOperand = symbol.getOperands().begin();
            if(firstOperand == symbol.getOperands().end()) {
@@ -114,64 +115,91 @@ const std::map<std::string,
 
            if(stringOp == nullptr) {
              // error: Operand is not a string constant
-             return ::mlir::NoneType();
+             return SymbolOrValueType::get(symbol.getContext(), sexprtype::SymbolOrValue::SYMBOL,
+                                           {});
            }
 
            auto relationName = stringOp.value();
            auto table = database.getRelation(std::string(relationName));
-           auto tupleStreamType = boss::mlir::conversion::arrowSchemaToTupleStreamType(
-               symbol.getContext(), table.getSchema());
+           auto rawTablePtr = std::dynamic_pointer_cast<arrow::DenseUnionArray>(table.get());
+           auto unionType = rawTablePtr->union_type();
 
-           return SymbolOrValueType::get(symbol.getContext(), sOrV, tupleStreamType);
+           std::vector<TupleStreamType> streamTypes;
+           for(auto const& field : unionType->fields()) {
+             std::map<std::string, ::mlir::Type> fieldsAndTypes;
+             auto structType = std::dynamic_pointer_cast<arrow::StructType>(field->type());
+             for(auto const& columnWithType : structType->fields()) {
+               // TODO: take into account what type an expression evaluates to
+               fieldsAndTypes[columnWithType->name()] = conversion::arrowTypeToMLIRType(
+                   symbol.getContext(), columnWithType->type().get());
+             }
+             streamTypes.emplace_back(TupleStreamType::get(symbol.getContext(), fieldsAndTypes));
+           }
+
+           auto openRelationType = TupleStreamUnionType::get(symbol.getContext(), streamTypes, {});
+
+           return SymbolOrValueType::get(symbol.getContext(), sOrV, openRelationType);
          }},
         {"CollectTuples",
-         [](::mlir::sexpr::SymbolOp& symbol, auto sOrV, runtime::Database const& database)
+         [](::mlir::sexpr::SymbolOp& symbol, auto sOrV, new_runtime::Database const& database)
              -> ::mlir::Type { return RelationType::get(symbol.getContext()); }},
         {"Project",
-         [](::mlir::sexpr::SymbolOp& symbol, auto sOrV, runtime::Database const& database) -> ::mlir::Type {
+         [](::mlir::sexpr::SymbolOp& symbol, auto sOrV,
+            new_runtime::Database const& database) -> ::mlir::Type {
            // Parse operands: 1. (List ...), 2. TupleStream
            std::vector<::mlir::StringRef> columns;
-           auto listCombine = ::mlir::dyn_cast_or_null<::mlir::sexpr::CombineOp>(symbol.getOperands().front().getDefiningOp());
-           auto stream = symbol.getOperands()[1].getType().dyn_cast_or_null<SymbolOrValueType>().getBaseType().dyn_cast_or_null<TupleStreamType>();
-           if ((!listCombine) || (!stream)) {
+           auto listCombine = ::mlir::dyn_cast_or_null<::mlir::sexpr::CombineOp>(
+               symbol.getOperands().front().getDefiningOp());
+           auto stream = symbol.getOperands()[1]
+                             .getType()
+                             .dyn_cast_or_null<SymbolOrValueType>()
+                             .getBaseType()
+                             .dyn_cast_or_null<TupleStreamUnionType>();
+           if((!listCombine) || (!stream)) {
              symbol.emitError("Unexpected operands");
              return ::mlir::NoneType::get(symbol.getContext());
            }
 
            // Find the (List ...) symbol in the arguments
            auto symbols = listCombine.getOps<::mlir::sexpr::SymbolOp>();
-           if (symbols.empty()) {
+           if(symbols.empty()) {
              symbol.emitError("No symbol in region");
              return ::mlir::NoneType::get(symbol.getContext());
            }
            auto listSymbol = *symbols.begin();
-           if (listSymbol.name() != "List") {
-            symbol.emitError("Expecting a list as first argument");
-            return ::mlir::NoneType::get(symbol.getContext());
+           if(listSymbol.name() != "List") {
+             symbol.emitError("Expecting a list as first argument");
+             return ::mlir::NoneType::get(symbol.getContext());
            }
 
            // Extract all the strings from the list, and append them to the columns vector
-           for (auto const& arg : listSymbol.getOperands()) {
-             auto stringConst = ::mlir::dyn_cast_or_null<::mlir::sexpr::StringConstantOp>(arg.getDefiningOp());
-             if (!stringConst) {
-              symbol.emitError("Expecting a string constant in the list");
-              return ::mlir::NoneType::get(symbol.getContext());
+           for(auto const& arg : listSymbol.getOperands()) {
+             auto stringConst =
+                 ::mlir::dyn_cast_or_null<::mlir::sexpr::StringConstantOp>(arg.getDefiningOp());
+             if(!stringConst) {
+               symbol.emitError("Expecting a string constant in the list");
+               return ::mlir::NoneType::get(symbol.getContext());
              }
              columns.push_back(stringConst.value());
            }
 
-            // Filter the TupleStream's columns by the columns in the "columns" vector
-            TupleStreamTypeStorage::TupleHeader types;
-            auto oldHeader = stream.getConcreteTupleTypes();
-            for(auto const& name : columns) {
-              auto typeIt = std::find_if(oldHeader.begin(), oldHeader.end(), [&name](auto elem) { return elem.first == name; });
-              if (typeIt == oldHeader.end()) {
-                symbol.emitError("Error: Column " + name + " does not exist");
-              }
-              types.emplace_back(name, typeIt->second);
-            }
-
-            return SymbolOrValueType::get(symbol.getContext(), sexprtype::SymbolOrValue::VALUE, TupleStreamType::get(symbol.getContext(), types));
+           // Filter the TupleStream's columns by the columns in the "columns" vector
+           //           OpenRelationTypeStorage::TupleHeader types;
+           //            auto oldHeader = stream.getConcreteTupleTypes();
+           //            for(auto const& name : columns) {
+           //              auto typeIt = std::find_if(oldHeader.begin(), oldHeader.end(),
+           //              [&name](auto elem) { return elem.first == name; }); if (typeIt ==
+           //              oldHeader.end()) {
+           //                symbol.emitError("Error: Column " + name + " does not exist");
+           //              }
+           //              types.emplace_back(name, typeIt->second);
+           //            }
+           //
+           //            return SymbolOrValueType::get(symbol.getContext(),
+           //            sexprtype::SymbolOrValue::VALUE,
+           //                                          OpenRelationType::get(symbol.getContext(),
+           //                                          types));
+           return ::mlir::NoneType::get(symbol.getContext());
          }}};
 
 bool isRegisteredSymbol(std::string const& name) {
@@ -179,7 +207,7 @@ bool isRegisteredSymbol(std::string const& name) {
 }
 
 ::mlir::Type inferSymbolType(::mlir::sexpr::SymbolOp& s, sexprtype::SymbolOrValue symOrVal,
-                             runtime::Database const& database) {
+                             new_runtime::Database const& database) {
   // PRE: The operator exists. Use isRegisteredSymbol first.
   auto inferenceFuncIterator = operatorToType.find(s.name().str());
   return (inferenceFuncIterator->second)(s, symOrVal, database);

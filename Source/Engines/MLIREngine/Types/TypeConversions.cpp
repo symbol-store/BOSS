@@ -7,27 +7,6 @@
 namespace boss::mlir::conversion {
 using namespace boss::mlir::types;
 
-TupleStreamType arrowSchemaToTupleStreamType(::mlir::MLIRContext* context,
-                                             std::shared_ptr<arrow::Schema> schema) {
-  TupleStreamTypeStorage::TupleHeader types;
-
-  for(auto const& field : schema->fields()) {
-    types.emplace_back(field->name(), arrowTypeToMLIRType(context, field->type().get()));
-  }
-
-  return TupleStreamType::get(context, types);
-}
-
-arrow::Schema* tupleStreamTypeToArrowSchema(TupleStreamType& t) {
-  std::vector<std::shared_ptr<arrow::Field>> fields;
-
-  for (auto const& [name, type] : t.getConcreteTupleTypes()) {
-    fields.emplace_back(std::make_shared<arrow::Field>(name, mlirTypeToArrowType(type)));
-  }
-
-  return new arrow::Schema(fields);
-}
-
 struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
   explicit ArrowToMlirTypeVisitor(::mlir::Type& resultType, ::mlir::MLIRContext* context)
       : resultType(resultType), context(context) {}
@@ -104,7 +83,7 @@ boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type,
     return RuntimeTypes::FLOAT;
   } else if(type.isa<::mlir::MemRefType>() || type.isa<StringType>()) {
     return RuntimeTypes::STRING;
-  } else if(type.isa<TupleStreamType>()) {
+  } else if(type.isa<TupleStreamUnionType>()) {
     return RuntimeTypes::TUPLE_STREAM;
   } else if (type.isa<RelationType>()) {
     return RuntimeTypes::RELATION;

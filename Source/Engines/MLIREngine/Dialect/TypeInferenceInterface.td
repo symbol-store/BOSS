@@ -10,7 +10,7 @@ def TypeInferenceOpInterface : OpInterface<"TypeInference"> {
 
   let methods = [
     InterfaceMethod<"Infer and set the output shape for the current operation.",
-                    "void", "inferType", (ins "runtime::Database const&":$database)>
+                    "void", "inferType", (ins "new_runtime::Database const&":$database)>
   ];
 }
 

@@ -14,14 +14,16 @@ void DatabaseDialect::initialize() {
   >();
   // clang-format on
 
-  addTypes<TupleStreamType, RelationType>();
+  addTypes<TupleStreamUnionType, TupleStreamType, RelationType>();
 }
 
 void mlir::database::DatabaseDialect::printType(Type type, DialectAsmPrinter& printer) const {
 
-  if(auto result = type.dyn_cast_or_null<TupleStreamType>()) {
-    printer << "TupleStream";
+  if(auto result = type.dyn_cast_or_null<TupleStreamUnionType>()) {
+    printer << "TupleStreamUnion";
   } else if(auto result = type.dyn_cast_or_null<RelationType>()) {
     printer << "Relation";
+  } else if(auto result = type.dyn_cast_or_null<TupleStreamType>()) {
+    printer << "TupleStream";
   }
 }

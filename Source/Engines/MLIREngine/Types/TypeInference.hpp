@@ -8,5 +8,5 @@ namespace boss::mlir::inference {
 bool isRegisteredSymbol(std::string const& symbol);
 
 ::mlir::Type inferSymbolType(::mlir::sexpr::SymbolOp&, sexprtype::SymbolOrValue,
-                             runtime::Database const&);
+                             new_runtime::Database const&);
 } // namespace boss::mlir::inference

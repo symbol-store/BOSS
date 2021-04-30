@@ -12,6 +12,15 @@
 
 namespace new_runtime {
 
+class RelationBuilder {
+public:
+  std::shared_ptr<arrow::ArrayBuilder> getArrowBuilderForType(boss::mlir::types::RuntimeTypes type);
+  void build();
+
+private:
+};
+
+
 class Relation {
 public:
   void bulk_load(std::vector<std::map<std::string, boss::Expression>> const& tuples);
@@ -22,10 +31,10 @@ public:
 
 //  std::shared_ptr<arrow::Schema> getSchema() { return data->schema(); }
 
-  std::shared_ptr<arrow::Array> get() { return relation; }
+  std::shared_ptr<arrow::DenseUnionArray> const& get() const { return relation; }
 
 private:
-  std::shared_ptr<arrow::Array> relation;
+  std::shared_ptr<arrow::DenseUnionArray> relation;
 };
 
 class Database {

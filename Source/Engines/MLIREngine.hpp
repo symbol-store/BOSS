@@ -1,13 +1,13 @@
 #pragma once
 #include "../Engine.hpp"
-#include "Engines/MLIREngine/Runtime/Database.hpp"
+#include "Engines/MLIREngine/Runtime/Storage.hpp"
 
 namespace boss::engines::mlir {
 class Engine : public boss::Engine {
-  runtime::Database database;
+  new_runtime::Database database;
 
 public:
-  explicit Engine(runtime::Database&& database) : database(std::move(database)) {}
+  explicit Engine(new_runtime::Database&& database) : database(std::move(database)) {}
 
   Engine() : database() {};
 
@@ -18,7 +18,7 @@ public:
   Expression evaluate(Expression const& e);
   ~Engine() = default;
 
-  runtime::Database& getDatabase() { return database; }
+  new_runtime::Database& getDatabase() { return database; }
 };
 
 }; // namespace boss::engines::mlir

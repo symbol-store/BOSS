@@ -342,5 +342,26 @@ void new_runtime::Relation::bulk_load(
     throw std::runtime_error("Error finishing array construction");
   }
 
-  relation = finishResult.ValueUnsafe();
+  relation = std::dynamic_pointer_cast<arrow::DenseUnionArray>(finishResult.ValueUnsafe());
+}
+
+std::shared_ptr<arrow::ArrayBuilder> new_runtime::RelationBuilder::getArrowBuilderForType(boss::mlir::types::RuntimeTypes type) {
+  switch(type) {
+  case boss::mlir::types::RuntimeTypes::INT:
+    return std::make_shared<arrow::Int32Builder>();
+  case boss::mlir::types::RuntimeTypes::BOOLEAN:
+    return std::make_shared<arrow::BooleanBuilder>();
+  case boss::mlir::types::RuntimeTypes::FLOAT:
+    return std::make_shared<arrow::FloatBuilder>();
+  case boss::mlir::types::RuntimeTypes::STRING:
+    return std::make_shared<arrow::StringBuilder>();
+  case boss::mlir::types::RuntimeTypes::SYMBOL:
+    return std::make_shared<arrow::StringBuilder>();
+  default:
+    throw std::runtime_error("Unsupported type");
+  }
+}
+
+void new_runtime::RelationBuilder::build() {
+
 }

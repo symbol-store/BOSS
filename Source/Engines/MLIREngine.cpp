@@ -67,12 +67,14 @@ Expression Engine::evaluate(Expression const& e) {
   passManager.addNestedPass<::mlir::FuncOp>(createLowerToStdPass());
   passManager.addPass(::mlir::createInlinerPass());
   passManager.addPass(createLowerToDatabasePass(database));
-  passManager.addPass(::mlir::createCanonicalizerPass());
-  passManager.addPass(createLowerToLLVMPass(database));
+//  passManager.addPass(::mlir::createCanonicalizerPass());
+//  passManager.addPass(createLowerToLLVMPass(database));
 
   if(::mlir::failed(passManager.run(module.get()))) {
     throw std::runtime_error("Compilation failed");
   }
+
+  module->dump();
 
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);
