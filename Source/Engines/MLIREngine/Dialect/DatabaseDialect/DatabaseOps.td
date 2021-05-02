@@ -156,12 +156,16 @@ def FinalizeRelationOp : Database_Op<"finalizeRelationOp"> {
 
 def AdvanceBuilderOp : Database_Op<"advanceBuilder"> {
   let arguments = (ins
-    I64Attr:$relationBuilderPtr
+    I64Attr:$structBuilderPtr,
+    I64Attr:$unionBuilderPtr,
+    I8Attr:$childId
   );
 
   let builders = [
-    OpBuilderDAG<(ins "size_t":$relationBuilderPtr), [{
-      $_state.addAttribute("relationBuilderPtr", $_builder.getI64IntegerAttr(relationBuilderPtr));
+    OpBuilderDAG<(ins "size_t":$structBuilderPtr, "size_t":$unionBuilderPtr, "int8_t":$childId), [{
+      $_state.addAttribute("structBuilderPtr", $_builder.getI64IntegerAttr(structBuilderPtr));
+      $_state.addAttribute("unionBuilderPtr", $_builder.getI64IntegerAttr(unionBuilderPtr));
+      $_state.addAttribute("childId", $_builder.getI8IntegerAttr(childId));
     }]>
   ];
 }

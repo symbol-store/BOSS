@@ -298,6 +298,32 @@ struct AppendToRelationOpLowering : public OpConversionPattern<database::AppendT
     return rewriter.create<LLVM::CallOp>(loc, funcOp, funcOperands);
   }
 
+  template <>
+  mlir::Operation* createAppendCall<boss::mlir::types::RuntimeTypes::FLOAT>(
+      ConversionPatternRewriter& rewriter, ModuleOp module, Value operand, Location loc,
+      size_t relationBuilderPtr) const {
+    auto voidType = LLVM::LLVMVoidType::get(rewriter.getContext());
+    auto intType = LLVM::LLVMIntegerType::get(rewriter.getContext(), 64);
+    auto funcType = LLVM::LLVMFunctionType::get(
+        voidType, {intType, LLVM::LLVMFloatType::get(rewriter.getContext())});
+
+    auto insertFunction = getOrInsertFunction("addToRelation_Float", funcType, rewriter, module);
+
+    auto relationPtrConstant = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), relationBuilderPtr));
+
+    ::mlir::ValueRange funcOperands{relationPtrConstant.getResult(), operand};
+
+    auto funcOp = dyn_cast_or_null<LLVM::LLVMFuncOp>(module.lookupSymbol(insertFunction));
+
+    if(!funcOp) {
+      return nullptr;
+    }
+
+    return rewriter.create<LLVM::CallOp>(loc, funcOp, funcOperands);
+  }
+
   LogicalResult matchAndRewrite(database::AppendToRelationOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
     auto parentModule = op.getParentOfType<ModuleOp>();
@@ -311,6 +337,10 @@ struct AppendToRelationOpLowering : public OpConversionPattern<database::AppendT
       break;
     case boss::mlir::types::RuntimeTypes::BOOLEAN:
       callOp = createAppendCall<boss::mlir::types::RuntimeTypes::BOOLEAN>(
+          rewriter, parentModule, operands.front(), op.getLoc(), op.relationBuilderPtr());
+      break;
+    case boss::mlir::types::RuntimeTypes::FLOAT:
+      callOp = createAppendCall<boss::mlir::types::RuntimeTypes::FLOAT>(
           rewriter, parentModule, operands.front(), op.getLoc(), op.relationBuilderPtr());
       break;
     default:
@@ -327,7 +357,6 @@ struct AppendToRelationOpLowering : public OpConversionPattern<database::AppendT
     return success();
   }
 };
-
 
 struct FinalizeRelationOpLowering : public OpConversionPattern<database::FinalizeRelationOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -360,23 +389,31 @@ struct AdvanceBuilderOpLowering : public OpConversionPattern<database::AdvanceBu
                                 ConversionPatternRewriter& rewriter) const override {
     auto parentModule = op.getParentOfType<ModuleOp>();
     auto voidType = LLVM::LLVMVoidType::get(op.getContext());
-    auto intType = LLVM::LLVMIntegerType::get(op.getContext(), 64);
-    auto funcType = LLVM::LLVMFunctionType::get(voidType, {intType});
+    auto int64Type = LLVM::LLVMIntegerType::get(op.getContext(), 64);
+    auto int8Type = LLVM::LLVMIntegerType::get(op.getContext(), 8);
+    auto funcType = LLVM::LLVMFunctionType::get(voidType, {int64Type, int64Type, int8Type});
 
-    auto advanceFunction =
-        getOrInsertFunction("advanceBuilder", funcType, rewriter, parentModule);
+    auto advanceFunction = getOrInsertFunction("advanceBuilder", funcType, rewriter, parentModule);
 
-    auto builderPtrConstant = rewriter.create<LLVM::ConstantOp>(
+    auto structPtrConst = rewriter.create<LLVM::ConstantOp>(
         op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
-        rewriter.getIntegerAttr(rewriter.getIndexType(), op.relationBuilderPtr()));
+        rewriter.getIntegerAttr(rewriter.getIndexType(), op.structBuilderPtr()));
+    auto unionPtrConst = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), op.unionBuilderPtr()));
+    auto childIndexConst = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), LLVM::LLVMType::getInt8Ty(rewriter.getContext()),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), op.childId()));
 
     auto funcOp = dyn_cast_or_null<LLVM::LLVMFuncOp>(parentModule.lookupSymbol(advanceFunction));
     if(!funcOp) {
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<LLVM::CallOp>(
-        op, funcOp, builderPtrConstant.getResult());
+    rewriter.replaceOpWithNewOp<LLVM::CallOp>(op, funcOp,
+                                              ::mlir::ValueRange{structPtrConst.getResult(),
+                                                                 unionPtrConst.getResult(),
+                                                                 childIndexConst.getResult()});
 
     return success();
   }
@@ -437,7 +474,8 @@ void SexprToLLVMLoweringPass::runOnOperation() {
                   AllocateSymbolicFunctionOpLowering, LoadConstantAddressOpLowering>(&getContext(),
                                                                                      typeConverter);
 
-  patterns.insert<FinalizeRelationOpLowering, AppendToRelationOpLowering, AdvanceBuilderOpLowering>(&getContext());
+  patterns.insert<FinalizeRelationOpLowering, AppendToRelationOpLowering, AdvanceBuilderOpLowering>(
+      &getContext());
 
   auto module = getOperation();
 

@@ -42,11 +42,18 @@ TEST_CASE("STORAGE_TEST") {
     new_runtime::Relation relation;
 
     relation.bulk_load({
-        {{"A", 5}},
-        {{"A", 6}}
+        {{"A", 5}, {"B", 1}},
+        {{"A", 6}, {"B", 1}},
+        {{"A", 6}, {"B", 1}},
+        {{"A", 3.2F}, {"B", 1}},
+        {{"A", 3.2F}, {"B", 3.3F}}
     });
 
     new_runtime::Database database;
+
+    std::cout << relation.get()->ToString() << std::endl;
+
+
     database.addRelation("Foo", std::move(relation));
 
     boss::engines::mlir::Engine engine(std::move(database));
@@ -57,9 +64,15 @@ TEST_CASE("STORAGE_TEST") {
 
     auto firstStruct = std::dynamic_pointer_cast<arrow::StructArray>(resultRelation->get()->field(0));
     auto intColumn = std::dynamic_pointer_cast<arrow::Int32Array>(firstStruct->field(0));
+    auto secondStruct = std::dynamic_pointer_cast<arrow::StructArray>(resultRelation->get()->field(1));
+    auto floatColumn = std::dynamic_pointer_cast<arrow::FloatArray>(secondStruct->field(0));
+
+    std::cout << resultRelation->get()->ToString() << std::endl;
+
 
     CHECK(intColumn->Value(0) == 5);
     CHECK(intColumn->Value(1) == 6);
+    CHECK(floatColumn->Value(0) == 3.2F);
   }
 
 }

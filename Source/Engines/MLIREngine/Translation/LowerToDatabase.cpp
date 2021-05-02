@@ -90,7 +90,10 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
 
       rewriter.create<database::AdvanceBuilderOp>(
           loc,
-          reinterpret_cast<size_t>((relationBuilder->getOrCreateTypedStructBuilder(runtimeFields)).get()));
+          reinterpret_cast<size_t>(
+              (relationBuilder->getOrCreateTypedStructBuilder(runtimeFields)).get()),
+          reinterpret_cast<size_t>((relationBuilder->rawBuilder()).get()),
+          relationBuilder->getOrCreateTypedStructBuilderIndex(runtimeFields));
 
       // Iterate over all values in the tuple stream, and append to builder
       for(auto const& [name, type] : tupleStreamType.getFields()) {
@@ -133,11 +136,19 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     mlir::Value offset;
     mlir::ConversionPatternRewriter& rewriter;
     mlir::Location loc;
-
+    // TODO remaining types
     arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
       auto integerArray = std::dynamic_pointer_cast<arrow::Int32Array>(baseArray);
       auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
           loc, reinterpret_cast<size_t>(integerArray->raw_values()), rewriter.getI32Type(), offset);
+      result = loadOp.getResult();
+      return arrow::Status::OK();
+    }
+
+    arrow::Status Visit(const arrow::FloatType& /*type*/) override {
+      auto integerArray = std::dynamic_pointer_cast<arrow::FloatArray>(baseArray);
+      auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
+          loc, reinterpret_cast<size_t>(integerArray->raw_values()), rewriter.getF32Type(), offset);
       result = loadOp.getResult();
       return arrow::Status::OK();
     }
@@ -152,7 +163,7 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
 
     auto unionChildArray =
         database.getRelation(op.relationName().str()).get()->field(op.unionChildIndex());
-    auto relationLength = unionChildArray->length();
+    auto relationLength = unionChildArray->length() / unionChildArray->num_fields();
     auto relation = std::dynamic_pointer_cast<arrow::StructArray>(unionChildArray);
 
     // Create loop
@@ -211,7 +222,8 @@ void DatabaseLoweringPass::runOnOperation() {
   target.addIllegalDialect<mlir::database::DatabaseDialect>();
   target.addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
                     database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
-                    database::FinalizeRelationOp, database::AppendToRelationOp, database::AdvanceBuilderOp>();
+                    database::FinalizeRelationOp, database::AppendToRelationOp,
+                    database::AdvanceBuilderOp>();
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
   target.addLegalDialect<::mlir::StandardOpsDialect>();

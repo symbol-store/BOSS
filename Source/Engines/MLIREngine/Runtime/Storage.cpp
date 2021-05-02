@@ -2,8 +2,8 @@
 
 #include "Utilities.hpp"
 #include <functional>
-#include <map>
 #include <iostream>
+#include <map>
 
 using boss::ComplexExpression;
 using boss::Expression;
@@ -84,12 +84,13 @@ struct CompareTuple {
     auto lhsPtr = lhs.begin();
     auto rhsPtr = rhs.begin();
 
-    while (lhsPtr != lhs.end() && rhsPtr != rhs.end()) {
+    while(lhsPtr != lhs.end() && rhsPtr != rhs.end()) {
       auto compValue = compareExpressions(lhsPtr->second, rhsPtr->second);
-      if (compValue != 0) {
+      if(compValue != 0) {
         return compValue < 0;
       }
-      lhsPtr++; rhsPtr++;
+      lhsPtr++;
+      rhsPtr++;
     }
 
     return false;
@@ -347,12 +348,13 @@ void new_runtime::Relation::bulk_load(
 }
 
 std::shared_ptr<arrow::ArrayBuilder>
-new_runtime::RelationBuilder::getOrCreateColumnBuilder(std::string fieldName, Fields const& fields) {
+new_runtime::RelationBuilder::getOrCreateColumnBuilder(std::string fieldName,
+                                                       Fields const& fields) {
   auto structBuilder = getOrCreateTypedStructBuilder(fields);
 
   auto structType = structBuilder->type();
-  for (auto i = 0; i < structType->num_fields(); i++) {
-    if (structType->field(i)->name() == fieldName) {
+  for(auto i = 0; i < structType->num_fields(); i++) {
+    if(structType->field(i)->name() == fieldName) {
       return structBuilder->child_builder(i);
     }
   }
@@ -362,7 +364,7 @@ new_runtime::RelationBuilder::getOrCreateColumnBuilder(std::string fieldName, Fi
 
 new_runtime::Relation* new_runtime::RelationBuilder::build() {
   auto result = builder->Finish();
-  if (!result.ok()) {
+  if(!result.ok()) {
     return nullptr;
   }
 
@@ -370,31 +372,40 @@ new_runtime::Relation* new_runtime::RelationBuilder::build() {
   return new Relation(denseUnionArray);
 }
 
-
 std::shared_ptr<arrow::ArrayBuilder>
 new_runtime::RelationBuilder::builderForType(boss::mlir::types::RuntimeTypes type) {
   switch(type) {
-    case boss::mlir::types::RuntimeTypes::INT:
-      return std::make_shared<arrow::Int32Builder>();
-    case boss::mlir::types::RuntimeTypes::BOOLEAN:
-      return std::make_shared<arrow::BooleanBuilder>();
-    case boss::mlir::types::RuntimeTypes::STRING:
-      return std::make_shared<arrow::StringBuilder>();
-    case boss::mlir::types::RuntimeTypes::FLOAT:
-      return std::make_shared<arrow::FloatBuilder>();
-    case boss::mlir::types::RuntimeTypes::SYMBOL:
-      // TODO do we want binary? Probably just store as BSON.
-      return std::make_shared<arrow::BinaryBuilder>();
-    default:
-      throw std::runtime_error("Cannot insert type into relation");
+  case boss::mlir::types::RuntimeTypes::INT:
+    return std::make_shared<arrow::Int32Builder>();
+  case boss::mlir::types::RuntimeTypes::BOOLEAN:
+    return std::make_shared<arrow::BooleanBuilder>();
+  case boss::mlir::types::RuntimeTypes::STRING:
+    return std::make_shared<arrow::StringBuilder>();
+  case boss::mlir::types::RuntimeTypes::FLOAT:
+    return std::make_shared<arrow::FloatBuilder>();
+  case boss::mlir::types::RuntimeTypes::SYMBOL:
+    // TODO do we want binary? Probably just store as BSON.
+    return std::make_shared<arrow::BinaryBuilder>();
+  default:
+    throw std::runtime_error("Cannot insert type into relation");
   }
 }
 
-std::shared_ptr<arrow::ArrayBuilder> new_runtime::RelationBuilder::getOrCreateTypedStructBuilder(Fields const& fields) {
-  std::shared_ptr<arrow::StructBuilder> structBuilder;
+std::shared_ptr<arrow::ArrayBuilder>
+new_runtime::RelationBuilder::getOrCreateTypedStructBuilder(Fields const& fields) {
+  auto index = getOrCreateTypedStructBuilderIndex(fields);
+  auto structBuilder =
+      std::dynamic_pointer_cast<arrow::StructBuilder>(builder->child_builder(index));
+  if(!structBuilder) {
+    throw std::runtime_error("A child builder wasn't a struct builder");
+  }
+  return structBuilder;
+}
 
+int8_t new_runtime::RelationBuilder::getOrCreateTypedStructBuilderIndex(
+    const new_runtime::RelationBuilder::Fields& fields) {
   auto childBuilderIndex = fieldsToBuilder.find(fields);
-  if (childBuilderIndex == fieldsToBuilder.end()) {
+  if(childBuilderIndex == fieldsToBuilder.end()) {
     // We have never seen these fields before. Create a new child builder.
     std::vector<std::shared_ptr<arrow::ArrayBuilder>> argBuilders;
     std::vector<std::shared_ptr<arrow::Field>> arrowFields;
@@ -405,17 +416,13 @@ std::shared_ptr<arrow::ArrayBuilder> new_runtime::RelationBuilder::getOrCreateTy
       argBuilders.push_back(childBuilder);
     }
 
-    structBuilder = std::make_shared<TypedDatabaseBuilder>(std::make_shared<arrow::StructType>(arrowFields),
-                                                           std::move(argBuilders));
+    auto structBuilder = std::make_shared<TypedDatabaseBuilder>(
+        std::make_shared<arrow::StructType>(arrowFields), std::move(argBuilders));
     auto newChildIndex = builder->AppendChild(structBuilder);
     fieldsToBuilder[fields] = newChildIndex;
-  } else {
-    structBuilder = std::dynamic_pointer_cast<arrow::StructBuilder>(builder->child_builder(childBuilderIndex->second));
-    if (!structBuilder) {
-      throw std::runtime_error("A child builder wasn't a struct builder");
-    }
+    return newChildIndex;
   }
-  return structBuilder;
+  return childBuilderIndex->second;
 }
 
 extern "C" new_runtime::Relation* constructRelation(new_runtime::RelationBuilder& builder) {
@@ -426,11 +433,22 @@ extern "C" void addToRelation_Int(arrow::ArrayBuilder* builder, int value) {
   auto status = dynamic_cast<arrow::Int32Builder*>(builder)->Append(value);
 }
 
+extern "C" void addToRelation_Float(arrow::ArrayBuilder* builder, float value) {
+  auto status = dynamic_cast<arrow::FloatBuilder*>(builder)->Append(value);
+}
+
 extern "C" void addToRelation_Bool(arrow::ArrayBuilder* builder, bool value) {
   auto status = dynamic_cast<arrow::BooleanBuilder*>(builder)->Append(value);
 }
 
-extern "C" void advanceBuilder(arrow::StructBuilder* builder) {
+extern "C" void advanceBuilder(arrow::StructBuilder* structBuilder,
+                               arrow::DenseUnionBuilder* unionBuilder, int8_t child) {
   // TODO error handling
-  builder->Append();
+  unionBuilder->Append(child);
+  structBuilder->Append();
 }
+
+// extern "C" void advanceBuilder(arrow::StructBuilder* builder) {
+//  // TODO error handling
+//  builder->Append();
+//}

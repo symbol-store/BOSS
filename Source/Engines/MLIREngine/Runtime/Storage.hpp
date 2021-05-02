@@ -22,8 +22,11 @@ public:
   std::shared_ptr<arrow::ArrayBuilder> getOrCreateColumnBuilder(std::string fieldName, Fields const& fields);
 
   std::shared_ptr<arrow::ArrayBuilder> getOrCreateTypedStructBuilder(Fields const& fields);
+  int8_t getOrCreateTypedStructBuilderIndex(Fields const& fields);
 
   Relation* build();
+
+  std::shared_ptr<arrow::DenseUnionBuilder> rawBuilder() { return builder; };
 
 private:
 
