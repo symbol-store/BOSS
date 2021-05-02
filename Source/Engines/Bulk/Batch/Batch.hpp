@@ -1,8 +1,12 @@
 #pragma once
 
+#include "../Utils/BatchData.hpp"
+#include "../Utils/CompoundArray.hpp"
 #include "../Utils/UniqueTypeId.hpp"
 
 #include "../../../Expression.hpp"
+
+#include <arrow/type_fwd.h>
 
 #include <memory>
 
@@ -16,13 +20,15 @@ public:
 
   virtual ~ReadableBatchPtr() = default;
   ReadableBatchPtr() : m_batchPtr(), m_writable(false) {}
+  explicit ReadableBatchPtr(BatchType const* batch)
+      : m_batchPtr(const_cast<BatchType*>(batch)), m_writable(false) {} // NOLINT
   explicit ReadableBatchPtr(std::shared_ptr<BatchType const> const& batchPtr)
       : m_batchPtr(std::const_pointer_cast<BatchType>(batchPtr)), m_writable(false) {}
   explicit ReadableBatchPtr(std::shared_ptr<BatchType const>&& batchPtr)
       : m_batchPtr(std::move(std::const_pointer_cast<BatchType>(batchPtr))), m_writable(false) {}
 
-  //ReadableBatchPtr(ReadableBatchPtr& other) = delete;
-  //ReadableBatchPtr& operator=(ReadableBatchPtr& other) = delete;
+  // ReadableBatchPtr(ReadableBatchPtr& other) = delete;
+  // ReadableBatchPtr& operator=(ReadableBatchPtr& other) = delete;
 
   ReadableBatchPtr(ReadableBatchPtr&& other) noexcept = default;
   ReadableBatchPtr& operator=(ReadableBatchPtr&& other) noexcept = default;
@@ -188,21 +194,23 @@ public:
   Batch& operator=(Batch&& other) = delete;
 
   virtual WritablePtr clone(bool clear = false) const = 0;
-  virtual void clear() = 0;
+  virtual void clear() = 0; // TODO: CBatch only?
 
   virtual size_t size() const = 0;
 
-  virtual void reserve(size_t size) = 0;
-  virtual void resize(size_t size, Expression const& val) = 0;
+  virtual void reserve(size_t size) = 0; // TODO: CBatch only?
+  virtual void resize(size_t size) = 0;  // TODO: CBatch only?
 
   virtual UniqueId::type typeId() const = 0;
   virtual UniqueId::type elementTypeId() const = 0;
 
-  virtual bool isRLE() const = 0;
   virtual bool canContain(Expression const& val) const = 0;
 
   virtual void insert(Expression const& val) = 0;
-  virtual void merge(ReadablePtr&& other) = 0;
+
+  virtual BatchData data() const = 0;
+
+  virtual void setOwner(std::shared_ptr<CompoundArray> parentArray, size_t childIndex) = 0;
 
   virtual bool evaluate(ReadablePtr& outputPtr) const = 0;
 };

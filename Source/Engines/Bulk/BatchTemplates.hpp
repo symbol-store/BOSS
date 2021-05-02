@@ -8,7 +8,6 @@
 #include "Batch/CompoundBatch.hpp"
 #include "Batch/ExpressionBatch.hpp"
 #include "Batch/FunctionBatch.hpp"
-#include "Batch/RLEBatch.hpp"
 #include "Batch/SymbolBatch.hpp"
 #include "Batch/ValueBatch.hpp"
 
@@ -34,20 +33,17 @@ public:
   using CompoundBatchHelper =
       BatchHelper<CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
 
-  using BatchHelper =
-      BatchHelper<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., ValueBatch<Symbol>,
-                  SymbolBatch, CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
+  using BatchHelper = BatchHelper<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch,
+                                  CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
 
-  using AnyBatch =
-      AllowedBatches<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., ValueBatch<Symbol>,
-                     SymbolBatch, CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
+  using AnyBatch = AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch,
+                                  CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
 
   using NonSymbolicBatch =
-      AllowedBatches<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>..., ValueBatch<Symbol>,
-                     CompoundBatch, TableView>;
+      AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, CompoundBatch, TableView>;
 
-  using AnySimpleBatch = AllowedBatches<ValueBatch<SupportedTypes>..., RLEBatch<SupportedTypes>...,
-                                        ValueBatch<Symbol>, SymbolBatch>;
+  using AnySimpleBatch =
+      AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch>;
 
   using AnyCompoundBatch =
       AllowedBatches<CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
@@ -57,31 +53,27 @@ public:
     m_templates[unevaluatedKey] = BatchTemplatePtr(new UnevaluatedBatchTemplate("Unevaluated"));
   }
 
-  Batch::WritablePtr createBatch(Expression const& expression,
-                                 bool decomposedDispatch = false) const override {
-    return std::visit([this, &decomposedDispatch](
-                          auto&& value) { return createBatch(value, decomposedDispatch); },
-                      expression);
+  Batch* createBatch(Expression const& expression) const override {
+    return std::visit([this](auto&& value) { return this->createBatch(value); }, expression);
   }
 
-  Batch::WritablePtr createBatch(Symbol const& symbol) const { return createBatch(symbol, false); }
-
-  Batch::WritablePtr createBatch(Symbol const& symbol, bool /*decomposedDispatch*/) const {
-    return Batch::WritablePtr(new SymbolBatch(*this, symbol));
-  }
-
-  Batch::WritablePtr createBatch(ComplexExpression const& expression,
-                                 bool decomposedDispatch) const {
+  Batch* createBatch(ComplexExpression const& expression) const {
     auto const& symbol = expression.getHead();
     auto argsBegin = expression.getArguments().begin();
     auto argsEnd = expression.getArguments().end();
     size_t numArgs = std::distance(argsBegin, argsEnd);
+    auto* newBatch = createBatch(symbol, numArgs);
+    newBatch->insert(expression);
+    return newBatch;
+  }
+
+  Batch* createBatch(Symbol const& symbol, size_t numArgs) const {
     std::vector<size_t> argumentTypes(numArgs, 0);
     BatchTemplateKey key(symbol.getName(), argumentTypes);
     auto templateIt = m_templates.find(key);
     if(templateIt != m_templates.end()) {
       auto* batchTemplate = templateIt->second.get();
-      return batchTemplate->createBatch(*this, decomposedDispatch);
+      return batchTemplate->createBatch(*this);
     }
 
     if(numArgs > 1) {
@@ -96,151 +88,57 @@ public:
           if(closestTemplateIt->first.getArgumentCount() == 2) {
             // create a compound expression batch
             // (it will be handled at insert)
-            return batchTemplate->createBatch(*this, decomposedDispatch);
+            return batchTemplate->createBatch(*this);
           }
         }
       }
     }
 
     // symbol not found, return a generic batch with arguments at least
-    return Batch::WritablePtr(new CompoundBatch(*this, symbol, decomposedDispatch));
+    return new CompoundBatch(*this, symbol);
   }
 
-  template <typename T> Batch::WritablePtr createBatch(T const& value) const {
-    return createBatch<T>(value, false);
+  template <typename T> Batch* createBatch(T const& value) const {
+    return new ValueBatch<T>(1, value);
   }
 
-  template <typename T>
-  Batch::WritablePtr createBatch(T const& value, bool /*decomposedDispatch*/) const {
-    return Batch::WritablePtr(new RLEBatch<T>(value));
-  }
+  Batch* createBatch(arrow::ArrayVector&& arrays,
+                     std::shared_ptr<arrow::ArrayBuilder> arrayBuilder) const override {
+    // assuming all arrays and builder share the same type!
+    auto type = arrayBuilder ? arrayBuilder->type() : arrays[0]->type();
 
-  Batch::ReadablePtr extractFromBatch(Batch const& srcBatch, size_t index) const override {
-    Batch::ReadablePtr outputBatchPtr;
-    BatchHelper::visit(
-        [this, &index, &outputBatchPtr](auto const& batch) {
-          using BatchType = std::decay_t<decltype(batch)>;
-          using ValueType = typename BatchType::ValueType;
-          if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-            outputBatchPtr = batch.extract(index);
-          } else {
-            auto const& value = *(batch.begin() + index);
-            auto newBatchPtr = createBatch((ValueType)value, false);
-            newBatchPtr->insert(value);
-            outputBatchPtr = std::move(newBatchPtr);
-          }
-        },
-        srcBatch);
-    return outputBatchPtr;
-  }
-
-  Batch::ReadablePtr recomposeBatch(Batch const& srcBatch, size_t index,
-                                    bool decomposedDispatch) const override {
-    // make a copy of it to receive the single element
-    // by recomposing a new row from every batch
-    Batch::ReadablePtr recomposedPtr;
-    BatchHelper::visit(
-        [this, &index, &recomposedPtr, &decomposedDispatch](auto const& batch) {
-          using BatchType = std::decay_t<decltype(batch)>;
-          if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-            if(batch.size() == 1) {
-              auto recomposedCompoundPtr = batch.cloneAsCompoundBatch();
-              recomposedCompoundPtr->setDecomposed(decomposedDispatch);
-              recomposedPtr = std::move(recomposedCompoundPtr);
-              return;
-            }
-            auto recomposedCompoundPtr = batch.cloneAsCompoundBatch(true);
-            auto& recomposed = *recomposedCompoundPtr;
-            recomposed.setDecomposed(decomposedDispatch);
-            size_t newIndex = 0;
-            batch.visitBatches([this, &recomposed, &index, &newIndex](auto const& columnKey,
-                                                                      auto const& columnPtr) {
-              auto valuePtr = extractFromBatch(*columnPtr, index);
-              recomposed.insert(columnKey.first, newIndex++, std::move(valuePtr));
-            });
-            recomposedPtr = std::move(recomposedCompoundPtr);
-          } else {
-            // otherwise that is just an extraction
-            recomposedPtr = extractFromBatch(batch, index);
-          }
-        },
-        srcBatch);
-    return recomposedPtr;
-  }
-
-  void reduceCompoundBatch(Batch& destBatch, Batch const& srcBatch, size_t index) const override {
-    boss::engines::bulk::BatchHelper<CompoundBatch>::visit(
-        [this, &destBatch, &index](auto const& srcCompoundBatch) {
-          boss::engines::bulk::BatchHelper<CompoundBatch>::visit(
-              [this, &srcCompoundBatch, &index](auto& destCompoundBatch) {
-                size_t newIndex = 0;
-                srcCompoundBatch.visitBatches([this, &destCompoundBatch, &index, &newIndex](
-                                                  auto const& batchKey, auto const& batchPtr) {
-                  auto reducedPtr = reduceBatch(batchPtr, index);
-                  destCompoundBatch.insert(batchKey.first, newIndex++, std::move(reducedPtr));
-                });
-              },
-              destBatch);
-        },
-        srcBatch);
-  }
-
-  Batch::ReadablePtr reduceBatch(Batch::ReadablePtr batchPtr, size_t index) const override {
-    Batch::ReadablePtr reducedPtr;
-    BatchHelper::visit(
-        [this, &index, &batchPtr, &reducedPtr](auto const& batch) {
-          using BatchType = std::decay_t<decltype(batch)>;
-          if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-            reducedPtr = batch.reduce(index);
-          } else {
-            reducedPtr = std::move(batchPtr);
-          }
-        },
-        *batchPtr);
-    return reducedPtr;
-  }
-
-  Batch::ReadablePtr convertToNonRLE(Batch::ReadablePtr batchPtr) const override {
-    auto const& batch = *batchPtr;
-    Batch::WritablePtr newBatchPtr;
-    if(batch.isRLE()) {
-      BatchHelper::visit(
-          [this, &newBatchPtr](auto const& batch) {
-            using BatchType = std::decay_t<decltype(batch)>;
-            using ValueType = typename BatchType::ValueType;
-            if constexpr(!std::is_same_v<ValueType, Symbol> &&
-                         !std::is_same_v<ValueType, ComplexExpression>) {
-              newBatchPtr =
-                  Batch::WritablePtr(new ValueBatch<ValueType>(batch.size(), *batch.begin()));
-            }
+    switch(type->id()) {
+    case arrow::Type::BOOL:
+      return new ValueBatch<bool>(std::move(arrays), std::move(arrayBuilder));
+    case arrow::Type::INT32:
+      return new ValueBatch<int>(std::move(arrays), std::move(arrayBuilder));
+    case arrow::Type::FLOAT:
+      return new ValueBatch<float>(std::move(arrays), std::move(arrayBuilder));
+    case arrow::Type::STRING:
+      return new ValueBatch<std::string>(std::move(arrays), std::move(arrayBuilder));
+    case arrow::Type::EXTENSION: {
+      auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
+      if(extensionType.extension_name()[0] == 's') {
+        // SYMBOL
+        return new SymbolBatch(*this, std::move(arrays), std::move(arrayBuilder));
+      }
+      // COMPLEX EXPRESSION
+      auto const& complexType =
+          dynamic_cast<ComplexExpressionArray::ComplexExpressionArrayType const&>(extensionType);
+      auto const& head = complexType.getHead();
+      auto* batchPtr = createBatch(head, extensionType.storage_type()->num_fields());
+      CompoundBatchHelper::visit(
+          [&arrays, &arrayBuilder](auto& batch) {
+            batch.insert(CompoundArray(std::move(arrays), std::move(arrayBuilder)));
           },
-          batch);
+          *batchPtr);
+      return batchPtr;
+    }
+    default:
+      break;
     }
 
-    if(newBatchPtr) {
-      return std::move(newBatchPtr);
-    }
-    return std::move(batchPtr);
-  }
-
-  Batch::ReadablePtr convertToDecomposed(Batch::ReadablePtr batchPtr) const override {
-    auto const& batch = *batchPtr;
-    Batch::WritablePtr newBatchPtr;
-    CompoundBatchHelper::visit(
-        [this, &batchPtr, &newBatchPtr](auto const& batch) {
-          using BatchType = std::decay_t<decltype(batch)>;
-          if(!batch.isDecomposed()) {
-            WritableBatchPtr<BatchType> writableCompoundBatchPtr(std::move(batchPtr));
-            writableCompoundBatchPtr->setDecomposed(true);
-            newBatchPtr = std::move(writableCompoundBatchPtr);
-          }
-        },
-        batch);
-
-    if(newBatchPtr) {
-      return std::move(newBatchPtr);
-    }
-    return std::move(batchPtr);
+    return nullptr; // should not happen!
   }
 
   Expression revertToExpression(Batch::ReadablePtr&& batchPtr) const override {
@@ -291,7 +189,7 @@ public:
             }
           } else {
             for(auto const& value : batch) {
-              arguments.emplace_back(value);
+              arguments.emplace_back(static_cast<typename BatchType::ValueType>(value));
             }
           }
         },
@@ -303,33 +201,6 @@ public:
 
     Symbol const& head = rootHead ? *rootHead : Symbol("List");
     return ComplexExpression(head, arguments);
-  }
-
-  Expression toKey(Batch const& batch) const override {
-    Expression key;
-    BatchHelper::visit(
-        [this, &key](auto const& batch) {
-          using BatchType = std::decay_t<decltype(batch)>;
-          using ValueType = typename BatchType::ValueType;
-          if constexpr(std::is_same_v<TableView, BatchType>) {
-            key = batch.getHead().getName();
-          } else if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-            size_t batchSize = batch.size();
-            ExpressionArguments arguments;
-            arguments.reserve(batchSize);
-            for(auto const& batchPtr : batch) {
-              arguments.emplace_back(toKey(*batchPtr));
-            }
-            key = ComplexExpression(batch.getHead(), std::move(arguments));
-          } else if constexpr(std::is_same_v<ValueType, Symbol>) {
-            key = *batch.begin();
-          } else {
-            key = ValueType();
-          }
-        },
-        batch);
-
-    return key;
   }
 
   friend class AllowedTypes;
@@ -410,11 +281,11 @@ private:
   template <bool UsingFixedTypes, typename... Types>
   using FromElementTypesToAllowedTypes = typename MergeAllowedTypes<
       UsingFixedTypes,
-      std::conditional_t<
-          std::is_same_v<Types, Symbol>, AllowedTypes<AllowedBatches<SymbolBatch>>,
-          std::conditional_t<
-              std::is_same_v<Types, ComplexExpression>, AllowedTypes<AllowedBatches<CompoundBatch>>,
-              AllowedTypes<AllowedBatches<ValueBatch<Types>, RLEBatch<Types>>>>>...>::type;
+      std::conditional_t<std::is_same_v<Types, Symbol>, AllowedTypes<AllowedBatches<SymbolBatch>>,
+                         std::conditional_t<std::is_same_v<Types, ComplexExpression>,
+                                            AllowedTypes<AllowedBatches<CompoundBatch>>,
+                                            AllowedTypes<AllowedBatches<ValueBatch<Types>>>>>...>::
+      type;
 
   class BatchTemplateKey {
   public:
@@ -458,18 +329,15 @@ private:
     BatchTemplateBase& operator=(BatchTemplateBase const& other) = delete;
     BatchTemplateBase& operator=(BatchTemplateBase&& other) = delete;
 
-    virtual Batch::WritablePtr createBatch(BatchTemplates const&,
-                                           bool decomposedDispatch) const = 0;
+    virtual Batch* createBatch(BatchTemplates const&) const = 0;
   };
 
   class UnevaluatedBatchTemplate : public BatchTemplateBase {
   public:
     explicit UnevaluatedBatchTemplate(std::string const& symbolName) : m_symbolName(symbolName) {}
 
-    Batch::WritablePtr createBatch(BatchTemplates const& templates,
-                                   bool decomposedDispatch) const override {
-      return Batch::WritablePtr(
-          new UnevaluatedBatch(templates, Symbol(m_symbolName), decomposedDispatch));
+    Batch* createBatch(BatchTemplates const& templates) const override {
+      return new UnevaluatedBatch(templates, Symbol(m_symbolName));
     }
 
   private:
@@ -485,9 +353,8 @@ private:
     ExpressionBatchTemplate(std::string const& symbol, Func&& func)
         : m_evaluator(symbol, std::forward<Func>(func)) {}
 
-    Batch::WritablePtr createBatch(BatchTemplates const& templates,
-                                   bool decomposedDispatch) const override {
-      return Batch::WritablePtr(new BatchType(templates, m_evaluator, decomposedDispatch));
+    Batch* createBatch(BatchTemplates const& templates) const override {
+      return new BatchType(templates, m_evaluator);
     }
 
   private:

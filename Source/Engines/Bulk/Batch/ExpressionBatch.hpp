@@ -20,8 +20,8 @@ public:
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
-  AnyExpressionBatch(BatchFactory const& factory, Symbol const& symbol, bool decomposedDispatch)
-      : CompoundBatch(factory, symbol, decomposedDispatch) {}
+  AnyExpressionBatch(BatchFactory const& factory, Symbol const& symbol)
+      : CompoundBatch(factory, symbol) {}
 
   AnyExpressionBatch(AnyExpressionBatch const& other, bool clear = false)
       : CompoundBatch(other, clear) {}
@@ -46,18 +46,14 @@ public:
   WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
     return cloneAsAnyExpressionBatch(clear);
   }
-
-  void merge(ReadablePtr&& other) override {
-    CompoundBatch::merge<AnyExpressionBatch>(std::move(other));
-  }
 };
 
 class UnevaluatedBatch : public AnyExpressionBatch {
 public:
   using ValueType = AnyExpressionBatch::ValueType;
 
-  UnevaluatedBatch(BatchFactory const& factory, Symbol const& symbol, bool decomposedDispatch)
-      : AnyExpressionBatch(factory, symbol, decomposedDispatch) {}
+  UnevaluatedBatch(BatchFactory const& factory, Symbol const& symbol)
+      : AnyExpressionBatch(factory, symbol) {}
 
   UnevaluatedBatch(UnevaluatedBatch const& other, bool clear = false)
       : AnyExpressionBatch(other, clear) {}
@@ -95,13 +91,11 @@ class ExpressionBatch : public AnyExpressionBatch {
 public:
   using ValueType = AnyExpressionBatch::ValueType;
 
-  ExpressionBatch(BatchFactory const& factory, EvaluatorType const& evaluator,
-                  bool decomposedDispatch)
-      : m_evaluator(evaluator),
-        AnyExpressionBatch(factory, Symbol(evaluator.getSymbol()), decomposedDispatch) {}
+  ExpressionBatch(BatchFactory const& factory, EvaluatorType const& evaluator)
+      : AnyExpressionBatch(factory, Symbol(evaluator.getSymbol())), m_evaluator(evaluator) {}
 
   ExpressionBatch(ExpressionBatch const& other, bool clear = false)
-      : m_evaluator(other.m_evaluator), AnyExpressionBatch(other, clear) {}
+      : AnyExpressionBatch(other, clear), m_evaluator(other.m_evaluator) {}
 
   ~ExpressionBatch() override = default;
   ExpressionBatch(ExpressionBatch&& other) = delete;
@@ -133,14 +127,14 @@ public:
       if(sizeArgs > FuncArgCount) {
         // special case for binary operators
         // split arguments into pairs and create deeper compound expressions
-        auto numPassingOverArgs = sizeArgs - 1;
+        ExpressionArguments newArgList(argsBegin, std::next(argsBegin, FuncArgCount));
+        for(int argIndex = FuncArgCount; argIndex < sizeArgs; ++argIndex) {
+          ComplexExpression compoundExpr{expression.getHead(), newArgList};
+          ExpressionArguments compoundList({compoundExpr, *std::next(argsBegin, argIndex)});
+          newArgList.swap(compoundList);
+        }
 
-        ExpressionArguments compoundList{argsBegin, std::next(argsBegin, numPassingOverArgs)};
-        ComplexExpression compoundExpr{expression.getHead(), compoundList};
-
-        ExpressionArguments newList{compoundExpr, *std::next(argsBegin, numPassingOverArgs)};
-        ComplexExpression newExpr{expression.getHead(), newList};
-        insert(newExpr);
+        insert(ComplexExpression{expression.getHead(), newArgList});
         return;
       }
     }
@@ -175,7 +169,7 @@ private:
       return true;
     } else {
       auto batchIt = begin() + Index;
-      auto& batchPtr = *batchIt;
+      auto batchPtr = *batchIt;
       auto evaluatedPtr = evaluateHelper(Index, batchPtr);
 
       bool visited = false;
@@ -190,7 +184,7 @@ private:
             evaluated = std::apply(
                 [&specificBatchPtr, &outputPtr, this](auto... arg) {
                   // move evaluated ptr to the derived type
-                  return evaluateHelper<Index + 1>(
+                  return this->evaluateHelper<Index + 1>(
                       outputPtr,
                       std::forward_as_tuple((std::move(arg))..., std::move(specificBatchPtr)));
                 },
@@ -217,7 +211,7 @@ private:
       // check if they anything has been evaluated
       bool anyEvaluated = false;
       for(size_t index = 0; index < Index; ++index) {
-        auto& beforePtr = *(begin() + index);
+        auto beforePtr = *(begin() + index);
         if(argList[index].get() != beforePtr.get()) {
           anyEvaluated = true;
           break;
@@ -226,7 +220,7 @@ private:
 
       // still evaluate remaining args as much as possible
       for(size_t index = Index + 1; index < FuncArgCount; ++index) {
-        auto& otherPtr = *(begin() + index);
+        auto otherPtr = *(begin() + index);
         auto otherEvaluatedPtr = evaluateHelper(index, otherPtr);
         if(otherEvaluatedPtr.get() != otherPtr.get()) {
           anyEvaluated = true;
@@ -240,14 +234,7 @@ private:
 
       // create the new batch and insert the semi-evaluated batches
       auto partlyEvaluatedPtr = cloneAsCompoundBatch(true);
-      auto& outputBatch = *partlyEvaluatedPtr;
-      auto argIt = argList.begin();
-      visitBatches([&outputBatch, &argIt, &argList](auto const& key, auto const& /*batchPtr*/) {
-        if(argIt != argList.end()) {
-          outputBatch.insert(key.first, key.second, std::move(*argIt));
-          ++argIt;
-        }
-      });
+      partlyEvaluatedPtr->insert(argList);
       outputPtr = std::move(partlyEvaluatedPtr);
 
       // still return false, we did only semi-evaluation
@@ -267,15 +254,13 @@ private:
       // 2- also needed for "Function" which are evaluated too early (when not using parameters)
       if(EvaluatorType::isExactType(index, evaluatedBatch)) {
         isCorrectExpectedType = true;
-        if(previousPtr) { // TEST: already evaluated at least once
+        if(previousPtr) { // ok if already evaluated at least once
           break;
         }
       } else if(isCorrectExpectedType) {
         // go back to previous batch
         return previousPtr;
       }
-
-      auto currentTypeId = evaluatedBatch.typeId();
 
       previousPtr = std::move(evaluatedPtr);
       bool evaluated = evaluatedBatch.evaluate(evaluatedPtr);

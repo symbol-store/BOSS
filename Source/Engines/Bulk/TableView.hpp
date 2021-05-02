@@ -22,7 +22,7 @@ public:
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
   explicit TableView(BatchFactory const& factory)
-      : CompoundBatch(factory, false, false), m_columns(new ColumnBatchType()) {}
+      : CompoundBatch(factory, true), m_columns(new ColumnBatchType()) {}
 
   TableView(TableView const& other, bool clear = false)
       : CompoundBatch(other, clear), m_columns(other.m_columns->cloneAsValueBatch()) {}
@@ -52,13 +52,13 @@ public:
   ColumnWritablePtr& columns() { return m_columns; }
   ColumnReadablePtr columns() const { return m_columns; }
 
-  std::string const& columnName(size_t index) const {
-    return std::next(m_columns->begin(), index)->getName(); // NOLINT
+  auto const& columnName(size_t index) const {
+    return Symbol(*(columns()->begin() + index)).getName(); // NOLINT
   }
 
   int columnIndex(std::string const& name) const {
     int index = 0;
-    for(auto const& column : *m_columns) {
+    for(Symbol const& column : *columns()) {
       if(column.getName() == name) {
         return index;
       }
@@ -67,13 +67,13 @@ public:
     return -1;
   }
 
-  size_t numColumns() const { return m_columns->size(); }
+  size_t numColumns() const { return columns()->size(); }
 
   bool evaluate(ReadablePtr& outputPtr) const override {
     // set the local columns to be accessible by the rows evaluation
     auto& symbolPtr = DefaultSymbolPool::instance().findSymbol(Symbol("$columns"));
     auto backupSymbol = std::move(symbolPtr);
-    symbolPtr = Batch::ReadablePtr(m_columns);
+    symbolPtr = columns();
 
     ReadablePtr evaluatedPtr;
     bool evaluated = CompoundBatch::evaluate(evaluatedPtr);
@@ -95,8 +95,6 @@ public:
     outputPtr = std::move(writablePtr);
     return true;
   }
-
-  void merge(ReadablePtr&& other) override { CompoundBatch::merge<TableView>(std::move(other)); }
 
 private:
   ColumnWritablePtr m_columns;

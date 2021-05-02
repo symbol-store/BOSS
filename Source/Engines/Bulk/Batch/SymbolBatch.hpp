@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RLEBatch.hpp"
+#include "ValueBatch.hpp"
 
 #include "../BatchFactory.hpp"
 #include "../BatchHelper.hpp"
@@ -10,7 +10,7 @@
 
 namespace boss::engines::bulk {
 
-class SymbolBatch : public RLEBatch<Symbol> {
+class SymbolBatch : public ValueBatch<Symbol> {
 public:
   using ValueType = Symbol;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<SymbolBatch>();
@@ -23,20 +23,24 @@ public:
   }
 
   explicit SymbolBatch(BatchFactory const& factory, size_t count = 0)
-      : m_factory(factory), RLEBatch(count, Symbol("")) {}
+      : m_factory(factory), ValueBatch(count) {}
   explicit SymbolBatch(BatchFactory const& factory, Symbol const& symbol)
-      : m_factory(factory), RLEBatch(symbol) {}
+      : m_factory(factory), ValueBatch(0, symbol) {}
   explicit SymbolBatch(BatchFactory const& factory, Symbol&& symbol)
-      : m_factory(factory), RLEBatch(std::move(symbol)) {}
+      : m_factory(factory), ValueBatch(0, std::move(symbol)) {}
   SymbolBatch(BatchFactory const& factory, size_t size, Symbol const& symbol)
-      : m_factory(factory), RLEBatch(size, symbol) {}
+      : m_factory(factory), ValueBatch(size, symbol) {}
   SymbolBatch(BatchFactory const& factory, size_t size, Symbol&& symbol)
-      : m_factory(factory), RLEBatch(size, std::move(symbol)) {}
+      : m_factory(factory), ValueBatch(size, std::move(symbol)) {}
+
+  SymbolBatch(BatchFactory const& factory, arrow::ArrayVector&& arrays,
+              std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder)
+      : m_factory(factory), ValueBatch(std::move(arrays), std::move(arrayBuilder)) {}
 
   SymbolBatch(SymbolBatch const& other, bool clear = false)
-      : m_factory(other.m_factory), RLEBatch(other, clear) {}
+      : m_factory(other.m_factory), ValueBatch(other, clear) {}
   SymbolBatch(SymbolBatch&& other, bool clear = false) noexcept
-      : m_factory(other.m_factory), RLEBatch(std::move(other), clear) {}
+      : m_factory(other.m_factory), ValueBatch(std::move(other), clear) {}
 
   ~SymbolBatch() override = default;
   SymbolBatch& operator=(SymbolBatch const& other) = delete;
@@ -45,8 +49,8 @@ public:
   WritablePtr clone(bool clear = false) const override {
     return WritablePtr(cloneAsSymbolBatch(clear));
   }
-  WritableBatchPtr<RLEBatch> cloneAsRLEBatch(bool clear = false) const override {
-    return WritableBatchPtr<RLEBatch>(cloneAsSymbolBatch(clear));
+  WritableBatchPtr<ValueBatch> cloneAsValueBatch(bool clear = false) const override {
+    return WritableBatchPtr<ValueBatch>(cloneAsSymbolBatch(clear));
   }
   virtual WritableBatchPtr<SymbolBatch> cloneAsSymbolBatch(bool clear = false) const {
     return WritableBatchPtr(new SymbolBatch(*this, clear));
@@ -64,6 +68,9 @@ public:
       return false;
     }
 
+    // TODO: handle returning multiple array type
+    // (for now just assume always a single symbol)
+
     // make sure to return a non-writable...
     // TODO: cleanup SymbolPool to avoid mistakes
     auto const& batchPtr = DefaultSymbolPool::instance().findSymbol(*begin());
@@ -72,29 +79,6 @@ public:
     }
 
     outputPtr = batchPtr;
-
-    /*if(size() > 1) {
-      auto const& outputBatch = *outputPtr;
-      if(outputBatch.elementTypeId() == UniqueId::forType<ComplexExpression>()) {
-        // make shallow copies of the batch in an outer compound batch
-        // TODO: some type of batches (not the tables!) can be extended like a RLE batch
-        auto const& key = m_factory.toKey(outputBatch);
-        WritableBatchPtr<CompoundBatch> outerBatchPtr(new CompoundBatch(m_factory));
-        auto &outerBatch = *outerBatchPtr;
-        for(size_t i = 0; i < size(); ++i) {
-          outerBatch.insert(key, i, outputPtr);
-        }
-        outputPtr = std::move(outerBatchPtr);
-      } else {
-        // just extend the size of the batch
-        // TODO: do we need to handle the case where the batch itself has size != 1?
-        auto writableOutputPtr = outputBatch.clone(true);
-        auto const& value = m_factory.revertToExpression(std::move(outputPtr));
-        auto& writableOutputBatch = *writableOutputPtr;
-        writableOutputBatch.resize(size(), value);
-        outputPtr = std::move(writableOutputPtr);
-      }
-    }*/
 
     return true;
   }

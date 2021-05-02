@@ -3,8 +3,8 @@
 #include "Batch.hpp"
 
 #include "../BatchHelper.hpp"
-#include "../Dispatcher.hpp"
 #include "../SymbolPool.hpp"
+#include "../Utils/CompoundArray.hpp"
 
 #include "../../../Utilities.hpp"
 
@@ -25,28 +25,32 @@ public:
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
-  bool isRLE() const override { return false; }
-
   bool canContain(Expression const& val) const override {
     return std::holds_alternative<ValueType>(val);
   }
 
-  explicit CompoundBatch(BatchFactory const& factory, bool decomposed = false, bool ordered = true)
-      : m_dispatcher(factory, decomposed, ordered), m_symbol(ordered ? "List"_ : "MultiSet"_) {}
+  explicit CompoundBatch(BatchFactory const& factory, bool decomposed = false)
+      : m_factory(factory), m_array(std::make_shared<CompoundArray>()), m_symbol("List"_),
+        m_decomposed(decomposed) {}
 
-  explicit CompoundBatch(BatchFactory const& factory, Symbol const& symbol, bool decomposed = false)
-      : m_dispatcher(factory, decomposed, symbol.getName() != "MultiSet"), m_symbol(symbol) {}
+  CompoundBatch(BatchFactory const& factory, Symbol const& symbol, bool decomposed = false)
+      : m_factory(factory), m_array(std::make_shared<CompoundArray>()), m_symbol(symbol),
+        m_decomposed(decomposed) {}
 
+  // just a shallow copy
   CompoundBatch(CompoundBatch const& other, bool clear = false)
-      : m_dispatcher(other.m_dispatcher, clear), m_symbol(other.m_symbol) {}
+      : m_factory(other.m_factory), m_array(std::make_shared<CompoundArray>(*other.m_array, clear)),
+        m_symbol(other.m_symbol), m_decomposed(other.m_decomposed) {}
+
+  CompoundBatch(BatchFactory const& factory, Symbol const& symbol, CompoundArray&& compoundArray,
+                bool decomposed = false)
+      : m_factory(factory), m_array(std::make_shared<CompoundArray>(std::move(compoundArray))),
+        m_symbol(symbol), m_decomposed(decomposed) {}
 
   ~CompoundBatch() override = default;
   CompoundBatch(CompoundBatch&& other) = delete;
   CompoundBatch& operator=(CompoundBatch const& other) = delete;
   CompoundBatch& operator=(CompoundBatch&& other) = delete;
-
-  bool isDecomposed() const { return m_dispatcher.isDecomposed(); }
-  void setDecomposed(bool value) { m_dispatcher.setDecomposed(value); }
 
   Symbol const& getHead() const { return m_symbol; }
   void setHead(Symbol const& symbol) { m_symbol = symbol; }
@@ -65,74 +69,169 @@ public:
     return cloneAsCompoundBatch(clear);
   }
 
-  void clear() override { m_dispatcher.clear(); }
+  void clear() override { m_array->clear(); }
 
-  void reserve(size_t size) override {
-    // TODO
-  }
+  void reserve(size_t size) override { m_array->reserve(size); }
 
-  void resize(size_t size, Expression const& val) override { m_dispatcher.resize(size, val); }
+  void resize(size_t size) override { m_array->resize(size); }
 
-  size_t size() const override { return m_dispatcher.size(); }
+  size_t size() const override { return m_decomposed ? m_array->length() : numArguments(); }
 
-  template <typename DispatcherIterator> class Iterator {
+  size_t numArguments() const { return m_array->numArguments(); }
+
+  // column iterator
+  class ConstIterator {
+    // finish the builder into arrays, and iterate const arrays
   public:
-    explicit Iterator(DispatcherIterator dispatcherIt) : m_dispatcherIt(dispatcherIt) {}
-    ReadablePtr& operator*() const { return m_dispatcherIt->second; }
-    bool operator!=(Iterator const& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
-    bool operator!=(Iterator&& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
-    Iterator operator+(size_t incr) const { return Iterator(std::next(m_dispatcherIt, incr)); }
-    void operator++() { m_dispatcherIt++; }
+    using value_type = ReadablePtr;
+    explicit ConstIterator(CompoundBatch const& batch, size_t index = 0)
+        : m_batch(batch), m_index(index) {}
+    ReadablePtr operator*() const { return m_batch.column(m_index); }
+    bool operator!=(ConstIterator const& rhs) const { return m_index != rhs.m_index; }
+    bool operator!=(ConstIterator&& rhs) const { return m_index != rhs.m_index; }
+    ConstIterator operator+(size_t incr) const { return ConstIterator(m_batch, m_index + incr); }
+    void operator++() { m_index++; }
 
   private:
-    DispatcherIterator m_dispatcherIt;
+    CompoundBatch const& m_batch;
+    size_t m_index;
   };
 
-  template <typename DispatcherIterator> class ConstIterator {
+  auto begin() const { return ConstIterator(*this); }
+  auto end() const { return ConstIterator(*this, numArguments()); }
+
+  class MutableIterator {
+    // don't try to finish the builder, so they are still writable
+    // but shouldn't try to const-iterate the columns! it would be a problem if they are
+    // individually freezed.
+    // TODO: need a more robust API
   public:
-    explicit ConstIterator(DispatcherIterator dispatcherIt) : m_dispatcherIt(dispatcherIt) {}
-    ReadablePtr const& operator*() const { return m_dispatcherIt->second; }
-    bool operator!=(ConstIterator const& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
-    bool operator!=(ConstIterator&& rhs) const { return m_dispatcherIt != rhs.m_dispatcherIt; }
-    ConstIterator operator+(size_t incr) const {
-      return ConstIterator(std::next(m_dispatcherIt, incr));
+    using value_type = WritablePtr;
+    explicit MutableIterator(CompoundBatch& batch, size_t index = 0)
+        : m_batch(batch), m_index(index) {}
+    WritablePtr operator*() const { return m_batch.column(m_index); }
+    bool operator!=(MutableIterator const& rhs) const { return m_index != rhs.m_index; }
+    bool operator!=(MutableIterator&& rhs) const { return m_index != rhs.m_index; }
+    MutableIterator operator+(size_t incr) const {
+      return MutableIterator(m_batch, m_index + incr);
     }
-    void operator++() { m_dispatcherIt++; }
+    void operator++() { m_index++; }
 
   private:
-    DispatcherIterator m_dispatcherIt;
+    CompoundBatch& m_batch;
+    size_t m_index;
   };
 
-  auto begin() const { return ConstIterator(m_dispatcher.begin()); }
-  auto end() const { return ConstIterator(m_dispatcher.end()); }
-
-  auto begin() { return Iterator(m_dispatcher.begin()); }
-  auto end() { return Iterator(m_dispatcher.end()); }
+  auto begin() { return MutableIterator(*this); }
+  auto end() { return MutableIterator(*this, numArguments()); }
 
   template <typename Func> void visitBatches(Func&& visitor) const {
-    return m_dispatcher.visitBatches(std::forward<Func>(visitor));
+    for(auto const& batchPtr : *this) {
+      visitor(batchPtr);
+    }
   }
 
   template <typename BatchHelper, typename Func> void visitBatches(Func&& visitor) const {
-    return m_dispatcher.visitBatches<BatchHelper>(std::forward<Func>(visitor));
+    for(auto const& batchPtr : *this) {
+      BatchHelper::visit([&visitor](auto const& batch) { visitor(batch); }, *batchPtr);
+    }
   }
 
-  virtual ReadablePtr extract(size_t index) const { return m_dispatcher.extract(*this, index); }
-  virtual ReadablePtr reduce(size_t index) const { return m_dispatcher.reduce(*this, index); }
+  virtual Batch::ReadablePtr extract(size_t index) const {
+    if(!m_decomposed) {
+      // extract row value as single value array instead
+      return column(index);
+    }
+
+    auto rowArray = m_array->getRow(index);
+    CompoundArray compoundRow(*m_array, std::move(rowArray));
+    auto* batch = new CompoundBatch(m_factory, m_symbol, std::move(compoundRow));
+    batch->m_decomposed = false;
+    auto const* constBatch = batch;
+    return Batch::ReadablePtr(constBatch);
+  }
+
+  virtual Batch::ReadablePtr column(size_t index) const {
+    arrow::ArrayVector argChunks;
+    argChunks.reserve(m_array->numChunks());
+    for(size_t chunkIdx = 0; chunkIdx < m_array->numChunks(); ++chunkIdx) {
+      auto argArray = m_array->getArgument(chunkIdx, index);
+      auto const& argArrayData = *argArray->data();
+      // TODO: handle heterogeneous arrays (returning field(1), etc)
+      // but need to think about how to slice them
+      auto argArrayTyped = argArray->field(0)->Slice(argArrayData.offset, argArrayData.length);
+      argChunks.emplace_back(std::move(argArrayTyped));
+    }
+
+    std::shared_ptr<arrow::ArrayBuilder> argBuilder = m_array->getArgumentBuilder(index);
+    // TODO: handle heterogeneous arrays (returning child_builder(1), etc)
+    if(argBuilder) {
+      argBuilder = argBuilder->child_builder(0);
+    }
+
+    Batch* batch = m_factory.createBatch(std::move(argChunks), std::move(argBuilder));
+    batch->setOwner(m_array, index);
+    auto const* constBatch = batch;
+    return Batch::ReadablePtr(constBatch);
+  }
+
+  virtual Batch::WritablePtr column(size_t index) {
+    arrow::ArrayVector argChunks;
+    argChunks.reserve(m_array->numChunks());
+    for(size_t chunkIdx = 0; chunkIdx < m_array->numChunks(); ++chunkIdx) {
+      auto argArray = m_array->getArgument(chunkIdx, index);
+      auto const& argArrayData = *argArray->data();
+      // TODO: handle heterogeneous arrays (returning field(1), etc)
+      // but need to think about how to slice them
+      auto argArrayTyped = argArray->field(0)->Slice(argArrayData.offset, argArrayData.length);
+      argChunks.emplace_back(std::move(argArrayTyped));
+    }
+
+    std::shared_ptr<arrow::ArrayBuilder> argBuilder = m_array->getArgumentBuilder(index);
+    // TODO: handle heterogeneous arrays (returning child_builder(1), etc)
+    if(argBuilder) {
+      argBuilder = argBuilder->child_builder(0);
+    }
+
+    Batch* batch = m_factory.createBatch(std::move(argChunks), std::move(argBuilder));
+    batch->setOwner(m_array, index);
+    return Batch::WritablePtr(batch);
+  }
 
   void insert(Expression const& expression) override { insert(std::get<ValueType>(expression)); }
 
   virtual void insert(ValueType const& expression) {
-    auto const& argList = expression.getArguments();
-    for(size_t argIndex = 0; argIndex < argList.size(); ++argIndex) {
-      auto const& arg = argList[argIndex];
-      m_dispatcher.insert(arg, argIndex);
+    auto status = m_array->append(expression);
+    if(!status.ok()) {
+      return;
     }
   }
 
-  void insert(Expression const& arg, size_t argIndex, ReadablePtr batchPtr) {
-    m_dispatcher.insert(arg, argIndex, std::move(batchPtr));
+  void initArguments(std::vector<ReadablePtr> const& argBatches) {
+    std::vector<BatchData> m_argData;
+    m_argData.reserve(argBatches.size());
+    for(const auto& batchPtr : argBatches) {
+      m_argData.emplace_back(batchPtr->data());
+    }
+    auto status = m_array->initArguments(m_symbol, m_argData);
+    if(!status.ok()) {
+      return;
+    }
   }
+
+  void insert(std::vector<ReadablePtr> const& argBatches) {
+    std::vector<BatchData> m_argData;
+    m_argData.reserve(argBatches.size());
+    for(const auto& batchPtr : argBatches) {
+      m_argData.emplace_back(batchPtr->data());
+    }
+    auto status = m_array->append(m_symbol, m_argData);
+    if(!status.ok()) {
+      return;
+    }
+  }
+
+  void insert(CompoundArray&& compoundArray) { m_array->merge(std::move(compoundArray)); }
 
   bool evaluate(ReadablePtr& outputPtr) const override {
     // set the local tuple to be accessible by the row values
@@ -141,13 +240,18 @@ public:
     symbolPtr = Batch::ReadablePtr(shared_from_this());
 
     bool anyEvaluated = false;
-    auto newCompoundPtr = cloneAsCompoundBatch(true);
-    auto& newCompoundBatch = *newCompoundPtr;
-    m_dispatcher.visitEvaluated(
-        [&newCompoundBatch, &anyEvaluated](auto const& key, auto batchPtr, bool evaluated) {
-          newCompoundBatch.insert(key.first, key.second, std::move(batchPtr));
-          anyEvaluated |= evaluated;
-        });
+
+    std::vector<Batch::ReadablePtr> argBatches;
+    argBatches.reserve(numArguments());
+    for(auto const& batchPtr : *this) {
+      Batch::ReadablePtr evaluatedPtr;
+      if(!batchPtr->evaluate(evaluatedPtr)) {
+        argBatches.emplace_back(batchPtr);
+      } else {
+        argBatches.emplace_back(evaluatedPtr);
+        anyEvaluated = true;
+      }
+    }
 
     // reset to any previous local tuple symbol
     symbolPtr = std::move(backupSymbol);
@@ -157,24 +261,28 @@ public:
       return false;
     }
 
+    auto newCompoundPtr = cloneAsCompoundBatch(true);
+    newCompoundPtr->insert(argBatches);
     outputPtr = std::move(newCompoundPtr);
     return true;
   }
 
-  void merge(ReadablePtr&& other) override {
-    BatchHelper<CompoundBatch>::visit(
-        [this](auto const& batch) { m_dispatcher.merge(batch.m_dispatcher); }, *other);
+  BatchData data() const override {
+    auto builder = m_array->getBuilder();
+    auto builderLength = builder->length();
+    return BatchData(m_array->getChunkedArray(), std::move(builder), builderLength);
   }
 
-protected:
-  template <typename DerivedBatchType> void merge(ReadablePtr&& other) {
-    BatchHelper<DerivedBatchType>::visit(
-        [this](auto const& batch) { m_dispatcher.merge(batch.m_dispatcher); }, *other);
+  void setOwner(std::shared_ptr<CompoundArray> parentArray, size_t childIndex) override {
+    m_array->setOwner(std::move(parentArray), childIndex);
   }
 
 private:
-  Dispatcher m_dispatcher;
+  BatchFactory const& m_factory;
   Symbol m_symbol;
+  bool m_decomposed;
+
+  std::shared_ptr<CompoundArray> m_array;
 };
 
 } // namespace boss::engines::bulk

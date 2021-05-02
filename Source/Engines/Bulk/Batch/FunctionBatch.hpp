@@ -16,14 +16,14 @@ public:
 
   FunctionBatch(BatchFactory const& factory, ParameterList const& parameters,
                 ReadablePtr&& definitionBatchPtr)
-      : m_parameters(parameters), CompoundBatch(factory, Symbol("Function"), true) {
-    insert(0, 0, std::move(definitionBatchPtr));
+      : m_parameters(parameters), CompoundBatch(factory, Symbol("Function")) {
+    insert(std::vector{std::move(definitionBatchPtr)});
   }
 
   FunctionBatch(BatchFactory const& factory, ParameterList&& parameters,
                 ReadablePtr&& definitionBatchPtr)
-      : m_parameters(std::move(parameters)), CompoundBatch(factory, Symbol("Function"), true) {
-    insert(0, 0, std::move(definitionBatchPtr));
+      : m_parameters(std::move(parameters)), CompoundBatch(factory, Symbol("Function")) {
+    insert(std::vector{std::move(definitionBatchPtr)});
   }
 
   FunctionBatch(FunctionBatch const& other, bool clear = false)
@@ -50,11 +50,14 @@ public:
     return cloneAsFunctionBatch(clear);
   }
 
-  Batch::ReadablePtr evaluateWith(std::vector<Batch const*> const& args) const {
+  Batch::ReadablePtr evaluateWith(std::vector<Batch::ReadablePtr> const& args) const {
+    auto candidatePtr = *begin(); // always single argument (the body)
+
+    // replace parameter symbols with arguments
     std::vector<std::pair<DefaultSymbolPool::SymbolPtr&, DefaultSymbolPool::SymbolPtr>> oldSymbols;
     oldSymbols.reserve(args.size());
     auto paramIt = m_parameters.begin();
-    for(auto const& arg : args) {
+    for(auto arg : args) {
       if(paramIt == m_parameters.end()) {
         break;
       }
@@ -62,21 +65,21 @@ public:
       // store existing symbols
       // to retrieve later in case of name collision
       // (and make sure they are not destroyed while dereferenced...)
-      auto& batchPtr = DefaultSymbolPool::instance().findSymbol(*paramIt);
+      auto& batchPtr = DefaultSymbolPool::instance().findSymbol(Symbol(*paramIt));
       oldSymbols.emplace_back(batchPtr, std::move(batchPtr));
 
       // set symbol at the function scope
-      // don't move those pointers directly! they are already owned somewhere else...
-      batchPtr = DefaultSymbolPool::SymbolPtr(std::move(arg->clone()));
+      batchPtr = std::move(arg);
 
       ++paramIt;
     }
 
+    // evaluate as much as possible
     Batch::ReadablePtr evaluatedPtr;
-    auto candidatePtr = *begin();
     while(true) {
       evaluatedPtr = std::move(candidatePtr);
       if(!evaluatedPtr->evaluate(candidatePtr)) {
+        // finished to evaluate
         break;
       }
     }
@@ -93,10 +96,6 @@ public:
     // evaluate only by calling evaluateWith()
     outputPtr.reset();
     return false;
-  }
-
-  void merge(ReadablePtr&& other) override {
-    CompoundBatch::merge<FunctionBatch>(std::move(other));
   }
 
 private:

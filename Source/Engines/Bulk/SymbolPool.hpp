@@ -33,7 +33,7 @@ public:
   void registerSymbol(Symbol const& symbol, BatchType& value) {
     m_symbolMap[symbol.getName()] = SymbolPtr(&value);
   }
-  
+
   void clear() { m_symbolMap.clear(); }
 
 private:
