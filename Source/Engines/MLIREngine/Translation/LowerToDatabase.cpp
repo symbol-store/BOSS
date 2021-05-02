@@ -69,50 +69,48 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
 
   LogicalResult matchAndRewrite(database::CollectTuplesOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
-
-    auto savedInsertionPoint = rewriter.saveInsertionPoint();
     auto loc = op.getLoc();
 
     // TODO free somewhere
-    auto* databaseBuilder = new new_runtime::RelationBuilder;
+    auto* relationBuilder = new new_runtime::RelationBuilder;
 
-    // TODO use operands or op.getOperands?
-    auto tupleStreamUnionTy = operands[0].getType().cast<TupleStreamUnionType>();
-    auto const& tupleStreams = tupleStreamUnionTy.getTupleStreams();
-    auto const& blocks = tupleStreamUnionTy.getBlocks();
-    auto tupleStreamUnionVal = operands[0];
+    // Iterate over all streams
+    for(auto const& streamValue : operands) {
+      auto tupleStreamType = streamValue.getType().dyn_cast_or_null<TupleStreamType>();
+      if(!tupleStreamType) {
+        op.emitError("Expected a tuple stream type.");
+        return failure();
+      }
 
-    for(auto i = 0U; i < tupleStreamUnionTy.getNumChildStreams(); i++) {
-      auto const& tupleStreamTy = tupleStreams[i];
-      auto* block = blocks[i];
+      auto savedInsertionPoint = rewriter.saveInsertionPoint();
+      rewriter.setInsertionPointAfter(streamValue.getDefiningOp());
 
-      rewriter.setInsertionPoint(block->getTerminator()->getPrevNode());
+      auto runtimeFields =
+          boss::mlir::conversion::mlirFieldsToRuntimeFields(tupleStreamType.getFields());
 
-      auto tupleStreamVal = rewriter.create<database::GetTupleStreamFromUnion>(
-          loc, tupleStreamTy, tupleStreamUnionVal, i);
+      rewriter.create<database::AdvanceBuilderOp>(
+          loc,
+          reinterpret_cast<size_t>((relationBuilder->getOrCreateTypedStructBuilder(runtimeFields)).get()));
 
-      for(auto const& [name, type] : tupleStreamTy.getFields()) {
-        auto val =
-            rewriter.create<database::ExtractFieldFromTupleOp>(loc, tupleStreamVal, name, type);
-
+      // Iterate over all values in the tuple stream, and append to builder
+      for(auto const& [name, type] : tupleStreamType.getFields()) {
         auto runtimeType = boss::mlir::conversion::mlirTypeToRuntimeType(type, false);
-        auto columnBuilder = databaseBuilder->getArrowBuilderForType(runtimeType);
+        auto extractOp =
+            rewriter.create<database::ExtractFieldFromTupleOp>(loc, streamValue, name, type);
+        auto columnBuilder = relationBuilder->getOrCreateColumnBuilder(name, runtimeFields);
 
-        rewriter.create<database::AppendToRelationOp>(op.getLoc(), val.getResult(),
+        rewriter.create<database::AppendToRelationOp>(op.getLoc(), extractOp.getResult(),
                                                       reinterpret_cast<size_t>(columnBuilder.get()),
                                                       runtimeType);
       }
+
+      rewriter.restoreInsertionPoint(savedInsertionPoint);
     }
 
-    rewriter.restoreInsertionPoint(savedInsertionPoint);
-
     auto newOp = rewriter.create<database::FinalizeRelationOp>(
-        op.getLoc(), reinterpret_cast<size_t>(databaseBuilder));
+        op.getLoc(), reinterpret_cast<size_t>(relationBuilder));
 
     rewriter.replaceOp(op, newOp.getResult());
-
-    newOp.getParentOp()->dump();
-
     return success();
   }
 
@@ -139,7 +137,7 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
       auto integerArray = std::dynamic_pointer_cast<arrow::Int32Array>(baseArray);
       auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
-          loc, reinterpret_cast<size_t>(integerArray.get()), rewriter.getI32Type(), offset);
+          loc, reinterpret_cast<size_t>(integerArray->raw_values()), rewriter.getI32Type(), offset);
       result = loadOp.getResult();
       return arrow::Status::OK();
     }
@@ -148,58 +146,36 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
   LogicalResult matchAndRewrite(database::GetRelationOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
 
-    auto databasePtr = database.getRelation(op.relationName().str()).get();
     auto loc = op.getLoc();
-    auto* context = op.getContext();
 
-    std::vector<::mlir::Block*> insertionPoints;
-    std::vector<::mlir::Value> tupleStreamValues;
-    auto tupleStreams = op.getTupleStream().getTupleStreams();
+    auto resultTupleStream = rewriter.getType<TupleStreamType>(op.getTupleStream().getFields());
 
-    // Create loop for each item in union
-    for(auto i = 0u; i < tupleStreams.size(); i++) {
-      // TODO assumes same order for types in union tuple header and in database union
-      auto childArray = std::dynamic_pointer_cast<arrow::StructArray>(databasePtr->field(i));
-      auto tupleStream = tupleStreams[i];
+    auto unionChildArray =
+        database.getRelation(op.relationName().str()).get()->field(op.unionChildIndex());
+    auto relationLength = unionChildArray->length();
+    auto relation = std::dynamic_pointer_cast<arrow::StructArray>(unionChildArray);
 
-      // Create loop
-      auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
-      auto upperBound =
-          rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), childArray->length());
-      auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
-      auto loop =
-          rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
-      PatternRewriter::InsertionGuard insertionGuard(rewriter);
-      rewriter.setInsertionPointToStart(loop.getBody());
+    // Create loop
+    auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
+    auto upperBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), relationLength);
+    auto step = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 1);
+    auto loop = rewriter.create<scf::ForOp>(rewriter.getUnknownLoc(), lowerBound, upperBound, step);
+    PatternRewriter::InsertionGuard insertionGuard(rewriter);
+    rewriter.setInsertionPointToStart(loop.getBody());
 
-      // Save to insertion points
-      insertionPoints.push_back(loop.getBody());
-
-      std::vector<::mlir::Value> loadedValues;
-      // Load values
-      for(auto const& field : childArray->fields()) {
-        // Different loading code based on type
-        ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc);
-        auto status = field->type()->Accept(&visitor);
-        if(!status.ok()) {
-          throw std::runtime_error(status.message());
-        }
-        loadedValues.push_back(visitor.result);
+    std::vector<::mlir::Value> loadedValues;
+    for(auto const& field : relation->fields()) {
+      // Different loading code based on type
+      ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc);
+      auto status = field->type()->Accept(&visitor);
+      if(!status.ok()) {
+        throw std::runtime_error(status.message());
       }
-
-      // Pack values into a struct
-      tupleStreamValues.emplace_back(
-          rewriter.create<database::PackFieldsIntoTupleOp>(loc, loadedValues, tupleStream));
+      loadedValues.push_back(visitor.result);
     }
 
-    // Add the block insertion points to the type
-    auto tupleStreamUnion = TupleStreamUnionType::get(context, tupleStreams, insertionPoints);
-
-    // Pack values into a UnionTupleStream
-    auto unionTuplePack =
-        rewriter.create<database::CreateUnionTupleStream>(loc, tupleStreamUnion);
-
-    rewriter.replaceOp(op, unionTuplePack.getResult());
+    rewriter.replaceOpWithNewOp<database::PackFieldsIntoTupleOp>(op, loadedValues,
+                                                                 resultTupleStream);
 
     return success();
   }
@@ -235,7 +211,7 @@ void DatabaseLoweringPass::runOnOperation() {
   target.addIllegalDialect<mlir::database::DatabaseDialect>();
   target.addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
                     database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
-                    database::FinalizeRelationOp, database::AppendToRelationOp>();
+                    database::FinalizeRelationOp, database::AppendToRelationOp, database::AdvanceBuilderOp>();
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
   target.addLegalDialect<::mlir::StandardOpsDialect>();

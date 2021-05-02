@@ -3,6 +3,7 @@
 #include "Utilities.hpp"
 #include <functional>
 #include <map>
+#include <iostream>
 
 using boss::ComplexExpression;
 using boss::Expression;
@@ -345,23 +346,91 @@ void new_runtime::Relation::bulk_load(
   relation = std::dynamic_pointer_cast<arrow::DenseUnionArray>(finishResult.ValueUnsafe());
 }
 
-std::shared_ptr<arrow::ArrayBuilder> new_runtime::RelationBuilder::getArrowBuilderForType(boss::mlir::types::RuntimeTypes type) {
+std::shared_ptr<arrow::ArrayBuilder>
+new_runtime::RelationBuilder::getOrCreateColumnBuilder(std::string fieldName, Fields const& fields) {
+  auto structBuilder = getOrCreateTypedStructBuilder(fields);
+
+  auto structType = structBuilder->type();
+  for (auto i = 0; i < structType->num_fields(); i++) {
+    if (structType->field(i)->name() == fieldName) {
+      return structBuilder->child_builder(i);
+    }
+  }
+
+  throw std::runtime_error("The field " + fieldName + " didn't exist in the builder!");
+}
+
+new_runtime::Relation* new_runtime::RelationBuilder::build() {
+  auto result = builder->Finish();
+  if (!result.ok()) {
+    return nullptr;
+  }
+
+  auto denseUnionArray = std::dynamic_pointer_cast<arrow::DenseUnionArray>(result.ValueOrDie());
+  return new Relation(denseUnionArray);
+}
+
+
+std::shared_ptr<arrow::ArrayBuilder>
+new_runtime::RelationBuilder::builderForType(boss::mlir::types::RuntimeTypes type) {
   switch(type) {
-  case boss::mlir::types::RuntimeTypes::INT:
-    return std::make_shared<arrow::Int32Builder>();
-  case boss::mlir::types::RuntimeTypes::BOOLEAN:
-    return std::make_shared<arrow::BooleanBuilder>();
-  case boss::mlir::types::RuntimeTypes::FLOAT:
-    return std::make_shared<arrow::FloatBuilder>();
-  case boss::mlir::types::RuntimeTypes::STRING:
-    return std::make_shared<arrow::StringBuilder>();
-  case boss::mlir::types::RuntimeTypes::SYMBOL:
-    return std::make_shared<arrow::StringBuilder>();
-  default:
-    throw std::runtime_error("Unsupported type");
+    case boss::mlir::types::RuntimeTypes::INT:
+      return std::make_shared<arrow::Int32Builder>();
+    case boss::mlir::types::RuntimeTypes::BOOLEAN:
+      return std::make_shared<arrow::BooleanBuilder>();
+    case boss::mlir::types::RuntimeTypes::STRING:
+      return std::make_shared<arrow::StringBuilder>();
+    case boss::mlir::types::RuntimeTypes::FLOAT:
+      return std::make_shared<arrow::FloatBuilder>();
+    case boss::mlir::types::RuntimeTypes::SYMBOL:
+      // TODO do we want binary? Probably just store as BSON.
+      return std::make_shared<arrow::BinaryBuilder>();
+    default:
+      throw std::runtime_error("Cannot insert type into relation");
   }
 }
 
-void new_runtime::RelationBuilder::build() {
+std::shared_ptr<arrow::ArrayBuilder> new_runtime::RelationBuilder::getOrCreateTypedStructBuilder(Fields const& fields) {
+  std::shared_ptr<arrow::StructBuilder> structBuilder;
 
+  auto childBuilderIndex = fieldsToBuilder.find(fields);
+  if (childBuilderIndex == fieldsToBuilder.end()) {
+    // We have never seen these fields before. Create a new child builder.
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> argBuilders;
+    std::vector<std::shared_ptr<arrow::Field>> arrowFields;
+
+    for(auto const& [fieldName, type] : fields) {
+      arrowFields.emplace_back(std::make_shared<arrow::Field>(fieldName, nullptr));
+      auto childBuilder = builderForType(type);
+      argBuilders.push_back(childBuilder);
+    }
+
+    structBuilder = std::make_shared<TypedDatabaseBuilder>(std::make_shared<arrow::StructType>(arrowFields),
+                                                           std::move(argBuilders));
+    auto newChildIndex = builder->AppendChild(structBuilder);
+    fieldsToBuilder[fields] = newChildIndex;
+  } else {
+    structBuilder = std::dynamic_pointer_cast<arrow::StructBuilder>(builder->child_builder(childBuilderIndex->second));
+    if (!structBuilder) {
+      throw std::runtime_error("A child builder wasn't a struct builder");
+    }
+  }
+  return structBuilder;
+}
+
+extern "C" new_runtime::Relation* constructRelation(new_runtime::RelationBuilder& builder) {
+  return builder.build();
+}
+
+extern "C" void addToRelation_Int(arrow::ArrayBuilder* builder, int value) {
+  auto status = dynamic_cast<arrow::Int32Builder*>(builder)->Append(value);
+}
+
+extern "C" void addToRelation_Bool(arrow::ArrayBuilder* builder, bool value) {
+  auto status = dynamic_cast<arrow::BooleanBuilder*>(builder)->Append(value);
+}
+
+extern "C" void advanceBuilder(arrow::StructBuilder* builder) {
+  // TODO error handling
+  builder->Append();
 }

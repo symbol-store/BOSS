@@ -199,27 +199,55 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
            }
 
            auto relationName = stringConstantOp.value().str();
-           auto tupleStream =
-               converter.convertType(s.getResult().getType()).dyn_cast_or_null<TupleStreamUnionType>();
+           auto tupleStreamUnion = converter.convertType(s.getResult().getType())
+                                       .dyn_cast_or_null<TupleStreamUnionType>();
 
-           if(!tupleStream) {
+           if(!tupleStreamUnion) {
              return failure();
            }
 
-           auto newOp =
-               rewriter.create<database::GetRelationOp>(s.getLoc(), relationName, tupleStream);
+           std::vector<mlir::Value> tupleStreamValues;
+           for(auto i = 0U; i < tupleStreamUnion.getNumChildStreams(); i++) {
+             auto const& tupleStream = tupleStreamUnion.getTupleStreams()[i];
 
-           rewriter.replaceOp(s, newOp.getResult());
+             auto tupleStreamValue =
+                 rewriter.create<database::GetRelationOp>(s.getLoc(), relationName, tupleStream, i);
+
+             tupleStreamValues.emplace_back(tupleStreamValue.getResult());
+           }
+
+           auto tupleStreamUnionValue = rewriter.create<database::CreateUnionTupleStream>(
+               s.getLoc(), tupleStreamUnion, tupleStreamValues);
+
+           rewriter.replaceOp(s, tupleStreamUnionValue.getResult());
 
            return success();
          }},
         {"CollectTuples",
          [&]() {
-            rewriter.replaceOpWithNewOp<database::CollectTuplesOp>(s, RelationType::get(s.getContext()), operands.front());
-            return success();
+           auto tupleStreamUnion = converter.convertType(operands[0].getType())
+                                       .dyn_cast_or_null<TupleStreamUnionType>();
+
+           if(!tupleStreamUnion) {
+             return failure();
+           }
+
+           std::vector<mlir::Value> tupleStreamValues;
+           for(auto i = 0UL; i < tupleStreamUnion.getNumChildStreams(); i++) {
+             auto tupleStreamTy = tupleStreamUnion.getTupleStreams()[i];
+             auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
+                 s.getLoc(), tupleStreamTy, operands[0], i);
+             tupleStreamValues.emplace_back(extractionOp.getResult());
+           }
+
+           rewriter.replaceOpWithNewOp<database::CollectTuplesOp>(
+               s, RelationType::get(s.getContext()), tupleStreamValues);
+           return success();
          }},
-        {"Project", [&]() {
-           rewriter.replaceOpWithNewOp<database::ProjectionOp>(s, converter.convertType(s.getType()), operands[1]);
+        {"Project",
+         [&]() {
+           rewriter.replaceOpWithNewOp<database::ProjectionOp>(
+               s, converter.convertType(s.getType()), operands[1]);
            return success();
          }}
 

@@ -43,7 +43,7 @@ TEST_CASE("STORAGE_TEST") {
 
     relation.bulk_load({
         {{"A", 5}},
-        {{"A", 6}},
+        {{"A", 6}}
     });
 
     new_runtime::Database database;
@@ -51,7 +51,15 @@ TEST_CASE("STORAGE_TEST") {
 
     boss::engines::mlir::Engine engine(std::move(database));
 
-    engine.evaluate("CollectTuples"_("GetRelation"_(std::string("Foo"))));
+    auto result = engine.evaluate("CollectTuples"_("GetRelation"_(std::string("Foo"))));
+    auto pointer = std::get<size_t>(result);
+    auto resultRelation = reinterpret_cast<new_runtime::Relation*>(pointer);
+
+    auto firstStruct = std::dynamic_pointer_cast<arrow::StructArray>(resultRelation->get()->field(0));
+    auto intColumn = std::dynamic_pointer_cast<arrow::Int32Array>(firstStruct->field(0));
+
+    CHECK(intColumn->Value(0) == 5);
+    CHECK(intColumn->Value(1) == 6);
   }
 
 }

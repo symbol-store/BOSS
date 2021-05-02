@@ -127,4 +127,16 @@ size_t mlirTypeToArrowRawBuffer(arrow::ChunkedArray* array, ::mlir::Type type, i
   return 0;
 }
 
+
+std::map<std::string, boss::mlir::types::RuntimeTypes>
+mlirFieldsToRuntimeFields(const std::map<std::string, ::mlir::Type>& fields) {
+  std::map<std::string, boss::mlir::types::RuntimeTypes> result;
+
+  for (auto const& [name, type] : fields) {
+    result[name] = mlirTypeToRuntimeType(type, false);
+  }
+
+  return result;
+}
+
 } // namespace boss::mlir::conversion

@@ -103,7 +103,6 @@ set(MLIREngineImplFiles
   Source/Engines/MLIREngine/IR/MLIRGenerator.cpp
   Source/Engines/MLIREngine.cpp
   Source/Engines/MLIREngine/Runtime/Runtime.cpp
-  Source/Engines/MLIREngine/Runtime/Database.cpp
   Source/Engines/MLIREngine/Types/TypeConversions.cpp
   Source/Engines/MLIREngine/Types/ValueConversion.cpp
   Source/Engines/MLIREngine/Types/TypeInference.cpp
@@ -121,7 +120,7 @@ get_property(interface_libs GLOBAL PROPERTY MLIR_INTERFACES)
 
 set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp ${MLIREngineImplFiles})
 set(ExecutableFiles Source/main.cpp)
-set(TestFiles Tests/BOSSTests.cpp Tests/DatabaseTests.cpp Tests/StorageTests.cpp)
+set(TestFiles Tests/BOSSTests.cpp Tests/StorageTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 set(SwigFiles Source/BOSS.i)
 

@@ -19,8 +19,6 @@
 
 #include "TypeInferenceInterface.cpp.inc"
 
-#include "Engines/MLIREngine/Runtime/Database.hpp"
-
 // ================ Builders =====================================
 
 void mlir::sexpr::SymbolOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,

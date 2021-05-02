@@ -1,4 +1,5 @@
 #include "ValueConversion.hpp"
+#include <map>
 
 namespace boss::mlir::conversion {
 using namespace boss::mlir::types;

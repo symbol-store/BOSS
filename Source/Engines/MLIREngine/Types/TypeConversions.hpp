@@ -1,5 +1,4 @@
 #pragma once
-#include "Engines/MLIREngine/Runtime/Database.hpp"
 #include "Engines/MLIREngine/Types/Types.hpp"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
 #include <arrow/api.h>
@@ -16,6 +15,8 @@ std::shared_ptr<arrow::DataType> mlirTypeToArrowType(::mlir::Type const& type);
 ::mlir::Type arrowTypeToMLIRType(::mlir::MLIRContext* context, arrow::DataType* type);
 
 boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type, bool extractSymbol);
+
+std::map<std::string, boss::mlir::types::RuntimeTypes> mlirFieldsToRuntimeFields(std::map<std::string, ::mlir::Type> const& fields);
 
 size_t mlirTypeToArrowRawBuffer(arrow::ChunkedArray* array, ::mlir::Type type, int chunk);
 

@@ -65,10 +65,11 @@ Expression Engine::evaluate(Expression const& e) {
   passManager.addPass(createTypeInferencePass(database));
   passManager.addPass(createLowerToFunctionsPass(returnType));
   passManager.addNestedPass<::mlir::FuncOp>(createLowerToStdPass());
+  passManager.addPass(::mlir::createCanonicalizerPass());
   passManager.addPass(::mlir::createInlinerPass());
   passManager.addPass(createLowerToDatabasePass(database));
-//  passManager.addPass(::mlir::createCanonicalizerPass());
-//  passManager.addPass(createLowerToLLVMPass(database));
+  passManager.addPass(::mlir::createCanonicalizerPass());
+  passManager.addPass(createLowerToLLVMPass(database));
 
   if(::mlir::failed(passManager.run(module.get()))) {
     throw std::runtime_error("Compilation failed");

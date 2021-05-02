@@ -6,8 +6,8 @@
 #define GET_OP_CLASSES
 #include "DatabaseOps.cpp.inc"
 
-TupleStreamUnionType mlir::database::GetRelationOp::getTupleStream() {
-  return getType().cast<TupleStreamUnionType>();
+TupleStreamType mlir::database::GetRelationOp::getTupleStream() {
+  return getType().cast<TupleStreamType>();
 }
 
 struct RemoveTupleStreamPack

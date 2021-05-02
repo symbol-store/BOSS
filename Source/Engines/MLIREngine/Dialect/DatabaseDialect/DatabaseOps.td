@@ -17,28 +17,29 @@ def TupleStreamType : Type<CPred<"$_self.isa<TupleStreamType>()">,
 
 def GetRelationOp : Database_Op<"getRelation", []> {
   let arguments = (ins
-      StrAttr:$relationName
+      StrAttr:$relationName,
+      I32Attr:$unionChildIndex
     );
 
     let results = (outs
-      TupleStreamUnionType:$relation
+      TupleStreamType:$relation
     );
 
     let builders = [
-      OpBuilder<"std::string name, TupleStreamUnionType databaseResultType", [{
+      OpBuilder<"std::string name, TupleStreamType databaseResultType, uint32_t unionChildIndex", [{
         $_state.addAttribute("relationName", $_builder.getStringAttr(name));
+        $_state.addAttribute("unionChildIndex", $_builder.getI32IntegerAttr(unionChildIndex));
         $_state.addTypes(databaseResultType);
       }]>
     ];
 
-    code extraClassDeclaration = "TupleStreamUnionType getTupleStream();";
+    code extraClassDeclaration = "TupleStreamType getTupleStream();";
 
-    let hasCanonicalizer = 1;
 }
 
 def CollectTuplesOp : Database_Op<"collectTuples", []> {
   let arguments = (ins
-    TupleStreamUnionType:$inputStream
+    Variadic<TupleStreamType>:$inputStreams
   );
 
   let results = (outs
@@ -96,6 +97,11 @@ def PackFieldsIntoTupleOp : Database_Op<"packFieldsIntoTupStream", [NoSideEffect
 
 
 def CreateUnionTupleStream : Database_Op<"createUnionTupleStreamOp", [NoSideEffect]> {
+  let arguments = (ins
+    Variadic<TupleStreamType>:$inputStreams
+  );
+
+
   let results = (outs
     TupleStreamUnionType:$unionTupleStream
   );
@@ -133,7 +139,7 @@ def AppendToRelationOp : Database_Op<"appendToRelationOp"> {
 
 def FinalizeRelationOp : Database_Op<"finalizeRelationOp"> {
   let arguments = (ins
-    I64Attr:$relationBuildersPtr
+    I64Attr:$relationBuilderPtr
   );
 
   let results = (outs
@@ -141,9 +147,21 @@ def FinalizeRelationOp : Database_Op<"finalizeRelationOp"> {
   );
 
   let builders = [
-    OpBuilderDAG<(ins "size_t":$relationBuildersPtr), [{
-      $_state.addAttribute("relationBuildersPtr", $_builder.getI64IntegerAttr(relationBuildersPtr));
+    OpBuilderDAG<(ins "size_t":$relationBuilderPtr), [{
+      $_state.addAttribute("relationBuilderPtr", $_builder.getI64IntegerAttr(relationBuilderPtr));
       $_state.addTypes($_builder.getIndexType());
+    }]>
+  ];
+}
+
+def AdvanceBuilderOp : Database_Op<"advanceBuilder"> {
+  let arguments = (ins
+    I64Attr:$relationBuilderPtr
+  );
+
+  let builders = [
+    OpBuilderDAG<(ins "size_t":$relationBuilderPtr), [{
+      $_state.addAttribute("relationBuilderPtr", $_builder.getI64IntegerAttr(relationBuilderPtr));
     }]>
   ];
 }
