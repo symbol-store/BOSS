@@ -43,7 +43,7 @@ private:
       columnNames.reserve(numColumns);
       for(int index = 0; index < numColumns; ++index) {
         auto const& getColumnName = "Extract"_("Columns"_(table), index + 1);
-        columnNames.emplace_back(std::get<std::string>(engine.evaluate(getColumnName)));
+        columnNames.emplace_back(std::get<Symbol>(engine.evaluate(getColumnName)).getName());
       }
     }
 

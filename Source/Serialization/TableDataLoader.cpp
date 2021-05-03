@@ -1,11 +1,11 @@
 #include "TableDataLoader.hpp"
 
-#include "arrow/array/array_base.h"
-#include "arrow/csv/api.h"
-#include "arrow/io/api.h"
-#include "arrow/scalar.h"
-#include "arrow/visitor.h"
-#include "arrow/visitor_inline.h"
+#include <arrow/array/array_base.h>
+#include <arrow/csv/api.h>
+#include <arrow/io/api.h>
+#include <arrow/scalar.h>
+#include <arrow/visitor.h>
+#include <arrow/visitor_inline.h>
 
 #include <chrono>
 #include <iostream>
