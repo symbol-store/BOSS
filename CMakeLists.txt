@@ -80,7 +80,7 @@ else()
 endif(WIN32)
 
 ExternalProject_Add(arrow
-  URL https://github.com/apache/arrow/archive/apache-arrow-3.0.0.zip
+  URL https://github.com/apache/arrow/archive/apache-arrow-4.0.0.zip
   SOURCE_SUBDIR cpp
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
   CMAKE_ARGS -DARROW_BUILD_SHARED=OFF -DARROW_BUILD_STATIC=ON -DARROW_JSON=ON -DARROW_CSV=ON ${ARROW_ADDITIONAL_CMAKE_ARGS}
