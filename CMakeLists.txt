@@ -107,6 +107,7 @@ set(MLIREngineImplFiles
   Source/Engines/MLIREngine/Types/ValueConversion.cpp
   Source/Engines/MLIREngine/Types/TypeInference.cpp
   Source/Engines/MLIREngine/Runtime/Storage.cpp
+  Source/Engines/MLIREngine/Runtime/BuiltinOps.cpp
 )
 
 # Get MLIR dialect and conversion libraries

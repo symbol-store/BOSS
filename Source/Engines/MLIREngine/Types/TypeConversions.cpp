@@ -1,6 +1,7 @@
 #include "TypeConversions.hpp"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
+#include "Engines/MLIREngine/Types/TypeInference.hpp"
 #include <mlir/IR/StandardTypes.h>
 #include <arrow/api.h>
 
@@ -38,6 +39,25 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
   arrow::Status Visit(const arrow::BinaryType& type) override {
     resultType = SymbolOrValueType::get(context, sexprtype::SymbolOrValue::SYMBOL,
                                         llvm::Optional<::mlir::Type>());
+    return arrow::Status::OK();
+  }
+
+  // We have an expression struct, infer the return type
+  arrow::Status Visit(const arrow::StructType& type) override {
+    auto operationName = type.field(0)->name();
+    std::vector<::mlir::Type> argumentTypes;
+
+    for (auto i = 1; i < type.num_fields(); i++) {
+      ::mlir::Type convertedArgument;
+      ArrowToMlirTypeVisitor childVisitor(convertedArgument, context);
+      auto status = type.field(i)->type()->Accept(&childVisitor);
+      if (!status.ok()) {
+        return status;
+      }
+      argumentTypes.emplace_back(convertedArgument);
+    }
+
+    resultType = inference::inferSymbolType(operationName, argumentTypes, context);
     return arrow::Status::OK();
   }
 

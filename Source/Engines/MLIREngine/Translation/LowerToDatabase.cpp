@@ -4,6 +4,7 @@
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryDialect.h"
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Runtime/Storage.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
@@ -17,6 +18,7 @@
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <mutex>
+#include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 
 namespace {
 using namespace mlir;
@@ -129,13 +131,15 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     ::mlir::Value result;
 
     ArrayLoaderTypeVisitor(std::shared_ptr<arrow::Array> baseArray, mlir::Value offset,
-                           ConversionPatternRewriter& rewriter, mlir::Location loc)
-        : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc) {}
+                           ConversionPatternRewriter& rewriter, mlir::Location loc, new_runtime::Database& database)
+        : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc), database(database) {}
 
     std::shared_ptr<arrow::Array> baseArray;
     mlir::Value offset;
     mlir::ConversionPatternRewriter& rewriter;
     mlir::Location loc;
+    new_runtime::Database& database;
+
     // TODO remaining types
     arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
       auto integerArray = std::dynamic_pointer_cast<arrow::Int32Array>(baseArray);
@@ -146,10 +150,45 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     }
 
     arrow::Status Visit(const arrow::FloatType& /*type*/) override {
-      auto integerArray = std::dynamic_pointer_cast<arrow::FloatArray>(baseArray);
+      auto typedArray = std::dynamic_pointer_cast<arrow::FloatArray>(baseArray);
       auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
-          loc, reinterpret_cast<size_t>(integerArray->raw_values()), rewriter.getF32Type(), offset);
+          loc, reinterpret_cast<size_t>(typedArray->raw_values()), rewriter.getF32Type(), offset);
       result = loadOp.getResult();
+      return arrow::Status::OK();
+    }
+
+    // Visit complex expression
+    arrow::Status Visit(const arrow::StructType& type) override {
+      auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
+
+      auto nameArray = std::dynamic_pointer_cast<arrow::DictionaryArray>(structArray->field(0));
+      auto symbolName = std::dynamic_pointer_cast<arrow::StringArray>(nameArray->dictionary())->GetString(0);
+
+      std::vector<Value> childResults;
+      for (auto i = 1; i < type.num_fields(); i++) {
+        auto const& field = type.field(i);
+
+        ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database);
+        auto status = field->type()->Accept(&childVisitor);
+        if (!status.ok()) {
+          return status;
+        }
+
+        childResults.emplace_back(childVisitor.result);
+      }
+
+      auto symbolOp = rewriter.create<sexpr::SymbolOp>(loc, symbolName, childResults);
+
+      auto typedSymbolOp = mlir::dyn_cast_or_null<TypeInference>(symbolOp.getOperation());
+      if (!typedSymbolOp) {
+        return arrow::Status::TypeError("Could not cast symbol op to type inference interface");
+      }
+      typedSymbolOp.dump();
+      typedSymbolOp.inferType(database);
+
+      typedSymbolOp.dump();
+
+      result = symbolOp.getResult();
       return arrow::Status::OK();
     }
   };
@@ -177,7 +216,7 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     std::vector<::mlir::Value> loadedValues;
     for(auto const& field : relation->fields()) {
       // Different loading code based on type
-      ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc);
+      ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc, database);
       auto status = field->type()->Accept(&visitor);
       if(!status.ok()) {
         throw std::runtime_error(status.message());
@@ -253,6 +292,9 @@ void DatabaseLoweringPass::runOnOperation() {
   patterns.insert<GetRelationOpLowering>(&getContext(), database);
   patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
   //  patterns.insert<ProjectionOpLowering>(&getContext());
+
+  // Transitively lower symbol operations
+  populateSymbolToStdPatterns(patterns, typeConverter, &getContext());
 
   auto module = getOperation();
 

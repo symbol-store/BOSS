@@ -6,6 +6,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
+#include "SexprToStd.hpp"
 #include <array>
 #include <atomic>
 #include <iostream>
@@ -387,8 +388,44 @@ void SexprToStdLoweringPass::runOnFunction() {
 
   // Create type converter
   TypeConverter c;
+  OwningRewritePatternList patterns;
 
-  c.addConversion([](Type t) -> llvm::Optional<Type> { return t; });
+  c.addConversion([](Type type) {
+    return type;
+  });
+
+  populateSymbolToStdPatterns(patterns, c, &getContext());
+
+  // Register legality of dialects and operations
+  target.addLegalDialect<mlir::StandardOpsDialect, mlir::scf::SCFDialect,
+                         mlir::memory::MemoryDialect, database::DatabaseDialect>();
+  target.addIllegalDialect<sexpr::SExprDialect>();
+  target.addLegalOp<FuncOp>();
+  target.addDynamicallyLegalOp<mlir::CallOp>(
+      // CallOp is legal in source and target, but the type should be converted
+      [&](mlir::CallOp op) { return c.isLegal(op); });
+
+  patterns.insert<CallOpSignatureConversion>(&getContext(), c);
+
+  auto res = applyPartialConversion(getFunction(), target, std::move(patterns));
+
+  // Convert the type of the current function
+  auto newFuncType = c.convertType(getFunction().getType()).dyn_cast<FunctionType>();
+
+  if(newFuncType) {
+    getFunction().setType(newFuncType);
+  }
+
+  if(failed(res)) {
+    signalPassFailure();
+  }
+}
+
+std::unique_ptr<mlir::Pass> createLowerToStdPass() {
+  return std::make_unique<SexprToStdLoweringPass>();
+}
+
+void populateSymbolToStdPatterns(OwningRewritePatternList& patterns, TypeConverter& c, MLIRContext* context) {
   c.addConversion([&c](SymbolOrValueType t) -> llvm::Optional<Type> {
     if(t.isSymbolic() == sexprtype::SymbolOrValue::VALUE) {
       return c.convertType(t.getBaseType());
@@ -409,35 +446,6 @@ void SexprToStdLoweringPass::runOnFunction() {
                            IntegerType::get(8, t.getContext()));
   });
 
-  // Register legality of dialects and operations
-  target.addLegalDialect<mlir::StandardOpsDialect, mlir::scf::SCFDialect,
-                         mlir::memory::MemoryDialect, database::DatabaseDialect>();
-  target.addIllegalDialect<sexpr::SExprDialect>();
-  target.addLegalOp<FuncOp>();
-  target.addDynamicallyLegalOp<mlir::CallOp>(
-      // CallOp is legal in source and target, but the type should be converted
-      [&](mlir::CallOp op) { return c.isLegal(op); });
-
-  OwningRewritePatternList patterns;
   patterns.insert<SymbolOpLowering, EndOpLowering, ConstantOpLowering, ConstantStringOpLowering>(
-      &getContext(), c);
-
-  patterns.insert<CallOpSignatureConversion>(&getContext(), c);
-
-  auto res = applyPartialConversion(getFunction(), target, std::move(patterns));
-
-  // Convert the type of the current function
-  auto newFuncType = c.convertType(getFunction().getType()).dyn_cast<FunctionType>();
-
-  if(newFuncType) {
-    getFunction().setType(newFuncType);
-  }
-
-  if(failed(res)) {
-    signalPassFailure();
-  }
-}
-
-std::unique_ptr<mlir::Pass> createLowerToStdPass() {
-  return std::make_unique<SexprToStdLoweringPass>();
+      context, c);
 }

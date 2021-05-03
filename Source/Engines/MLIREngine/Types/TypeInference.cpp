@@ -11,12 +11,18 @@
 
 namespace boss::mlir::inference {
 
-static const auto inferArithmeticType = [](::mlir::sexpr::SymbolOp& symbol, auto /*sOrV*/,
+static const auto inferArithmeticType = [](::mlir::sexpr::SymbolOp& symbol, auto sOrV,
                                            new_runtime::Database const& /*database*/) {
   auto const& types = symbol.getOperandTypes();
   ::mlir::Optional<::mlir::Type> baseType;
   // Check all input types are the same
   for(const auto& type : types) {
+    // TODO clean this mess, really we should remove all the symbolOrValue stuff
+    if (type.isIntOrIndexOrFloat()) {
+      // TODO fix fix fix problem is also (Plus x y) probably breaks because it wants x y to be ints
+      baseType = SymbolOrValueType::get(symbol.getContext(), sOrV, type);
+      continue;
+    }
     // Check that it is an integer
     // Cast is safe as this is already checked
     if(!type.cast<SymbolOrValueType>().getBaseType().isIntOrIndexOrFloat()) {
@@ -202,6 +208,18 @@ const std::map<std::string,
            return ::mlir::NoneType::get(symbol.getContext());
          }}};
 
+// TODO merge these maps
+const std::map<std::string,
+               std::function<::mlir::Type(std::vector<::mlir::Type> const&,
+                                          new_runtime::Database const*, ::mlir::MLIRContext*)>>
+    newOperatorToType{
+        {"Plus",
+         [](std::vector<::mlir::Type> const& types, new_runtime::Database const* /*database*/,
+            ::mlir::MLIRContext* context) -> ::mlir::Type {
+           // TODO actual implementation
+           return ::mlir::IntegerType::get(32, context);
+         }}};
+
 bool isRegisteredSymbol(std::string const& name) {
   return operatorToType.find(name) != operatorToType.end();
 }
@@ -211,6 +229,17 @@ bool isRegisteredSymbol(std::string const& name) {
   // PRE: The operator exists. Use isRegisteredSymbol first.
   auto inferenceFuncIterator = operatorToType.find(s.name().str());
   return (inferenceFuncIterator->second)(s, symOrVal, database);
+}
+
+::mlir::Type inferSymbolType(std::string symbolName, std::vector<::mlir::Type> const& argTypes,
+                             ::mlir::MLIRContext* context) {
+  auto inferenceFuncIterator = newOperatorToType.find(symbolName);
+  if(inferenceFuncIterator == newOperatorToType.end()) {
+    return SymbolOrValueType::get(context, sexprtype::SymbolOrValue::SYMBOL, {});
+  }
+
+  // TODO check that arguments are symbolic or value
+  return (inferenceFuncIterator->second)(argTypes, nullptr, context);
 }
 
 } // namespace boss::mlir::inference

@@ -49,13 +49,14 @@ void mlir::sexpr::IntegerConstantOp::inferType(new_runtime::Database const& data
 void mlir::sexpr::SymbolOp::inferType(new_runtime::Database const& database) {
   const auto& types = this->getOperandTypes();
 
-  // Verify that we have a symbol or value type
+  // Check whether we have symbol or value type
   bool hasSymbol = false;
   for(const auto& someType : types) {
     auto type = someType.dyn_cast<SymbolOrValueType>();
 
     if(!type) {
-      throw std::runtime_error("Expected Symbol or Value Type");
+      // We don't have a symbol/value type - not symbolic
+      continue;
     }
 
     hasSymbol = hasSymbol || type.isSymbolic() == sexprtype::SymbolOrValue::SYMBOL;

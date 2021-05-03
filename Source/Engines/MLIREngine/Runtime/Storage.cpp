@@ -217,7 +217,9 @@ private:
               // head
               auto headBuilder = std::make_shared<arrow::StringDictionaryBuilder>();
               argBuilders.push_back(std::move(headBuilder));
-              fields.push_back(std::make_shared<arrow::Field>("head", nullptr));
+              // TODO currently using the name of the first field to store head name. The name is also stored in the array itself.
+              // TODO maybe make the array null instead? Or find a way to add metadata
+              fields.push_back(std::make_shared<arrow::Field>(e.getHead().getName(), nullptr));
 
               // args
               for(auto const& arg : e.getArguments()) {
@@ -447,8 +449,3 @@ extern "C" void advanceBuilder(arrow::StructBuilder* structBuilder,
   unionBuilder->Append(child);
   structBuilder->Append();
 }
-
-// extern "C" void advanceBuilder(arrow::StructBuilder* builder) {
-//  // TODO error handling
-//  builder->Append();
-//}
