@@ -49,11 +49,11 @@ def CollectTuplesOp : Database_Op<"collectTuples", []> {
 
 def ProjectionOp : Database_Op<"projectionOp", []> {
   let arguments = (ins
-    TupleStreamUnionType:$inputStream
+    TupleStreamType:$inputStream
   );
 
   let results = (outs
-    TupleStreamUnionType:$outputType
+    TupleStreamType:$outputType
   );
 }
 

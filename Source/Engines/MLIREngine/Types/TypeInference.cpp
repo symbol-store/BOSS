@@ -18,7 +18,7 @@ static const auto inferArithmeticType = [](::mlir::sexpr::SymbolOp& symbol, auto
   // Check all input types are the same
   for(const auto& type : types) {
     // TODO clean this mess, really we should remove all the symbolOrValue stuff
-    if (type.isIntOrIndexOrFloat()) {
+    if(type.isIntOrIndexOrFloat()) {
       // TODO fix fix fix problem is also (Plus x y) probably breaks because it wants x y to be ints
       baseType = SymbolOrValueType::get(symbol.getContext(), sOrV, type);
       continue;
@@ -156,12 +156,12 @@ const std::map<std::string,
            std::vector<::mlir::StringRef> columns;
            auto listCombine = ::mlir::dyn_cast_or_null<::mlir::sexpr::CombineOp>(
                symbol.getOperands().front().getDefiningOp());
-           auto stream = symbol.getOperands()[1]
-                             .getType()
-                             .dyn_cast_or_null<SymbolOrValueType>()
-                             .getBaseType()
-                             .dyn_cast_or_null<TupleStreamUnionType>();
-           if((!listCombine) || (!stream)) {
+           auto streamUnion = symbol.getOperands()[1]
+                                  .getType()
+                                  .dyn_cast_or_null<SymbolOrValueType>()
+                                  .getBaseType()
+                                  .dyn_cast_or_null<TupleStreamUnionType>();
+           if((!listCombine) || (!streamUnion)) {
              symbol.emitError("Unexpected operands");
              return ::mlir::NoneType::get(symbol.getContext());
            }
@@ -189,23 +189,22 @@ const std::map<std::string,
              columns.push_back(stringConst.value());
            }
 
-           // Filter the TupleStream's columns by the columns in the "columns" vector
-           //           OpenRelationTypeStorage::TupleHeader types;
-           //            auto oldHeader = stream.getConcreteTupleTypes();
-           //            for(auto const& name : columns) {
-           //              auto typeIt = std::find_if(oldHeader.begin(), oldHeader.end(),
-           //              [&name](auto elem) { return elem.first == name; }); if (typeIt ==
-           //              oldHeader.end()) {
-           //                symbol.emitError("Error: Column " + name + " does not exist");
-           //              }
-           //              types.emplace_back(name, typeIt->second);
-           //            }
-           //
-           //            return SymbolOrValueType::get(symbol.getContext(),
-           //            sexprtype::SymbolOrValue::VALUE,
-           //                                          OpenRelationType::get(symbol.getContext(),
-           //                                          types));
-           return ::mlir::NoneType::get(symbol.getContext());
+           std::vector<TupleStreamType> newTupleStreams;
+
+           // Filter each child TupleStream's column
+           for(auto& stream : streamUnion.getTupleStreams()) {
+             std::map<std::string, ::mlir::Type> newFields;
+             auto const& oldFields = stream.getFields();
+
+             for(auto const& name : columns) {
+               newFields[name.str()] = oldFields.at(name.str());
+             }
+             newTupleStreams.emplace_back(TupleStreamType::get(symbol.getContext(), newFields));
+           }
+
+           return SymbolOrValueType::get(
+               symbol.getContext(), sexprtype::SymbolOrValue::VALUE,
+               TupleStreamUnionType::get(symbol.getContext(), newTupleStreams, {}));
          }}};
 
 // TODO merge these maps

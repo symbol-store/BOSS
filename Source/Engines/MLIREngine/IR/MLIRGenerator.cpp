@@ -60,7 +60,7 @@ void MLIRGenerator::visitComplexExpression(boss::ComplexExpression const& e) {
   values.pop();
 
   auto headOp = builder.create<mlir::sexpr::SymbolOp, std::string&, mlir::ValueRange>(
-      builder.getUnknownLoc(), head, mlir::ValueRange(vs));
+      builder.getFileLineColLoc(Identifier::get(head, &context), 0, 0), head, mlir::ValueRange(vs));
 
   builder.create<mlir::sexpr::EndOp>(builder.getUnknownLoc(), headOp.getResult());
 

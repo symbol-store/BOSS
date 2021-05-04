@@ -247,8 +247,34 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
          }},
         {"Project",
          [&]() {
-           rewriter.replaceOpWithNewOp<database::ProjectionOp>(
-               s, converter.convertType(s.getType()), operands[1]);
+           auto inputStreamUnion = converter.convertType(operands[1].getType())
+                                       .dyn_cast_or_null<TupleStreamUnionType>();
+
+           auto outputStreamUnion = converter.convertType(s.getResult().getType())
+                                        .dyn_cast_or_null<TupleStreamUnionType>();
+
+           if(!inputStreamUnion || !outputStreamUnion) {
+             s.emitError("Failure casting types");
+             return failure();
+           }
+
+           std::vector<mlir::Value> tupleStreamValues;
+           for(auto i = 0U; i < inputStreamUnion.getNumChildStreams(); i++) {
+             auto inputTupleStream = inputStreamUnion.getTupleStreams()[i];
+             auto outputTupleStream = outputStreamUnion.getTupleStreams()[i];
+
+             auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
+                 s.getLoc(), inputTupleStream, operands[1], i);
+
+             auto projectionResult = rewriter.create<database::ProjectionOp>(
+                 s.getLoc(), outputTupleStream, extractionOp.getResult());
+
+             tupleStreamValues.emplace_back(projectionResult.getResult());
+           }
+
+           rewriter.replaceOpWithNewOp<database::CreateUnionTupleStream>(s, outputStreamUnion,
+                                                                         tupleStreamValues);
+
            return success();
          }}
 
@@ -390,9 +416,7 @@ void SexprToStdLoweringPass::runOnFunction() {
   TypeConverter c;
   OwningRewritePatternList patterns;
 
-  c.addConversion([](Type type) {
-    return type;
-  });
+  c.addConversion([](Type type) { return type; });
 
   populateSymbolToStdPatterns(patterns, c, &getContext());
 
@@ -425,7 +449,8 @@ std::unique_ptr<mlir::Pass> createLowerToStdPass() {
   return std::make_unique<SexprToStdLoweringPass>();
 }
 
-void populateSymbolToStdPatterns(OwningRewritePatternList& patterns, TypeConverter& c, MLIRContext* context) {
+void populateSymbolToStdPatterns(OwningRewritePatternList& patterns, TypeConverter& c,
+                                 MLIRContext* context) {
   c.addConversion([&c](SymbolOrValueType t) -> llvm::Optional<Type> {
     if(t.isSymbolic() == sexprtype::SymbolOrValue::VALUE) {
       return c.convertType(t.getBaseType());

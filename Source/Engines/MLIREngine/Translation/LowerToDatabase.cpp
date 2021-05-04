@@ -3,10 +3,11 @@
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryDialect.h"
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
-#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Runtime/Storage.hpp"
+#include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include "LowerDatabase.hpp"
 #include <iostream>
@@ -18,7 +19,6 @@
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <mutex>
-#include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 
 namespace {
 using namespace mlir;
@@ -115,7 +115,10 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
     auto newOp = rewriter.create<database::FinalizeRelationOp>(
         op.getLoc(), reinterpret_cast<size_t>(relationBuilder));
 
+
+
     rewriter.replaceOp(op, newOp.getResult());
+    newOp.getParentOp()->dump();
     return success();
   }
 
@@ -131,8 +134,10 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     ::mlir::Value result;
 
     ArrayLoaderTypeVisitor(std::shared_ptr<arrow::Array> baseArray, mlir::Value offset,
-                           ConversionPatternRewriter& rewriter, mlir::Location loc, new_runtime::Database& database)
-        : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc), database(database) {}
+                           ConversionPatternRewriter& rewriter, mlir::Location loc,
+                           new_runtime::Database& database)
+        : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc),
+          database(database) {}
 
     std::shared_ptr<arrow::Array> baseArray;
     mlir::Value offset;
@@ -162,15 +167,16 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
       auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
 
       auto nameArray = std::dynamic_pointer_cast<arrow::DictionaryArray>(structArray->field(0));
-      auto symbolName = std::dynamic_pointer_cast<arrow::StringArray>(nameArray->dictionary())->GetString(0);
+      auto symbolName =
+          std::dynamic_pointer_cast<arrow::StringArray>(nameArray->dictionary())->GetString(0);
 
       std::vector<Value> childResults;
-      for (auto i = 1; i < type.num_fields(); i++) {
+      for(auto i = 1; i < type.num_fields(); i++) {
         auto const& field = type.field(i);
 
         ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database);
         auto status = field->type()->Accept(&childVisitor);
-        if (!status.ok()) {
+        if(!status.ok()) {
           return status;
         }
 
@@ -180,13 +186,10 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
       auto symbolOp = rewriter.create<sexpr::SymbolOp>(loc, symbolName, childResults);
 
       auto typedSymbolOp = mlir::dyn_cast_or_null<TypeInference>(symbolOp.getOperation());
-      if (!typedSymbolOp) {
+      if(!typedSymbolOp) {
         return arrow::Status::TypeError("Could not cast symbol op to type inference interface");
       }
-      typedSymbolOp.dump();
       typedSymbolOp.inferType(database);
-
-      typedSymbolOp.dump();
 
       result = symbolOp.getResult();
       return arrow::Status::OK();
@@ -227,32 +230,37 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     rewriter.replaceOpWithNewOp<database::PackFieldsIntoTupleOp>(op, loadedValues,
                                                                  resultTupleStream);
 
+    op.getParentOp()->dump();
     return success();
   }
 
   new_runtime::Database& database;
 };
 
-// struct ProjectionOpLowering : public OpConversionPattern<database::ProjectionOp> {
-//  using OpConversionPattern::OpConversionPattern;
-//
-//  LogicalResult matchAndRewrite(database::ProjectionOp op, ArrayRef<Value> operands,
-//                                ConversionPatternRewriter& rewriter) const override {
-//    mlir::SmallVector<Value, 4> newValues;
-//    auto outputTupleStream = op.getType().cast<TupleStreamUnionType>();
-//
-//    rewriter.setInsertionPointAfter(operands.front().getDefiningOp());
-//
-//    for(auto const& [name, type] : outputTupleStream.getConcreteTupleTypes()) {
-//      auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
-//          op.getLoc(), op.getOperand(), name, type);
-//      newValues.push_back(extractedVal.getResult());
-//    }
-//
-//    rewriter.replaceOpWithNewOp<database::PackFieldsIntoTupleOp>(op, newValues,
-//    outputTupleStream); return success();
-//  }
-//};
+struct ProjectionOpLowering : public OpConversionPattern<database::ProjectionOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(database::ProjectionOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    mlir::SmallVector<Value, 4> newValues;
+    auto outputStream = op.getType().cast<TupleStreamType>();
+
+    auto savedPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPointAfter(operands[0].getDefiningOp());
+
+    for(auto const& [name, type] : outputStream.getFields()) {
+      auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
+          op.getLoc(), op.getOperand(), name, type);
+      newValues.push_back(extractedVal.getResult());
+    }
+
+    auto tupleStreamVal =
+        rewriter.create<database::PackFieldsIntoTupleOp>(op.getLoc(), newValues, outputStream);
+    rewriter.replaceOp(op, tupleStreamVal.getResult());
+    rewriter.restoreInsertionPoint(savedPoint);
+    return success();
+  }
+};
 
 void DatabaseLoweringPass::runOnOperation() {
   ConversionTarget target(getContext());
@@ -290,8 +298,8 @@ void DatabaseLoweringPass::runOnOperation() {
   });
 
   patterns.insert<GetRelationOpLowering>(&getContext(), database);
+  patterns.insert<ProjectionOpLowering>(&getContext());
   patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
-  //  patterns.insert<ProjectionOpLowering>(&getContext());
 
   // Transitively lower symbol operations
   populateSymbolToStdPatterns(patterns, typeConverter, &getContext());
