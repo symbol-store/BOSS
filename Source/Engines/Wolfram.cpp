@@ -238,7 +238,7 @@ struct EngineImplementation {
     for(std::string const& it :
         vector{"Plus", "Length", "Times", "And", "UnixTime", "StringJoin", "Greater", "Symbol",
                "UndefinedFunction", "Evaluate", "Set", "SortBy", "Values", "List", "Equal",
-               "Extract", "StringContainsQ"}) {
+               "Extract", "StringContainsQ", "Or", "Subtract"}) {
       evalWithoutNamespace("Set"_(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
 
