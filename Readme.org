@@ -93,21 +93,21 @@
                    "TAKE BACK RETURN"  "REG AIR" "riously. regular, express dep")
        )))
 
-  (expect (GroupBy Customer (Function tuple 0) Count) '((1)) "Grouping")
+  (expect (Group Customer (Function tuple 0) Count) '((1)) "Grouping")
   (expect (Plus 1 2 3) 6 "Arithmetic")
   (expect (Greater 1 0) #t "Logic")
-  (expect (GroupBy
+  (expect (Group
                    (Select Customer
                            (Function t (Greater 1 0)))
                    (Function 0) Count) '((1)) "Select + Aggregate")
-  (expect (GroupBy
+  (expect (Group
                    (Select
                     (Select Customer
                             (Function t (Greater 1 0)))
                     (Function t (Greater 1 0)))
                    (Function 0) Count) '((1)) "Select + Select + Aggregate")
 
-  (expect (GroupBy
+  (expect (Group
                    (Select
                     (Select Lineitem
                             (Where (Greater QUANTITY 15)))
@@ -116,7 +116,7 @@
                    Count
                    ) '((1)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
+  (expect (Group
                    (Select Lineitem
                            (Where
                             (And
@@ -128,7 +128,7 @@
                    Count
                    ) '((1)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
+  (expect (Group
                    (Select Lineitem
                            (Where
                             (And
@@ -139,13 +139,13 @@
                    Count
                    ) '((1)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
+  (expect (Group
                    Lineitem
                    (Function 0)
                    (Sum QUANTITY)
                    ) `((,(+ 17 36 8))) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
+  (expect (Group
                    (Project
                     Lineitem
                     (As revenue (Times EXTENDEDPRICE DISCOUNT)))
@@ -153,7 +153,7 @@
                    (Sum revenue)
                    ) '((73204488)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
+  (expect (Group
                    (Project
                     (Select Lineitem
                             (Where (And (Greater QUANTITY 25)
@@ -167,7 +167,7 @@
                    Count
                    ) '((1)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
+  (expect (Group
                    (Project
                     (Select Lineitem
                             (Where (And (Greater QUANTITY 25)
@@ -181,7 +181,7 @@
                    (Sum revenue)
                    ) '((51019308)) "TPC-H Q6")
 
-  (expect (GroupBy
+  (expect (Group
                    (Project
                     (Select Lineitem
                             (Where (And (Greater QUANTITY 25)
@@ -216,15 +216,15 @@
                                ) '((1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000 829954800 "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold")) "TPC-H Q6")
 
   (expect (length
-           (GroupBy Lineitem (By TAX) (Sum QUANTITY) ))
+           (Group Lineitem (By TAX) (Sum QUANTITY) ))
           2 "Grouping Result Size")
 
   (expect
-           (GroupBy Lineitem (By TAX) (Sum QUANTITY) )
+           (Group Lineitem (By TAX) (Sum QUANTITY) )
            '((25) (36)) "Grouping + Sum Results")
 
   (expect
-           (GroupBy Lineitem (By TAX) Count )
+           (Group Lineitem (By TAX) Count )
            '((2) (1)) "Grouping + Count Results")
 
   (expect (Join Lineitem Part (Where (Equal PARTKEY P_PARTKEY)))

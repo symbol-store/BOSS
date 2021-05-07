@@ -200,7 +200,7 @@ struct EngineImplementation {
         "Select"_(namespaced("GetPersistentTableIfSymbol"_)("input"_), "predicate"_), {"HoldAll"_});
 
     DefineFunction(
-        "GroupBy"_,
+        "Group"_,
         {"Pattern"_("input"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
          "Pattern"_("aggregateFunction"_, "Blank"_())},
         "Switch"_(
@@ -214,10 +214,9 @@ struct EngineImplementation {
                 namespaced("GetPersistentTableIfSymbol"_)("input"_), "groupFunction"_,
                 "Composition"_("Fold"_("Plus"_), "Apply"_("KeyTake"_, "aggregateFunction"_))))));
 
-    DefineFunction("GroupBy"_,
-                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
-                   namespaced("GroupBy"_)("input"_, "Function"_(0), "aggregateFunction"_),
-                   {"HoldAll"_});
+    DefineFunction(
+        "Group"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
+        namespaced("Group"_)("input"_, "Function"_(0), "aggregateFunction"_), {"HoldAll"_});
 
     DefineFunction(
         "Join"_,
@@ -241,8 +240,9 @@ struct EngineImplementation {
     DefineFunction(
         "InsertInto"_,
         {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("tuple"_, "BlankSequence"_())},
-        "AppendTo"_("Database"_("relation"_),
-                    "Association"_("Thread"_("Rule"_("Schema"_("relation"_), "List"_("tuple"_))))),
+        "CompoundExpression"_("AppendTo"_(
+            "Database"_("relation"_),
+            "Association"_("Thread"_("Rule"_("Schema"_("relation"_), "List"_("tuple"_))))),"Null"_),
         {"HoldFirst"_});
   }
 
