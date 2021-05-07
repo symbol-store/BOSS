@@ -28,16 +28,18 @@ std::string getRacketMacroShims() {
     [_ 'unknown]
     )
   )
-(define-syntax-rule (define-transformer name arguments ...)
+(define-syntax-rule (define-operator name arguments ...)
   (define-syntax (name stx)
     (syntax-case stx ()
       ((_ arguments ...) #'(evaluate (convert-to-boss-expression '(name arguments ...))) )
       )
     ))
-(define-syntax-rule (define-transformers '(name arguments ...) ...)
-  (begin (define-transformer name arguments ...) ...)
+(define-syntax-rule (define-operators '(name arguments ...) ...)
+  (begin (define-operator name arguments ...) ...)
   )
-(define-transformers
+
+;; here is where we define new operators
+(define-operators
   '(InsertInto relation values ...)
   '(Where conditionExpression)
   '(Greater left right)
