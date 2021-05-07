@@ -1,8 +1,8 @@
 #pragma once
 
 #include <array>
-#include <mlir/IR/Builders.h>
 #include <map>
+#include <mlir/IR/Builders.h>
 #include <mlir/IR/StandardTypes.h>
 #include <mlir/IR/TypeSupport.h>
 #include <mlir/Support/LLVM.h>
@@ -14,87 +14,87 @@ struct TupleStreamTypeStorage : public mlir::TypeStorage {
 
   explicit TupleStreamTypeStorage(KeyTy fields) : fields(std::move(fields)) {}
 
-  bool operator==(const KeyTy& key) const {
-    return fields == key;
-  }
+  bool operator==(const KeyTy& key) const { return fields == key; }
 
   static llvm::hash_code hashKey(const KeyTy& key) {
     return llvm::hash_combine_range(key.begin(), key.end());
   }
 
   static TupleStreamTypeStorage* construct(mlir::TypeStorageAllocator& allocator,
-                                                KeyTy const& key) {
-    return new(allocator.allocate<TupleStreamTypeStorage>())
-        TupleStreamTypeStorage(key);
+                                           KeyTy const& key) {
+    return new(allocator.allocate<TupleStreamTypeStorage>()) TupleStreamTypeStorage(key);
   }
 
   std::map<std::string, ::mlir::Type> fields;
 };
 
-
-struct TupleStreamType : public mlir::Type::TypeBase<TupleStreamType, mlir::Type, TupleStreamTypeStorage> {
+struct TupleStreamType
+    : public mlir::Type::TypeBase<TupleStreamType, mlir::Type, TupleStreamTypeStorage> {
   using Base::Base;
 
-  static TupleStreamType get(::mlir::MLIRContext* context, std::map<std::string, ::mlir::Type> const& fields) {
+  static TupleStreamType get(::mlir::MLIRContext* context,
+                             std::map<std::string, ::mlir::Type> const& fields) {
     return Base::get<TupleStreamTypeStorage::KeyTy>(context, fields);
   }
 
   TupleStreamTypeStorage::KeyTy getFields() const { return getImpl()->fields; }
 };
 
-struct TupleStreamUnionTypeStorage : public mlir::TypeStorage {
-  using ChildTupleStreams = std::vector<TupleStreamType>;
+template <class ChildType> struct TupleStreamContainerStorage : public mlir::TypeStorage {
+  using ChildTypes = std::vector<ChildType>;
 
-  ChildTupleStreams streamTypes;
-  std::vector<mlir::Block*> insertionPoints;
+  ChildTypes childTypes;
 
-  using KeyTy = std::pair<ChildTupleStreams, std::vector<mlir::Block*>>;
+  using KeyTy = ChildTypes;
 
-  TupleStreamUnionTypeStorage(mlir::ArrayRef<TupleStreamType> streamTypes,
-                         std::vector<mlir::Block*> insertionPoints)
-      : streamTypes(streamTypes), insertionPoints(std::move(insertionPoints)) {}
+  TupleStreamContainerStorage(mlir::ArrayRef<ChildType> childTypes) : childTypes(childTypes) {}
 
-  bool operator==(const KeyTy& key) const {
-    return key.first == streamTypes && key.second == insertionPoints;
-  }
+  bool operator==(const KeyTy& key) const { return key == childTypes; }
 
   static llvm::hash_code hashKey(const KeyTy& key) {
-    auto hashTupleStreams = llvm::hash_combine_range(key.first.begin(), key.first.end());
-    auto hashInsertionPoints = llvm::hash_combine_range(key.second.begin(), key.second.end());
-    return llvm::hash_combine(hashTupleStreams, hashInsertionPoints);
+    return llvm::hash_combine_range(key.begin(), key.end());
   }
 
-  static TupleStreamUnionTypeStorage* construct(mlir::TypeStorageAllocator& allocator,
-                                           KeyTy const& key) {
-    return new(allocator.allocate<TupleStreamUnionTypeStorage>())
-        TupleStreamUnionTypeStorage(key.first, key.second);
+  static TupleStreamContainerStorage* construct(mlir::TypeStorageAllocator& allocator,
+                                                KeyTy const& key) {
+    return new(allocator.allocate<TupleStreamContainerStorage>()) TupleStreamContainerStorage(key);
+  }
+};
+
+class GenericTupleStreamUnionType
+    : public mlir::Type::TypeBase<GenericTupleStreamUnionType, mlir::Type,
+                                  TupleStreamContainerStorage<::mlir::Type>> {
+public:
+  using Base::Base;
+
+  static GenericTupleStreamUnionType
+  get(mlir::MLIRContext* context,
+      TupleStreamContainerStorage<::mlir::Type>::ChildTypes const& funcTypes) {
+    return Base::get<TupleStreamContainerStorage<::mlir::Type>::KeyTy>(context, funcTypes);
+  }
+
+  [[nodiscard]] TupleStreamContainerStorage<::mlir::Type>::ChildTypes const& getChildren() {
+    return getImpl()->childTypes;
   }
 };
 
 class TupleStreamUnionType
-    : public mlir::Type::TypeBase<TupleStreamUnionType, mlir::Type, TupleStreamUnionTypeStorage> {
+    : public mlir::Type::TypeBase<TupleStreamUnionType, mlir::Type,
+                                  TupleStreamContainerStorage<TupleStreamType>> {
 public:
   using Base::Base;
 
-  static TupleStreamUnionType get(mlir::MLIRContext* context,
-                                  TupleStreamUnionTypeStorage::ChildTupleStreams const& streamTypes,
-                             std::vector<mlir::Block*> const& insertionPoints) {
-    return Base::get<TupleStreamUnionTypeStorage::KeyTy>(context,
-                                                    std::make_pair(streamTypes, insertionPoints));
+  static TupleStreamUnionType
+  get(mlir::MLIRContext* context,
+      TupleStreamContainerStorage<TupleStreamType>::ChildTypes const& streamTypes) {
+    return Base::get<TupleStreamContainerStorage<TupleStreamType>::KeyTy>(context, streamTypes);
   }
 
-  [[nodiscard]] TupleStreamUnionTypeStorage::ChildTupleStreams const& getTupleStreams() {
-    return getImpl()->streamTypes;
+  [[nodiscard]] TupleStreamContainerStorage<TupleStreamType>::ChildTypes const& getTupleStreams() {
+    return getImpl()->childTypes;
   }
 
-  [[nodiscard]] std::vector<::mlir::Block*> const& getBlocks() {
-    return getImpl()->insertionPoints;
-  }
-
-  size_t getNumChildStreams() {
-    return getImpl()->streamTypes.size();
-  }
-
+  size_t getNumChildStreams() { return getImpl()->childTypes.size(); }
 };
 
 class RelationType : public mlir::Type::TypeBase<RelationType, mlir::Type, mlir::TypeStorage> {

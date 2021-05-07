@@ -52,16 +52,16 @@ struct RemoveTupleStreamUnionPack
                                       mlir::PatternRewriter& rewriter) const override {
     auto packingOp = mlir::dyn_cast_or_null<mlir::database::CreateUnionTupleStream>(
         op.getOperand().getDefiningOp());
-    if (!packingOp) {
+    if(!packingOp) {
       return mlir::failure();
     }
 
     auto tupleStream = packingOp.getType().dyn_cast_or_null<TupleStreamUnionType>();
-    if (!tupleStream) {
+    if(!tupleStream) {
       return mlir::failure();
     }
 
-    if (op.fieldIndex() >= packingOp.getOperation()->getNumOperands()) {
+    if(op.fieldIndex() >= packingOp.getOperation()->getNumOperands()) {
       op.emitError("The operation does not have " + std::to_string(op.fieldIndex()) + " operands");
       return mlir::failure();
     }
@@ -74,6 +74,35 @@ struct RemoveTupleStreamUnionPack
   }
 };
 
+struct RemoveRedundantGenericPack
+    : public ::mlir::OpRewritePattern<mlir::database::GetTupleStreamFromUnion> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult matchAndRewrite(mlir::database::GetTupleStreamFromUnion op,
+                                      mlir::PatternRewriter& rewriter) const override {
+    auto packingOp = mlir::dyn_cast_or_null<mlir::database::CreateGenericUnionStream>(
+        op.getOperand().getDefiningOp());
+    if(!packingOp) {
+      return mlir::failure();
+    }
+
+    auto tupleStream = packingOp.getType().dyn_cast_or_null<GenericTupleStreamUnionType>();
+    if(!tupleStream) {
+      return mlir::failure();
+    }
+
+    if(op.fieldIndex() >= packingOp.getOperation()->getNumOperands()) {
+      op.emitError("The operation does not have " + std::to_string(op.fieldIndex()) + " operands");
+      return mlir::failure();
+    }
+
+    auto element = packingOp.getOperation()->getOperand(op.fieldIndex());
+    op.replaceAllUsesWith(element);
+    op.erase();
+
+    return mlir::success();
+  }
+};
 
 void mlir::database::ExtractFieldFromTupleOp::getCanonicalizationPatterns(
     ::mlir::OwningRewritePatternList& results, ::mlir::MLIRContext* context) {
@@ -83,4 +112,9 @@ void mlir::database::ExtractFieldFromTupleOp::getCanonicalizationPatterns(
 void mlir::database::GetTupleStreamFromUnion::getCanonicalizationPatterns(
     ::mlir::OwningRewritePatternList& results, ::mlir::MLIRContext* context) {
   results.insert<RemoveTupleStreamUnionPack>(context);
+}
+
+void mlir::database::GetElementFromUnion::getCanonicalizationPatterns(
+    ::mlir::OwningRewritePatternList& results, ::mlir::MLIRContext* context) {
+  results.insert<RemoveRedundantGenericPack>(context);
 }

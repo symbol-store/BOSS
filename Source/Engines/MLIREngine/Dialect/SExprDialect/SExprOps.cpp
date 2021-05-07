@@ -19,11 +19,12 @@
 
 #include "TypeInferenceInterface.cpp.inc"
 
+using boss::mlir::inference::TypeInferenceContext;
+
 // ================ Builders =====================================
 
 void mlir::sexpr::SymbolOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
                                   std::string name, mlir::ValueRange vals) {
-
   odsState.addAttribute("name", odsBuilder.getStringAttr(name));
   odsState.addOperands(vals);
   odsState.addTypes(
@@ -37,7 +38,7 @@ void mlir::sexpr::SymbolOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Operati
 
 // ==== Entry point functions for type inference =======
 
-void mlir::sexpr::IntegerConstantOp::inferType(new_runtime::Database const& database) {
+void mlir::sexpr::IntegerConstantOp::inferType(TypeInferenceContext* context) {
   auto currentType = getResult().getType().cast<SymbolOrValueType>();
 
   auto newType = SymbolOrValueType::get(currentType.getContext(), sexprtype::SymbolOrValue::VALUE,
@@ -46,44 +47,17 @@ void mlir::sexpr::IntegerConstantOp::inferType(new_runtime::Database const& data
   this->getResult().setType(newType);
 }
 
-void mlir::sexpr::SymbolOp::inferType(new_runtime::Database const& database) {
-  const auto& types = this->getOperandTypes();
+void mlir::sexpr::SymbolOp::inferType(TypeInferenceContext* context) {
+  context->symbolOp = this;
+  std::vector<::mlir::Type> operandTypes(getOperandTypes().begin(), getOperandTypes().end());
+  auto resultType = boss::mlir::inference::inferSymbolType(
+      this->name().str(), operandTypes, *context);
 
-  // Check whether we have symbol or value type
-  bool hasSymbol = false;
-  for(const auto& someType : types) {
-    auto type = someType.dyn_cast<SymbolOrValueType>();
-
-    if(!type) {
-      // We don't have a symbol/value type - not symbolic
-      continue;
-    }
-
-    hasSymbol = hasSymbol || type.isSymbolic() == sexprtype::SymbolOrValue::SYMBOL;
-  }
-
-  sexprtype::SymbolOrValue symOrVal =
-      hasSymbol ? sexprtype::SymbolOrValue::SYMBOL : sexprtype::SymbolOrValue::VALUE;
-
-  // Infer base type
-  if (!boss::mlir::inference::isRegisteredSymbol(this->name().str())) {
-    this->getResult().setType(SymbolOrValueType::get(
-        this->getContext(), sexprtype::SymbolOrValue::SYMBOL, llvm::Optional<Type>{}));
-    return;
-  }
-
-  auto baseType = boss::mlir::inference::inferSymbolType(*this, symOrVal, database);
-
-  // TODO is this right?
-  if(baseType.isa<SymbolOrValueType>()) {
-    this->getResult().setType(baseType);
-  } else {
-    auto newType = SymbolOrValueType::get(this->getContext(), symOrVal, baseType);
-    this->getResult().setType(newType);
-  }
+  context->symbolOp = nullptr;
+  this->getResult().setType(resultType);
 }
 
-void mlir::sexpr::StringConstantOp::inferType(new_runtime::Database const& database) {
+void mlir::sexpr::StringConstantOp::inferType(TypeInferenceContext* context) {
   auto currentType = getResult().getType().cast<SymbolOrValueType>();
 
   auto length = value().size();
@@ -94,13 +68,13 @@ void mlir::sexpr::StringConstantOp::inferType(new_runtime::Database const& datab
   this->getResult().setType(newType);
 }
 
-void mlir::sexpr::CombineOp::inferType(new_runtime::Database const& database) {
+void mlir::sexpr::CombineOp::inferType(TypeInferenceContext* context) {
   for(auto& child : getRegion().front().getOperations()) {
-    mlir::dyn_cast<TypeInference, Operation>(&child).inferType(database);
+    mlir::dyn_cast<TypeInference, Operation>(&child).inferType(context);
   }
 }
 
-void mlir::sexpr::EndOp::inferType(new_runtime::Database const& database) {
+void mlir::sexpr::EndOp::inferType(TypeInferenceContext* context) {
   auto inputType = this->getOperand().getType().cast<SymbolOrValueType>();
 
   auto parent = mlir::dyn_cast<sexpr::CombineOp, Operation>(this->getParentOp());

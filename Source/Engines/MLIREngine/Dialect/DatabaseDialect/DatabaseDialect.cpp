@@ -14,7 +14,7 @@ void DatabaseDialect::initialize() {
   >();
   // clang-format on
 
-  addTypes<TupleStreamUnionType, TupleStreamType, RelationType>();
+  addTypes<TupleStreamUnionType, TupleStreamType, RelationType, GenericTupleStreamUnionType>();
 }
 
 void mlir::database::DatabaseDialect::printType(Type type, DialectAsmPrinter& printer) const {
@@ -25,5 +25,7 @@ void mlir::database::DatabaseDialect::printType(Type type, DialectAsmPrinter& pr
     printer << "Relation";
   } else if(auto result = type.dyn_cast_or_null<TupleStreamType>()) {
     printer << "TupleStream";
+  } else if(auto result = type.dyn_cast_or_null<GenericTupleStreamUnionType>()) {
+    printer << "GenericTupleStreamUnion";
   }
 }

@@ -1,9 +1,10 @@
 #include "TypeConversions.hpp"
-#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
+#include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Types/TypeInference.hpp"
-#include <mlir/IR/StandardTypes.h>
 #include <arrow/api.h>
+#include <iostream>
+#include <mlir/IR/StandardTypes.h>
 
 namespace boss::mlir::conversion {
 using namespace boss::mlir::types;
@@ -47,17 +48,24 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
     auto operationName = type.field(0)->name();
     std::vector<::mlir::Type> argumentTypes;
 
-    for (auto i = 1; i < type.num_fields(); i++) {
+    std::cout << type << std::endl;
+
+    for(auto i = 1; i < type.num_fields(); i++) {
       ::mlir::Type convertedArgument;
       ArrowToMlirTypeVisitor childVisitor(convertedArgument, context);
       auto status = type.field(i)->type()->Accept(&childVisitor);
-      if (!status.ok()) {
+      if(!status.ok()) {
         return status;
       }
       argumentTypes.emplace_back(convertedArgument);
     }
 
-    resultType = inference::inferSymbolType(operationName, argumentTypes, context);
+    inference::TypeInferenceContext typeContext(context, nullptr, {}, nullptr);
+    resultType = inference::inferSymbolType(operationName, argumentTypes, typeContext);
+    if(resultType.isa<SymbolOrValueType>() &&
+       resultType.dyn_cast<SymbolOrValueType>().isSymbolic() == sexprtype::SymbolOrValue::VALUE) {
+      resultType = resultType.dyn_cast<SymbolOrValueType>().getBaseType();
+    }
     return arrow::Status::OK();
   }
 
@@ -105,7 +113,7 @@ boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type,
     return RuntimeTypes::STRING;
   } else if(type.isa<TupleStreamUnionType>()) {
     return RuntimeTypes::TUPLE_STREAM;
-  } else if (type.isa<RelationType>()) {
+  } else if(type.isa<RelationType>()) {
     return RuntimeTypes::RELATION;
   }
 
@@ -134,25 +142,29 @@ boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type,
 size_t mlirTypeToArrowRawBuffer(arrow::ChunkedArray* array, ::mlir::Type type, int chunk) {
   if(type.isInteger(1)) {
     // Note: Casting to int8 instead of boolean: Packed storage
-    return reinterpret_cast<size_t>(std::static_pointer_cast<arrow::Int8Array>(array->chunk(chunk))->raw_values());
+    return reinterpret_cast<size_t>(
+        std::static_pointer_cast<arrow::Int8Array>(array->chunk(chunk))->raw_values());
   } else if(type.isIntOrIndex()) {
-    return reinterpret_cast<size_t>(std::static_pointer_cast<arrow::Int32Array>(array->chunk(chunk))->raw_values());
+    return reinterpret_cast<size_t>(
+        std::static_pointer_cast<arrow::Int32Array>(array->chunk(chunk))->raw_values());
   } else if(type.isIntOrFloat()) {
-    return reinterpret_cast<size_t>(std::static_pointer_cast<arrow::FloatArray>(array->chunk(chunk))->raw_values());
+    return reinterpret_cast<size_t>(
+        std::static_pointer_cast<arrow::FloatArray>(array->chunk(chunk))->raw_values());
   } else if(type.isa<::mlir::MemRefType>() || type.isa<StringType>()) {
-    return reinterpret_cast<size_t>(std::static_pointer_cast<arrow::StringArray>(array->chunk(chunk))->raw_data());
+    return reinterpret_cast<size_t>(
+        std::static_pointer_cast<arrow::StringArray>(array->chunk(chunk))->raw_data());
   } else if(type.isa<SymbolOrValueType>()) {
-    return reinterpret_cast<size_t>(std::static_pointer_cast<arrow::BinaryArray>(array->chunk(chunk))->raw_data());
+    return reinterpret_cast<size_t>(
+        std::static_pointer_cast<arrow::BinaryArray>(array->chunk(chunk))->raw_data());
   }
   return 0;
 }
-
 
 std::map<std::string, boss::mlir::types::RuntimeTypes>
 mlirFieldsToRuntimeFields(const std::map<std::string, ::mlir::Type>& fields) {
   std::map<std::string, boss::mlir::types::RuntimeTypes> result;
 
-  for (auto const& [name, type] : fields) {
+  for(auto const& [name, type] : fields) {
     result[name] = mlirTypeToRuntimeType(type, false);
   }
 

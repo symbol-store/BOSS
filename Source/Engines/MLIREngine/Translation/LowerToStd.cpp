@@ -31,6 +31,42 @@ std::atomic<int> stringCounter{0};
 
 std::mutex printMutex;
 
+struct FuncOpSignatureConversion : public OpConversionPattern<mlir::FuncOp> {
+  FuncOpSignatureConversion(MLIRContext* ctx, TypeConverter& converter)
+      : OpConversionPattern(ctx), converter(converter) {}
+
+  LogicalResult matchAndRewrite(FuncOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    // Convert signature of function to respect new type conversions caused by database lowering
+    auto type = op.getType();
+
+    SmallVector<Type, 1> convertedResults;
+    if(failed(converter.convertTypes(type.getResults(), convertedResults))) {
+      return failure();
+    }
+
+    SmallVector<Type, 1> convertedInputs;
+    if(failed(converter.convertTypes(type.getInputs(), convertedInputs))) {
+      return failure();
+    }
+
+    auto newFuncType = rewriter.getFunctionType(convertedInputs, convertedResults);
+
+    rewriter.updateRootInPlace(op, [&]() {
+      op.setType(newFuncType);
+      auto status = rewriter.convertRegionTypes(&op.getBody(), converter);
+      if (failed(status)) {
+        throw std::runtime_error("Failure converting block arguments");
+      }
+    });
+
+
+    return success();
+  }
+
+  TypeConverter& converter;
+};
+
 struct EndOpLowering : public OpConversionPattern<sexpr::EndOp> {
   EndOpLowering(MLIRContext* ctx, TypeConverter& converter)
       : OpConversionPattern(ctx), converter(converter) {}
@@ -182,6 +218,10 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
         {"StringJoin", [&]() { return rewriteStringJoin(s, operands, rewriter); }},
         {"Greater",
          [&]() { return replaceBooleanCompareOp<CmpIPredicate::sgt>(s, operands, rewriter); }},
+        {"Less",
+            [&]() { return replaceBooleanCompareOp<CmpIPredicate::slt>(s, operands, rewriter); }},
+        {"Eq",
+            [&]() { return replaceBooleanCompareOp<CmpIPredicate::eq>(s, operands, rewriter); }},
         {"Symbol",
          [&]() {
            auto allocOp =
@@ -243,6 +283,32 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
            rewriter.replaceOpWithNewOp<database::CollectTuplesOp>(
                s, RelationType::get(s.getContext()), tupleStreamValues);
+           return success();
+         }},
+        {"Select", [&]() {
+           auto tupleStreamUnion = converter.convertType(operands[1].getType()).dyn_cast_or_null<TupleStreamUnionType>();
+
+           auto* whereClause = s.getOperands()[0].getDefiningOp();
+           auto fields = whereClause->getAttr("fields").dyn_cast_or_null<ArrayAttr>();
+           auto filterFunctions = whereClause->getAttr("functions").dyn_cast_or_null<ArrayAttr>();
+
+           if (!tupleStreamUnion || !filterFunctions || !fields) {
+             return failure();
+           }
+
+          std::vector<mlir::Value> tupleStreamValues;
+           for (auto i = 0UL; i < tupleStreamUnion.getNumChildStreams(); i++) {
+             auto tupleStreamTy = tupleStreamUnion.getTupleStreams()[i];
+             auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
+                 s.getLoc(), tupleStreamTy, operands[1], i);
+
+             auto selectionOp = rewriter.create<database::SelectionOp>(s.getLoc(), extractionOp.getResult(), filterFunctions[i].dyn_cast_or_null<StringAttr>(), fields);
+             tupleStreamValues.emplace_back(selectionOp.getResult());
+           }
+
+          rewriter.replaceOpWithNewOp<database::CreateUnionTupleStream>(s, tupleStreamUnion,
+                                                                        tupleStreamValues);
+
            return success();
          }},
         {"Project",
@@ -424,12 +490,14 @@ void SexprToStdLoweringPass::runOnFunction() {
   target.addLegalDialect<mlir::StandardOpsDialect, mlir::scf::SCFDialect,
                          mlir::memory::MemoryDialect, database::DatabaseDialect>();
   target.addIllegalDialect<sexpr::SExprDialect>();
-  target.addLegalOp<FuncOp>();
+  target.addDynamicallyLegalOp<FuncOp>([&](mlir::FuncOp op) {
+    return c.isSignatureLegal(op.getType());
+  });
   target.addDynamicallyLegalOp<mlir::CallOp>(
       // CallOp is legal in source and target, but the type should be converted
       [&](mlir::CallOp op) { return c.isLegal(op); });
 
-  patterns.insert<CallOpSignatureConversion>(&getContext(), c);
+  patterns.insert<CallOpSignatureConversion, FuncOpSignatureConversion>(&getContext(), c);
 
   auto res = applyPartialConversion(getFunction(), target, std::move(patterns));
 
@@ -459,11 +527,14 @@ void populateSymbolToStdPatterns(OwningRewritePatternList& patterns, TypeConvert
   });
   c.addConversion([&c](FunctionType t) -> llvm::Optional<Type> {
     auto resultTypes = t.getResults();
-    llvm::SmallVector<Type, 1> convertedTypes{};
+    llvm::SmallVector<Type, 1> convertedOutputs{};
+    c.convertTypes(resultTypes, convertedOutputs);
 
-    c.convertTypes(resultTypes, convertedTypes);
+    auto inputTypes = t.getInputs();
+    llvm::SmallVector<Type, 1> convertedInputs{};
+    c.convertTypes(inputTypes, convertedInputs);
 
-    return FunctionType::get(t.getInputs(), convertedTypes, t.getContext());
+    return FunctionType::get(convertedInputs, convertedOutputs, t.getContext());
   });
   c.addConversion([](StringType t) -> llvm::Optional<Type> {
     // Return memory buffer of length + 1 to account for null byte

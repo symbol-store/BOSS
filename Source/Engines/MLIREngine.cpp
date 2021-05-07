@@ -9,6 +9,7 @@
 #include "Engines/MLIREngine/Translation/SexprToLLVM.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 #include "Engines/MLIREngine/Translation/LowerDatabase.hpp"
+#include "Engines/MLIREngine/Types/TypeInference.hpp"
 
 #include <llvm/IR/Module.h>
 #include <mlir/ExecutionEngine/ExecutionEngine.h>
@@ -62,7 +63,9 @@ Expression Engine::evaluate(Expression const& e) {
 
   ::mlir::PassManager passManager(module->getContext());
 
-  passManager.addPass(createTypeInferencePass(database));
+  boss::mlir::inference::TypeInferenceContext context(module->getContext(), &database, {}, nullptr);
+
+  passManager.addPass(createTypeInferencePass(&context));
   passManager.addPass(createLowerToFunctionsPass(returnType));
   passManager.addNestedPass<::mlir::FuncOp>(createLowerToStdPass());
   passManager.addPass(::mlir::createCanonicalizerPass());

@@ -16,7 +16,7 @@ def PrintMemrefOp : Memory_Op<"printMemref", []> {
   let arguments = (ins AnyMemRef:$ref);
 }
 
-def AllocateSymbolOp : Memory_Op<"allocateSymbolOp", []> {
+def AllocateSymbolOp : Memory_Op<"allocateSymbolOp", [NoSideEffect]> {
   let arguments = (ins I8MemRef:$name);
 
   let results = (outs SymbolOrValueType:$symbolPointer);
@@ -31,7 +31,7 @@ def AllocateSymbolOp : Memory_Op<"allocateSymbolOp", []> {
   ];
 }
 
-def AllocateSymbolicFunctionOp : Memory_Op<"allocateSymbolicFuncOp", []> {
+def AllocateSymbolicFunctionOp : Memory_Op<"allocateSymbolicFuncOp", [NoSideEffect]> {
   let arguments = (ins I8MemRef:$name, Variadic<AnyType>:$args);
 
   let results = (outs SymbolOrValueType:$expressionPointer);

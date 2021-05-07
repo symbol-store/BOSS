@@ -27,7 +27,7 @@ def IntegerConstantOp : SExpr_Op<"integerConstant", [DeclareOpInterfaceMethods<T
     OpBuilder<"int value", [{
       $_state.addAttribute("value", $_builder.getI32IntegerAttr(value));
       $_state.addTypes($_builder.getType<SymbolOrValueType, sexprtype::SymbolOrValue, Type>(
-          sexprtype::SymbolOrValue::UNKNOWN, $_builder.getI64Type()));
+          sexprtype::SymbolOrValue::UNKNOWN, $_builder.getI32Type()));
     }]>
   ];
 }

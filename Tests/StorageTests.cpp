@@ -106,7 +106,7 @@ TEST_CASE("STORAGE_TEST") {
 
     relation.bulk_load({
         {{"A", 1}, {"B", 1}},
-//        {{"A", 1}, {"B", 1.1f}}
+        {{"A", 1}, {"B", 1.1f}}
     });
 
     new_runtime::Database database;
@@ -117,8 +117,40 @@ TEST_CASE("STORAGE_TEST") {
     auto result = engine.evaluate(
         "CollectTuples"_("Project"_("List"_("B"), "GetRelation"_(std::string("Foo")))));
     auto pointer = std::get<size_t>(result);
-    auto resultRelation = reinterpret_cast<new_runtime::Relation*>(pointer);
+    auto* resultRelation = reinterpret_cast<new_runtime::Relation*>(pointer);
 
     CHECK(resultRelation->get()->field(0)->num_fields() == 1);
+  }
+
+  SECTION("Selection") {
+    new_runtime::Relation relation;
+
+    relation.bulk_load({
+                           {{"A", 1}, {"B", 5}},
+                           {{"A", 2}, {"B", 5}},
+                           {{"A", 1}, {"B", 1.1f}},
+                           {{"A", 2}, {"B", 3.1f}}
+                       });
+
+    new_runtime::Database database;
+
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(std::move(database));
+
+    auto result = engine.evaluate(
+        "CollectTuples"_(
+            "Select"_(
+                "Where"_("Eq"_("Symbol"_("A"), 1)),
+                "GetRelation"_(std::string("Foo")))
+            ));
+
+    auto pointer = std::get<size_t>(result);
+    auto* resultRelation = reinterpret_cast<new_runtime::Relation*>(pointer);
+
+    auto firstStruct =
+        std::dynamic_pointer_cast<arrow::StructArray>(resultRelation->get()->field(0));
+    auto intColumn = std::dynamic_pointer_cast<arrow::Int32Array>(firstStruct->field(0));
+
+    CHECK(intColumn->length() == 1);
   }
 }

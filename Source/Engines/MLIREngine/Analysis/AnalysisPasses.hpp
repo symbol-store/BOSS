@@ -2,8 +2,8 @@
 #include <memory>
 #include <mlir/Pass/Pass.h>
 
-namespace new_runtime {
-class Database;
+namespace boss::mlir::inference {
+class TypeInferenceContext;
 }
 
-std::unique_ptr<mlir::Pass> createTypeInferencePass(new_runtime::Database const& database);
+std::unique_ptr<mlir::Pass> createTypeInferencePass(boss::mlir::inference::TypeInferenceContext*);

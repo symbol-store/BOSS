@@ -15,6 +15,8 @@ def StringType : Type<CPred<"$_self.isa<StringType>()">>;
 def TupleStreamType : Type<CPred<"$_self.isa<TupleStreamType>()">,
                                                     "A single tuple stream">;
 
+def GenericTupleStreamUnionType : Type<CPred<"$_self.isa<GenericTupleStreamUnionType>()">, "GenericTupleStreamUnionType">;
+
 def GetRelationOp : Database_Op<"getRelation", []> {
   let arguments = (ins
       StrAttr:$relationName,
@@ -55,6 +57,27 @@ def ProjectionOp : Database_Op<"projectionOp", []> {
   let results = (outs
     TupleStreamType:$outputType
   );
+}
+
+def SelectionOp : Database_Op<"selectionOp", []> {
+  let arguments = (ins
+    TupleStreamType:$inputStream,
+    StrArrayAttr:$fields,
+    StrAttr:$selectionFunctionName
+  );
+
+  let results = (outs
+    TupleStreamType:$outputTupleStream
+  );
+
+  let builders = [
+    OpBuilderDAG<(ins "Value":$tupleStream, "::mlir::StringAttr":$selectionFunctionName, "::mlir::ArrayAttr":$fields), [{
+      $_state.addAttribute("fields", fields);
+      $_state.addAttribute("selectionFunctionName", selectionFunctionName);
+      $_state.addTypes(tupleStream.getType());
+      $_state.addOperands(tupleStream);
+    }]>
+  ];
 }
 
 def ExtractFieldFromTupleOp : Database_Op<"extractFieldFromTupStream", []> {
@@ -110,6 +133,29 @@ def CreateUnionTupleStream : Database_Op<"createUnionTupleStreamOp", [NoSideEffe
 def GetTupleStreamFromUnion : Database_Op<"getTupleStreamFromUnion", [NoSideEffect]> {
   let arguments = (ins
     TupleStreamUnionType:$tupleStream,
+    I32Attr:$fieldIndex
+  );
+
+  let results = (outs
+    AnyType:$fieldValue
+  );
+
+  let hasCanonicalizer = 1;
+}
+
+def CreateGenericUnionStream : Database_Op<"createGenericUnionStream", [NoSideEffect]> {
+  let arguments = (ins
+    Variadic<AnyType>:$inputValues
+  );
+
+  let results = (outs
+    GenericTupleStreamUnionType:$outputUnion
+  );
+}
+
+def GetElementFromUnion : Database_Op<"getElementFromUnionStream", [NoSideEffect]> {
+  let arguments = (ins
+    GenericTupleStreamUnionType:$tupleStream,
     I32Attr:$fieldIndex
   );
 

@@ -9,6 +9,7 @@
 #include "Engines/MLIREngine/Runtime/Storage.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
+#include "Engines/MLIREngine/Types/TypeInference.hpp"
 #include "LowerDatabase.hpp"
 #include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
@@ -22,6 +23,7 @@
 
 namespace {
 using namespace mlir;
+using boss::mlir::inference::TypeInferenceContext;
 
 std::mutex printMutex;
 
@@ -115,10 +117,7 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
     auto newOp = rewriter.create<database::FinalizeRelationOp>(
         op.getLoc(), reinterpret_cast<size_t>(relationBuilder));
 
-
-
     rewriter.replaceOp(op, newOp.getResult());
-    newOp.getParentOp()->dump();
     return success();
   }
 
@@ -189,7 +188,8 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
       if(!typedSymbolOp) {
         return arrow::Status::TypeError("Could not cast symbol op to type inference interface");
       }
-      typedSymbolOp.inferType(database);
+      TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
+      typedSymbolOp.inferType(&typeContext);
 
       result = symbolOp.getResult();
       return arrow::Status::OK();
@@ -230,7 +230,6 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     rewriter.replaceOpWithNewOp<database::PackFieldsIntoTupleOp>(op, loadedValues,
                                                                  resultTupleStream);
 
-    op.getParentOp()->dump();
     return success();
   }
 
@@ -258,6 +257,80 @@ struct ProjectionOpLowering : public OpConversionPattern<database::ProjectionOp>
         rewriter.create<database::PackFieldsIntoTupleOp>(op.getLoc(), newValues, outputStream);
     rewriter.replaceOp(op, tupleStreamVal.getResult());
     rewriter.restoreInsertionPoint(savedPoint);
+    return success();
+  }
+};
+
+struct SelectionOpLowering : public OpConversionPattern<database::SelectionOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(database::SelectionOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto savedPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPointAfter(operands[0].getDefiningOp());
+    auto fields = op.getAttr("fields").dyn_cast_or_null<ArrayAttr>();
+    if(!fields) {
+      op.emitError("Expecting attribute fields to exist in selection op");
+      return failure();
+    }
+
+    auto tupleStream = operands[0].getType().dyn_cast_or_null<TupleStreamType>();
+    if(!tupleStream) {
+      return failure();
+    }
+
+    auto const& tupleStreamFields = tupleStream.getFields();
+
+    // Load all the arguments to the selection function
+    std::vector<mlir::Value> arguments;
+    for(auto const& field : fields) {
+      auto fieldName = field.dyn_cast_or_null<StringAttr>();
+      if(!fieldName) {
+        op.emitError("Expecting fields array to contain strings only");
+        return failure();
+      }
+      auto databaseField = tupleStreamFields.find(fieldName.getValue().str());
+      auto loadedValue = rewriter.create<database::ExtractFieldFromTupleOp>(
+          op.getLoc(), operands[0], databaseField->first, databaseField->second);
+      arguments.emplace_back(loadedValue.getResult());
+    }
+
+    op.getParentOfType<ModuleOp>().dump();
+
+    // Call the selection function
+    auto funcName = op.getAttr("selectionFunctionName").dyn_cast_or_null<StringAttr>();
+    if (!funcName) {
+      op.emitError("Expecting a string attribute selectionFunctionName");
+      return failure();
+    }
+    auto* opaqueFuncOp = op.getParentOfType<ModuleOp>().lookupSymbol(funcName.getValue());
+    auto funcOp = ::mlir::dyn_cast_or_null<FuncOp>(opaqueFuncOp);
+    if (!funcOp) {
+      op.emitError("Expecting a function named " + funcName.getValue().str());
+      return failure();
+    }
+    auto callResult = rewriter.create<CallOp>(op.getLoc(), funcOp, arguments);
+
+    // Add branch based on selection result
+    auto ifOp = rewriter.create<scf::IfOp>(op.getLoc(), callResult.getResult(0), false);
+    rewriter.setInsertionPointToStart(ifOp.getBody());
+
+    // Carry over all the entire tuple stream
+    std::vector<mlir::Value> newValues;
+    for(auto const& [name, type] : tupleStreamFields) {
+      auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
+          op.getLoc(), op.getOperand(), name, type);
+      newValues.push_back(extractedVal.getResult());
+    }
+
+    auto tupleStreamVal =
+        rewriter.create<database::PackFieldsIntoTupleOp>(op.getLoc(), newValues, tupleStream);
+    rewriter.replaceOp(op, tupleStreamVal.getResult());
+
+    rewriter.restoreInsertionPoint(savedPoint);
+
+    op.getParentOfType<ModuleOp>().dump();
+
     return success();
   }
 };
@@ -298,7 +371,7 @@ void DatabaseLoweringPass::runOnOperation() {
   });
 
   patterns.insert<GetRelationOpLowering>(&getContext(), database);
-  patterns.insert<ProjectionOpLowering>(&getContext());
+  patterns.insert<ProjectionOpLowering, SelectionOpLowering>(&getContext());
   patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
 
   // Transitively lower symbol operations
