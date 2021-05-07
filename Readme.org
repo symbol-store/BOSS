@@ -58,7 +58,7 @@
        (CreateTable Customer FirstName LastName)
        (InsertInto  Customer "Holger" "Pirk")
 
-       (CreateTable Part PPARTKEY Name)
+       (CreateTable Part P_PARTKEY Name)
        (InsertInto  Part 637 "Blobfish")
        (InsertInto  Part 674 "Banana Bread")
        (InsertInto  Part 891 "Horse")
@@ -227,7 +227,7 @@
            (GroupBy Lineitem (By TAX) Count )
            '((2) (1)) "Grouping + Count Results")
 
-  (expect (Join Lineitem Part (Where (Equal PARTKEY PPARTKEY)))
+  (expect (Join Lineitem Part (Where (Equal PARTKEY P_PARTKEY)))
           '((1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000 829954800
                "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold" 674 "Banana Bread")
             (1 637 38 3 8 1230104 10 2 "N" "O" 822870000 825980400 823042800

@@ -9,14 +9,23 @@ std::string getRacketMacroShims() {
   return
       R"(
 (require racket/match)
+(require threading)
 (define (convert-to-boss-expression x)
   (match x
-         [(list head arguments ...) (new-Expression (new-ComplexExpression head (map convert-to-boss-expression arguments)))]
-         [(and i (? integer?)) (new-Expression i)]
-         [(and s (? string?)) (new-Expression s)]
-         [(and s (? symbol?)) (new-Expression (new-Symbol (symbol->string s)))]
-         [_ 'unknown]
-         )
+    [(list 'quote argument) (convert-to-boss-expression argument)]
+    [(list head arguments ...) (new-Expression (new-ComplexExpression head (map convert-to-boss-expression arguments)))]
+    [(and i (? integer?)) (new-Expression i)]
+    [(and s (? string?)) (new-Expression s)]
+    [(and s (? symbol?)) (new-Expression
+                          (new-Symbol
+                           (~> s
+                               (symbol->string)
+                               (string-split ":")
+                               (first)
+                               )
+                           ))]
+    [_ 'unknown]
+    )
   )
 (define-syntax (InsertInto syntax-object) (syntax-case syntax-object ()
   ((_ relation values ...) #'((lambda () (evaluate (convert-to-boss-expression '(InsertInto relation values ...))) (void))))

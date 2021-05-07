@@ -3,6 +3,7 @@
 #include "../Utilities.hpp"
 #include "Wolfram.hpp"
 #include <iostream>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -37,6 +38,18 @@ struct EngineImplementation {
     return symbolName;
   }
 
+  auto mangle(std::string normalizedName) {
+    normalizedName = std::regex_replace(normalizedName, std::regex("_"), "$$0");
+    normalizedName = std::regex_replace(normalizedName, std::regex("\\."), "$$1");
+    return normalizedName;
+  }
+
+  auto demangle(std::string normalizedName) {
+    normalizedName = std::regex_replace(normalizedName, std::regex("$0"), "_");
+    normalizedName = std::regex_replace(normalizedName, std::regex("$1"), ".");
+    return normalizedName;
+  }
+
   void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier,
                            std::ostream& console) {
     std::visit(boss::utilities::overload(
@@ -57,8 +70,9 @@ struct EngineImplementation {
                      WSPutFloat(link, a);
                    },
                    [&](Symbol const& a) {
-                     console << (namespaceIdentifier + a.getName());
-                     WSPutSymbol(link, (namespaceIdentifier + a.getName()).c_str());
+                     auto normalizedName = mangle(a.getName());
+                     console << (namespaceIdentifier + normalizedName);
+                     WSPutSymbol(link, (namespaceIdentifier + normalizedName).c_str());
                    },
                    [&](std::string const& a) {
                      console << "\"" << a << "\"";
@@ -115,7 +129,7 @@ struct EngineImplementation {
     if(resultType == WSTKSYM) {
       auto const* result = "";
       WSGetSymbol(link, &result);
-      auto resultingSymbol = Symbol(removeNamespace(result));
+      auto resultingSymbol = Symbol(demangle(removeNamespace(result)));
       WSReleaseSymbol(link, result);
       if(std::string("True") == resultingSymbol.getName()) {
         return true;
