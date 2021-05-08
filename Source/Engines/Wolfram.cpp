@@ -105,13 +105,11 @@ struct EngineImplementation {
       WSReleaseString(link, resultAsCString);
 
       return result;
-    }
-    if(resultType == WSTKINT) {
+    } else if(resultType == WSTKINT) {
       int result = 0;
       WSGetInteger(link, &result);
       return result;
-    }
-    if(resultType == WSTKFUNC) {
+    } else if(resultType == WSTKFUNC) {
       auto const* resultHead = "";
       auto numberOfArguments = 0;
       auto success = WSGetFunction(link, &resultHead, &numberOfArguments);
@@ -125,8 +123,7 @@ struct EngineImplementation {
       auto result = ComplexExpression(Symbol(removeNamespace(resultHead)), resultArguments);
       WSReleaseSymbol(link, resultHead);
       return result;
-    }
-    if(resultType == WSTKSYM) {
+    } else if(resultType == WSTKSYM) {
       auto const* result = "";
       WSGetSymbol(link, &result);
       auto resultingSymbol = Symbol(demangle(removeNamespace(result)));
@@ -138,8 +135,7 @@ struct EngineImplementation {
         return false;
       }
       return resultingSymbol;
-    }
-    if(resultType == WSTKERROR) {
+    } else if(resultType == WSTKERROR) {
       const char* messageAsCString = WSErrorMessage(link);
       auto message = string(messageAsCString);
       WSReleaseErrorMessage(link, messageAsCString);
@@ -195,6 +191,15 @@ struct EngineImplementation {
     DefineFunction(
         "Project"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("projection"_, "Blank"_())},
         "Map"_("projection"_, namespaced("GetPersistentTableIfSymbol"_)("input"_)), {"HoldAll"_});
+
+    DefineFunction(
+        "ProjectAll"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("projection"_, "Blank"_())},
+        "Map"_("KeyMap"_("Function"_("oldname"_, "Symbol"_("StringJoin"_(
+                                                     DefaultNamespace, "SymbolName"_("projection"_),
+                                                     "$1", "SymbolName"_("oldname"_))))),
+               namespaced("GetPersistentTableIfSymbol"_)("input"_)),
+        {"HoldAll"_});
+
     DefineFunction(
         "Select"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("predicate"_, "Blank"_())},
         "Select"_(namespaced("GetPersistentTableIfSymbol"_)("input"_), "predicate"_), {"HoldAll"_});
@@ -218,6 +223,10 @@ struct EngineImplementation {
         "Group"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
         namespaced("Group"_)("input"_, "Function"_(0), "aggregateFunction"_), {"HoldAll"_});
 
+    DefineFunction("Order"_,
+                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("orderFunction"_, "Blank"_())},
+                   "SortBy"_("input"_, "orderFunction"_), {"HoldAll"_});
+
     DefineFunction(
         "Join"_,
         {"Pattern"_("left"_, "Blank"_()), "Pattern"_("right"_, "Blank"_()),
@@ -240,9 +249,10 @@ struct EngineImplementation {
     DefineFunction(
         "InsertInto"_,
         {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("tuple"_, "BlankSequence"_())},
-        "CompoundExpression"_("AppendTo"_(
-            "Database"_("relation"_),
-            "Association"_("Thread"_("Rule"_("Schema"_("relation"_), "List"_("tuple"_))))),"Null"_),
+        "CompoundExpression"_("AppendTo"_("Database"_("relation"_),
+                                          "Association"_("Thread"_(
+                                              "Rule"_("Schema"_("relation"_), "List"_("tuple"_))))),
+                              "Null"_),
         {"HoldFirst"_});
   }
 
@@ -250,9 +260,9 @@ struct EngineImplementation {
     evalWithoutNamespace("Set"_("BOSSVersion"_, 1));
 
     for(std::string const& it :
-        vector{"Plus", "Length", "Times", "And", "UnixTime", "StringJoin", "Greater", "Symbol",
-               "UndefinedFunction", "Evaluate", "Set", "SortBy", "Values", "List", "Equal",
-               "Extract", "StringContainsQ"}) {
+        vector{"Plus", "Minus", "Length", "Times", "And", "UnixTime", "StringJoin", "Greater",
+               "Symbol", "UndefinedFunction", "Evaluate", "Set", "SortBy", "Values", "List",
+               "Equal", "Extract", "StringContainsQ"}) {
       evalWithoutNamespace("Set"_(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
 
