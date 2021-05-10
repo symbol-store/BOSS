@@ -38,13 +38,13 @@ struct EngineImplementation {
     return symbolName;
   }
 
-  auto mangle(std::string normalizedName) {
+  static auto mangle(std::string normalizedName) {
     normalizedName = std::regex_replace(normalizedName, std::regex("_"), "$$0");
     normalizedName = std::regex_replace(normalizedName, std::regex("\\."), "$$1");
     return normalizedName;
   }
 
-  auto demangle(std::string normalizedName) {
+  static auto demangle(std::string normalizedName) {
     normalizedName = std::regex_replace(normalizedName, std::regex("$0"), "_");
     normalizedName = std::regex_replace(normalizedName, std::regex("$1"), ".");
     return normalizedName;
@@ -105,11 +105,11 @@ struct EngineImplementation {
       WSReleaseString(link, resultAsCString);
 
       return result;
-    } else if(resultType == WSTKINT) {
+    } if(resultType == WSTKINT) {
       int result = 0;
       WSGetInteger(link, &result);
       return result;
-    } else if(resultType == WSTKFUNC) {
+    } if(resultType == WSTKFUNC) {
       auto const* resultHead = "";
       auto numberOfArguments = 0;
       auto success = WSGetFunction(link, &resultHead, &numberOfArguments);
