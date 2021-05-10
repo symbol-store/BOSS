@@ -103,13 +103,14 @@ struct EngineImplementation {
       WSGetString(link, &resultAsCString);
       auto result = std::string(resultAsCString);
       WSReleaseString(link, resultAsCString);
-
       return result;
-    } if(resultType == WSTKINT) {
+    }
+    if(resultType == WSTKINT) {
       int result = 0;
       WSGetInteger(link, &result);
       return result;
-    } if(resultType == WSTKFUNC) {
+    }
+    if(resultType == WSTKFUNC) {
       auto const* resultHead = "";
       auto numberOfArguments = 0;
       auto success = WSGetFunction(link, &resultHead, &numberOfArguments);
