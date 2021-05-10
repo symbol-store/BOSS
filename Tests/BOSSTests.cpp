@@ -159,8 +159,8 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
       CHECK(get<int>(eval("Extract"_("Extract"_(countRows, 1), 1))) == 3);
       CHECK(get<int>(eval("Extract"_(
                 "Extract"_("Group"_(("Select"_("Customer"_, "Where"_("StringContainsQ"_(
-                                                                  "Madden", "LastName"_)))),
-                                      "Function"_(0), "Count"_),
+                                                                "Madden", "LastName"_)))),
+                                    "Function"_(0), "Count"_),
                            1),
                 1))) == 1);
     }
