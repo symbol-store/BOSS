@@ -216,21 +216,21 @@ struct EngineImplementation {
                 "Function"_(
                     "groupedInput"_,
                     "Merge"_(
-                        "Map"_("Function"_(
-                                   "aggregateFunction"_,
-                                   "Construct"_(
-                                       "Switch"_(
-                                           "aggregateFunction"_, namespaced("Count"_),
-                                           "Composition"_(
-                                               "Association"_,
-                                               "Construct"_("CurryApplied"_("Rule"_, 2), "Count"_),
-                                               "Length"_),
-                                           "Blank"_(),
-                                           "Composition"_(
-                                               "Fold"_("Plus"_),
-                                               "Apply"_("KeyTake"_, "aggregateFunction"_))),
-                                       "groupedInput"_)),
-                               "List"_("aggregateFunctions"_)),
+                        "Map"_(
+                            "Function"_(
+                                "aggregateFunction"_,
+                                "Construct"_(
+                                    "Switch"_(
+                                        "aggregateFunction"_, namespaced("Count"_),
+                                        "Composition"_(
+                                            "Association"_,
+                                            "Construct"_("CurryApplied"_("Rule"_, 2), "Count"_),
+                                            "Length"_),
+                                        "Blank"_(),
+                                        "Composition"_("Fold"_("Plus"_),
+                                                       "Apply"_("KeyTake"_, "aggregateFunction"_))),
+                                    "groupedInput"_)),
+                            "List"_("aggregateFunctions"_)),
                         "First"_))))));
 
     DefineFunction(
