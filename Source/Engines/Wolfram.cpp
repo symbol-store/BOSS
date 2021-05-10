@@ -124,7 +124,8 @@ struct EngineImplementation {
       auto result = ComplexExpression(Symbol(removeNamespace(resultHead)), resultArguments);
       WSReleaseSymbol(link, resultHead);
       return result;
-    } else if(resultType == WSTKSYM) {
+    }
+    if(resultType == WSTKSYM) {
       auto const* result = "";
       WSGetSymbol(link, &result);
       auto resultingSymbol = Symbol(demangle(removeNamespace(result)));
@@ -136,7 +137,8 @@ struct EngineImplementation {
         return false;
       }
       return resultingSymbol;
-    } else if(resultType == WSTKERROR) {
+    }
+    if(resultType == WSTKERROR) {
       const char* messageAsCString = WSErrorMessage(link);
       auto message = string(messageAsCString);
       WSReleaseErrorMessage(link, messageAsCString);
