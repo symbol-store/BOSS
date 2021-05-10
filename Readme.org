@@ -1,5 +1,3 @@
-
-
 * BOSS
 ** Configuring
 *** Dependencies
@@ -231,6 +229,10 @@
       '((25) (36)) "Grouping + Sum Results")
 
      (expect
+      (Group Lineitem (By ORDERKEY) Count )
+      '((3)) "Grouping + Count Results")
+
+     (expect
       (Group Lineitem (By TAX) Count )
       '((2) (1)) "Grouping + Count Results")
 
@@ -248,5 +250,11 @@
         li)
        (Sum li.QUANTITY))
       '((61)) "ProjectAll simplified")
-     )))
+
+     (expect
+      (Group Lineitem (By TAX) (Sum QUANTITY) (Sum EXTENDEDPRICE) )
+      '((25 3701139) (36 5668812)) "Grouping + Sum Results")
+     )
+    )
+   )
 #+end_src

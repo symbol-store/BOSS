@@ -206,18 +206,32 @@ struct EngineImplementation {
 
     DefineFunction(
         "Group"_,
-        {"Pattern"_("input"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
-         "Pattern"_("aggregateFunction"_, "Blank"_())},
-        "Switch"_(
-            "aggregateFunction"_, //
-            namespaced("Count"_),
-            "Map"_("List"_,
-                   "Values"_("CountsBy"_(namespaced("GetPersistentTableIfSymbol"_)("input"_),
-                                         "groupFunction"_))),
-            "Blank"_(),
+        {"Pattern"_("inputName"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
+         "Pattern"_("aggregateFunctions"_, "BlankSequence"_())},
+        "With"_(
+            "List"_("Set"_("input"_, namespaced("GetPersistentTableIfSymbol"_)("inputName"_))),
+
             "Values"_("GroupBy"_(
-                namespaced("GetPersistentTableIfSymbol"_)("input"_), "groupFunction"_,
-                "Composition"_("Fold"_("Plus"_), "Apply"_("KeyTake"_, "aggregateFunction"_))))));
+                "input"_, "groupFunction"_,
+                "Function"_(
+                    "groupedInput"_,
+                    "Merge"_(
+                        "Map"_("Function"_(
+                                   "aggregateFunction"_,
+                                   "Construct"_(
+                                       "Switch"_(
+                                           "aggregateFunction"_, namespaced("Count"_),
+                                           "Composition"_(
+                                               "Association"_,
+                                               "Construct"_("CurryApplied"_("Rule"_, 2), "Count"_),
+                                               "Length"_),
+                                           "Blank"_(),
+                                           "Composition"_(
+                                               "Fold"_("Plus"_),
+                                               "Apply"_("KeyTake"_, "aggregateFunction"_))),
+                                       "groupedInput"_)),
+                               "List"_("aggregateFunctions"_)),
+                        "First"_))))));
 
     DefineFunction(
         "Group"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
