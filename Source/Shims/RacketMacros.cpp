@@ -10,7 +10,6 @@ std::string getRacketMacroShims() {
       R"(
 ;; Begin Racket
 (require racket/match)
-(require threading)
 (define (convert-to-boss-expression x)
   (match x
     [(list 'quote argument) (convert-to-boss-expression argument)]
@@ -19,11 +18,7 @@ std::string getRacketMacroShims() {
     [(and s (? string?)) (new-Expression s)]
     [(and s (? symbol?)) (new-Expression
                           (new-Symbol
-                           (~> s
-                               (symbol->string)
-                               (string-split ":")
-                               (first)
-                               )
+                           (first (string-split (symbol->string s) ":"))
                            ))]
     [_ 'unknown]
     )
