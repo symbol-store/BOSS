@@ -744,12 +744,12 @@ private:
     // e.g to sum: "Function"_(List_("tuple"_), "Sum_("Extract"_("tuple"_, 1)))
     // e.g to return the key: "Function"_(List_("tuple"_), "Extract"_("tuple"_, 1))
     auto groupBy = [&templates](auto&& tableViewPtr, auto&& groupFunctionPtr,
-                                auto&& aggregatorPtr) -> Batch::WritablePtr {
+                                auto const& aggregator) -> Batch::WritablePtr {
       auto tableOutPtr = WritableBatchPtr<TableView>(
           new TableView(templates)); // not a clone so we clear columns too
       auto& tableOut = *tableOutPtr;
 
-      auto aggregate = [&aggregatorPtr](auto& destbatch, auto const& srcBatch, auto const& sorted) {
+      auto aggregate = [&aggregator](auto& destbatch, auto const& srcBatch, auto const& sorted) {
         auto groupedPtr = srcBatch.cloneAsCompoundBatch(true);
         for(auto const& sortedIt : sorted) {
           // prepare the rows for the group to be processed
@@ -759,7 +759,7 @@ private:
           // process to be called for each group of (sorted) table rows
           std::vector<Batch::ReadablePtr> args;
           args.emplace_back(groupedPtr);
-          auto aggregatedBatchPtr = aggregatorPtr->evaluateWith(args);
+          auto aggregatedBatchPtr = aggregator.evaluateWith(args);
           destbatch.emplace_back(std::move(aggregatedBatchPtr));
           groupedPtr->clear();
         }
@@ -819,12 +819,37 @@ private:
       return Batch::WritablePtr(std::move(tableOutPtr));
     };
 
-    templates.template argBatchTypes<TableView, FunctionBatch, FunctionBatch>()
-        .template registerFunction<3>(
-            "GroupBy",
-            [groupBy](auto&& tableViewPtr, auto&& groupFunctionPtr, auto&& aggregatorPtr) {
-              return groupBy(tableViewPtr, groupFunctionPtr, aggregatorPtr);
-            });
+    templates
+        .template argBatchTypes<TableView, FunctionBatch,
+                                AllowedBatches<FunctionBatch, SymbolBatch>>()
+        .template registerFunction<3>("GroupBy", [groupBy, &templates](auto&& tableViewPtr,
+                                                                       auto&& groupFunctionPtr,
+                                                                       auto&& aggregatorPtr) {
+          Batch::WritablePtr resultPtr;
+          BatchHelper<FunctionBatch, SymbolBatch>::visit(
+              [&templates, &groupBy, &tableViewPtr, &groupFunctionPtr,
+               &resultPtr](auto const& aggregatorBatch) {
+                using BatchType = std::decay_t<decltype(aggregatorBatch)>;
+                if constexpr(std::is_same_v<BatchType, FunctionBatch>) {
+                  resultPtr = groupBy(tableViewPtr, groupFunctionPtr, aggregatorBatch);
+                } else {
+                  // construct an expression batch from the head (assuming single symbol value)
+                  // also assuming a function with 1 argument only
+                  Symbol const& head = *aggregatorBatch.begin();
+                  Batch::WritablePtr bodyBatchPtr(templates.createBatch(head, 1));
+                  // we pass a symbol as unique argument
+                  Symbol functionArg("tuple");
+                  bodyBatchPtr->insert(ComplexExpression(head, {functionArg}));
+                  // and now we create a function batch using this expression as body
+                  WritableBatchPtr<FunctionBatch> functionPtr(
+                      new FunctionBatch(templates, FunctionBatch::ParameterList{functionArg},
+                                        std::move(bodyBatchPtr)));
+                  resultPtr = groupBy(tableViewPtr, groupFunctionPtr, *functionPtr);
+                }
+              },
+              *aggregatorPtr);
+          return resultPtr;
+        });
   }
 
   // helpers to retrieve return type for a specific set of Batch argument types
