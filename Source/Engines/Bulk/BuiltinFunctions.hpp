@@ -253,8 +253,7 @@ private:
               new FunctionBatch(templates, FunctionBatch::ParameterList{}, std::move(bodyPtr)));
         });
 
-    templates
-        .template argBatchTypes<AllowedBatches<CompoundBatch, SymbolBatch>, AnyExpressionBatch>()
+    templates.template argBatchTypes<AllowedBatches<CompoundBatch, SymbolBatch>, AnyBatch>()
         .template registerFunction<2>(
             "Function", [&templates](auto&& argBatchPtr, auto bodyBatchPtr) {
               using ArgsBatchPtrType = std::decay_t<decltype(argBatchPtr)>;
@@ -623,46 +622,36 @@ private:
   }
 
   static void projection(BatchTemplates& templates) {
-    auto project = [&templates](auto&& tableViewPtr, auto&& columnsPtr) -> Batch::WritablePtr {
+    auto project = [&templates](auto&& tableViewPtr, auto&& projectorPtr) -> Batch::WritablePtr {
       WritableBatchPtr<TableView> tableOutPtr(
           new TableView(templates)); // not a clone so we clear columns too
       auto& tableOut = *tableOutPtr;
 
-      // fill the indexes
-      std::vector<size_t> indexes;
-      indexes.reserve(columnsPtr->size());
-      // TODO: handle columns directly as a ValueBatch<Symbol> or SymbolBatch
-      // but wouldn't work until we load an homogenous list as a single value batch
-      for(auto columnBatchPtr : *columnsPtr) {
-        BatchHelper<SymbolBatch>::visit(
-            [&indexes, &tableViewPtr, &tableOut](auto& columnBatch) {
-              auto const& column = *columnBatch.begin();
-              int index = tableViewPtr->columnIndex(column.getName());
-              if(index < 0) {
-                return;
-              }
-              indexes.push_back(index);
-              tableOut.addColumn(column);
-            },
-            *columnBatchPtr);
-      }
+      // evaluate the projection
+      std::vector<Batch::ReadablePtr> args;
+      args.emplace_back(tableViewPtr);
+      auto projectionPtr = projectorPtr->evaluateWith(args);
 
-      // copy the new batches from the indexes
-      if(!indexes.empty()) {
-        auto const& oldColumns = *tableViewPtr;
-        std::vector<Batch::ReadablePtr> columnBatches;
-        for(size_t index : indexes) {
-          auto columnBatchPtr = (*(oldColumns.begin() + index));
-          columnBatches.emplace_back(std::move(columnBatchPtr));
-        }
-        tableOut.insert(columnBatches);
-      }
+      // copy the new batches back to the table
+      BatchHelper<CompoundBatch>::visit(
+          [&tableOut](auto const& projectionBatch) {
+            std::vector<Batch::ReadablePtr> columnBatches;
+            for(auto srcBatchPtr : projectionBatch) {
+              columnBatches.emplace_back(std::move(srcBatchPtr));
+              // TODO: need to keep the column names
+              // ideally, it should be part of the arrow storage
+              tableOut.addColumn(Symbol("col" + std::to_string(tableOut.numColumns())));
+            }
+            tableOut.insert(columnBatches);
+          },
+          *projectionPtr);
+
       return Batch::WritablePtr(std::move(tableOutPtr));
     };
 
-    templates.template argBatchTypes<TableView, CompoundBatch>().template registerFunction<2>(
-        "Project", [project](auto&& tableViewPtr, auto&& columnsPtr) {
-          return project(tableViewPtr, columnsPtr);
+    templates.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
+        "Project", [project](auto&& tableViewPtr, auto&& projectorPtr) {
+          return project(tableViewPtr, projectorPtr);
         });
   }
 
