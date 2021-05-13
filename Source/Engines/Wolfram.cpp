@@ -244,6 +244,11 @@ struct EngineImplementation {
                    {"Pattern"_("input"_, "Blank"_()), "Pattern"_("orderFunction"_, "Blank"_())},
                    "SortBy"_("input"_, "orderFunction"_), {"HoldAll"_});
 
+    DefineFunction("Top"_,
+                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("orderFunction"_, "Blank"_()),
+                    "Pattern"_("number"_, "Blank"_("Integer"_))},
+                   "TakeSmallestBy"_("input"_, "orderFunction"_, "number"_), {"HoldAll"_});
+
     DefineFunction(
         "Join"_,
         {"Pattern"_("left"_, "Blank"_()), "Pattern"_("right"_, "Blank"_()),

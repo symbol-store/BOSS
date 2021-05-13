@@ -32,4 +32,4 @@ group by
 	c_comment
 order by
 	revenue desc
-option (hash join)
+option (hash join, hash group)

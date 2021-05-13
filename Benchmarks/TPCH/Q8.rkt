@@ -26,9 +26,7 @@
                   )
           (As 'orderdate (Date 'O_ORDERDATE))
           )
-         (Where (Equal 'C_CUSTKEY
-                       'O_CUSTKEY))
-         )
+         (Where (Equal 'C_CUSTKEY 'O_CUSTKEY)) )
         (Project 'LINEITEM
                  (As 'price (Multiply 'L_EXTENDEDPRICE (Minus 1 'L_DISCOUNT))))
         (Where (Equal 'O_ORDERKEY 'L_ORDERKEY))
