@@ -9,14 +9,27 @@ using std::get;
 using std::string;
 using boss::utilities::operator""_;
 
+template <typename Engine> Engine& getEngine();
+template <> boss::engines::wolfram::Engine& getEngine<boss::engines::wolfram::Engine>() {
+  static boss::engines::wolfram::Engine e;
+  return e;
+};
+
+template <typename Engine> Engine& getEngine();
+template <> boss::engines::bulk::Engine& getEngine<boss::engines::bulk::Engine>() {
+  static std::unique_ptr<boss::engines::bulk::Engine> enginePtr;
+  enginePtr = std::make_unique<boss::engines::bulk::Engine>();
+  return *enginePtr;
+};
+
 #ifdef WSINTERFACE
 TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine,
                    boss::engines::wolfram::Engine) { // NOLINT
 #else
 TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLINT
 #endif // WSINTERFACE
-  TestType engine;
-  static auto eval = [&engine](boss::Expression const& expression) mutable {
+  auto& engine = getEngine<TestType>();
+  auto eval = [&engine](boss::Expression const& expression) mutable {
     return engine.evaluate(expression);
   };
 
@@ -92,7 +105,7 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLIN
 
     SECTION("Join") {
       eval("CreateTable"_("Adjacency1"_, "From", "To"));
-      eval("CreateTable"_("Adjacency2"_, "From", "To"));
+      eval("CreateTable"_("Adjacency2"_, "From2", "To2"));
       auto const dataSetSize = 10;
       for(int i = 0U; i < dataSetSize; i++) {
         eval("InsertInto"_("Adjacency1"_, i, dataSetSize + i));
@@ -100,8 +113,8 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLIN
       }
       auto const& result =
           eval("Join"_("Adjacency1"_, "Adjacency2"_,
-                       "Function"_("List"_("left"_, "right"_),
-                                   "Equal"_("Column"_("left"_, 2), "Column"_("right"_, 1)))));
+                       "Function"_("List"_("tuple"_),
+                                   "Equal"_("Column"_("tuple"_, 2), "Column"_("tuple"_, 3)))));
       INFO(get<boss::ComplexExpression>(result));
       CHECK(get<boss::ComplexExpression>(result).getArguments().size() == dataSetSize);
     }

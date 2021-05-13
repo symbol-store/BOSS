@@ -169,6 +169,10 @@ struct EngineImplementation {
                                       "tuple"_))))),
         {"HoldAll"_});
 
+    DefineFunction("By"_, {"Pattern"_("projections"_, "BlankSequence"_())},
+                   "Function"_("tuple"_, "ReplaceAll"_("List"_("projections"_), "tuple"_)),
+                   {"HoldAll"_});
+
     DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_("Symbol"_))},
                    "Database"_("input"_));
     DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_())}, "input"_,
@@ -180,17 +184,21 @@ struct EngineImplementation {
     DefineFunction(
         "Select"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("predicate"_, "Blank"_())},
         "Select"_(namespaced("GetPersistentTableIfSymbol"_)("input"_), "predicate"_), {"HoldAll"_});
+
     DefineFunction(
         "GroupBy"_,
         {"Pattern"_("input"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
          "Pattern"_("aggregateFunction"_, "Blank"_())},
-        "Switch"_("aggregateFunction"_, //
-                  namespaced("Count"_),
-                  "List"_("Association"_("Rule"_(
-                      "Count_", "Length"_(namespaced("GetPersistentTableIfSymbol"_)("input"_))))),
-                  "Blank"_(),
-                  "Fold"_("Plus"_, "Map"_("Extract"_("Key"_("First"_("aggregateFunction"_))),
-                                          namespaced("GetPersistentTableIfSymbol"_)("input"_)))));
+        "Switch"_(
+            "aggregateFunction"_, //
+            namespaced("Count"_),
+            "Map"_("List"_,
+                   "Values"_("CountsBy"_(namespaced("GetPersistentTableIfSymbol"_)("input"_),
+                                         "groupFunction"_))),
+            "Blank"_(),
+            "Values"_("GroupBy"_(
+                namespaced("GetPersistentTableIfSymbol"_)("input"_), "groupFunction"_,
+                "Composition"_("Fold"_("Plus"_), "Apply"_("KeyTake"_, "aggregateFunction"_))))));
 
     DefineFunction("GroupBy"_,
                    {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
@@ -201,12 +209,11 @@ struct EngineImplementation {
         "Join"_,
         {"Pattern"_("left"_, "Blank"_()), "Pattern"_("right"_, "Blank"_()),
          "Pattern"_("predicate"_, "Blank"_("Function"_))},
-        "Map"_("Flatten"_,
-               "Select"_(
-                   "Flatten"_("Outer"_("List"_, namespaced("GetPersistentTableIfSymbol"_)("left"_),
-                                       namespaced("GetPersistentTableIfSymbol"_)("right"_), 1),
-                              1),
-                   "Function"_("both"_, "predicate"_("First"_("both"_), "Last"_("both"_))))));
+        "Select"_("Flatten"_("Outer"_("Composition"_("Merge"_("First"_), "List"_),
+                                      namespaced("GetPersistentTableIfSymbol"_)("left"_),
+                                      namespaced("GetPersistentTableIfSymbol"_)("right"_), 1),
+                             1),
+                  "predicate"_));
   }
 
   void loadDDLOperators() {

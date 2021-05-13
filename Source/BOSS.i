@@ -100,7 +100,8 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
             [&](std::string const& a) { return scheme_make_string(a.c_str()); },
             [&](ComplexExpression const& expression) {
               std::vector<Scheme_Object*> arguments;
-              arguments.push_back(convert(expression.getHead()));
+              if(expression.getHead().getName() != "List")
+                arguments.push_back(convert(expression.getHead()));
               for(auto const& arg : expression.getArguments())
                 arguments.push_back(convert(arg));
               return scheme_apply(scheme_builtin_value("list"), arguments.size(),
