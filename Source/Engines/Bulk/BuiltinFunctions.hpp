@@ -9,7 +9,9 @@
 #include "../../Utilities.hpp"
 
 #include <algorithm>
+#include <iomanip>
 #include <map>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -35,6 +37,7 @@ public:
     arithmetic(templates);
     comparison(templates);
     logic(templates);
+    conversions(templates);
     stringOps(templates);
     symbolicOps(templates);
     collections(templates);
@@ -220,6 +223,23 @@ private:
         "Not", [&templates](auto const& batch) {
           return evaluateElements(
               templates, [](auto const& a) -> bool { return !a; }, batch);
+        });
+  }
+
+  static void conversions(BatchTemplates& templates) {
+    templates.template allowedTypes<std::string>().template registerFunction<1>(
+        "UnixTime", [&templates](auto const& batch) {
+          return evaluateElements(
+              templates,
+              [](auto const& str) -> int {
+                std::istringstream iss;
+                iss.str(str);
+                struct std::tm tm = {};
+                iss >> std::get_time(&tm, "%Y-%m-%d");
+                int value = std::mktime(&tm);
+                return value;
+              },
+              batch);
         });
   }
 
