@@ -163,44 +163,25 @@ public:
     return arrow::Status::OK();
   };
 
-  arrow::Status AppendExpressions(std::vector<BatchData> const& argData,
-                                  bool initArgsOnly = false) {
+  arrow::Status AppendExpressions(std::vector<BatchData> const& argData) {
     if(argData.empty()) {
       // no arguments?
       return arrow::Status::OK();
     }
 
-    if(!initArgsOnly) {
-      // assuming same length for every argument array
-      auto length = argData[0].arrays.length() + argData[0].builder->length();
+    // assuming same length for every argument array
+    auto length = argData[0].arrays.length() + argData[0].builderLogicalSize;
 
-      // append to the args structure
-      auto structStatus = Reserve(length);
-      if(!structStatus.ok()) {
-        return structStatus;
-      }
-      UnsafeAppendToBitmap(length, true);
+    // append to the args structure
+    auto structStatus = Reserve(length);
+    if(!structStatus.ok()) {
+      return structStatus;
     }
+    UnsafeAppendToBitmap(length, true);
 
     // append each argument
     for(int idx = 0; idx < argData.size(); ++idx) {
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
-
-      if(initArgsOnly) {
-        if(argData[idx].builder) {
-          // just init the fields using the builder
-          argBuilder.CopyFields(argData[idx].builder);
-          continue;
-        }
-
-        // append only an empty array (so it only create the child builders)
-        auto const& chunk = argData[idx].arrays.chunk(0);
-        auto status = argBuilder.AppendExpressions(chunk->Slice(0, 0));
-        if(!status.ok()) {
-          return status;
-        }
-        continue;
-      }
 
       // append each chunk
       for(auto const& chunk : argData[idx].arrays.chunks()) {
@@ -264,6 +245,21 @@ public:
       if(!status.ok()) {
         return status;
       }
+    }
+
+    return arrow::Status::OK();
+  }
+
+  arrow::Status initArguments(std::vector<std::shared_ptr<arrow::DataType>> const& types) {
+    if(types.empty()) {
+      // no arguments?
+      return arrow::Status::OK();
+    }
+
+    // append each argument
+    for(int idx = 0; idx < types.size(); ++idx) {
+      auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
+      argBuilder.CopyFields(types[idx]);
     }
 
     return arrow::Status::OK();

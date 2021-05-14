@@ -100,7 +100,19 @@ public:
       m_builder = std::make_shared<ComplexExpressionArrayBuilder>(head, argData.size());
     }
 
-    return m_builder->AppendExpressions(argData, true);
+    std::vector<std::shared_ptr<arrow::DataType>> types;
+    types.reserve(argData.size());
+    for(auto const& batchData : argData) {
+        if(batchData.builder) {
+            types.emplace_back(batchData.builder->type());
+        } else {
+            // assuming at least one row
+            auto const& chunk = batchData.arrays.chunk(0);
+            types.emplace_back(chunk->type());
+        }
+    }
+
+    return m_builder->initArguments(types);
   }
 
   void merge(CompoundArray&& other) {

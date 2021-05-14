@@ -200,12 +200,14 @@ public:
 
   void insert(Expression const& expression) override { insert(std::get<ValueType>(expression)); }
 
-  virtual void insert(ValueType const& expression) {
+  void insert(ValueType const& expression) {
     auto status = m_array->append(expression);
     if(!status.ok()) {
       return;
     }
   }
+  
+  void insert(CompoundArray&& compoundArray) { m_array->merge(std::move(compoundArray)); }
 
   void initArguments(std::vector<ReadablePtr> const& argBatches) {
     std::vector<BatchData> m_argData;
@@ -230,8 +232,6 @@ public:
       return;
     }
   }
-
-  void insert(CompoundArray&& compoundArray) { m_array->merge(std::move(compoundArray)); }
 
   bool evaluate(ReadablePtr& outputPtr) const override {
     // set the local tuple to be accessible by the row values

@@ -113,11 +113,11 @@ public:
       auto curLength = destBuilder->length();
 
       // append type/offsets to the union array
-      auto typeSatus = types_builder_.Append(srcBuilder.length(), destType);
+      auto typeSatus = types_builder_.Append(logicalSize, destType);
       if(!typeSatus.ok()) {
         return typeSatus;
       }
-      for(int i = curLength; i < curLength + srcBuilder.length(); ++i) {
+      for(int i = curLength; i < curLength + logicalSize; ++i) {
         // TODO: need a way around this (offsets_builder_ is private)
         // otherwise we create invalid union type!
         // offsets_builder_.Append(i);
@@ -146,24 +146,20 @@ public:
 
     return arrow::Status::OK();
   }
-
-  void CopyFields(std::shared_ptr<arrow::ArrayBuilder> const& exprArrayBuilderPtr) {
+  
+  void CopyFields(std::shared_ptr<arrow::DataType> const& type) {
     // TODO: more proper type handling of type
-    if(exprArrayBuilderPtr->type()->id() != arrow::Type::DENSE_UNION) {
+    if(type->id() != arrow::Type::DENSE_UNION) {
       // this is not an expression array builder
       // merge it as a normal batch array builder
-      auto const& srcBuilder = *exprArrayBuilderPtr;
-      auto const& srcType = srcBuilder.type();
-      findOrCreateBuilder(*srcType);
+      findOrCreateBuilder(*type);
       return;
     }
 
     // handle each union child array separately
     // (we lose the order)
-    auto const& exprArrayBuilder =
-        dynamic_cast<ExpressionArrayBuilder const&>(*exprArrayBuilderPtr);
-    for(int i = 0; i < exprArrayBuilder.num_children(); ++i) {
-      CopyFields(exprArrayBuilder.child_builder(i));
+    for(auto field : type->fields()) {
+      CopyFields(field->type());
     }
   }
 
@@ -230,8 +226,17 @@ private:
       // EXPRESSION
       auto const& complexType =
           dynamic_cast<ComplexExpressionArray::ComplexExpressionArrayType const&>(extensionType);
-      return std::make_shared<ComplexExpressionArrayBuilder>(
-          complexType.getHead(), extensionType.storage_type()->num_fields(), pool_);
+      auto storageType = complexType.storage_type();
+      auto newBuilderPtr = std::make_shared<ComplexExpressionArrayBuilder>(
+          complexType.getHead(), storageType->num_fields(), pool_);
+
+      std::vector<std::shared_ptr<arrow::DataType>> childTypes;
+      childTypes.reserve(storageType->num_fields());
+      for(auto field : storageType->fields()) {
+        childTypes.emplace_back(field->type());
+      }
+      newBuilderPtr->initArguments(childTypes);
+      return newBuilderPtr;
     }
 
     default:
