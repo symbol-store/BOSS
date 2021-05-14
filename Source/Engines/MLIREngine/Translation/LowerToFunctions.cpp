@@ -108,6 +108,9 @@ Value flattenCallsCreateSymbol(sexpr::CombineOp& c, OpBuilder& builder, FuncOp f
   }
 
   auto symbolArgPosition = symbolOp.getAttrOfType<::mlir::IntegerAttr>("functionArgPosition");
+  if (!symbolArgPosition) {
+    return flattenCallsStandard(c, builder, function);
+  }
   auto argPosition = symbolArgPosition.getInt();
 
   auto argument = function.getArgument(argPosition);

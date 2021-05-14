@@ -49,6 +49,78 @@ def CollectTuplesOp : Database_Op<"collectTuples", []> {
   );
 }
 
+def BuildJoinTableOp : Database_Op<"buildJoinTable", []> {
+  let arguments = (ins
+    Variadic<TupleStreamType>:$inputStreams,
+    StrArrayAttr:$fields,
+    I64Attr:$table
+  );
+
+  let builders = [
+    OpBuilderDAG<(ins "ValueRange":$tupleStreams, "::mlir::ArrayAttr":$fields, "size_t":$table), [{
+        $_state.addAttribute("fields", fields);
+        $_state.addAttribute("table", $_builder.getI64IntegerAttr(table));
+        $_state.addOperands(tupleStreams);
+      }]>
+  ];
+}
+
+def LookupJoinOp : Database_Op<"lookupJoin", []> {
+  let arguments = (ins
+    TupleStreamType:$inputStream,
+    I64Attr:$table,
+    StrArrayAttr:$leftFields,
+    StrArrayAttr:$rightFields,
+    I64Attr:$rightTupleStreamIndex
+  );
+
+  let results = (outs
+    TupleStreamType:$outputStream
+  );
+
+  let builders = [
+    OpBuilderDAG<(ins "ValueRange":$tupleStreams, "size_t":$table, "size_t":$rightTupleStreamIndex, "Type":$output, "::mlir::ArrayAttr":$leftFields, "::mlir::ArrayAttr":$rightFields), [{
+        $_state.addAttribute("rightTupleStreamIndex", $_builder.getI64IntegerAttr(rightTupleStreamIndex));
+        $_state.addAttribute("table", $_builder.getI64IntegerAttr(table));
+        $_state.addAttribute("leftFields", leftFields);
+        $_state.addAttribute("rightFields", rightFields);
+        $_state.addOperands(tupleStreams);
+        $_state.addTypes(output);
+      }]>
+  ];
+}
+
+def HashValuesOp : Database_Op<"hashValues", []> {
+  let arguments = (ins
+    Variadic<AnyType>:$inputs
+  );
+
+  let results = (outs
+    Index:$hash
+  );
+}
+
+def InsertIntoHashTableOp : Database_Op<"insertHashtableOp", []> {
+  let arguments = (ins
+    Index:$hash,
+    Index:$relationOffset,
+    I64Attr:$tablePtr
+  );
+}
+
+def FindInHashTableOp : Database_Op<"findInHashtableOp", []> {
+  let arguments = (ins
+    Index:$hash,
+    I64Attr:$tablePtr
+  );
+
+  // TODO return all results
+  let results = (outs
+    Index:$relationOffset
+  );
+
+}
+
 def ProjectionOp : Database_Op<"projectionOp", []> {
   let arguments = (ins
     TupleStreamType:$inputStream
@@ -183,9 +255,10 @@ def AppendToRelationOp : Database_Op<"appendToRelationOp"> {
   ];
 }
 
-def FinalizeRelationOp : Database_Op<"finalizeRelationOp"> {
+def FinalizeBuilderOp : Database_Op<"finalizeBuilderOp"> {
   let arguments = (ins
-    I64Attr:$relationBuilderPtr
+    I64Attr:$builderPtr,
+    StrAttr:$builderFunctionName
   );
 
   let results = (outs
@@ -193,8 +266,9 @@ def FinalizeRelationOp : Database_Op<"finalizeRelationOp"> {
   );
 
   let builders = [
-    OpBuilderDAG<(ins "size_t":$relationBuilderPtr), [{
-      $_state.addAttribute("relationBuilderPtr", $_builder.getI64IntegerAttr(relationBuilderPtr));
+    OpBuilderDAG<(ins "size_t":$builderPtr, "std::string":$functionName), [{
+      $_state.addAttribute("builderPtr", $_builder.getI64IntegerAttr(builderPtr));
+      $_state.addAttribute("builderFunctionName", $_builder.getStringAttr(functionName));
       $_state.addTypes($_builder.getIndexType());
     }]>
   ];
@@ -207,11 +281,16 @@ def AdvanceBuilderOp : Database_Op<"advanceBuilder"> {
     I8Attr:$childId
   );
 
+  let results = (outs
+    Index:$addedValueOffset
+  );
+
   let builders = [
     OpBuilderDAG<(ins "size_t":$structBuilderPtr, "size_t":$unionBuilderPtr, "int8_t":$childId), [{
       $_state.addAttribute("structBuilderPtr", $_builder.getI64IntegerAttr(structBuilderPtr));
       $_state.addAttribute("unionBuilderPtr", $_builder.getI64IntegerAttr(unionBuilderPtr));
       $_state.addAttribute("childId", $_builder.getI8IntegerAttr(childId));
+      $_state.addTypes($_builder.getIndexType());
     }]>
   ];
 }

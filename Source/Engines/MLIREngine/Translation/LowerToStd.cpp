@@ -5,8 +5,10 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
+#include "Engines/MLIREngine/Runtime/HashTable.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 #include "SexprToStd.hpp"
+#include "Utilities.hpp"
 #include <array>
 #include <atomic>
 #include <iostream>
@@ -55,11 +57,10 @@ struct FuncOpSignatureConversion : public OpConversionPattern<mlir::FuncOp> {
     rewriter.updateRootInPlace(op, [&]() {
       op.setType(newFuncType);
       auto status = rewriter.convertRegionTypes(&op.getBody(), converter);
-      if (failed(status)) {
+      if(failed(status)) {
         throw std::runtime_error("Failure converting block arguments");
       }
     });
-
 
     return success();
   }
@@ -193,6 +194,7 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
   template <CmpIPredicate cmpPred>
   LogicalResult replaceBooleanCompareOp(sexpr::SymbolOp s, ArrayRef<Value> operands,
                                         ConversionPatternRewriter& rewriter) const {
+    // TODO make it work for strings
     auto cmpOp = rewriter.create<mlir::CmpIOp>(s.getLoc(), cmpPred, operands[0], operands[1]);
     rewriter.replaceOp(s.getOperation(), cmpOp.result());
 
@@ -219,9 +221,8 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
         {"Greater",
          [&]() { return replaceBooleanCompareOp<CmpIPredicate::sgt>(s, operands, rewriter); }},
         {"Less",
-            [&]() { return replaceBooleanCompareOp<CmpIPredicate::slt>(s, operands, rewriter); }},
-        {"Eq",
-            [&]() { return replaceBooleanCompareOp<CmpIPredicate::eq>(s, operands, rewriter); }},
+         [&]() { return replaceBooleanCompareOp<CmpIPredicate::slt>(s, operands, rewriter); }},
+        {"Eq", [&]() { return replaceBooleanCompareOp<CmpIPredicate::eq>(s, operands, rewriter); }},
         {"Symbol",
          [&]() {
            auto allocOp =
@@ -285,29 +286,33 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
                s, RelationType::get(s.getContext()), tupleStreamValues);
            return success();
          }},
-        {"Select", [&]() {
-           auto tupleStreamUnion = converter.convertType(operands[1].getType()).dyn_cast_or_null<TupleStreamUnionType>();
+        {"Select",
+         [&]() {
+           auto tupleStreamUnion = converter.convertType(operands[1].getType())
+                                       .dyn_cast_or_null<TupleStreamUnionType>();
 
            auto* whereClause = s.getOperands()[0].getDefiningOp();
            auto fields = whereClause->getAttr("fields").dyn_cast_or_null<ArrayAttr>();
            auto filterFunctions = whereClause->getAttr("functions").dyn_cast_or_null<ArrayAttr>();
 
-           if (!tupleStreamUnion || !filterFunctions || !fields) {
+           if(!tupleStreamUnion || !filterFunctions || !fields) {
              return failure();
            }
 
-          std::vector<mlir::Value> tupleStreamValues;
-           for (auto i = 0UL; i < tupleStreamUnion.getNumChildStreams(); i++) {
+           std::vector<mlir::Value> tupleStreamValues;
+           for(auto i = 0UL; i < tupleStreamUnion.getNumChildStreams(); i++) {
              auto tupleStreamTy = tupleStreamUnion.getTupleStreams()[i];
              auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
                  s.getLoc(), tupleStreamTy, operands[1], i);
 
-             auto selectionOp = rewriter.create<database::SelectionOp>(s.getLoc(), extractionOp.getResult(), filterFunctions[i].dyn_cast_or_null<StringAttr>(), fields);
+             auto selectionOp = rewriter.create<database::SelectionOp>(
+                 s.getLoc(), extractionOp.getResult(),
+                 filterFunctions[i].dyn_cast_or_null<StringAttr>(), fields);
              tupleStreamValues.emplace_back(selectionOp.getResult());
            }
 
-          rewriter.replaceOpWithNewOp<database::CreateUnionTupleStream>(s, tupleStreamUnion,
-                                                                        tupleStreamValues);
+           rewriter.replaceOpWithNewOp<database::CreateUnionTupleStream>(s, tupleStreamUnion,
+                                                                         tupleStreamValues);
 
            return success();
          }},
@@ -340,6 +345,98 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
            rewriter.replaceOpWithNewOp<database::CreateUnionTupleStream>(s, outputStreamUnion,
                                                                          tupleStreamValues);
+
+           return success();
+         }},
+        {"Join",
+         [&]() {
+           auto leftInputStreamUnion = converter.convertType(operands[1].getType())
+                                           .dyn_cast_or_null<TupleStreamUnionType>();
+           auto rightInputStreamUnion = converter.convertType(operands[2].getType())
+                                            .dyn_cast_or_null<TupleStreamUnionType>();
+           auto outputStreamUnion =
+               converter.convertType(s.getType()).dyn_cast_or_null<TupleStreamUnionType>();
+
+           if(!leftInputStreamUnion || !rightInputStreamUnion || !outputStreamUnion) {
+             s.emitError("Expecting tuple streams");
+             return failure();
+           }
+
+           // Get the fields to join on
+           std::vector<Attribute> leftJoinFields;
+           std::vector<Attribute> rightJoinFields;
+           // TODO create some general constant propagation mechanism
+           for(auto const& stringPair : s.getOperand(0).getDefiningOp()->getOperands()) {
+             auto pair = mlir::dyn_cast_or_null<sexpr::SymbolOp>(stringPair.getDefiningOp());
+
+             auto leftStr = mlir::dyn_cast_or_null<sexpr::StringConstantOp>(
+                 pair.getOperand(0).getDefiningOp());
+             auto rightStr = mlir::dyn_cast_or_null<sexpr::StringConstantOp>(
+                 pair.getOperand(1).getDefiningOp());
+
+             leftJoinFields.emplace_back(rewriter.getStringAttr(leftStr.value()));
+             rightJoinFields.emplace_back(rewriter.getStringAttr(rightStr.value()));
+           }
+           auto leftFields = rewriter.getArrayAttr(leftJoinFields);
+           auto rightFields = rewriter.getArrayAttr(rightJoinFields);
+
+           // Create the hash table for joining on
+           // todo free somewhere
+           auto* hashTable = new runtime::hash::HashTable{};
+           auto hashTablePtr = reinterpret_cast<size_t>(hashTable);
+
+           // Create insert phase
+           std::vector<Value> rightTupleStreams;
+           for(auto i = 0U; i < rightInputStreamUnion.getNumChildStreams(); i++) {
+             auto tupleStreamTy = rightInputStreamUnion.getTupleStreams()[i];
+             auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
+                 s.getLoc(), tupleStreamTy, operands[2], i);
+             rightTupleStreams.emplace_back(extractionOp.getResult());
+           }
+
+           rewriter.create<database::BuildJoinTableOp>(s.getLoc(), ValueRange(rightTupleStreams),
+                                                       rightFields, hashTablePtr);
+
+           std::vector<Value> resultTupleStreams;
+
+           // Create lookup phase for each partition
+           for(auto i = 0U; i < leftInputStreamUnion.getNumChildStreams(); i++) {
+             auto leftStreamTy = leftInputStreamUnion.getTupleStreams()[i];
+             auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
+                 s.getLoc(), leftStreamTy, s.getOperand(1), i);
+
+             for(auto j = 0U; j < rightInputStreamUnion.getNumChildStreams(); j++) {
+               auto rightStreamTy = rightInputStreamUnion.getTupleStreams()[j];
+               // Check that the types match on the join fields - only join if they do
+               // eg. (Join (On (Pair "A" "B"))) - only join partitions where A, B have same type
+               auto typesMatch = true;
+               for(auto k = 0U; k < leftJoinFields.size(); k++) {
+                 auto leftField = leftJoinFields[k].dyn_cast_or_null<StringAttr>().getValue();
+                 auto rightField = rightJoinFields[k].dyn_cast_or_null<StringAttr>().getValue();
+
+                 auto leftType = leftStreamTy.getFields().find(leftField.str())->second;
+                 auto rightType = rightStreamTy.getFields().find(rightField.str())->second;
+
+                 if(leftType != rightType) {
+                   typesMatch = false;
+                   break;
+                 }
+               }
+
+               // If the types do match, then output a lookup op for these two partitions
+               if(typesMatch) {
+                 auto type =
+                     outputStreamUnion
+                         .getTupleStreams()[i * leftInputStreamUnion.getNumChildStreams() + j];
+                 auto lookupOp = rewriter.create<database::LookupJoinOp>(
+                     s.getLoc(), extractionOp.getResult(), hashTablePtr, j, type, leftFields, rightFields);
+                 resultTupleStreams.emplace_back(lookupOp.getResult());
+               }
+             }
+           }
+
+           rewriter.replaceOpWithNewOp<database::CreateUnionTupleStream>(s, outputStreamUnion,
+                                                                         resultTupleStreams);
 
            return success();
          }}
@@ -490,9 +587,8 @@ void SexprToStdLoweringPass::runOnFunction() {
   target.addLegalDialect<mlir::StandardOpsDialect, mlir::scf::SCFDialect,
                          mlir::memory::MemoryDialect, database::DatabaseDialect>();
   target.addIllegalDialect<sexpr::SExprDialect>();
-  target.addDynamicallyLegalOp<FuncOp>([&](mlir::FuncOp op) {
-    return c.isSignatureLegal(op.getType());
-  });
+  target.addDynamicallyLegalOp<FuncOp>(
+      [&](mlir::FuncOp op) { return c.isSignatureLegal(op.getType()); });
   target.addDynamicallyLegalOp<mlir::CallOp>(
       // CallOp is legal in source and target, but the type should be converted
       [&](mlir::CallOp op) { return c.isLegal(op); });

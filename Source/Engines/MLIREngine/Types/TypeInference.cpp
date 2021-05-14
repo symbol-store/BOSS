@@ -280,6 +280,39 @@ static const auto inferCreateSymbolType = [](std::vector<::mlir::Type> const& ar
                                 llvm::Optional<::mlir::Type>{});
 };
 
+static const auto inferJoinType = [](std::vector<::mlir::Type> const& arguments,
+                                     TypeInferenceContext& context) -> ::mlir::Type  {
+  auto leftBaseType = arguments[1].dyn_cast_or_null<SymbolOrValueType>().getBaseType();
+  auto rightBaseType = arguments[2].dyn_cast_or_null<SymbolOrValueType>().getBaseType();
+  auto leftTupleStreamUnion = leftBaseType.dyn_cast_or_null<TupleStreamUnionType>();
+  auto rightTupleStreamUnion = rightBaseType.dyn_cast_or_null<TupleStreamUnionType>();
+
+  if (!leftTupleStreamUnion || !rightTupleStreamUnion) {
+    throw std::runtime_error("Error: Expecting tuple stream unions for operands 2 and 3");
+  }
+
+  std::vector<TupleStreamType> outputTupleStreams;
+  for (auto const& leftTupleStream : leftTupleStreamUnion.getTupleStreams()) {
+    for (auto const& rightTupleStream : rightTupleStreamUnion.getTupleStreams()) {
+      std::map<std::string, ::mlir::Type> newFields;
+
+      for (auto const& leftField : leftTupleStream.getFields()) {
+        newFields[leftField.first] = leftField.second;
+      }
+
+      for (auto const& rightField : rightTupleStream.getFields()) {
+        newFields[rightField.first] = rightField.second;
+      }
+
+      auto combinedTupleStream = TupleStreamType::get(context.mlirContext, newFields);
+      outputTupleStreams.emplace_back(combinedTupleStream);
+    }
+  }
+
+  auto outputTupleStream = TupleStreamUnionType::get(context.mlirContext, outputTupleStreams);
+  return outputTupleStream;
+};
+
 const std::map<std::string,
                std::function<::mlir::Type(std::vector<::mlir::Type>&, TypeInferenceContext&)>>
     operatorToType{
@@ -289,7 +322,8 @@ const std::map<std::string,
         {"Less", inferBooleanCompareFunction}, {"Eq", inferBooleanCompareFunction},
         {"Symbol", inferCreateSymbolType},     {"Project", inferProjectType},
         {"Select", inferSelectType},           {"Where", inferWhereClauseType},
-        {"GetRelation", inferGetRelationType}, {"CollectTuples", inferCollectTuplesType}};
+        {"GetRelation", inferGetRelationType}, {"CollectTuples", inferCollectTuplesType},
+        {"Join", inferJoinType}};
 
 bool isRegisteredSymbol(std::string const& name) {
   return operatorToType.find(name) != operatorToType.end();

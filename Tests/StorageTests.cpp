@@ -153,4 +153,40 @@ TEST_CASE("STORAGE_TEST") {
 
     CHECK(intColumn->length() == 1);
   }
+
+  SECTION("Join") {
+    new_runtime::Relation leftRelation;
+    new_runtime::Relation rightRelation;
+
+    leftRelation.bulk_load({
+                               {{"A", 1}},
+                               {{"A", 2}}
+    });
+
+    rightRelation.bulk_load({
+                               {{"B", 1}},
+                               {{"B", 4}}
+                           });
+
+    new_runtime::Database database;
+
+    database.addRelation("Left", std::move(leftRelation));
+    database.addRelation("Right", std::move(rightRelation));
+
+    boss::engines::mlir::Engine engine(std::move(database));
+
+    auto result = engine.evaluate("CollectTuples"_(
+        "Join"_(
+            "On"_("Pair"_("A", "B")),
+            "GetRelation"_("Left"),
+            "GetRelation"_("Right")
+            )
+        ));
+
+    auto pointer = std::get<size_t>(result);
+    auto* resultRelation = reinterpret_cast<new_runtime::Relation*>(pointer);
+
+    std::cout << resultRelation->get()->ToString();
+
+  }
 }

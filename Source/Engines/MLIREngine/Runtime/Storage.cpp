@@ -443,9 +443,10 @@ extern "C" void addToRelation_Bool(arrow::ArrayBuilder* builder, bool value) {
   auto status = dynamic_cast<arrow::BooleanBuilder*>(builder)->Append(value);
 }
 
-extern "C" void advanceBuilder(arrow::StructBuilder* structBuilder,
+extern "C" size_t advanceBuilder(arrow::StructBuilder* structBuilder,
                                arrow::DenseUnionBuilder* unionBuilder, int8_t child) {
   // TODO error handling
   unionBuilder->Append(child);
   structBuilder->Append();
+  return structBuilder->length();
 }

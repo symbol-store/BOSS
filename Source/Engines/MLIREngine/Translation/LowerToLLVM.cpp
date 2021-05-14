@@ -358,21 +358,21 @@ struct AppendToRelationOpLowering : public OpConversionPattern<database::AppendT
   }
 };
 
-struct FinalizeRelationOpLowering : public OpConversionPattern<database::FinalizeRelationOp> {
+struct FinalizeBuilderOpLowering : public OpConversionPattern<database::FinalizeBuilderOp> {
   using OpConversionPattern::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(database::FinalizeRelationOp op, ArrayRef<Value> operands,
+  LogicalResult matchAndRewrite(database::FinalizeBuilderOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
     auto parentModule = op.getParentOfType<ModuleOp>();
     auto intType = LLVM::LLVMIntegerType::get(op.getContext(), 64);
     auto funcType = LLVM::LLVMFunctionType::get(intType, {intType});
 
     auto finalizeFunction =
-        getOrInsertFunction("constructRelation", funcType, rewriter, parentModule);
+        getOrInsertFunction(op.builderFunctionName().str(), funcType, rewriter, parentModule);
 
     auto relationPtrConstant = rewriter.create<LLVM::ConstantOp>(
         op.getLoc(), LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
-        rewriter.getIntegerAttr(rewriter.getIndexType(), op.relationBuilderPtr()));
+        rewriter.getIntegerAttr(rewriter.getIndexType(), op.builderPtr()));
 
     rewriter.replaceOpWithNewOp<LLVM::CallOp>(
         op, LLVM::LLVMIntegerType::get(rewriter.getContext(), 64), finalizeFunction,
@@ -388,10 +388,9 @@ struct AdvanceBuilderOpLowering : public OpConversionPattern<database::AdvanceBu
   LogicalResult matchAndRewrite(database::AdvanceBuilderOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
     auto parentModule = op.getParentOfType<ModuleOp>();
-    auto voidType = LLVM::LLVMVoidType::get(op.getContext());
     auto int64Type = LLVM::LLVMIntegerType::get(op.getContext(), 64);
     auto int8Type = LLVM::LLVMIntegerType::get(op.getContext(), 8);
-    auto funcType = LLVM::LLVMFunctionType::get(voidType, {int64Type, int64Type, int8Type});
+    auto funcType = LLVM::LLVMFunctionType::get(int64Type, {int64Type, int64Type, int8Type});
 
     auto advanceFunction = getOrInsertFunction("advanceBuilder", funcType, rewriter, parentModule);
 
@@ -474,7 +473,7 @@ void SexprToLLVMLoweringPass::runOnOperation() {
                   AllocateSymbolicFunctionOpLowering, LoadConstantAddressOpLowering>(&getContext(),
                                                                                      typeConverter);
 
-  patterns.insert<FinalizeRelationOpLowering, AppendToRelationOpLowering, AdvanceBuilderOpLowering>(
+  patterns.insert<FinalizeBuilderOpLowering, AppendToRelationOpLowering, AdvanceBuilderOpLowering>(
       &getContext());
 
   auto module = getOperation();

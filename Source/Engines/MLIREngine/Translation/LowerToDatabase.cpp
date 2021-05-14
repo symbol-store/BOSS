@@ -5,6 +5,7 @@
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
+#include "Engines/MLIREngine/Runtime/HashTable.hpp"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Runtime/Storage.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
@@ -67,6 +68,42 @@ struct FuncOpSignatureConversion : public OpConversionPattern<mlir::FuncOp> {
   TypeConverter& converter;
 };
 
+Value collectTuplesToRelation(ConversionPatternRewriter& rewriter, Value streamValue,
+                              new_runtime::RelationBuilder* relationBuilder, Location loc) {
+  auto tupleStreamType = streamValue.getType().dyn_cast_or_null<TupleStreamType>();
+  if(!tupleStreamType) {
+    return {};
+  }
+
+  auto savedInsertionPoint = rewriter.saveInsertionPoint();
+  rewriter.setInsertionPointAfter(streamValue.getDefiningOp());
+
+  auto runtimeFields =
+      boss::mlir::conversion::mlirFieldsToRuntimeFields(tupleStreamType.getFields());
+
+  auto advanceOp = rewriter.create<database::AdvanceBuilderOp>(
+      loc,
+      reinterpret_cast<size_t>(
+          (relationBuilder->getOrCreateTypedStructBuilder(runtimeFields)).get()),
+      reinterpret_cast<size_t>((relationBuilder->rawBuilder()).get()),
+      relationBuilder->getOrCreateTypedStructBuilderIndex(runtimeFields));
+
+  // Iterate over all values in the tuple stream, and append to builder
+  for(auto const& [name, type] : tupleStreamType.getFields()) {
+    auto runtimeType = boss::mlir::conversion::mlirTypeToRuntimeType(type, false);
+    auto extractOp =
+        rewriter.create<database::ExtractFieldFromTupleOp>(loc, streamValue, name, type);
+    auto columnBuilder = relationBuilder->getOrCreateColumnBuilder(name, runtimeFields);
+
+    rewriter.create<database::AppendToRelationOp>(
+        loc, extractOp.getResult(), reinterpret_cast<size_t>(columnBuilder.get()), runtimeType);
+  }
+
+  rewriter.restoreInsertionPoint(savedInsertionPoint);
+
+  return advanceOp.getResult();
+}
+
 struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTuplesOp> {
   CollectTuplesOpLowering(MLIRContext* ctx, TypeConverter& converter)
       : OpConversionPattern(ctx), converter(converter) {}
@@ -78,44 +115,12 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
     // TODO free somewhere
     auto* relationBuilder = new new_runtime::RelationBuilder;
 
-    // Iterate over all streams
-    for(auto const& streamValue : operands) {
-      auto tupleStreamType = streamValue.getType().dyn_cast_or_null<TupleStreamType>();
-      if(!tupleStreamType) {
-        op.emitError("Expected a tuple stream type.");
-        return failure();
-      }
-
-      auto savedInsertionPoint = rewriter.saveInsertionPoint();
-      rewriter.setInsertionPointAfter(streamValue.getDefiningOp());
-
-      auto runtimeFields =
-          boss::mlir::conversion::mlirFieldsToRuntimeFields(tupleStreamType.getFields());
-
-      rewriter.create<database::AdvanceBuilderOp>(
-          loc,
-          reinterpret_cast<size_t>(
-              (relationBuilder->getOrCreateTypedStructBuilder(runtimeFields)).get()),
-          reinterpret_cast<size_t>((relationBuilder->rawBuilder()).get()),
-          relationBuilder->getOrCreateTypedStructBuilderIndex(runtimeFields));
-
-      // Iterate over all values in the tuple stream, and append to builder
-      for(auto const& [name, type] : tupleStreamType.getFields()) {
-        auto runtimeType = boss::mlir::conversion::mlirTypeToRuntimeType(type, false);
-        auto extractOp =
-            rewriter.create<database::ExtractFieldFromTupleOp>(loc, streamValue, name, type);
-        auto columnBuilder = relationBuilder->getOrCreateColumnBuilder(name, runtimeFields);
-
-        rewriter.create<database::AppendToRelationOp>(op.getLoc(), extractOp.getResult(),
-                                                      reinterpret_cast<size_t>(columnBuilder.get()),
-                                                      runtimeType);
-      }
-
-      rewriter.restoreInsertionPoint(savedInsertionPoint);
+    for(auto const& operand : operands) {
+      auto insertedValueOffset = collectTuplesToRelation(rewriter, operand, relationBuilder, loc);
     }
 
-    auto newOp = rewriter.create<database::FinalizeRelationOp>(
-        op.getLoc(), reinterpret_cast<size_t>(relationBuilder));
+    auto newOp = rewriter.create<database::FinalizeBuilderOp>(
+        loc, reinterpret_cast<size_t>(relationBuilder), "finalizeRelationBuilder");
 
     rewriter.replaceOp(op, newOp.getResult());
     return success();
@@ -124,77 +129,77 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
   TypeConverter& converter;
 };
 
+// Generates code to load the type
+struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
+  ::mlir::Value result;
+
+  ArrayLoaderTypeVisitor(std::shared_ptr<arrow::Array> baseArray, mlir::Value offset,
+                         ConversionPatternRewriter& rewriter, mlir::Location loc,
+                         new_runtime::Database& database)
+      : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc),
+        database(database) {}
+
+  std::shared_ptr<arrow::Array> baseArray;
+  mlir::Value offset;
+  mlir::ConversionPatternRewriter& rewriter;
+  mlir::Location loc;
+  new_runtime::Database& database;
+
+  // TODO remaining types
+  arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
+    auto integerArray = std::dynamic_pointer_cast<arrow::Int32Array>(baseArray);
+    auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
+        loc, reinterpret_cast<size_t>(integerArray->raw_values()), rewriter.getI32Type(), offset);
+    result = loadOp.getResult();
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Visit(const arrow::FloatType& /*type*/) override {
+    auto typedArray = std::dynamic_pointer_cast<arrow::FloatArray>(baseArray);
+    auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
+        loc, reinterpret_cast<size_t>(typedArray->raw_values()), rewriter.getF32Type(), offset);
+    result = loadOp.getResult();
+    return arrow::Status::OK();
+  }
+
+  // Visit complex expression
+  arrow::Status Visit(const arrow::StructType& type) override {
+    auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
+
+    auto nameArray = std::dynamic_pointer_cast<arrow::DictionaryArray>(structArray->field(0));
+    auto symbolName =
+        std::dynamic_pointer_cast<arrow::StringArray>(nameArray->dictionary())->GetString(0);
+
+    std::vector<Value> childResults;
+    for(auto i = 1; i < type.num_fields(); i++) {
+      auto const& field = type.field(i);
+
+      ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database);
+      auto status = field->type()->Accept(&childVisitor);
+      if(!status.ok()) {
+        return status;
+      }
+
+      childResults.emplace_back(childVisitor.result);
+    }
+
+    auto symbolOp = rewriter.create<sexpr::SymbolOp>(loc, symbolName, childResults);
+
+    auto typedSymbolOp = mlir::dyn_cast_or_null<TypeInference>(symbolOp.getOperation());
+    if(!typedSymbolOp) {
+      return arrow::Status::TypeError("Could not cast symbol op to type inference interface");
+    }
+    TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
+    typedSymbolOp.inferType(&typeContext);
+
+    result = symbolOp.getResult();
+    return arrow::Status::OK();
+  }
+};
+
 struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationOp> {
   GetRelationOpLowering(MLIRContext* ctx, new_runtime::Database& database)
       : OpConversionPattern(ctx), database(database) {}
-
-  // Generates code to load the type
-  struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
-    ::mlir::Value result;
-
-    ArrayLoaderTypeVisitor(std::shared_ptr<arrow::Array> baseArray, mlir::Value offset,
-                           ConversionPatternRewriter& rewriter, mlir::Location loc,
-                           new_runtime::Database& database)
-        : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc),
-          database(database) {}
-
-    std::shared_ptr<arrow::Array> baseArray;
-    mlir::Value offset;
-    mlir::ConversionPatternRewriter& rewriter;
-    mlir::Location loc;
-    new_runtime::Database& database;
-
-    // TODO remaining types
-    arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
-      auto integerArray = std::dynamic_pointer_cast<arrow::Int32Array>(baseArray);
-      auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
-          loc, reinterpret_cast<size_t>(integerArray->raw_values()), rewriter.getI32Type(), offset);
-      result = loadOp.getResult();
-      return arrow::Status::OK();
-    }
-
-    arrow::Status Visit(const arrow::FloatType& /*type*/) override {
-      auto typedArray = std::dynamic_pointer_cast<arrow::FloatArray>(baseArray);
-      auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
-          loc, reinterpret_cast<size_t>(typedArray->raw_values()), rewriter.getF32Type(), offset);
-      result = loadOp.getResult();
-      return arrow::Status::OK();
-    }
-
-    // Visit complex expression
-    arrow::Status Visit(const arrow::StructType& type) override {
-      auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
-
-      auto nameArray = std::dynamic_pointer_cast<arrow::DictionaryArray>(structArray->field(0));
-      auto symbolName =
-          std::dynamic_pointer_cast<arrow::StringArray>(nameArray->dictionary())->GetString(0);
-
-      std::vector<Value> childResults;
-      for(auto i = 1; i < type.num_fields(); i++) {
-        auto const& field = type.field(i);
-
-        ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database);
-        auto status = field->type()->Accept(&childVisitor);
-        if(!status.ok()) {
-          return status;
-        }
-
-        childResults.emplace_back(childVisitor.result);
-      }
-
-      auto symbolOp = rewriter.create<sexpr::SymbolOp>(loc, symbolName, childResults);
-
-      auto typedSymbolOp = mlir::dyn_cast_or_null<TypeInference>(symbolOp.getOperation());
-      if(!typedSymbolOp) {
-        return arrow::Status::TypeError("Could not cast symbol op to type inference interface");
-      }
-      TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
-      typedSymbolOp.inferType(&typeContext);
-
-      result = symbolOp.getResult();
-      return arrow::Status::OK();
-    }
-  };
 
   LogicalResult matchAndRewrite(database::GetRelationOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
@@ -261,6 +266,158 @@ struct ProjectionOpLowering : public OpConversionPattern<database::ProjectionOp>
   }
 };
 
+struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp> {
+  LookupJoinOpLowering(MLIRContext* ctx, new_runtime::Database& database)
+      : OpConversionPattern(ctx), database(database) {}
+
+  LogicalResult matchAndRewrite(database::LookupJoinOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto savedInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPointAfterValue(op.getOperand());
+
+    auto* hashTable = reinterpret_cast<runtime::hash::HashTable*>(op.table());
+
+    auto inputTupleStream = op.getType().dyn_cast_or_null<TupleStreamType>();
+    auto const& inputFields = inputTupleStream.getFields();
+    auto outputTupleStream = op.getType().dyn_cast_or_null<TupleStreamType>();
+
+    auto const& map = hashTable->getChildIndexMap(op.rightTupleStreamIndex());
+    auto* storageRelation = hashTable->getChildArray(op.rightTupleStreamIndex());
+
+    // hash the fields that are relevant to the join
+    std::vector<Value> valuesToHash{};
+    for(auto const& fieldAttr : op.leftFields()) {
+      auto fieldName = fieldAttr.dyn_cast_or_null<StringAttr>().getValue().str();
+      auto fieldType = inputFields.find(fieldName)->second;
+      auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
+          op.getLoc(), op.getOperand(), fieldName, fieldType);
+      valuesToHash.emplace_back(extractedVal.getResult());
+    }
+    auto hashedValues =
+        rewriter.create<database::HashValuesOp>(op.getLoc(), rewriter.getIndexType(), valuesToHash);
+
+    // TODO this should return a list and then you have to look up all the values
+    // Look up the value in the hash table
+    auto hashTableResult = rewriter.create<database::FindInHashTableOp>(
+        op.getLoc(), rewriter.getIndexType(), hashedValues.getResult(),
+        rewriter.getI64IntegerAttr(reinterpret_cast<size_t>(&map)));
+
+    auto relation = hashTable->relation->get()->field(op.rightTupleStreamIndex());
+    auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(relation);
+
+    // Check that the values really match
+    std::vector<Value> comparisonResults;
+    for(auto i = 0U; i < op.leftFields().size(); i++) {
+      auto leftFieldName = op.leftFields()[i].dyn_cast_or_null<StringAttr>().getValue().str();
+      auto rightFieldName = op.rightFields()[i].dyn_cast_or_null<StringAttr>().getValue().str();
+      auto leftFieldType = outputTupleStream.getFields().find(leftFieldName)->second;
+      auto rightFieldType = outputTupleStream.getFields().find(rightFieldName)->second;
+
+      auto leftValue = rewriter.create<database::ExtractFieldFromTupleOp>(
+          op.getLoc(), operands[0], leftFieldName, leftFieldType);
+
+      // Find the correct location
+      auto relationFields = hashTable->getChildFields(op.rightTupleStreamIndex());
+      auto rightFieldPosition =
+          std::distance(relationFields.begin(), relationFields.find(rightFieldName));
+      auto rightArray = structArray->field(rightFieldPosition);
+
+      ArrayLoaderTypeVisitor visitor(rightArray, hashTableResult.getResult(), rewriter, op.getLoc(),
+                                     database);
+      rightArray->type()->Accept(&visitor);
+      auto rightValue = visitor.result;
+
+      // Compare these values
+      auto compareOp =
+          rewriter.create<sexpr::SymbolOp>(op.getLoc(), "Eq", ValueRange{leftValue, rightValue});
+      TypeInferenceContext typeContext{op.getContext(), &database, {}, &compareOp};
+      compareOp.inferType(&typeContext);
+      comparisonResults.emplace_back(compareOp.getResult());
+    }
+
+    auto wasMatchOp = rewriter.create<sexpr::SymbolOp>(op.getLoc(), "And", comparisonResults);
+    TypeInferenceContext typeContext{op.getContext(), &database, {}, &wasMatchOp};
+    wasMatchOp.inferType(&typeContext);
+
+    // If it was a match, load the remaining values and output the tuple
+    auto wasMatchCond = rewriter.create<scf::IfOp>(op.getLoc(), wasMatchOp.getResult(), false);
+    rewriter.setInsertionPointToStart(&wasMatchCond.thenRegion().front());
+
+    // TODO optimise with other loop (don't load twice)
+    std::vector<Value> loadedTupleValues;
+    // Load left values
+    for(auto const& [name, type] : inputTupleStream.getFields()) {
+      auto extractOp =
+          rewriter.create<database::ExtractFieldFromTupleOp>(op.getLoc(), operands[0], name, type);
+      loadedTupleValues.emplace_back(extractOp.getResult());
+    }
+
+    // Load right values
+    for(auto const& field : structArray->fields()) {
+      ArrayLoaderTypeVisitor visitor(field, hashTableResult.getResult(), rewriter, op.getLoc(),
+                                     database);
+      field->type()->Accept(&visitor);
+      loadedTupleValues.emplace_back(visitor.result);
+    }
+
+    rewriter.replaceOpWithNewOp<database::PackFieldsIntoTupleOp>(op, loadedTupleValues,
+                                                                 outputTupleStream);
+
+    rewriter.restoreInsertionPoint(savedInsertionPoint);
+    return success();
+  }
+
+  new_runtime::Database& database;
+};
+
+struct BuildJoinOpLowering : public OpConversionPattern<database::BuildJoinTableOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(database::BuildJoinTableOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto hashBuilder = reinterpret_cast<runtime::hash::HashTable*>(op.table())->relationBuilder;
+
+    // Process each tuple stream from the right relation
+    for(auto const& tupleStreamOp : operands) {
+      auto savedInsertionPoint = rewriter.saveInsertionPoint();
+      rewriter.setInsertionPointAfter(tupleStreamOp.getDefiningOp());
+
+      // Insert the values into hash map storage relation
+      auto insertedLocation = collectTuplesToRelation(rewriter, tupleStreamOp,
+                                                      &hashBuilder, op.getLoc());
+
+      auto inputTupleStream = tupleStreamOp.getType().dyn_cast_or_null<TupleStreamType>();
+      auto const& fields = inputTupleStream.getFields();
+
+      // get the fields and hash them
+      std::vector<Value> hashInputs{};
+      for(auto const& fieldNameAttr : op.fields()) {
+
+        auto fieldName = fieldNameAttr.dyn_cast_or_null<StringAttr>();
+        auto field = fields.find(fieldName.getValue().str());
+
+        auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
+            op.getLoc(), operands[0], field->first, field->second);
+        hashInputs.emplace_back(extractedVal.getResult());
+      }
+      auto hashResult =
+          rewriter.create<database::HashValuesOp>(op.getLoc(), rewriter.getIndexType(), hashInputs);
+
+      // Store the current relation index in the map for this hash
+      rewriter.create<database::InsertIntoHashTableOp>(op.getLoc(), hashResult.getResult(),
+                                                       insertedLocation,
+                                                       rewriter.getI64IntegerAttr(op.table()));
+
+      rewriter.restoreInsertionPoint(savedInsertionPoint);
+    }
+
+    rewriter.create<database::FinalizeBuilderOp>(op.getLoc(), op.table(), "finalizeHashBuilder");
+    rewriter.eraseOp(op);
+
+    return success();
+  }
+};
+
 struct SelectionOpLowering : public OpConversionPattern<database::SelectionOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -299,13 +456,13 @@ struct SelectionOpLowering : public OpConversionPattern<database::SelectionOp> {
 
     // Call the selection function
     auto funcName = op.getAttr("selectionFunctionName").dyn_cast_or_null<StringAttr>();
-    if (!funcName) {
+    if(!funcName) {
       op.emitError("Expecting a string attribute selectionFunctionName");
       return failure();
     }
     auto* opaqueFuncOp = op.getParentOfType<ModuleOp>().lookupSymbol(funcName.getValue());
     auto funcOp = ::mlir::dyn_cast_or_null<FuncOp>(opaqueFuncOp);
-    if (!funcOp) {
+    if(!funcOp) {
       op.emitError("Expecting a function named " + funcName.getValue().str());
       return failure();
     }
@@ -340,10 +497,11 @@ void DatabaseLoweringPass::runOnOperation() {
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
 
   target.addIllegalDialect<mlir::database::DatabaseDialect>();
-  target.addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
-                    database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
-                    database::FinalizeRelationOp, database::AppendToRelationOp,
-                    database::AdvanceBuilderOp>();
+  target
+      .addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
+                  database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
+                  database::FinalizeBuilderOp, database::AppendToRelationOp, database::HashValuesOp,
+                  database::InsertIntoHashTableOp, database::AdvanceBuilderOp>();
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
   target.addLegalDialect<::mlir::StandardOpsDialect>();
@@ -370,8 +528,8 @@ void DatabaseLoweringPass::runOnOperation() {
     return true;
   });
 
-  patterns.insert<GetRelationOpLowering>(&getContext(), database);
-  patterns.insert<ProjectionOpLowering, SelectionOpLowering>(&getContext());
+  patterns.insert<GetRelationOpLowering, LookupJoinOpLowering>(&getContext(), database);
+  patterns.insert<ProjectionOpLowering, SelectionOpLowering, BuildJoinOpLowering>(&getContext());
   patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
 
   // Transitively lower symbol operations

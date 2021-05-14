@@ -54,12 +54,6 @@ public:
 
   void bulk_load(std::vector<std::map<std::string, boss::Expression>> const& tuples);
 
-//  arrow::ChunkedArray* getColumn(std::string const& name) {
-//    return data->GetColumnByName(name).get();
-//  }
-
-//  std::shared_ptr<arrow::Schema> getSchema() { return data->schema(); }
-
   [[nodiscard]] std::shared_ptr<arrow::DenseUnionArray> const& get() const { return relation; }
 
 private:
