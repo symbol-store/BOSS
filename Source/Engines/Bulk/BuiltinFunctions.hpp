@@ -381,6 +381,19 @@ private:
           int value = batchPtrExpr->size();
           return Batch::WritablePtr(templates.createBatch(value));
         });
+
+    templates.template argBatchTypes<AnySimpleBatch, AnySimpleBatch>().template registerFunction<2>(
+        "IndexOf", [&templates](auto&& listBatchPtr, auto&& valueBatchPtr) {
+          int index = 1;
+          auto const& value = *valueBatchPtr->begin();
+          for(auto const& element : *listBatchPtr) {
+            if(element == value) {
+              return Batch::WritablePtr(templates.createBatch(index));
+            }
+            ++index;
+          }
+          return Batch::WritablePtr(templates.createBatch(0));
+        });
   }
 
   static void aggregates(BatchTemplates& templates) {
