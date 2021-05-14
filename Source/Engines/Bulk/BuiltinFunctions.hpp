@@ -616,7 +616,10 @@ private:
     };
 
     templates.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
-        "Select", [select](auto&& tableViewPtr, auto&& predicatePtr) {
+        "Select", [select](auto&& tableViewPtr, auto&& predicatePtr) -> Batch::ReadablePtr {
+          if(tableViewPtr->size() == 0) {
+            return Batch::ReadablePtr(tableViewPtr);
+          }
           return select(tableViewPtr, predicatePtr);
         });
   }
@@ -720,7 +723,10 @@ private:
     };
 
     templates.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
-        "SortBy", [sortBy](auto&& tableViewPtr, auto&& sortFunctionPtr) {
+        "SortBy", [sortBy](auto&& tableViewPtr, auto&& sortFunctionPtr) -> Batch::ReadablePtr {
+          if(tableViewPtr->size() == 0) {
+            return Batch::ReadablePtr(tableViewPtr);
+          }
           return sortBy(tableViewPtr, sortFunctionPtr);
         });
   }
@@ -811,34 +817,39 @@ private:
     templates
         .template argBatchTypes<TableView, FunctionBatch,
                                 AllowedBatches<FunctionBatch, SymbolBatch>>()
-        .template registerFunction<3>("GroupBy", [groupBy, &templates](auto&& tableViewPtr,
-                                                                       auto&& groupFunctionPtr,
-                                                                       auto&& aggregatorPtr) {
-          Batch::WritablePtr resultPtr;
-          BatchHelper<FunctionBatch, SymbolBatch>::visit(
-              [&templates, &groupBy, &tableViewPtr, &groupFunctionPtr,
-               &resultPtr](auto const& aggregatorBatch) {
-                using BatchType = std::decay_t<decltype(aggregatorBatch)>;
-                if constexpr(std::is_same_v<BatchType, FunctionBatch>) {
-                  resultPtr = groupBy(tableViewPtr, groupFunctionPtr, aggregatorBatch);
-                } else {
-                  // construct an expression batch from the head (assuming single symbol value)
-                  // also assuming a function with 1 argument only
-                  Symbol const& head = *aggregatorBatch.begin();
-                  Batch::WritablePtr bodyBatchPtr(templates.createBatch(head, 1));
-                  // we pass a symbol as unique argument
-                  Symbol functionArg("tuple");
-                  bodyBatchPtr->insert(ComplexExpression(head, {functionArg}));
-                  // and now we create a function batch using this expression as body
-                  WritableBatchPtr<FunctionBatch> functionPtr(
-                      new FunctionBatch(templates, FunctionBatch::ParameterList{functionArg},
-                                        std::move(bodyBatchPtr)));
-                  resultPtr = groupBy(tableViewPtr, groupFunctionPtr, *functionPtr);
-                }
-              },
-              *aggregatorPtr);
-          return resultPtr;
-        });
+        .template registerFunction<3>(
+            "GroupBy",
+            [groupBy, &templates](auto&& tableViewPtr, auto&& groupFunctionPtr,
+                                  auto&& aggregatorPtr) -> Batch::ReadablePtr {
+              if(tableViewPtr->size() == 0) {
+                return Batch::ReadablePtr(tableViewPtr);
+              }
+
+              Batch::WritablePtr resultPtr;
+              BatchHelper<FunctionBatch, SymbolBatch>::visit(
+                  [&templates, &groupBy, &tableViewPtr, &groupFunctionPtr,
+                   &resultPtr](auto const& aggregatorBatch) {
+                    using BatchType = std::decay_t<decltype(aggregatorBatch)>;
+                    if constexpr(std::is_same_v<BatchType, FunctionBatch>) {
+                      resultPtr = groupBy(tableViewPtr, groupFunctionPtr, aggregatorBatch);
+                    } else {
+                      // construct an expression batch from the head (assuming single symbol value)
+                      // also assuming a function with 1 argument only
+                      Symbol const& head = *aggregatorBatch.begin();
+                      Batch::WritablePtr bodyBatchPtr(templates.createBatch(head, 1));
+                      // we pass a symbol as unique argument
+                      Symbol functionArg("tuple");
+                      bodyBatchPtr->insert(ComplexExpression(head, {functionArg}));
+                      // and now we create a function batch using this expression as body
+                      WritableBatchPtr<FunctionBatch> functionPtr(
+                          new FunctionBatch(templates, FunctionBatch::ParameterList{functionArg},
+                                            std::move(bodyBatchPtr)));
+                      resultPtr = groupBy(tableViewPtr, groupFunctionPtr, *functionPtr);
+                    }
+                  },
+                  *aggregatorPtr);
+              return resultPtr;
+            });
   }
 
   // helpers to retrieve return type for a specific set of Batch argument types
