@@ -21,13 +21,14 @@
 
 namespace boss::engines::bulk {
 
-/******************* class BatchTemplates *********************/
-
-/* keep a map of Evaluators for each symbol                   */
-/* then createBatch can create the right ExpressionBatch      */
-/* for any complex expression                                 */
-/**************************************************************/
-
+/** This class is the implementation of the BatchFactory interface.
+ For simple data types, it is just a straightforward creation of the matching ValueBatch type.
+ For complex expression, it has to create an ExpressionBatch containing the evaluator matching the
+ operator signature (head and arguments).
+ To do so, we expose a registerFunction method for the user to create evaluators from lambda
+ functions. Those evaluators are stored into Batch prototypes. Then, when calling CreateBatch, we
+ retrieve the prototype using a map from the operator signature, and the prototype can create the
+ ExpressionBatch by passing over the stored evaluator. */
 template <typename... SupportedTypes> class BatchTemplates : public BatchFactory {
 public:
   using CompoundBatchHelper =
@@ -49,8 +50,10 @@ public:
       AllowedBatches<CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
 
   BatchTemplates() {
+    // [ISSUE] get rid of this special case
     BatchTemplateKey unevaluatedKey("Unevaluated", std::vector<size_t>(1, 0));
-    m_templates[unevaluatedKey] = BatchTemplatePtr(new UnevaluatedBatchTemplate("Unevaluated"));
+    m_templates[unevaluatedKey] =
+        BatchTemplatePtr(new DeferredEvaluationBatchTemplate("Unevaluated"));
   }
 
   Batch* createBatch(Expression const& expression) const override {
@@ -61,8 +64,9 @@ public:
     auto const& symbol = expression.getHead();
     auto argsBegin = expression.getArguments().begin();
     auto argsEnd = expression.getArguments().end();
-    size_t numArgs = std::distance(argsBegin, argsEnd);
+    size_t numArgs = expression.getArguments().size();
     auto* newBatch = createBatch(symbol, numArgs);
+    // I think, in general we can inline a lot of things here
     newBatch->insert(expression);
     return newBatch;
   }
@@ -76,10 +80,14 @@ public:
       return batchTemplate->createBatch(*this);
     }
 
+    // Special case for binary operators: we can split arguments into pairs
+    // to treat a longer argument list as a deeper compound expression.
+    // This is needed because the evaluator arguments cannot be variadic
+    // if we want them to be defined by the ExpressionBatch at compile time.
     if(numArgs > 1) {
-      // if argument count doesn't match
-      // try to find a function with less arguments and split
-      // TODO: only if variadic is allowed on these functions
+      // try to find a function with less arguments
+      // // and expect the compound batch to be able to handle that
+      // [ISSUE] only if variadic is allowed on these functions
       auto closestTemplateIt = m_templates.lower_bound(key);
       if(closestTemplateIt != m_templates.end() && closestTemplateIt != m_templates.begin()) {
         --closestTemplateIt;
@@ -87,7 +95,7 @@ public:
         if(closestTemplateIt->first.getKey() == symbol.getName()) {
           if(closestTemplateIt->first.getArgumentCount() == 2) {
             // create a compound expression batch
-            // (it will be handled at insert)
+            // (the special case will be handled at evaluation time)
             return batchTemplate->createBatch(*this);
           }
         }
@@ -102,8 +110,9 @@ public:
     return new ValueBatch<T>(1, value);
   }
 
+  /// consume a pair of (array vector, builder) to create a batch from them
   Batch* createBatch(arrow::ArrayVector&& arrays,
-                     std::shared_ptr<arrow::ArrayBuilder> arrayBuilder) const override {
+                     std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder) const override {
     // assuming all arrays and builder share the same type!
     auto type = arrayBuilder ? arrayBuilder->type() : arrays[0]->type();
 
@@ -138,14 +147,17 @@ public:
       break;
     }
 
+    // [ISSUE] handle exceptions. with a pre-processor flag if affects performance.
     return nullptr; // should not happen!
   }
 
+  /// convert the batch back to an expression
   Expression revertToExpression(Batch::ReadablePtr&& batchPtr) const override {
     if(batchPtr->typeId() == UniqueId::forType<TableView>()) {
       // save the query result into a temporary symbol
-      // this is a workaround to avoid unevaluated call to return a whole table
-      // TODO: find a way to garbage-collect them
+      // this is a workaround to avoid a whole table to be converted back
+      // to a long list of tuples
+      // [ISSUE] (symbol pool symbols lifetime handling) find a way to garbage-collect them
       static int i = 0;
       auto symbolName = "_table" + std::to_string(i++);
       auto writablePtr = Batch::WritablePtr::asWritable(batchPtr);
@@ -203,14 +215,23 @@ public:
     return ComplexExpression(head, arguments);
   }
 
+  /** Wrapper for registerFunction
+   * so we can set pass along some properties/flags for the evaluator
+   * using template parameters.
+   * At the moment, it is used to define the type of the arguments.*/
   friend class AllowedTypes;
   template <typename... Types> class AllowedTypes {
   public:
     explicit AllowedTypes(BatchTemplates& batchTemplates) : m_batchTemplates(batchTemplates) {}
 
+    /** This is the function to call to define a new oeprator
+     * by passing a lambda function taking generic paremeters.
+     * The AllowedTypes wrapper is used to define types of the arguments,
+     * and it will be resolve at compile-time to pass typed batch to the lambda function.*/
     template <size_t N, typename Func>
     void registerFunction(std::string const& symbol, Func&& func) {
       std::vector<size_t> argumentTypes(N, 0);
+      // [ISSUE] nto handling overloading yet
       /*
         // support overloading only when specify every argument type
         if constexpr(IsBatchType) {
@@ -287,6 +308,9 @@ private:
                                             AllowedTypes<AllowedBatches<ValueBatch<Types>>>>>...>::
       type;
 
+  // [ISSUE] factor this out (using the already existing CompareExpression class?)
+  // This is the class used to map an operator signature (head + arguments)
+  // to the batch templates (and so the evaluators)
   class BatchTemplateKey {
   public:
     BatchTemplateKey(std::string const& symbol, std::vector<size_t> const& argumentTypes)
@@ -332,12 +356,13 @@ private:
     virtual Batch* createBatch(BatchTemplates const&) const = 0;
   };
 
-  class UnevaluatedBatchTemplate : public BatchTemplateBase {
+  class DeferredEvaluationBatchTemplate : public BatchTemplateBase {
   public:
-    explicit UnevaluatedBatchTemplate(std::string const& symbolName) : m_symbolName(symbolName) {}
+    explicit DeferredEvaluationBatchTemplate(std::string const& symbolName)
+        : m_symbolName(symbolName) {}
 
     Batch* createBatch(BatchTemplates const& templates) const override {
-      return new UnevaluatedBatch(templates, Symbol(m_symbolName));
+      return new DeferredEvaluationBatch(templates, Symbol(m_symbolName));
     }
 
   private:

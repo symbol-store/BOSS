@@ -187,7 +187,7 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
 }
 
 %typemap(out) ExpressionArguments const & {
-  auto size = std::distance($1->begin(), $1->end());
+  auto size = $1->size();
   $result = PyList_New(size);
   int index = 0;
   for(auto it = $1->begin(); it != $1->end(); ++it, ++index) {

@@ -16,13 +16,10 @@ public:
   Engine();
   ~Engine();
 
-  // expressions
-
   Expression evaluate(Expression const& e);
 
 private:
-  BatchFactory& m_batchFactory;
-  static BatchFactory& createBatchFactory();
+  BatchFactory& batchFactory;
 };
 
 } // namespace boss::engines::bulk

@@ -4,6 +4,17 @@
 
 namespace boss::engines::bulk {
 
+// [ISSUE] try to get rid of it.
+// but still currently useful, at least to apply it as a type to other operators.
+// start a discussion in the issue...
+// from Holger's comment: I would generally advise to
+// avoid coding out functionality as part of the core engine at the C++ level.
+// Maybe we should think about an (object-oriented) extension interface
+/** FunctionBatch is a special case of compound batch where the only child batch is the body0
+ * We use it for queries requiring to pass a function (as predicate, custom aggregation, grouping
+ * etc). Those queries can call evaluateWith, passing the relation as parameter (but could be
+ * anything else too). We store the parameter as symbol, and then the body will be able to evaluate
+ * and apply the symbol when body.evaluate() is called. */
 class FunctionBatch : public CompoundBatch {
 public:
   using ValueType = CompoundBatch::ValueType;
@@ -93,6 +104,10 @@ public:
   }
 
   bool evaluate(ReadablePtr& outputPtr) const override {
+    // [ISSUE] how to generalise the evaluation of a FunctionBatch.
+    // from Holger's comment: do you think we could remove this function and always call
+    // evaluateWith but without parameters?
+
     // evaluate only by calling evaluateWith()
     outputPtr.reset();
     return false;

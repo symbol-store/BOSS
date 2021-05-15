@@ -8,12 +8,6 @@
 
 namespace boss::engines::bulk {
 
-/********************* class Evaluator ************************/
-
-/* to call iteratively a generic lambda function              */
-/* from a specifc list of argument Batch types                */
-/**************************************************************/
-
 template <typename... BatchTypes> class AllowedBatches {
 public:
   using BatchHelper = BatchHelper<BatchTypes...>;
@@ -25,6 +19,16 @@ public:
   }
 };
 
+/** The Evaluator class is used to store a generic lambda function
+ * which is called to evaluate an operator.
+ * The lambda function takes generic argument types,
+ * which will be resolved to specific batch types at compile time.
+ * The AllowedBatches parameter pack has two functions:
+ * - to expand the different combination of argument type at compile time
+ * restricting ourselves to only a subset of allowed types
+ * - to check the compatibility of the argument batches at run-time
+ * through isSupportedType function calls
+ */
 template <typename... AllowedBatches> class ForTypes {
 public:
   template <typename Func> class Evaluator {
@@ -38,33 +42,44 @@ public:
 
     std::string const& getSymbol() const { return m_symbol; }
 
-    template <typename... BatchIn> Batch::ReadablePtr operator()(BatchIn const&... in) const {
-      return Batch::ReadablePtr(m_func(in...));
-    }
-
+    /** perform the evaluation of the operator.
+     * Takes arguments of type inherited from Batch, and following these constraints:
+     * - By contract, the types need to be checked using isSupportedType/visitSupportedType,
+     * otherwise the lambda function might fail at compile-time or at run-time
+     * - The number of arguments should specifically match the operator's ones
+     * or it will fail at compile-time. */
     template <typename... BatchIn> Batch::ReadablePtr operator()(BatchIn&&... in) const {
       return Batch::ReadablePtr(m_func(std::forward<BatchIn>(in)...));
     }
 
-    static constexpr bool isExactType(size_t index, Batch const& batch) {
-      return isExactTypeHelper(index, batch, std::make_index_sequence<sizeof...(AllowedBatches)>{});
+    /// Check if the batch type matches one of the expected types for the evaluator's nth argument.
+    static bool isSupportedType(size_t argumentIndex, Batch const& batch) {
+      // does the evaluator have a type or the batch?
+      return isSupportedTypeInternal(argumentIndex, batch,
+                                     std::make_index_sequence<sizeof...(AllowedBatches)>{});
     }
-
-    template <size_t Index, typename Type> static constexpr bool isExactType() {
-      if constexpr(Index < sizeof...(AllowedBatches)) {
-        using AllowedBatchTypes = std::tuple_element_t<Index, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::template includes<Type>;
+    
+    /// Check if the batch type matches one of the expected types for the evaluator's nth argument.
+    /// This is a compile-time check alternative.
+    template <size_t ArgumentIndex, typename BatchType> static constexpr bool isSupportedType() {
+      if constexpr(ArgumentIndex < sizeof...(AllowedBatches)) {
+        using AllowedBatchTypes =
+            std::tuple_element_t<ArgumentIndex, std::tuple<AllowedBatches...>>;
+        return AllowedBatchTypes::template includes<BatchType>;
       } else {
         using AllowedBatchTypes =
             std::tuple_element_t<sizeof...(AllowedBatches) - 1, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::template includes<Type>;
+        return AllowedBatchTypes::template includes<BatchType>;
       }
     }
 
-    template <size_t Index, typename Vis>
-    static bool visitExactType(Vis&& visitor, Batch const& batch) {
-      if constexpr(Index < sizeof...(AllowedBatches)) {
-        using AllowedBatchTypes = std::tuple_element_t<Index, std::tuple<AllowedBatches...>>;
+    /// This function allows to call back the visitor with the batch (casted to the supported type).
+    /// If the provided batch isn't supported for the nth argument, the visitor won't be called.
+    template <size_t ArgumentIndex, typename Vis>
+    static bool visitSupportedType(Vis&& visitor, Batch const& batch) {
+      if constexpr(ArgumentIndex < sizeof...(AllowedBatches)) {
+        using AllowedBatchTypes =
+            std::tuple_element_t<ArgumentIndex, std::tuple<AllowedBatches...>>;
         return AllowedBatchTypes::BatchHelper::visit(visitor, batch);
       } else {
         using AllowedBatchTypes =
@@ -77,21 +92,21 @@ public:
     std::string const m_symbol;
     Func m_func;
 
-    template <size_t Index> static constexpr bool isExactType(Batch const& batch) {
-      return std::tuple_element_t<Index, std::tuple<AllowedBatches...>>::isAllowed(batch);
+    template <size_t ArgumentIndex> static constexpr bool isSupportedType(Batch const& batch) {
+      return std::tuple_element_t<ArgumentIndex, std::tuple<AllowedBatches...>>::isAllowed(batch);
     }
 
     template <size_t... Indices>
-    static constexpr bool isExactTypeHelper(size_t index, Batch const& batch,
-                                            std::index_sequence<Indices...> /*unused*/) {
+    static constexpr bool isSupportedTypeInternal(size_t argumentIndex, Batch const& batch,
+                                                  std::index_sequence<Indices...> /*unused*/) {
       using CheckFuncPtr = bool (*)(Batch const&);
       constexpr std::array<CheckFuncPtr, sizeof...(AllowedBatches)> table = {
-          &isExactType<Indices>...};
-      if(index >= sizeof...(AllowedBatches)) {
+          &isSupportedType<Indices>...};
+      if(argumentIndex >= sizeof...(AllowedBatches)) {
         return table[sizeof...(AllowedBatches) - 1](batch);
       }
-      auto& funcIsExactType = table[index]; // NOLINT, bounds are checked just above
-      return funcIsExactType(batch);
+      auto& funcIsSupportedType = table[argumentIndex]; // NOLINT, bounds are checked just above
+      return funcIsSupportedType(batch);
     }
   }; // class Evaluator
 

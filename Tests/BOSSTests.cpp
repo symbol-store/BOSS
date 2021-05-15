@@ -28,6 +28,7 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine,
 #else
 TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLINT
 #endif // WSINTERFACE
+  // Comment: this is superfluous
   auto& engine = getEngine<TestType>();
   auto eval = [&engine](boss::Expression const& expression) mutable {
     return engine.evaluate(expression);
@@ -71,6 +72,7 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLIN
       eval("InsertInto"_("Customer"_, "List"_("John", "McCarthy")));
       eval("InsertInto"_("Customer"_, "List"_("Sam", "Madden")));
       eval("InsertInto"_("Customer"_, "List"_("Barbara", "Liskov")));
+      // do we have a ticket for that?
     } else {
       eval("InsertInto"_("Customer"_, "John", "McCarthy"));
       eval("InsertInto"_("Customer"_, "Sam", "Madden"));

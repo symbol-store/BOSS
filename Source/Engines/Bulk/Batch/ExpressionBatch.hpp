@@ -10,8 +10,11 @@
 
 namespace boss::engines::bulk {
 
-// to get around template
-// all Expression batches need to share a common class
+/** AnyExpressionBatch is the base class for a batch
+ * containing a complex expression to evaluate with an evaluator.
+ * This base class is needed to have generic interface for all expression batches.
+ * But then we derive to specific ExpressionBatch with templated lambda function to implement
+ * evaluators. */
 class AnyExpressionBatch : public CompoundBatch {
 public:
   using ValueType = CompoundBatch::ValueType;
@@ -46,46 +49,59 @@ public:
   WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
     return cloneAsAnyExpressionBatch(clear);
   }
+
+protected:
 };
 
-class UnevaluatedBatch : public AnyExpressionBatch {
+// [ISSUE] support for an evaluator flag to not enforce the arguments to be evaluated
+// then we can get rid of this class
+/** DeferredEvaluationBatch is a special case for an expression batch.
+ * Instead of using an evaluator, we implement a specific evaluate function.
+ * If we use an evaluator for it, it will force the argument to be evaluated first.
+ */
+class DeferredEvaluationBatch : public AnyExpressionBatch {
 public:
   using ValueType = AnyExpressionBatch::ValueType;
 
-  UnevaluatedBatch(BatchFactory const& factory, Symbol const& symbol)
+  DeferredEvaluationBatch(BatchFactory const& factory, Symbol const& symbol)
       : AnyExpressionBatch(factory, symbol) {}
 
-  UnevaluatedBatch(UnevaluatedBatch const& other, bool clear = false)
+  DeferredEvaluationBatch(DeferredEvaluationBatch const& other, bool clear = false)
       : AnyExpressionBatch(other, clear) {}
 
-  ~UnevaluatedBatch() override = default;
-  UnevaluatedBatch(UnevaluatedBatch&& other) = delete;
-  UnevaluatedBatch& operator=(UnevaluatedBatch const& other) = delete;
-  UnevaluatedBatch& operator=(UnevaluatedBatch&& other) = delete;
+  ~DeferredEvaluationBatch() override = default;
+  DeferredEvaluationBatch(DeferredEvaluationBatch&& other) = delete;
+  DeferredEvaluationBatch& operator=(DeferredEvaluationBatch const& other) = delete;
+  DeferredEvaluationBatch& operator=(DeferredEvaluationBatch&& other) = delete;
 
   WritablePtr clone(bool clear = false) const override {
-    return WritablePtr(cloneAsUnevaluatedBatch(clear));
+    return WritablePtr(cloneAsDeferredEvaluationBatch(clear));
   }
   WritableBatchPtr<AnyExpressionBatch>
   cloneAsAnyExpressionBatch(bool clear = false) const override {
-    return WritableBatchPtr<AnyExpressionBatch>(cloneAsUnevaluatedBatch(clear));
+    return WritableBatchPtr<AnyExpressionBatch>(cloneAsDeferredEvaluationBatch(clear));
   }
-  virtual WritableBatchPtr<UnevaluatedBatch> cloneAsUnevaluatedBatch(bool clear = false) const {
-    return WritableBatchPtr(new UnevaluatedBatch(*this, clear));
+  virtual WritableBatchPtr<DeferredEvaluationBatch> cloneAsDeferredEvaluationBatch(bool clear = false) const {
+    return WritableBatchPtr(new DeferredEvaluationBatch(*this, clear));
   }
 
   template <typename BatchType,
-            std::enable_if_t<std::is_base_of_v<BatchType, UnevaluatedBatch>, int> = 0>
+            std::enable_if_t<std::is_base_of_v<BatchType, DeferredEvaluationBatch>, int> = 0>
   WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
-    return cloneAsUnevaluatedBatch(clear);
+    return cloneAsDeferredEvaluationBatch(clear);
   }
 
   bool evaluate(ReadablePtr& outputPtr) const override {
+    // just return the argument without evaluating it
     outputPtr = *begin();
     return true;
   }
 };
 
+/** ExpressionBatch implements a specific lambda function as evaluator.
+ * This is done at compile-time through templating,
+ * so evaluate() can create a tree of compiled versions for the evaluator
+ * for each combination of argument types. */
 template <typename EvaluatorType, typename Func, size_t FuncArgCount>
 class ExpressionBatch : public AnyExpressionBatch {
 public:
@@ -118,56 +134,65 @@ public:
   WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
     return cloneAsExpressionBatch(clear);
   }
-  
-  bool evaluate(ReadablePtr& outputPtr) const override { return evaluateHelper(outputPtr); }
+
+  bool evaluate(ReadablePtr& outputPtr) const override {
+    return buildArgumentsTupleAndEvaluate(outputPtr);
+  }
 
 private:
+  /// the evaluator hold a generic lambda function
+  /// which is expanded at compile-time to to match the type of the batch arguments
   EvaluatorType const& m_evaluator;
 
-  // calls the evaluator with specific Batch types as arguments (not just generic Batch)
+  /// calls the evaluator with specific Batch types as arguments (not just generic Batch)
   template <typename InputBatchTuple, size_t... Indices>
-  Batch::ReadablePtr evaluateImpl(InputBatchTuple&& in,
-                                  std::index_sequence<Indices...> /*unused*/) const {
+  Batch::ReadablePtr evaluateWithTypedArguments(InputBatchTuple&& in,
+                                                std::index_sequence<Indices...> /*unused*/) const {
     return m_evaluator(std::get<Indices>(std::forward<InputBatchTuple>(in))...);
   }
 
-  // build a tuple of specific Batch argument types
-  // from dynamic information extracted from generic Batch list
-  template <size_t Index = 0, typename... BatchTupleTypes>
-  template <typename... BatchTupleTypes>
-  bool evaluateHelper(
-      ReadablePtr& outputPtr, size_t realIndex = 0,
-      std::tuple<BatchTupleTypes...>&& batchTuple = std::tuple<BatchTupleTypes...>()) const {
-    using BatchTuple = std::tuple<BatchTupleTypes...>;
-    size_t constexpr ArgIndex = sizeof...(BatchTupleTypes);
+  /// build a tuple of specific Batch argument types
+  /// from dynamic information extracted from generic Batch list
+  template <typename... ArgumentBatchTypes>
+  bool buildArgumentsTupleAndEvaluate(ReadablePtr& outputPtr, size_t batchIndex = 0,
+                                      std::tuple<ArgumentBatchTypes...>&& argumentsTuple =
+                                          std::tuple<ArgumentBatchTypes...>()) const {
+    using ArgumentsTuple = std::tuple<ArgumentBatchTypes...>;
+    size_t constexpr ArgIndex = sizeof...(ArgumentBatchTypes);
     if constexpr(ArgIndex == FuncArgCount) {
-      if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
+      // We finish to build the argument batches
+      // Now, we can pass it to the evaluator
+      if constexpr(std::is_same_v<ArgumentsTuple, std::tuple<>>) {
         outputPtr = m_evaluator();
       } else {
-        outputPtr = evaluateImpl(std::move(batchTuple), std::make_index_sequence<FuncArgCount>{});
+        outputPtr = evaluateWithTypedArguments(std::move(argumentsTuple),
+                                               std::make_index_sequence<FuncArgCount>{});
       }
+
       if constexpr(FuncArgCount == 2) {
-        // special case for binary operators: we can split arguments into pairs
-        // to treat a longer argument list as a deeper compound expression
-        if(realIndex < numArguments()) {
+        // Special case for binary operators: we can split arguments into pairs
+        // to treat a longer argument list as a deeper compound expression.
+        // This is needed because the evaluator arguments cannot be variadic
+        // if we want them to be defined by the ExpressionBatch at compile time.
+        if(batchIndex < numArguments()) {
           auto firstArgPtr = std::move(outputPtr);
           bool visited = false;
           bool evaluated = false;
-          EvaluatorType::template visitExactType<0>(
+          EvaluatorType::template visitSupportedType<0>(
               [this, &firstArgPtr, &outputPtr, &visited, &evaluated,
-               &realIndex](auto const& specificBatch) {
-                using BatchType = std::decay_t<decltype(specificBatch)>;
-                ReadableBatchPtr<BatchType> specificBatchPtr(std::move(firstArgPtr));
+               &batchIndex](auto const& typedBatch) {
+                using BatchType = std::decay_t<decltype(typedBatch)>;
+                ReadableBatchPtr<BatchType> typedBatchPtr(std::move(firstArgPtr));
                 visited = true;
-                evaluated = this->evaluateHelper(
-                    outputPtr, realIndex, std::forward_as_tuple(std::move(specificBatchPtr)));
+                evaluated = this->buildArgumentsTupleAndEvaluate(
+                    outputPtr, batchIndex, std::forward_as_tuple(std::move(typedBatchPtr)));
               },
               *firstArgPtr);
           if(visited) {
             return evaluated;
           }
-          // otherwise, the output type wasn't a compatible argument type
-          // in that case, put back the initial output
+          // Otherwise, the output type wasn't a compatible argument type.
+          // In that case, put back the initial output
           // it will just ignore the remaining arguments
           // TODO: better returning full arguments but unevaluated expression
           outputPtr = std::move(firstArgPtr);
@@ -175,49 +200,58 @@ private:
       }
       return true;
     } else {
-      auto batchIt = begin() + realIndex;
-      auto batchPtr = *batchIt;
-      auto evaluatedPtr = evaluateHelper(ArgIndex, batchPtr);
+      // Here is the main part of the function
+      // Build the next argument batch...
+      auto evaluatedPtr = getArgumentBatch(batchIndex, ArgIndex);
 
       bool visited = false;
       bool evaluated = false;
       outputPtr.reset();
-      EvaluatorType::template visitExactType<ArgIndex>(
-          [this, &batchTuple, &evaluatedPtr, &outputPtr, &visited, &evaluated,
-           &realIndex](auto const& specificBatch) {
-            using BatchType = std::decay_t<decltype(specificBatch)>;
-            ReadableBatchPtr<BatchType> specificBatchPtr(std::move(evaluatedPtr));
+      // ... get the specific type, add it to the tuple
+      // and pass the new tuple to the same function recursively (compile-time recursion)
+      EvaluatorType::template visitSupportedType<ArgIndex>(
+          [this, &argumentsTuple, &evaluatedPtr, &outputPtr, &visited, &evaluated,
+           &batchIndex](auto const& typedBatch) {
+            using BatchType = std::decay_t<decltype(typedBatch)>;
+            ReadableBatchPtr<BatchType> typedBatchPtr(std::move(evaluatedPtr));
             visited = true;
             evaluated = std::apply(
-                [this, &specificBatchPtr, &outputPtr, realIndex](auto... arg) {
+                [this, &typedBatchPtr, &outputPtr, batchIndex](auto... arg) {
                   // move evaluated ptr to the derived type
-                  return this->evaluateHelper(
-                      outputPtr, realIndex + 1,
-                      std::forward_as_tuple((std::move(arg))..., std::move(specificBatchPtr)));
+                  return this->buildArgumentsTupleAndEvaluate(
+                      outputPtr, batchIndex + 1,
+                      std::forward_as_tuple((std::move(arg))..., std::move(typedBatchPtr)));
                 },
-                std::move(batchTuple));
+                std::move(argumentsTuple));
           },
           *evaluatedPtr);
 
       if(visited) {
+        // If we reached here, it means that all the remaining args (from the recursion)
+        // have been evaluated properly and the evaluator called with them
+        // we can just return!
         return evaluated;
       }
 
-      // the argument type was unsupported
-      // but still apply what we already can evaluate
+      // We reached this portion of the code if an argument type isn't supported by the evaluator.
+      // We need to build an output nevertheless, by evaluating as much as we can the remaining
+      // arguments.
+      // The argument tuple we built until here hasn't been consumed yet
+      // so we can use it for constructing our output.
+
       std::vector<ReadablePtr> argList;
       argList.reserve(FuncArgCount);
 
       // add previous evaluated arguments
       std::apply([&argList](auto&&... args) { (..., argList.emplace_back(std::move(args))); },
-                 batchTuple);
+                 argumentsTuple);
 
       // add this current batch (at the state we were evaluating it)
       argList.emplace_back(std::move(evaluatedPtr));
 
-      // check if they anything has been evaluated
+      // check if they anything has been evaluated with the previous arguments
       bool anyEvaluated = false;
-      for(size_t i = 0; i < realIndex; ++i) {
+      for(size_t i = 0; i < batchIndex; ++i) {
         auto beforePtr = *(begin() + i);
         if(argList[i].get() != beforePtr.get()) {
           anyEvaluated = true;
@@ -226,63 +260,73 @@ private:
       }
 
       // still evaluate remaining args as much as possible
-      for(size_t i = realIndex + 1; i < numArguments(); ++i) {
-        auto otherPtr = *(begin() + i);
+      for(size_t i = batchIndex + 1; i < numArguments(); ++i) {
         auto argIndex = i < FuncArgCount ? i : FuncArgCount - 1;
-        auto otherEvaluatedPtr = evaluateHelper(i, otherPtr);
-        if(otherEvaluatedPtr.get() != otherPtr.get()) {
+        auto unevaluatedArgPtr = *(begin() + i);
+        auto evaluatedArgPtr = getArgumentBatch(i, argIndex);
+        if(evaluatedArgPtr.get() != unevaluatedArgPtr.get()) {
           anyEvaluated = true;
         }
-        argList.emplace_back(std::move(otherEvaluatedPtr));
+        argList.emplace_back(std::move(evaluatedArgPtr));
       }
 
-      if(!anyEvaluated) {
-        return false;
+      if(anyEvaluated) {
+        // Because some of the arguments have changed (they have been evaluated)
+        // We create a new batch as a semi-evaluated one, and insert all the new arguments
+        auto partlyEvaluatedPtr = cloneAsCompoundBatch(true);
+        partlyEvaluatedPtr->insert(argList);
+        outputPtr = std::move(partlyEvaluatedPtr);
       }
 
-      // create the new batch and insert the semi-evaluated batches
-      auto partlyEvaluatedPtr = cloneAsCompoundBatch(true);
-      partlyEvaluatedPtr->insert(argList);
-      outputPtr = std::move(partlyEvaluatedPtr);
-
-      // still return false, we did only semi-evaluation
+      // still returning false, we did only a semi-evaluation
       return false;
     }
   }
 
-  static Batch::ReadablePtr evaluateHelper(size_t index, Batch::ReadablePtr const& batchPtr) {
-    Batch::ReadablePtr previousPtr;
-    Batch::ReadablePtr evaluatedPtr = batchPtr;
-    bool isCorrectExpectedType = false;
-    while(true) { // do multiple evaluation in a row if needed
-      auto const& evaluatedBatch = *evaluatedPtr;
+  /// Retrieve and evaluate an argument batch
+  /// doing multiple evaluation in a row if needed.
+  /// Usually batchIndex == argIndex, except in the case that we re-arrange a binary operator
+  Batch::ReadablePtr getArgumentBatch(size_t batchIndex, size_t argIndex) const {
+    Batch::ReadablePtr previousBatchPtr;
+    Batch::ReadablePtr evaluatedPtr = *(begin() + batchIndex);
 
-      // little trick here until we can support overloading
-      // or find another way to pass symbol/tableView to the db functions
-      // 2- also needed for "Function" which are evaluated too early (when not using parameters)
-      if(EvaluatorType::isExactType(index, evaluatedBatch)) {
-        isCorrectExpectedType = true;
-        if(previousPtr) { // ok if already evaluated at least once
-          break;
-        }
-      } else if(isCorrectExpectedType) {
-        // go back to previous batch
-        return previousPtr;
+    bool evaluated = true;
+    bool hadTypeExpectedByTheEvaluator = false;
+    // stop if we don't evaluate anymore
+    while(evaluated) {
+      // or if the batch type isn't compatible with the evaluator's argument type anymore
+      bool hasTypeExpectedByTheEvaluator = EvaluatorType::isSupportedType(batchIndex, *evaluatedPtr);
+      if(hadTypeExpectedByTheEvaluator && !hasTypeExpectedByTheEvaluator) {
+        break;
       }
 
-      previousPtr = std::move(evaluatedPtr);
-      bool evaluated = evaluatedBatch.evaluate(evaluatedPtr);
+      // little trick here until we can support overloading: return as soon as we have compatible
+      // type 1- until we find another way to pass symbol/tableView to the db functions
+      // 2- also for "Function" which are evaluated too early (when not applying the parameters)
+      if(hadTypeExpectedByTheEvaluator) {
+        previousBatchPtr = std::move(evaluatedPtr);
+        break;
+      }
 
-      if(!evaluated) {
-        if(evaluatedPtr && !isCorrectExpectedType) {
-          // still return a partial evaluation if we have nothing better
+      hadTypeExpectedByTheEvaluator = hasTypeExpectedByTheEvaluator;
+      previousBatchPtr = std::move(evaluatedPtr);
+      evaluated = previousBatchPtr->evaluate(evaluatedPtr);
+    }
+
+    if(!evaluated) {
+      // reached here if we stopped because it wasn't evaluating further
+      if(evaluatedPtr) {
+        // we have a partial evaluation at least...
+        if(!hadTypeExpectedByTheEvaluator) {
+          // ...and the previous evaluation wasn't compatible with the evaluator's argument type
+          // so return the latest since we haven't anything better
           return evaluatedPtr;
         }
-        return previousPtr;
       }
     }
 
-    return evaluatedPtr;
+    // in any other case, we return the latest evaluated batch
+    return previousBatchPtr;
   }
 };
 

@@ -46,6 +46,7 @@ public:
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
+  /// check if this batch is able to store the value type
   bool canContain(Expression const& val) const override {
     return std::holds_alternative<ValueType>(val);
   }
@@ -116,6 +117,7 @@ public:
   ValueBatch& operator=(ValueBatch const& other) = delete;
   ValueBatch& operator=(ValueBatch&& other) = delete;
 
+  /// create a full copy of the batch (without knowing the derived batch type)
   WritablePtr clone(bool clear = false) const override {
     return WritablePtr(cloneAsValueBatch(clear));
   }
@@ -123,22 +125,21 @@ public:
     return WritableBatchPtr(new ValueBatch(*this, clear));
   }
 
+  /// convenience function to clone a batch to a specific type
+  /// it will work only with the same batch type or derived type
   template <typename BatchType, std::enable_if_t<std::is_base_of_v<BatchType, ValueBatch>, int> = 0>
   WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
     return cloneAsValueBatch(clear);
   }
 
-  void clear() override {
-    m_arrays.clear();
-    m_builder->Reset();
-    m_builderLogicalSize = 0;
-  }
-
-  // TODO: need to make this iterate on the arrays as well, not only the builder
+  // [ISSUE] need to make this iterate on the arrays as well, not only the builder
   // it works for now because we use it only for writing new elements
   auto begin() { return m_builder->begin(); }
   auto end() { return m_builder->begin() + m_builderLogicalSize; }
 
+  // [ISSUE] clean up iterators. maybe part of the arrow API issue too
+  // from Holger's comment:
+  // can we generalize the different iterators? Or maybe even reuse an existing one?
   class ConstIterator {
   public:
     using value_type = ValueType;
@@ -212,11 +213,20 @@ public:
                          m_builder->length());
   }
 
+  // [ISSUE] cleanup usage of arrow API
   void setOwner(std::shared_ptr<CompoundArray> parentArray, size_t childIndex) override {
+    // used to set the owner (parent batch) after creating a child batch in CompoundBatch::column()
+    // so the parent can freezeData() when the child need to freezeData()
+    // since it should always be done together
     m_parentArray = std::move(parentArray);
     m_childIndex = childIndex;
   }
 
+  /// Force the builder to be finished into an array and pushed to the chunkedArray.
+  /// It need to be called by any code which can iterate only on arrays
+  /// so the data in the builder isn't ignored.
+  /// All query operators are able to iterate on the builders, so don't need that.
+  /// Currently, it is used only when exporting arrow arrays outside of the backend.
   void freezeData() {
     std::shared_ptr<arrow::Array> chunkArray;
     if(m_parentArray) {
@@ -226,7 +236,7 @@ public:
         // nothing new
         return;
       }
-      // TODO: handle multiple types in union
+      // [ISSUE] handle multiple types in union
       chunkArray = m_parentArray->getArgument(newChunkIndex, m_childIndex)->field(0);
     } else {
       if(m_builder->length() == 0) {
@@ -248,28 +258,15 @@ public:
     m_builderLogicalSize = 0;
   }
 
-  void reserve(size_t size) override {
-    if(size <= m_arrays.length()) {
-      return;
-    }
-    size -= m_arrays.length();
-    if(size > m_builder->capacity()) {
-      auto status = m_builder->Reserve(size - m_builder->length());
-      if(!status.ok()) {
-        return;
-      }
-    }
-  }
-
   void resize(size_t size) override {
     if(size < m_arrays.length()) {
-      // TODO: any way to handle this case? with slicing?
+      // [ISSUE] (part of arrow API issue) any way to handle this case? with slicing?
       return;
     }
     size -= m_arrays.length();
     if(size > m_builderLogicalSize) {
       if constexpr(std::is_same_v<T, std::string> || std::is_same_v<T, Symbol>) {
-        // TODO: cleaner implementation
+        // [ISSUE] (part of arrow API issue) need cleaner implementation
         // don't resize the internal data in advance when using the proxy
         // since it cannot revisit previous empty values
         // m_builder.Reserve(size - m_builder.length()); // and cannot reserve neither! since append
@@ -281,7 +278,7 @@ public:
         }
       }
     } else if(size < m_builderLogicalSize) {
-      // TODO: need a way to shrink builder size
+      // [ISSUE] (part of arrow API issue) need a way to shrink builder size
       // m_builder->Resize(size);
     }
     m_builderLogicalSize = size;
@@ -345,7 +342,10 @@ private:
 
   MutableChunkedArray m_arrays;
   std::shared_ptr<BuilderType> m_builder;
-  size_t m_builderLogicalSize; // needed until we can shrink a builder
+
+  // [ISSUE] (part of arrow API issue) needed until we can shrink a builder
+  size_t m_builderLogicalSize;
+
   std::shared_ptr<CompoundArray> m_parentArray;
   size_t m_childIndex = 0;
 };

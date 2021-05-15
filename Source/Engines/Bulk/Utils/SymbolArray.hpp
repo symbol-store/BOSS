@@ -42,6 +42,7 @@ public:
     }
 
     std::string Serialize() const override { return std::string(); }
+    // Oh, are these functions required to support arrow format reading/writing?
   };
 
   explicit SymbolArray(const std::shared_ptr<arrow::ArrayData>& data) : arrow::StringArray(data) {

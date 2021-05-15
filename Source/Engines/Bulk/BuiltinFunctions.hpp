@@ -26,6 +26,9 @@ using boss::utilities::operator""_;
 /**************************************************************/
 
 template <typename BatchTemplates> class BuiltinFunctions {
+  // Wow, this thing is massive. I think we want to spend some time refactoring it (happy to do that
+  // in a pair). In particular, I think we should see what utility functions we want to
+  // extract. Extending the engine should be really (!) easy
 public:
   using AnyBatch = typename BatchTemplates::AnyBatch;
   using NonSymbolicBatch = typename BatchTemplates::NonSymbolicBatch;
@@ -709,7 +712,11 @@ private:
         // create sorted indexes
         // TODO: any way to reserve?
         auto keyIt = keys.begin();
-        std::map<ElementType, std::vector<size_t>> sorted;
+        using SortMap =
+            std::conditional_t<std::is_same_v<ElementType, Symbol>,
+                               std::map<Symbol, std::vector<size_t>, CompareSymbolNames>,
+                               std::map<ElementType, std::vector<size_t>>>;
+        SortMap sorted;
         for(size_t rowIndex = 0; rowIndex < batchSize; ++rowIndex, ++keyIt) {
           sorted[*keyIt].push_back(rowIndex);
         }
@@ -808,7 +815,11 @@ private:
 
         // create sorted indexes
         // TODO: any way to reserve?
-        std::map<ElementType, std::vector<size_t>> sorted;
+        using SortMap =
+            std::conditional_t<std::is_same_v<ElementType, Symbol>,
+                               std::map<Symbol, std::vector<size_t>, CompareSymbolNames>,
+                               std::map<ElementType, std::vector<size_t>>>;
+        SortMap sorted;
         size_t batchSize = batch.size();
         auto keyIt = keys.begin();
         for(size_t rowIndex = 0; rowIndex < batchSize; ++rowIndex, ++keyIt) {

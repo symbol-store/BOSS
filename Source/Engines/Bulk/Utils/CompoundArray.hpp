@@ -15,6 +15,8 @@
 namespace boss::engines::bulk {
 
 class CompoundArray : private arrow::ChunkedArray {
+  // can we use delegation here? I feel that private inheritence is (often) a code smell
+  // do you think we should make the arrow implementation a template parameter?
 public:
   explicit CompoundArray(Symbol const& head, std::vector<std::string> const& columns)
       : arrow::ChunkedArray(arrow::ArrayVector{}, nullptr),
@@ -204,6 +206,7 @@ public:
   }
 
   size_t numChunks() const { return arrow::ChunkedArray::num_chunks(); }
+  // should these be private?
 
   size_t numArguments() const {
     if(num_chunks() > 0) {
@@ -215,6 +218,7 @@ public:
   std::shared_ptr<arrow::ArrayBuilder> getBuilder() const { return m_builder; }
 
   std::shared_ptr<ExpressionArrayBuilder> getArgumentBuilder(size_t columnIdx) const {
+    // should this be private?
     if(!m_builder || m_builder->num_children() == 0) {
       return nullptr;
     }

@@ -5,6 +5,7 @@
 namespace boss::engines::bulk {
 
 template <bool DispatchArgumentTypes, bool DispatchSymbolNames> struct CompareExpression {
+  // more expression semantics in the engine
   bool operator()(Expression const& lhs, Expression const& rhs) const {
     return compare(lhs, rhs) < 0;
   }
@@ -32,8 +33,8 @@ private:
       auto rhsArgsIt = rhsExpr.getArguments().begin();
       auto lhsArgsItEnd = lhsExpr->getArguments().end();
       auto rhsArgsItEnd = rhsExpr.getArguments().end();
-      size_t lhsNumArgs = std::distance(lhsArgsIt, lhsArgsItEnd);
-      size_t rhsNumArgs = std::distance(rhsArgsIt, rhsArgsItEnd);
+      size_t lhsNumArgs = lhsExpr->getArguments().size();
+      size_t rhsNumArgs = rhsExpr.getArguments().size();
 
       if(lhsNumArgs != rhsNumArgs) {
         return lhsNumArgs < rhsNumArgs ? -1 : 1;

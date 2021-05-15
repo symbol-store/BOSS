@@ -25,11 +25,13 @@ namespace boss::engines::bulk {
 using ExpressionArray = arrow::DenseUnionArray;
 
 class ExpressionArrayBuilder : public arrow::DenseUnionBuilder {
+  // documentation
 public:
   explicit ExpressionArrayBuilder(arrow::MemoryPool* pool = arrow::default_memory_pool())
       : arrow::DenseUnionBuilder(pool) {}
 
   bool IsSupported(Expression const& expr) {
+    // how?
     return m_expressionToType.find(expr) != m_expressionToType.end();
   }
 
@@ -37,6 +39,7 @@ public:
     auto it = m_expressionToType.find(expr);
     std::shared_ptr<ArrayBuilder> childBuilder;
     bool foundInCache(it != m_expressionToType.end());
+    // let's use assignment for basic types
     auto& cachedTypeId = foundInCache ? it->second : m_expressionToType[expr];
     if(foundInCache) {
       // retrieve from the cache
@@ -128,6 +131,7 @@ public:
       if(!childStatus.ok()) {
         return childStatus;
       }
+      // I guess this is still WIP
 
       return arrow::Status::OK();
     }
@@ -148,6 +152,7 @@ public:
   }
   
   void CopyFields(std::shared_ptr<arrow::DataType> const& type) {
+    // is that necessary?
     // TODO: more proper type handling of type
     if(type->id() != arrow::Type::DENSE_UNION) {
       // this is not an expression array builder
@@ -235,8 +240,10 @@ private:
       for(auto field : storageType->fields()) {
         childTypes.emplace_back(field->type());
       }
-      newBuilderPtr->initArguments(childTypes);
-      return newBuilderPtr;
+      auto status = newBuilderPtr->initArguments(childTypes);
+      if(status.ok()) {
+        return newBuilderPtr;
+      }
     }
 
     default:

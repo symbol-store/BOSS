@@ -7,6 +7,7 @@
 namespace boss::engines::bulk {
 
 class IterableBooleanBuilder : public arrow::BooleanBuilder {
+  // can these builders not be templatized? If not, we should document why not
 public:
   explicit IterableBooleanBuilder(arrow::MemoryPool* pool = arrow::default_memory_pool())
       : arrow::BooleanBuilder(pool) {}
@@ -87,6 +88,7 @@ public:
       : arrow::StringBuilder(pool) {}
 
   // TODO: what to do with strings?
+  // Let's open a ticket
   // we should have reserve+insert instead of resize+set
   // need one of those changes:
   // - a separate StringBatch with a different API
@@ -133,6 +135,7 @@ public:
     }
 
     StringBuilderProxy& operator=(Symbol const& value) {
+      // not sure I like this! Did this ever come up as a case?
       *this = value.getName();
       return *this;
     }
@@ -222,6 +225,7 @@ public:
   };
 
   auto begin() { return PointerIterator(raw_values()); }
+  // is this weird? a NumericBuilder that has a PointerIterator?
   auto end() { return PointerIterator(raw_values() + arrow::NumericBuilder<T>::length()); }
 
   class PointerConstIterator {

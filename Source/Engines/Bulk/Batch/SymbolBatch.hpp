@@ -10,7 +10,11 @@
 
 namespace boss::engines::bulk {
 
+/** SymbolBatch has almost the same features as a ValueBatch<Symbol>.
+ * The only difference is the evaluate function which can retrieve batches stored from the symbol.
+ */
 class SymbolBatch : public ValueBatch<Symbol> {
+  // what is special about a symbolbatch with respect to a ValueBatch<Symbol>?
 public:
   using ValueType = Symbol;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<SymbolBatch>();
@@ -68,11 +72,11 @@ public:
       return false;
     }
 
-    // TODO: handle returning multiple array type
+    // [ISSUE] handle returning multiple array type
     // (for now just assume always a single symbol)
 
     // make sure to return a non-writable...
-    // TODO: cleanup SymbolPool to avoid mistakes
+    // [ISSUE] cleanup SymbolPool to avoid mistakes (part of ReadablePtr/WritablePtr cleanup?)
     auto const& batchPtr = DefaultSymbolPool::instance().findSymbol(*begin());
     if(!batchPtr) {
       return false;

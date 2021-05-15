@@ -26,8 +26,10 @@ public:
     Symbol const& getHead() const { return m_head; }
 
     std::string extension_name() const override { return "complex-expr-type"; }
+    // what is that?
 
     bool ExtensionEquals(ExtensionType const& other) const override {
+      // ???
       auto const& other_ext = static_cast<ExtensionType const&>(other);
       if(other_ext.extension_name() != this->extension_name()) {
         return false;
@@ -36,6 +38,7 @@ public:
     }
 
     std::shared_ptr<arrow::Array> MakeArray(std::shared_ptr<arrow::ArrayData> data) const override {
+      // why and when is this needed?
       // temporarly change to the underline type for the construction
       // it will be reverted in the ComplexExpressionArray constructor
       auto adjustedData = data->Copy();
@@ -51,6 +54,7 @@ public:
     }
 
     std::string Serialize() const override { return m_head.getName(); }
+    // why is this called?
 
   private:
     Symbol m_head;
@@ -67,8 +71,10 @@ public:
 
 template <typename ExpressionArrayBuilder>
 class ComplexExpressionArrayBuilder : public arrow::StructBuilder {
+  // I think we should separate arrow stuff & utilities more clearly from core functionality
 public:
   static void initialisation() {
+    // ???
     static bool initialised = false;
     if(!initialised) {
       auto status = arrow::RegisterExtensionType(
@@ -127,6 +133,7 @@ public:
   // this doesn't resize the children!
   // they have to be extracted and resize manually afterwards!
   arrow::Status resizeStructArray(size_t size) {
+    // what children? Why do they need resizing?
     if(size < length()) {
       // TODO: do we need to support that case?
       return arrow::Status::OK();
@@ -135,6 +142,7 @@ public:
   }
 
   bool IsSupported(ComplexExpression const& expr) {
+    // by whom?
     for(int idx = 0; idx < expr.getArguments().size(); ++idx) {
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
       if(!argBuilder.IsSupported(expr.getArguments()[idx])) {
@@ -203,6 +211,7 @@ public:
   }
 
   arrow::Status AppendExpressions(ComplexExpressionArray const& complexArray) {
+    // can't we refactor some of the AppendExpressions functions?
     auto length = complexArray.length();
 
     // append to the args structure

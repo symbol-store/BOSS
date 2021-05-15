@@ -9,9 +9,12 @@ class Symbol {
 public:
   explicit Symbol(std::string const& name) : name(name){};
   std::string const& getName() const { return name; };
-  bool operator<(Symbol const& rhs) const { return name < rhs.name; }
-  bool operator==(Symbol const& rhs) const { return name == rhs.name; }
-  bool operator!=(Symbol const& rhs) const { return name != rhs.name; }
+};
+class CompareSymbolNames {
+public:
+  bool operator()(Symbol const& lhs, Symbol const& rhs) const {
+    return lhs.getName() < rhs.getName();
+  }
 };
 
 template <typename T, typename... Args> struct variant_amend;

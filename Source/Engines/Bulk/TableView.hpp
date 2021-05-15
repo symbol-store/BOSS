@@ -9,6 +9,14 @@
 
 namespace boss::engines::bulk {
 
+// [ISSUE] now that TableView contains no particular metadata,
+// see if we can get rid of it and support it with normal CompoundBatch
+/** TableView is an extension to the CompoundBatch
+ * to support specific functions for accessing column information.
+ * Also, the main difference with a CompoundBatch is that it passes the decomposed flag
+ * to handle the logifc to store a row differently than a list of lists.
+ * One additional purpose of having this class is to allow an operator
+* to specifically take a TableView as argument (for the query oeprators). */
 class TableView : public CompoundBatch {
 public:
   using ValueType = CompoundBatch::ValueType;
