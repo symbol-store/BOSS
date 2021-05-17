@@ -164,6 +164,28 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
                            1),
                 1))) == 1);
     }
+
+    SECTION("Union") {
+      eval("CreateTable"_("CustomerUnion"_, "ID"_, "Name"_));
+      eval("InsertInto"_("CustomerUnion"_, 1, "Foo"));
+      eval("InsertInto"_("CustomerUnion"_, 2, "Bar"));
+      auto const& unionQuery = "GroupBy"_(
+        "Union"_(
+          "Select"_(
+            "CustomerUnion"_,
+            "Where"_("Greater"_("ID"_, 1))
+          ),
+          "Select"_(
+            "CustomerUnion"_,
+            "Where"_("Greater"_(2, "ID"_))
+          )
+        ),
+        "Function"_(0),
+        "Count"_
+      );
+      auto const& countRows = eval(unionQuery);
+      CHECK(get<int>(countRows) == 2);
+    }
   }
 }
 
