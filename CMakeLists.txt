@@ -109,6 +109,7 @@ set(MLIREngineImplFiles
   Source/Engines/MLIREngine/Runtime/Storage.cpp
   Source/Engines/MLIREngine/Runtime/BuiltinOps.cpp
   Source/Engines/MLIREngine/Runtime/HashTable.cpp
+  Source/Engines/MLIREngine/Interpreter/Interpreter.cpp
 )
 
 # Get MLIR dialect and conversion libraries
@@ -122,7 +123,7 @@ get_property(interface_libs GLOBAL PROPERTY MLIR_INTERFACES)
 
 set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp ${MLIREngineImplFiles})
 set(ExecutableFiles Source/main.cpp)
-set(TestFiles Tests/BOSSTests.cpp Tests/StorageTests.cpp)
+set(TestFiles Tests/BOSSTests.cpp Tests/StorageTests.cpp Tests/InterpreterTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 set(SwigFiles Source/BOSS.i)
 

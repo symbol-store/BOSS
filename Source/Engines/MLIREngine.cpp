@@ -63,16 +63,16 @@ Expression Engine::evaluate(Expression const& e) {
 
   ::mlir::PassManager passManager(module->getContext());
 
-  boss::mlir::inference::TypeInferenceContext context(module->getContext(), &database, {}, nullptr);
+  boss::mlir::inference::TypeInferenceContext context(module->getContext(), database, {}, nullptr);
 
   passManager.addPass(createTypeInferencePass(&context));
   passManager.addPass(createLowerToFunctionsPass(returnType));
   passManager.addNestedPass<::mlir::FuncOp>(createLowerToStdPass());
   passManager.addPass(::mlir::createCanonicalizerPass());
-//  passManager.addPass(::mlir::createInlinerPass());
-  passManager.addPass(createLowerToDatabasePass(database));
-//  passManager.addPass(::mlir::createCanonicalizerPass());
-//  passManager.addPass(createLowerToLLVMPass(database));
+  passManager.addPass(::mlir::createInlinerPass());
+  passManager.addPass(createLowerToDatabasePass(*database));
+  passManager.addPass(::mlir::createCanonicalizerPass());
+  passManager.addPass(createLowerToLLVMPass(*database));
 
   if(::mlir::failed(passManager.run(module.get()))) {
     throw std::runtime_error("Compilation failed");
@@ -91,6 +91,8 @@ Expression Engine::evaluate(Expression const& e) {
   switch(returnType) {
   case RuntimeTypes::INT:
     return static_cast<int>(jitResult);
+  case RuntimeTypes::INT64:
+    return static_cast<size_t>(jitResult);
   case RuntimeTypes::STRING:
     return std::string{reinterpret_cast<const char*>(jitResult)};
   case RuntimeTypes::BOOLEAN:

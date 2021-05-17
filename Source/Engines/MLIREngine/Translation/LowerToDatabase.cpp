@@ -1,3 +1,4 @@
+#include "Engines/MLIREngine.hpp"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseDialect.h"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseOps.h"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
@@ -12,6 +13,7 @@
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include "Engines/MLIREngine/Types/TypeInference.hpp"
 #include "LowerDatabase.hpp"
+#include "Utilities.hpp"
 #include <iostream>
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
 #include <mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h>
@@ -25,6 +27,7 @@
 namespace {
 using namespace mlir;
 using boss::mlir::inference::TypeInferenceContext;
+using boss::utilities::operator""_;
 
 std::mutex printMutex;
 
@@ -273,15 +276,15 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
   LogicalResult matchAndRewrite(database::LookupJoinOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
     auto savedInsertionPoint = rewriter.saveInsertionPoint();
-    rewriter.setInsertionPointAfterValue(op.getOperand());
+    rewriter.setInsertionPointAfter(operands[0].getDefiningOp());
 
     auto* hashTable = reinterpret_cast<runtime::hash::HashTable*>(op.table());
 
-    auto inputTupleStream = op.getType().dyn_cast_or_null<TupleStreamType>();
+    auto inputTupleStream = op.getOperand().getType().dyn_cast_or_null<TupleStreamType>();
     auto const& inputFields = inputTupleStream.getFields();
     auto outputTupleStream = op.getType().dyn_cast_or_null<TupleStreamType>();
 
-    auto const& map = hashTable->getChildIndexMap(op.rightTupleStreamIndex());
+    auto* map = hashTable->getChildIndexMap(op.rightTupleStreamIndex());
     auto* storageRelation = hashTable->getChildArray(op.rightTupleStreamIndex());
 
     // hash the fields that are relevant to the join
@@ -300,10 +303,17 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
     // Look up the value in the hash table
     auto hashTableResult = rewriter.create<database::FindInHashTableOp>(
         op.getLoc(), rewriter.getIndexType(), hashedValues.getResult(),
-        rewriter.getI64IntegerAttr(reinterpret_cast<size_t>(&map)));
+        rewriter.getI64IntegerAttr(reinterpret_cast<size_t>(map)));
 
-    auto relation = hashTable->relation->get()->field(op.rightTupleStreamIndex());
-    auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(relation);
+    // Check whether it was found (returns -1 if not)
+    auto negativeConstant = rewriter.create<ConstantIndexOp>(op.getLoc(), -1);
+    auto eqOp = rewriter.create<::mlir::CmpIOp>(
+        op.getLoc(), CmpIPredicate::ne, negativeConstant.getResult(), hashTableResult.getResult());
+    auto checkNotNegativeOp = rewriter.create<scf::IfOp>(op.getLoc(), eqOp.result(), false);
+    rewriter.setInsertionPointToStart(&checkNotNegativeOp.thenRegion().front());
+
+    auto* relation = hashTable->getChildArray(op.rightTupleStreamIndex());
+    auto structArray = dynamic_cast<arrow::StructArray*>(relation);
 
     // Check that the values really match
     std::vector<Value> comparisonResults;
@@ -375,16 +385,18 @@ struct BuildJoinOpLowering : public OpConversionPattern<database::BuildJoinTable
 
   LogicalResult matchAndRewrite(database::BuildJoinTableOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
-    auto hashBuilder = reinterpret_cast<runtime::hash::HashTable*>(op.table())->relationBuilder;
+    auto* hashTable = reinterpret_cast<runtime::hash::HashTable*>(op.table());
+    auto hashBuilder = hashTable->getBuilder();
 
     // Process each tuple stream from the right relation
+    auto tupleStreamIndex = 0U;
     for(auto const& tupleStreamOp : operands) {
       auto savedInsertionPoint = rewriter.saveInsertionPoint();
       rewriter.setInsertionPointAfter(tupleStreamOp.getDefiningOp());
 
       // Insert the values into hash map storage relation
-      auto insertedLocation = collectTuplesToRelation(rewriter, tupleStreamOp,
-                                                      &hashBuilder, op.getLoc());
+      auto insertedLocation =
+          collectTuplesToRelation(rewriter, tupleStreamOp, &hashBuilder, op.getLoc());
 
       auto inputTupleStream = tupleStreamOp.getType().dyn_cast_or_null<TupleStreamType>();
       auto const& fields = inputTupleStream.getFields();
@@ -404,9 +416,9 @@ struct BuildJoinOpLowering : public OpConversionPattern<database::BuildJoinTable
           rewriter.create<database::HashValuesOp>(op.getLoc(), rewriter.getIndexType(), hashInputs);
 
       // Store the current relation index in the map for this hash
-      rewriter.create<database::InsertIntoHashTableOp>(op.getLoc(), hashResult.getResult(),
-                                                       insertedLocation,
-                                                       rewriter.getI64IntegerAttr(op.table()));
+      rewriter.create<database::InsertIntoHashTableOp>(
+          op.getLoc(), hashResult.getResult(), insertedLocation,
+          rewriter.getI64IntegerAttr(op.table()), rewriter.getI64IntegerAttr(tupleStreamIndex));
 
       rewriter.restoreInsertionPoint(savedInsertionPoint);
     }
@@ -497,11 +509,11 @@ void DatabaseLoweringPass::runOnOperation() {
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
 
   target.addIllegalDialect<mlir::database::DatabaseDialect>();
-  target
-      .addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
-                  database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
-                  database::FinalizeBuilderOp, database::AppendToRelationOp, database::HashValuesOp,
-                  database::InsertIntoHashTableOp, database::AdvanceBuilderOp>();
+  target.addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
+                    database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
+                    database::FinalizeBuilderOp, database::AppendToRelationOp,
+                    database::HashValuesOp, database::InsertIntoHashTableOp,
+                    database::AdvanceBuilderOp, database::FindInHashTableOp>();
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
   target.addLegalDialect<::mlir::StandardOpsDialect>();
@@ -540,6 +552,8 @@ void DatabaseLoweringPass::runOnOperation() {
   if(failed(applyPartialConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
+
+  module.dump();
 }
 
 // namespace

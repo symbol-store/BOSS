@@ -73,9 +73,8 @@ void MLIRGenerator::visitComplexExpression(boss::ComplexExpression const& e) {
 void MLIRGenerator::visitExpression(boss::Expression const& e) {
   std::visit(
       boss::utilities::overload(
-          [&](int a) {
-            auto newOp = builder.create<mlir::sexpr::IntegerConstantOp, int>(
-                builder.getUnknownLoc(), int(a));
+          [&](size_t a) {
+            auto newOp = builder.create<mlir::sexpr::IntegerConstantOp>(builder.getUnknownLoc(), a);
             values.push(newOp.getResult());
           },
           [&](char const* a) {

@@ -7,6 +7,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/HashTable.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
+#include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include "SexprToStd.hpp"
 #include "Utilities.hpp"
 #include <array>
@@ -212,6 +213,7 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
         {"Minus", [&]() { return replaceBinaryOp<mlir::SubIOp>(s, rewriter); }},
         {"Mul", [&]() { return replaceBinaryOp<mlir::MulIOp>(s, rewriter); }},
         {"IDiv", [&]() { return replaceBinaryOp<mlir::SignedDivIOp>(s, rewriter); }},
+        {"And", [&]() { return replaceBinaryOp<mlir::AndOp>(s, rewriter); }},
         {"Eval",
          [&]() {
            rewriter.replaceOp(s.getOperation(), s.getOperands());
@@ -348,16 +350,55 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
            return success();
          }},
+        {"BuildHashTable",
+         [&]() {
+           auto inputStreamUnion = converter.convertType(operands[1].getType())
+                                       .dyn_cast_or_null<TupleStreamUnionType>();
+
+           auto* hashTable = new runtime::hash::HashTable{inputStreamUnion.getNumChildStreams()};
+           auto hashTablePtr = reinterpret_cast<size_t>(hashTable);
+
+           // Get the fields to join on
+           std::vector<Attribute> rightJoinFields;
+           // TODO create some general constant propagation mechanism
+           for(auto const& stringPair : s.getOperand(0).getDefiningOp()->getOperands()) {
+             auto pair = mlir::dyn_cast_or_null<sexpr::SymbolOp>(stringPair.getDefiningOp());
+
+             auto rightStr = mlir::dyn_cast_or_null<sexpr::StringConstantOp>(
+                 pair.getOperand(1).getDefiningOp());
+
+             rightJoinFields.emplace_back(rewriter.getStringAttr(rightStr.value()));
+           }
+           auto rightFields = rewriter.getArrayAttr(rightJoinFields);
+
+           // Create insert phase
+           std::vector<Value> rightTupleStreams;
+           for(auto i = 0U; i < inputStreamUnion.getNumChildStreams(); i++) {
+             auto tupleStreamTy = inputStreamUnion.getTupleStreams()[i];
+             auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
+                 s.getLoc(), tupleStreamTy, operands[1], i);
+             rightTupleStreams.emplace_back(extractionOp.getResult());
+           }
+
+           rewriter.create<database::BuildJoinTableOp>(s.getLoc(), ValueRange(rightTupleStreams),
+                                                       rightFields, hashTablePtr);
+
+           rewriter.replaceOpWithNewOp<ConstantIndexOp>(s, hashTablePtr);
+           return success();
+         }},
         {"Join",
          [&]() {
            auto leftInputStreamUnion = converter.convertType(operands[1].getType())
                                            .dyn_cast_or_null<TupleStreamUnionType>();
-           auto rightInputStreamUnion = converter.convertType(operands[2].getType())
-                                            .dyn_cast_or_null<TupleStreamUnionType>();
+
            auto outputStreamUnion =
                converter.convertType(s.getType()).dyn_cast_or_null<TupleStreamUnionType>();
 
-           if(!leftInputStreamUnion || !rightInputStreamUnion || !outputStreamUnion) {
+           s.getOperand(2).dump();
+           auto hashTablePtr = s.getOperand(2).getDefiningOp<sexpr::IntegerConstantOp>().value();
+           auto* hashTable = reinterpret_cast<runtime::hash::HashTable*>(hashTablePtr);
+
+           if(!leftInputStreamUnion || !outputStreamUnion) {
              s.emitError("Expecting tuple streams");
              return failure();
            }
@@ -380,23 +421,6 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
            auto leftFields = rewriter.getArrayAttr(leftJoinFields);
            auto rightFields = rewriter.getArrayAttr(rightJoinFields);
 
-           // Create the hash table for joining on
-           // todo free somewhere
-           auto* hashTable = new runtime::hash::HashTable{};
-           auto hashTablePtr = reinterpret_cast<size_t>(hashTable);
-
-           // Create insert phase
-           std::vector<Value> rightTupleStreams;
-           for(auto i = 0U; i < rightInputStreamUnion.getNumChildStreams(); i++) {
-             auto tupleStreamTy = rightInputStreamUnion.getTupleStreams()[i];
-             auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
-                 s.getLoc(), tupleStreamTy, operands[2], i);
-             rightTupleStreams.emplace_back(extractionOp.getResult());
-           }
-
-           rewriter.create<database::BuildJoinTableOp>(s.getLoc(), ValueRange(rightTupleStreams),
-                                                       rightFields, hashTablePtr);
-
            std::vector<Value> resultTupleStreams;
 
            // Create lookup phase for each partition
@@ -405,8 +429,8 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
              auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
                  s.getLoc(), leftStreamTy, s.getOperand(1), i);
 
-             for(auto j = 0U; j < rightInputStreamUnion.getNumChildStreams(); j++) {
-               auto rightStreamTy = rightInputStreamUnion.getTupleStreams()[j];
+             for(auto j = 0U; j < hashTable->getNumChildArrays(); j++) {
+               auto hashTableFields = hashTable->getChildFields(j);
                // Check that the types match on the join fields - only join if they do
                // eg. (Join (On (Pair "A" "B"))) - only join partitions where A, B have same type
                auto typesMatch = true;
@@ -415,7 +439,8 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
                  auto rightField = rightJoinFields[k].dyn_cast_or_null<StringAttr>().getValue();
 
                  auto leftType = leftStreamTy.getFields().find(leftField.str())->second;
-                 auto rightType = rightStreamTy.getFields().find(rightField.str())->second;
+                 auto rightType = boss::mlir::conversion::arrowTypeToMLIRType(
+                     s.getContext(), hashTableFields.find(rightField.str())->second);
 
                  if(leftType != rightType) {
                    typesMatch = false;
@@ -429,7 +454,8 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
                      outputStreamUnion
                          .getTupleStreams()[i * leftInputStreamUnion.getNumChildStreams() + j];
                  auto lookupOp = rewriter.create<database::LookupJoinOp>(
-                     s.getLoc(), extractionOp.getResult(), hashTablePtr, j, type, leftFields, rightFields);
+                     s.getLoc(), extractionOp.getResult(), hashTablePtr, j, type, leftFields,
+                     rightFields);
                  resultTupleStreams.emplace_back(lookupOp.getResult());
                }
              }

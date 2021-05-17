@@ -1,19 +1,57 @@
 #include "HashTable.hpp"
 
-arrow::Array* runtime::hash::HashTable::getChildArray(int rightRelationIndx) {
-  return relation->get()->field(rightRelationIndx).get();
+arrow::Array* runtime::hash::HashTable::getChildArray(int rightRelationIndex) {
+  return relation->get()->field(rightRelationIndex).get();
 }
 
-std::unordered_map<size_t, std::vector<size_t>> const&
+std::unordered_map<size_t, std::vector<size_t>>*
 runtime::hash::HashTable::getChildIndexMap(int rightRelationIndex) {
-  return maps[rightRelationIndex];
+  return &maps[rightRelationIndex];
 }
 
-std::map<std::string, boss::mlir::types::RuntimeTypes> const&
+std::map<std::string, arrow::DataType*>
 runtime::hash::HashTable::getChildFields(int rightRelationIndex) {
-  return fields[rightRelationIndex];
+  auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(relation->get()->field(rightRelationIndex));
+
+  std::map<std::string, arrow::DataType*> fields;
+
+  for (auto const& field : structArray->struct_type()->fields()) {
+    fields[field->name()] = field->type().get();
+  }
+
+  return fields;
 }
 
 void runtime::hash::HashTable::build() {
   relation = relationBuilder.build();
+}
+
+// TODO more efficient implementation
+size_t runtime::hash::hash_Int(int value) {
+  return llvm::hash_value(value);
+}
+
+size_t runtime::hash::hash_Bool(bool value) {
+  return llvm::hash_value(value);
+}
+
+void runtime::hash::hashTableInsert(runtime::hash::HashTable* table, size_t rightIndex, size_t hash,
+                                  size_t value) {
+  auto childTable = table->getChildIndexMap(rightIndex);
+
+  childTable->operator[](hash) = std::vector<size_t>{value};
+}
+
+runtime::hash::HashTable* runtime::hash::finalizeHashBuilder(runtime::hash::HashTable* table) {
+  table->build();
+  return table;
+}
+
+size_t runtime::hash::hashTableLookup(std::unordered_map<size_t, std::vector<size_t>>* map, size_t hash) {
+  auto it = map->find(hash);
+  if (it == map->end()) {
+    return -1;
+  }
+  // TODO return all of them
+  return it->second[0];
 }

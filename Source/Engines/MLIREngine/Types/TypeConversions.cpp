@@ -105,6 +105,8 @@ boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type,
   // Check for base types
   if(type.isInteger(1)) {
     return RuntimeTypes::BOOLEAN;
+  } else if (type.isIndex()) {
+    return RuntimeTypes::INT64;
   } else if(type.isIntOrIndex()) {
     return RuntimeTypes::INT;
   } else if(type.isIntOrFloat()) {

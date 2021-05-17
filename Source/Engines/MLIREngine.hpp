@@ -4,21 +4,34 @@
 
 namespace boss::engines::mlir {
 class Engine : public boss::Engine {
-  new_runtime::Database database;
+  new_runtime::Database* database;
 
 public:
-  explicit Engine(new_runtime::Database&& database) : database(std::move(database)) {}
+  explicit Engine(new_runtime::Database& database) : database(&database) {
+    ownsDatabase = false;
+  }
 
-  Engine() : database() {};
+  Engine() {
+      database = new new_runtime::Database;
+      ownsDatabase = true;
+  };
+
+  ~Engine() override {
+    if(ownsDatabase) {
+      delete database;
+    }
+  }
 
   Engine(Engine&) = delete;
   Engine& operator=(Engine&) = delete;
-  Engine(Engine&&) = default;
-  Engine& operator=(Engine&&) = default;
+  Engine(Engine&&) = delete;
+  Engine& operator=(Engine&&) = delete;
   Expression evaluate(Expression const& e);
-  ~Engine() = default;
 
-  new_runtime::Database& getDatabase() { return database; }
+  new_runtime::Database& getDatabase() { return *database; }
+
+private:
+  bool ownsDatabase;
 };
 
 }; // namespace boss::engines::mlir

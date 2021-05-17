@@ -104,7 +104,8 @@ def InsertIntoHashTableOp : Database_Op<"insertHashtableOp", []> {
   let arguments = (ins
     Index:$hash,
     Index:$relationOffset,
-    I64Attr:$tablePtr
+    I64Attr:$tablePtr,
+    I64Attr:$rightTupleStreamIndex
   );
 }
 

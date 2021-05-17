@@ -5,6 +5,7 @@ class Engine {
 
 public:
   Expression evaluate(Expression const& e);
+  virtual ~Engine() = default;
 };
 
 } // namespace boss

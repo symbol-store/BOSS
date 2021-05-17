@@ -427,7 +427,7 @@ int8_t new_runtime::RelationBuilder::getOrCreateTypedStructBuilderIndex(
   return childBuilderIndex->second;
 }
 
-extern "C" new_runtime::Relation* constructRelation(new_runtime::RelationBuilder& builder) {
+extern "C" new_runtime::Relation* finalizeRelationBuilder(new_runtime::RelationBuilder& builder) {
   return builder.build();
 }
 
@@ -448,5 +448,5 @@ extern "C" size_t advanceBuilder(arrow::StructBuilder* structBuilder,
   // TODO error handling
   unionBuilder->Append(child);
   structBuilder->Append();
-  return structBuilder->length();
+  return structBuilder->length() - 1;
 }

@@ -15,7 +15,7 @@ def StringType : Type<CPred<"$_self.isa<StringType>()">>;
 
 def IntegerConstantOp : SExpr_Op<"integerConstant", [DeclareOpInterfaceMethods<TypeInferenceOpInterface>]> {
   let arguments = (ins
-    I32Attr:$value
+    I64Attr:$value
   );
 
   let results = (outs
@@ -24,8 +24,8 @@ def IntegerConstantOp : SExpr_Op<"integerConstant", [DeclareOpInterfaceMethods<T
 
   let builders = [
     // Build a constant with a given constant floating-point value.
-    OpBuilder<"int value", [{
-      $_state.addAttribute("value", $_builder.getI32IntegerAttr(value));
+    OpBuilder<"size_t value", [{
+      $_state.addAttribute("value", $_builder.getI64IntegerAttr(value));
       $_state.addTypes($_builder.getType<SymbolOrValueType, sexprtype::SymbolOrValue, Type>(
           sexprtype::SymbolOrValue::UNKNOWN, $_builder.getI32Type()));
     }]>

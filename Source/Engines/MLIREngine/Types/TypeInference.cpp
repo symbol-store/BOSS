@@ -4,6 +4,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/Storage.hpp"
+#include "Engines/MLIREngine/Runtime/HashTable.hpp"
 #include "TypeConversions.hpp"
 #include <iostream>
 #include <map>
@@ -283,27 +284,33 @@ static const auto inferCreateSymbolType = [](std::vector<::mlir::Type> const& ar
 static const auto inferJoinType = [](std::vector<::mlir::Type> const& arguments,
                                      TypeInferenceContext& context) -> ::mlir::Type  {
   auto leftBaseType = arguments[1].dyn_cast_or_null<SymbolOrValueType>().getBaseType();
-  auto rightBaseType = arguments[2].dyn_cast_or_null<SymbolOrValueType>().getBaseType();
   auto leftTupleStreamUnion = leftBaseType.dyn_cast_or_null<TupleStreamUnionType>();
-  auto rightTupleStreamUnion = rightBaseType.dyn_cast_or_null<TupleStreamUnionType>();
 
-  if (!leftTupleStreamUnion || !rightTupleStreamUnion) {
-    throw std::runtime_error("Error: Expecting tuple stream unions for operands 2 and 3");
+  auto hashTablePtr = context.symbolOp->getOperand(2).getDefiningOp<::mlir::sexpr::IntegerConstantOp>().value();
+  auto hashTable = reinterpret_cast<runtime::hash::HashTable*>(hashTablePtr);
+
+  std::cout << hashTable << std::endl;
+
+  if (!leftTupleStreamUnion || (hashTable == nullptr)) {
+    throw std::runtime_error("Error: Expecting tuple stream union and hash table");
   }
 
   std::vector<TupleStreamType> outputTupleStreams;
   for (auto const& leftTupleStream : leftTupleStreamUnion.getTupleStreams()) {
-    for (auto const& rightTupleStream : rightTupleStreamUnion.getTupleStreams()) {
+    for (auto i = 0UL; i < hashTable->getNumChildArrays(); i++) {
+      auto rightFields = hashTable->getChildFields(i);
+
       std::map<std::string, ::mlir::Type> newFields;
 
       for (auto const& leftField : leftTupleStream.getFields()) {
         newFields[leftField.first] = leftField.second;
       }
 
-      for (auto const& rightField : rightTupleStream.getFields()) {
-        newFields[rightField.first] = rightField.second;
+      for (auto const& rightField : rightFields) {
+        newFields[rightField.first] = boss::mlir::conversion::arrowTypeToMLIRType(context.mlirContext, rightField.second);
       }
 
+      // TODO only if the types match on the joining fields
       auto combinedTupleStream = TupleStreamType::get(context.mlirContext, newFields);
       outputTupleStreams.emplace_back(combinedTupleStream);
     }
@@ -313,17 +320,29 @@ static const auto inferJoinType = [](std::vector<::mlir::Type> const& arguments,
   return outputTupleStream;
 };
 
+static const auto inferBuildHashTable = [](std::vector<::mlir::Type> const& arguments,
+                                           TypeInferenceContext& context) -> ::mlir::Type {
+  return ::mlir::IndexType::get(context.mlirContext);
+};
+
+static const auto inferBooleanType = [](std::vector<::mlir::Type> const& arguments,
+                                        TypeInferenceContext& context) -> ::mlir::Type {
+  // todo check what the argument types are
+  return ::mlir::IntegerType::get(1, context.mlirContext);
+};
+
 const std::map<std::string,
                std::function<::mlir::Type(std::vector<::mlir::Type>&, TypeInferenceContext&)>>
     operatorToType{
         {"Plus", inferArithmeticType},         {"Minus", inferArithmeticType},
         {"Mul", inferArithmeticType},          {"Div", inferArithmeticType},
         {"StringJoin", inferStringJoin},       {"Greater", inferBooleanCompareFunction},
+        {"And", inferBooleanType},
         {"Less", inferBooleanCompareFunction}, {"Eq", inferBooleanCompareFunction},
         {"Symbol", inferCreateSymbolType},     {"Project", inferProjectType},
         {"Select", inferSelectType},           {"Where", inferWhereClauseType},
         {"GetRelation", inferGetRelationType}, {"CollectTuples", inferCollectTuplesType},
-        {"Join", inferJoinType}};
+        {"Join", inferJoinType}, {"BuildHashTable", inferBuildHashTable}};
 
 bool isRegisteredSymbol(std::string const& name) {
   return operatorToType.find(name) != operatorToType.end();
