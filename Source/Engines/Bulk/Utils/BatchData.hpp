@@ -10,14 +10,15 @@ namespace boss::engines::bulk {
 class BatchData {
 public:
   BatchData(arrow::ChunkedArray const& _arrays, std::shared_ptr<arrow::ArrayBuilder> _builder,
-            size_t _builderLogicalSize)
-      : arrays(_arrays), builder(std::move(_builder)), builderLogicalSize(_builderLogicalSize) {}
-
+            size_t _builderLogicalSize, std::shared_ptr<arrow::Field> _field)
+      : arrays(_arrays), builder(std::move(_builder)), builderLogicalSize(_builderLogicalSize),
+        field(std::move(_field)) {}
   arrow::ChunkedArray const& arrays;
   std::shared_ptr<arrow::ArrayBuilder> builder;
-  
+
   // [ISSUE] (part of arrow API issue) needed until we can shrink a builder
   size_t builderLogicalSize;
+  std::shared_ptr<arrow::Field> field;
 };
 
 } // namespace boss::engines::bulk

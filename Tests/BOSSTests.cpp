@@ -10,12 +10,6 @@ using std::string;
 using boss::utilities::operator""_;
 
 template <typename Engine> Engine& getEngine();
-template <> boss::engines::wolfram::Engine& getEngine<boss::engines::wolfram::Engine>() {
-  static boss::engines::wolfram::Engine e;
-  return e;
-};
-
-template <typename Engine> Engine& getEngine();
 template <> boss::engines::bulk::Engine& getEngine<boss::engines::bulk::Engine>() {
   static std::unique_ptr<boss::engines::bulk::Engine> enginePtr;
   enginePtr = std::make_unique<boss::engines::bulk::Engine>();
@@ -23,6 +17,12 @@ template <> boss::engines::bulk::Engine& getEngine<boss::engines::bulk::Engine>(
 };
 
 #ifdef WSINTERFACE
+template <typename Engine> Engine& getEngine();
+template <> boss::engines::wolfram::Engine& getEngine<boss::engines::wolfram::Engine>() {
+  static boss::engines::wolfram::Engine e;
+  return e;
+};
+
 TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine,
                    boss::engines::wolfram::Engine) { // NOLINT
 #else

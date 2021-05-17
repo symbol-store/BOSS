@@ -43,7 +43,7 @@ Expression Engine::evaluate(Expression const& e) {
       batch.insert(exprArg);
     }
   }
-  
+
   if(!done) {
     // default case, create just a single element batch for the root expression
     batchPtr = Batch::WritablePtr(batchFactory.createBatch(e));

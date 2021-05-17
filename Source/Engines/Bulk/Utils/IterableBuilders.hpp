@@ -28,7 +28,7 @@ public:
     friend class BoolIterator;
 
   public:
-    BoolBuilderProxy(IterableBooleanBuilder& builder, size_t index)
+    BoolBuilderProxy(IterableBooleanBuilder& builder, int index)
         : m_builder(builder), m_index(index) {}
     explicit operator bool() const { return m_builder.GetValue(m_index); }
     BoolBuilderProxy& operator=(bool value) {
@@ -38,18 +38,18 @@ public:
 
   private:
     IterableBooleanBuilder& m_builder;
-    size_t m_index;
+    int m_index;
   };
 
   class BoolIterator {
   public:
-    BoolIterator(IterableBooleanBuilder& builder, size_t index) : m_proxy(builder, index) {}
+    BoolIterator(IterableBooleanBuilder& builder, int index) : m_proxy(builder, index) {}
     auto& operator*() { return m_proxy; }
     bool operator!=(BoolIterator const& rhs) const {
       return m_proxy.m_index != rhs.m_proxy.m_index;
     }
     bool operator!=(BoolIterator&& rhs) const { return m_proxy.m_index != rhs.m_proxy.m_index; }
-    BoolIterator operator+(size_t incr) const {
+    BoolIterator operator+(int incr) const {
       return BoolIterator(m_proxy.m_builder, m_proxy.m_index + incr);
     }
     void operator++() { ++m_proxy.m_index; }
@@ -58,27 +58,31 @@ public:
     BoolBuilderProxy m_proxy;
   };
 
-  auto begin() { return BoolIterator(*this, 0); }
+  // offset is a workaround for now, because not all elements are iterable
+  // (if they are already in an array)
+  auto begin(size_t offset = 0) { return BoolIterator(*this, -offset); }
   auto end() { return BoolIterator(*this, length()); }
 
   class BoolConstIterator {
   public:
-    BoolConstIterator(IterableBooleanBuilder const& builder, size_t index)
+    BoolConstIterator(IterableBooleanBuilder const& builder, int index)
         : m_builder(builder), m_index(index) {}
     auto operator*() const { return m_builder[m_index]; }
     bool operator!=(BoolConstIterator const& rhs) const { return m_index != rhs.m_index; }
     bool operator!=(BoolConstIterator&& rhs) const { return m_index != rhs.m_index; }
-    BoolConstIterator operator+(size_t incr) const {
+    BoolConstIterator operator+(int incr) const {
       return BoolConstIterator(m_builder, m_index + incr);
     }
     void operator++() { ++m_index; }
 
   private:
     IterableBooleanBuilder const& m_builder;
-    size_t m_index;
+    int m_index;
   };
 
-  auto begin() const { return BoolConstIterator(*this, 0); }
+  // offset is a workaround for now, because not all elements are iterable
+  // (if they are already in an array)
+  auto begin(size_t offset = 0) const { return BoolConstIterator(*this, -offset); }
   auto end() const { return BoolConstIterator(*this, length()); }
 };
 
@@ -96,14 +100,14 @@ public:
   // - use a dictionary for strings, so can separate ordered insert and data allocation
   class StringBuilderProxy {
   public:
-    StringBuilderProxy(IterableStringBuilder& builder, size_t index)
+    StringBuilderProxy(IterableStringBuilder& builder, int index)
         : m_builder(builder), m_index(index) {}
     ~StringBuilderProxy() = default;
     StringBuilderProxy(StringBuilderProxy const& other) = default;
     StringBuilderProxy(StringBuilderProxy&& other) = default;
     bool operator!=(StringBuilderProxy const& rhs) const { return m_index != rhs.m_index; }
     bool operator!=(StringBuilderProxy&& rhs) const { return m_index != rhs.m_index; }
-    StringBuilderProxy operator+(size_t incr) const {
+    StringBuilderProxy operator+(int incr) const {
       return StringBuilderProxy(m_builder, m_index + incr);
     }
     void operator++() { ++m_index; }
@@ -151,12 +155,12 @@ public:
 
   private:
     IterableStringBuilder& m_builder;
-    size_t m_index;
+    int m_index;
   };
 
   class StringIterator {
   public:
-    StringIterator(IterableStringBuilder& builder, size_t index) : m_proxy(builder, index) {}
+    StringIterator(IterableStringBuilder& builder, int index) : m_proxy(builder, index) {}
     explicit StringIterator(StringBuilderProxy const& proxy) : m_proxy(proxy) {}
     StringBuilderProxy const& operator*() const { return m_proxy; }
     StringBuilderProxy& operator*() { return m_proxy; }
@@ -169,27 +173,31 @@ public:
     StringBuilderProxy m_proxy;
   };
 
-  auto begin() { return StringIterator(*this, 0); }
+  // offset is a workaround for now, because not all elements of the array are iterable
+  // (if they are already in an array)
+  auto begin(size_t offset = 0) { return StringIterator(*this, -offset); }
   auto end() { return StringIterator(*this, length()); }
 
   class StringConstIterator {
   public:
-    StringConstIterator(IterableStringBuilder const& builder, size_t index)
+    StringConstIterator(IterableStringBuilder const& builder, int index)
         : m_builder(builder), m_index(index) {}
     auto operator*() const { return std::string(m_builder.GetView(m_index)); }
     bool operator!=(StringConstIterator const& rhs) const { return m_index != rhs.m_index; }
     bool operator!=(StringConstIterator&& rhs) const { return m_index != rhs.m_index; }
-    StringConstIterator operator+(size_t incr) const {
+    StringConstIterator operator+(int incr) const {
       return StringConstIterator(m_builder, m_index + incr);
     }
     void operator++() { ++m_index; }
 
   private:
     IterableStringBuilder const& m_builder;
-    size_t m_index;
+    int m_index;
   };
 
-  auto begin() const { return StringConstIterator(*this, 0); }
+  // offset is a workaround for now, because not all elements of the array are iterable
+  // (if they are already in an array)
+  auto begin(size_t offset = 0) const { return StringConstIterator(*this, -offset); }
   auto end() const { return StringConstIterator(*this, length()); }
 };
 
@@ -224,7 +232,9 @@ public:
     value_type* m_pointer;
   };
 
-  auto begin() { return PointerIterator(raw_values()); }
+  // offset is a workaround for now, because not all elements of the array are iterable
+  // (if they are already in an array)
+  auto begin(size_t offset = 0) { return PointerIterator(raw_values() - offset); }
   // is this weird? a NumericBuilder that has a PointerIterator?
   auto end() { return PointerIterator(raw_values() + arrow::NumericBuilder<T>::length()); }
 
@@ -243,7 +253,9 @@ public:
     value_type const* m_pointer;
   };
 
-  auto begin() const { return PointerConstIterator(raw_values()); }
+  // offset is a workaround for now, because not all elements of the array are iterable
+  // (if they are already in an array)
+  auto begin(size_t offset = 0) const { return PointerConstIterator(raw_values() - offset); }
   auto end() const {
     return PointerConstIterator(raw_values() + arrow::NumericBuilder<T>::length());
   }

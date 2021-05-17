@@ -72,22 +72,19 @@ public:
   CompoundBatch& operator=(CompoundBatch&& other) = delete;
 
   Symbol const& getHead() const { return m_symbol; }
-  void setHead(Symbol const& symbol) { m_symbol = symbol; }
-  void setHead(Symbol&& symbol) { m_symbol = std::move(symbol); }
 
   /// create a full copy of the batch (without knowing the derived batch type)
-  WritablePtr clone(bool clear = false) const override {
-    return WritablePtr(cloneAsCompoundBatch(clear));
-  }
-  virtual WritableBatchPtr<CompoundBatch> cloneAsCompoundBatch(bool clear = false) const {
-    return WritableBatchPtr(new CompoundBatch(*this, clear));
+  Batch* clone(bool clear = false) const override { return cloneAsCompoundBatch(clear); }
+
+  virtual CompoundBatch* cloneAsCompoundBatch(bool clear = false) const {
+    return new CompoundBatch(*this, clear);
   }
 
   /// convenience function to clone a batch to a specific type
   /// it will work only with the same batch type or derived type
   template <typename BatchType,
             std::enable_if_t<std::is_base_of_v<BatchType, CompoundBatch>, int> = 0>
-  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+  BatchType* cloneAs(bool clear = false) const {
     return cloneAsCompoundBatch(clear);
   }
 
@@ -101,7 +98,6 @@ public:
 
   class ConstColumnIterator {
   public:
-    using value_type = ReadablePtr;
     explicit ConstColumnIterator(CompoundBatch const& batch, size_t index = 0)
         : m_batch(batch), m_index(index) {}
     ReadablePtr operator*() const { return m_batch.column(m_index); }
@@ -122,7 +118,6 @@ public:
 
   class ColumnIterator {
   public:
-    using value_type = WritablePtr;
     explicit ColumnIterator(CompoundBatch& batch, size_t index = 0)
         : m_batch(batch), m_index(index) {}
     WritablePtr operator*() const { return m_batch.column(m_index); }
@@ -151,6 +146,40 @@ public:
     }
   }
 
+  template <typename Func> void visitChunks(Func&& visitor) {
+    auto chunks = m_array->getChunkedArray().chunks();
+    for(auto chunk : chunks) {
+      CompoundArray compoundChunk(*m_array, std::move(chunk));
+      auto* batch = cloneAsCompoundBatch(true);
+      batch->insert(std::move(compoundChunk));
+      visitor(WritableBatchPtr<CompoundBatch>(batch));
+    }
+    if(m_array->hasBuilder()) {
+      CompoundArray compoundChunk(m_array->getBuilder());
+      auto* batch = cloneAsCompoundBatch(true);
+      batch->insert(std::move(compoundChunk));
+      visitor(WritableBatchPtr<CompoundBatch>(batch));
+    }
+  }
+
+  template <typename Func> void visitChunks(Func&& visitor) const {
+    auto chunks = m_array->getChunkedArray().chunks();
+    for(auto chunk : chunks) {
+      CompoundArray compoundChunk(*m_array, std::move(chunk));
+      auto* batch = cloneAsCompoundBatch(true);
+      batch->insert(std::move(compoundChunk));
+      auto const* constBatch = batch;
+      visitor(ReadableBatchPtr<CompoundBatch>(constBatch));
+    }
+    if(m_array->hasBuilder()) {
+      CompoundArray compoundChunk(m_array->getBuilder());
+      auto* batch = cloneAsCompoundBatch(true);
+      batch->insert(std::move(compoundChunk));
+      auto const* constBatch = batch;
+      visitor(ReadableBatchPtr<CompoundBatch>(constBatch));
+    }
+  }
+
   /// extract a "row" (which has a different meaning for decomposed or not decomposed batch)
   virtual Batch::ReadablePtr extract(size_t index) const {
     if(!m_decomposed) {
@@ -161,7 +190,6 @@ public:
     auto rowArray = m_array->getRow(index);
     CompoundArray compoundRow(*m_array, std::move(rowArray));
     auto* batch = new CompoundBatch(m_factory, m_symbol, std::move(compoundRow));
-    batch->m_decomposed = false;
     auto const* constBatch = batch;
     return Batch::ReadablePtr(constBatch);
   }
@@ -174,20 +202,10 @@ public:
     arrow::ArrayVector argChunks;
     argChunks.reserve(m_array->numChunks());
     for(size_t chunkIdx = 0; chunkIdx < m_array->numChunks(); ++chunkIdx) {
-      auto argArray = m_array->getArgument(chunkIdx, index);
-      auto const& argArrayData = *argArray->data();
-      // TODO: handle heterogeneous arrays (returning field(1), etc)
-      // but need to think about how to slice them
-      auto argArrayTyped = argArray->field(0)->Slice(argArrayData.offset, argArrayData.length);
-      argChunks.emplace_back(std::move(argArrayTyped));
+      argChunks.emplace_back(getChunk(index, chunkIdx));
     }
-
     // + retrieve the child builder if it has been used (and not yet finished into an array)
-    std::shared_ptr<arrow::ArrayBuilder> argBuilder = m_array->getArgumentBuilder(index);
-    // TODO: handle heterogeneous arrays (returning child_builder(1), etc)
-    if(argBuilder) {
-      argBuilder = argBuilder->child_builder(0);
-    }
+    std::shared_ptr<arrow::ArrayBuilder> argBuilder = getBuilder(index);
 
     // create a batch of the right type from these arrays/builder
     Batch* batch = m_factory.createBatch(std::move(argChunks), std::move(argBuilder));
@@ -204,20 +222,10 @@ public:
     arrow::ArrayVector argChunks;
     argChunks.reserve(m_array->numChunks());
     for(size_t chunkIdx = 0; chunkIdx < m_array->numChunks(); ++chunkIdx) {
-      auto argArray = m_array->getArgument(chunkIdx, index);
-      auto const& argArrayData = *argArray->data();
-      // TODO: handle heterogeneous arrays (returning field(1), etc)
-      // but need to think about how to slice them
-      auto argArrayTyped = argArray->field(0)->Slice(argArrayData.offset, argArrayData.length);
-      argChunks.emplace_back(std::move(argArrayTyped));
+      argChunks.emplace_back(getChunk(index, chunkIdx));
     }
-
     // + retrieve the child builder if it has been used (and not yet finished into an array)
-    std::shared_ptr<arrow::ArrayBuilder> argBuilder = m_array->getArgumentBuilder(index);
-    // TODO: handle heterogeneous arrays (returning child_builder(1), etc)
-    if(argBuilder) {
-      argBuilder = argBuilder->child_builder(0);
-    }
+    std::shared_ptr<arrow::ArrayBuilder> argBuilder = getBuilder(index);
 
     // create a batch of the right type from these arrays/builder
     Batch* batch = m_factory.createBatch(std::move(argChunks), std::move(argBuilder));
@@ -250,12 +258,12 @@ public:
   }
 
   void insert(std::vector<ReadablePtr> const& argBatches) {
-    std::vector<BatchData> m_argData;
-    m_argData.reserve(argBatches.size());
+    std::vector<BatchData> argData;
+    argData.reserve(argBatches.size());
     for(const auto& batchPtr : argBatches) {
-      m_argData.emplace_back(batchPtr->data());
+      argData.emplace_back(batchPtr->data());
     }
-    auto status = m_array->append(m_symbol, m_argData);
+    auto status = m_array->append(m_symbol, argData);
     if(!status.ok()) {
       return;
     }
@@ -289,16 +297,17 @@ public:
       return false;
     }
 
-    auto newCompoundPtr = cloneAsCompoundBatch(true);
-    newCompoundPtr->insert(argBatches);
-    outputPtr = std::move(newCompoundPtr);
+    auto* newCompoundBatch = cloneAsCompoundBatch(true);
+    newCompoundBatch->insert(argBatches);
+    outputPtr = WritableBatchPtr(newCompoundBatch);
     return true;
   }
 
   BatchData data() const override {
     auto builder = m_array->getBuilder();
-    auto builderLength = builder->length();
-    return BatchData(m_array->getChunkedArray(), std::move(builder), builderLength);
+    auto builderLength = builder ? builder->length() : 0;
+    return BatchData(m_array->getChunkedArray(), std::move(builder), builderLength,
+                     m_array->field());
   }
 
   // [ISSUE] cleanup usage of arrow API
@@ -309,7 +318,32 @@ public:
     m_array->setOwner(std::move(parentArray), childIndex);
   }
 
+protected:
+  // for TableView to add columns to the builder fields
+  void addArgument(std::string const& argName) { m_array->addArgument(m_symbol, argName); }
+  // for TableView to create a temporary batch for the columns
+  Batch* createBatch(Expression const& expression) const {
+    return m_factory.createBatch(expression);
+  }
+
 private:
+  std::shared_ptr<arrow::Array> getChunk(size_t index, size_t chunkIndex) const {
+    auto argArray = m_array->getArgument(chunkIndex, index);
+    auto const& argArrayData = *m_array->getArrayData(chunkIndex);
+    // TODO: handle heterogeneous arrays (returning field(1), etc)
+    // but need to think about how to slice them
+    return argArray->field(0)->Slice(argArrayData.offset, argArrayData.length);
+  }
+
+  std::shared_ptr<arrow::ArrayBuilder> getBuilder(size_t index) const {
+    auto argBuilder = m_array->getArgumentBuilder(index);
+    // TODO: handle heterogeneous arrays (returning child_builder(1), etc)
+    if(argBuilder && argBuilder->num_children() > 0) {
+      return argBuilder->child_builder(0);
+    }
+    return nullptr;
+  }
+
   BatchFactory const& m_factory;
   Symbol m_symbol;
   bool m_decomposed;

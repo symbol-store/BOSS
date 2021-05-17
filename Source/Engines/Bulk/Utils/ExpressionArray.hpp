@@ -24,6 +24,17 @@ namespace boss::engines::bulk {
 
 using ExpressionArray = arrow::DenseUnionArray;
 
+// workaround to access offsets_builders in ExpressionArrayBuilder
+template <typename Tag, typename Tag::type PrivateMember> struct AccessPrivateMember {
+  friend typename Tag::type get(Tag /*unused*/) { return PrivateMember; }
+};
+struct DenseUnionBuilder_member {
+  typedef arrow::TypedBufferBuilder<int32_t> arrow::DenseUnionBuilder::*type;
+  friend type get(DenseUnionBuilder_member /*unused*/);
+};
+template struct AccessPrivateMember<DenseUnionBuilder_member,
+                                    &arrow::DenseUnionBuilder::offsets_builder_>;
+
 class ExpressionArrayBuilder : public arrow::DenseUnionBuilder {
   // documentation
 public:
@@ -33,6 +44,31 @@ public:
   bool IsSupported(Expression const& expr) {
     // how?
     return m_expressionToType.find(expr) != m_expressionToType.end();
+  }
+
+  bool IsSupported(arrow::DataType const& type) {
+    for(int i = 0; i < num_children(); ++i) {
+      auto builder = child_builder(i);
+      auto supportedType = child_builder(i)->type();
+      if(type.id() != supportedType->id()) {
+        continue;
+      }
+      if(type.num_fields() != supportedType->num_fields()) {
+        continue;
+      }
+      bool match = true;
+      auto fieldsIt = supportedType->fields().begin();
+      for(auto const& field : type.fields()) {
+        if(!field->Equals(*fieldsIt)) {
+          match = false;
+          break;
+        }
+      }
+      if(match) {
+        return true;
+      }
+    }
+    return false;
   }
 
   arrow::Status AppendExpression(Expression const& expr) {
@@ -75,9 +111,10 @@ public:
         return typeStatus;
       }
       for(int i = curLength; i < curLength + srcArray.length(); ++i) {
-        // TODO: need a way around this (offsets_builder_ is private)
-        // otherwise we create invalid union type!
-        // offsets_builder_.Append(i);
+        auto offsetStatus = offsets_builder().Append(i);
+        if(!offsetStatus.ok()) {
+          return offsetStatus;
+        }
       }
 
       // append to the child builder
@@ -115,15 +152,15 @@ public:
       auto const& destBuilder = child_builder(destType);
       auto curLength = destBuilder->length();
 
-      // append type/offsets to the union array
-      auto typeSatus = types_builder_.Append(logicalSize, destType);
-      if(!typeSatus.ok()) {
-        return typeSatus;
+      auto typeStatus = types_builder_.Append(logicalSize, destType);
+      if(!typeStatus.ok()) {
+        return typeStatus;
       }
       for(int i = curLength; i < curLength + logicalSize; ++i) {
-        // TODO: need a way around this (offsets_builder_ is private)
-        // otherwise we create invalid union type!
-        // offsets_builder_.Append(i);
+        auto offsetStatus = offsets_builder().Append(i);
+        if(!offsetStatus.ok()) {
+          return offsetStatus;
+        }
       }
 
       // append to the child builder
@@ -163,12 +200,20 @@ public:
 
     // handle each union child array separately
     // (we lose the order)
-    for(auto field : type->fields()) {
+    for(auto const& field : type->fields()) {
       CopyFields(field->type());
     }
   }
 
+  arrow::Status FinishInternal(std::shared_ptr<arrow::ArrayData>* out) override {
+    return DenseUnionBuilder::FinishInternal(out);
+  }
+
 private:
+  arrow::TypedBufferBuilder<int32_t>& offsets_builder() {
+    return this->*get(DenseUnionBuilder_member());
+  }
+
   using ComplexExpressionArrayBuilder = ComplexExpressionArrayBuilder<ExpressionArrayBuilder>;
 
   std::map<Expression, int8_t, CompareExpression<true, false>> m_expressionToType;
@@ -237,7 +282,7 @@ private:
 
       std::vector<std::shared_ptr<arrow::DataType>> childTypes;
       childTypes.reserve(storageType->num_fields());
-      for(auto field : storageType->fields()) {
+      for(auto const& field : storageType->fields()) {
         childTypes.emplace_back(field->type());
       }
       auto status = newBuilderPtr->initArguments(childTypes);

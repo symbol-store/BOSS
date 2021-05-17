@@ -16,66 +16,67 @@ namespace boss::engines::bulk {
  * Also, the main difference with a CompoundBatch is that it passes the decomposed flag
  * to handle the logifc to store a row differently than a list of lists.
  * One additional purpose of having this class is to allow an operator
-* to specifically take a TableView as argument (for the query oeprators). */
+ * to specifically take a TableView as argument (for the query oeprators). */
 class TableView : public CompoundBatch {
 public:
   using ValueType = CompoundBatch::ValueType;
   static constexpr UniqueId::type UniqueId = UniqueId::forType<TableView>();
 
-  using ColumnBatchType = ValueBatch<Symbol>;
-  using ColumnWritablePtr = WritableBatchPtr<ColumnBatchType>;
-  using ColumnReadablePtr = ReadableBatchPtr<ColumnBatchType>;
-
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
-  explicit TableView(BatchFactory const& factory)
-      : CompoundBatch(factory, true), m_columns(new ColumnBatchType()) {}
-
-  TableView(TableView const& other, bool clear = false)
-      : CompoundBatch(other, clear), m_columns(other.m_columns->cloneAsValueBatch()) {}
+  explicit TableView(BatchFactory const& factory) : CompoundBatch(factory, true) {}
+  TableView(TableView const& other, bool clear = false) : CompoundBatch(other, clear) {}
 
   ~TableView() override = default;
   TableView(TableView&& other) = delete;
   TableView& operator=(TableView const& other) = delete;
   TableView& operator=(TableView&& other) = delete;
 
-  WritablePtr clone(bool clear = false) const override {
-    return WritablePtr(cloneAsTableView(clear));
-  }
-  WritableBatchPtr<CompoundBatch> cloneAsCompoundBatch(bool clear = false) const override {
-    return WritableBatchPtr<CompoundBatch>(cloneAsTableView(clear));
-  }
-  virtual WritableBatchPtr<TableView> cloneAsTableView(bool clear = false) const {
-    return WritableBatchPtr(new TableView(*this, clear));
-  }
+  Batch* clone(bool clear = false) const override { return cloneAsTableView(clear); }
 
-  template <typename BatchType, std::enable_if_t<std::is_base_of_v<BatchType, TableView>, int> = 0>
-  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+  CompoundBatch* cloneAsCompoundBatch(bool clear = false) const override {
     return cloneAsTableView(clear);
   }
 
-  void addColumn(Symbol const& column) { m_columns->insert(column); }
-
-  ColumnWritablePtr& columns() { return m_columns; }
-  ColumnReadablePtr columns() const { return m_columns; }
-
-  auto const& columnName(size_t index) const {
-    return Symbol(*(columns()->begin() + index)).getName(); // NOLINT
+  virtual TableView* cloneAsTableView(bool clear = false) const {
+    return new TableView(*this, clear);
   }
 
-  int columnIndex(std::string const& name) const {
-    int index = 0;
-    for(Symbol const& column : *columns()) {
-      if(column.getName() == name) {
-        return index;
+  template <typename BatchType, std::enable_if_t<std::is_base_of_v<BatchType, TableView>, int> = 0>
+  BatchType* cloneAs(bool clear = false) const {
+    return cloneAsTableView(clear);
+  }
+
+  void addColumn(Symbol const& column) { CompoundBatch::addArgument(column.getName()); }
+
+  Batch::WritablePtr columns() const {
+    // create a temporary column batch (compound) from the array fields
+    auto const& batchData = CompoundBatch::data();
+    ExpressionArguments columns;
+    if(batchData.builder || batchData.arrays.chunks().size() > 0) {
+      auto type = batchData.builder ? batchData.builder->type() : batchData.arrays.chunk(0)->type();
+      auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
+      auto structType = extensionType.storage_type();
+      columns.reserve(structType->num_fields());
+      for(auto const& field : structType->fields()) {
+        columns.emplace_back(Symbol(field->name()));
       }
-      ++index;
     }
-    return -1;
+    ComplexExpression columnList("List"_, columns);
+    return Batch::WritablePtr(CompoundBatch::createBatch(columnList));
   }
 
-  size_t numColumns() const { return columns()->size(); }
+  size_t numColumns() const {
+    auto const& data = CompoundBatch::data();
+    if(data.builder) {
+      return data.builder->num_children();
+    }
+    if(!data.arrays.chunks().empty()) {
+      return data.arrays.chunk(0)->num_fields();
+    }
+    return 0;
+  }
 
   bool evaluate(ReadablePtr& outputPtr) const override {
     // set the local columns to be accessible by the rows evaluation
@@ -83,8 +84,7 @@ public:
     auto backupSymbol = std::move(symbolPtr);
     symbolPtr = columns();
 
-    ReadablePtr evaluatedPtr;
-    bool evaluated = CompoundBatch::evaluate(evaluatedPtr);
+    bool evaluated = CompoundBatch::evaluate(outputPtr);
 
     // reset to any previous local columns symbol
     symbolPtr = std::move(backupSymbol);
@@ -93,19 +93,8 @@ public:
       outputPtr.reset();
       return false;
     }
-
-    // put back missing info
-    auto writablePtr = WritablePtr::asWritable(evaluatedPtr);
-    BatchHelper<TableView>::visit(
-        [this](auto& tableView) { tableView.m_columns = m_columns->cloneAsValueBatch(); },
-        *writablePtr);
-
-    outputPtr = std::move(writablePtr);
     return true;
   }
-
-private:
-  ColumnWritablePtr m_columns;
 };
 
 } // namespace boss::engines::bulk

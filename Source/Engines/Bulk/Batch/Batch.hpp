@@ -168,9 +168,9 @@ public:
     }
     // here we need to copy the data to make it writable
     if constexpr(std::is_same_v<BatchType, Batch>) {
-      return batchPtr->clone();
+      return WritableBatchPtr(batchPtr->clone());
     } else {
-      return batchPtr->template cloneAs<BatchType>();
+      return WritableBatchPtr(batchPtr->template cloneAs<BatchType>());
     }
   }
 
@@ -200,7 +200,7 @@ public:
   Batch& operator=(Batch&& other) = delete;
   
   /// create a full copy of the batch (without knowing the derived batch type)
-  virtual WritablePtr clone(bool clear = false) const = 0;
+  virtual Batch* clone(bool clear = false) const = 0;
 
   virtual size_t size() const = 0;
   virtual void resize(size_t size) = 0;

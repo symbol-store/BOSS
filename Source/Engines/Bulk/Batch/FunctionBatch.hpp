@@ -45,19 +45,19 @@ public:
   FunctionBatch& operator=(FunctionBatch const& other) = delete;
   FunctionBatch& operator=(FunctionBatch&& other) = delete;
 
-  WritablePtr clone(bool clear = false) const override {
-    return WritablePtr(cloneAsFunctionBatch(clear));
+  Batch* clone(bool clear = false) const override { return cloneAsFunctionBatch(clear); }
+
+  CompoundBatch* cloneAsCompoundBatch(bool clear = false) const override {
+    return cloneAsFunctionBatch(clear);
   }
-  WritableBatchPtr<CompoundBatch> cloneAsCompoundBatch(bool clear = false) const override {
-    return WritableBatchPtr<CompoundBatch>(cloneAsFunctionBatch(clear));
-  }
-  virtual WritableBatchPtr<FunctionBatch> cloneAsFunctionBatch(bool clear = false) const {
-    return WritableBatchPtr(new FunctionBatch(*this, clear));
+
+  virtual FunctionBatch* cloneAsFunctionBatch(bool clear = false) const {
+    return new FunctionBatch(*this, clear);
   }
 
   template <typename BatchType,
             std::enable_if_t<std::is_base_of_v<BatchType, FunctionBatch>, int> = 0>
-  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+  BatchType* cloneAs(bool clear = false) const {
     return cloneAsFunctionBatch(clear);
   }
 

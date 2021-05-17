@@ -19,8 +19,7 @@ class ComplexExpressionArray : public arrow::StructArray {
 public:
   class ComplexExpressionArrayType : public arrow::ExtensionType {
   public:
-    explicit ComplexExpressionArrayType(Symbol const& head,
-                                        std::vector<std::shared_ptr<arrow::Field>> const& fields)
+    explicit ComplexExpressionArrayType(Symbol const& head, arrow::FieldVector const& fields)
         : ExtensionType(arrow::struct_(fields)), m_head(head) {}
 
     Symbol const& getHead() const { return m_head; }
@@ -79,7 +78,7 @@ public:
     if(!initialised) {
       auto status = arrow::RegisterExtensionType(
           std::make_shared<ComplexExpressionArray::ComplexExpressionArrayType>(
-              Symbol(""), std::vector<std::shared_ptr<arrow::Field>>{}));
+              Symbol(""), arrow::FieldVector{}));
       if(!status.ok()) {
         return;
       }
@@ -87,10 +86,10 @@ public:
     }
   }
 
-  ComplexExpressionArrayBuilder(Symbol const& head, std::vector<std::string> const& columns,
+  ComplexExpressionArrayBuilder(Symbol const& head, arrow::FieldVector const& fields,
                                 arrow::MemoryPool* pool = arrow::default_memory_pool())
-      : arrow::StructBuilder(std::make_shared<arrow::StructType>(makeFields(columns)), pool,
-                             makeChildBuilders(columns.size(), pool)),
+      : arrow::StructBuilder(std::make_shared<arrow::StructType>(fields), pool,
+                             makeChildBuilders(fields.size(), pool)),
         m_head(head) {
     initialisation();
   }
@@ -104,19 +103,39 @@ public:
   }
 
   ComplexExpressionArrayBuilder(ComplexExpressionArrayBuilder const& other, bool clear = false)
-      : arrow::StructBuilder(other.type(), other.pool_,
-                             clear ? makeChildBuilders(other.type()->num_fields(), pool_)
+      : arrow::StructBuilder(other.arrow::StructBuilder::type(), other.pool_,
+                             clear ? makeChildBuilders(other.arrow::StructBuilder::type()->num_fields(), other.pool_)
                                    : other.children_),
         m_head(other.m_head) {
     initialisation();
+    // initialise properly the struct builder
+    // since the children arrays wreen't empty but not handle by StructBuilder constructor
+    if(!children_.empty()) {
+      auto length = children_[0]->length();
+      auto reserveStatus = Reserve(length);
+      if(!reserveStatus.ok()) {
+        return;
+      }
+      UnsafeAppendToBitmap(length, true);
+    }
   }
 
   ComplexExpressionArrayBuilder(ComplexExpressionArrayBuilder&& other, bool clear = false) noexcept
-      : arrow::StructBuilder(other.type(), other.pool_,
-                             clear ? makeChildBuilders(other.type()->num_fields(), pool_)
+      : arrow::StructBuilder(other.arrow::StructBuilder::type(), other.pool_,
+                             clear ? makeChildBuilders(other.arrow::StructBuilder::type()->num_fields(), other.pool_)
                                    : other.children_),
         m_head(other.m_head) {
     initialisation();
+    // initialise properly the struct builder
+    // since the children arrays wreen't empty but not handle by StructBuilder constructor
+    if(!children_.empty()) {
+      auto length = children_[0]->length();
+      auto reserveStatus = Reserve(length);
+      if(!reserveStatus.ok()) {
+        return;
+      }
+      UnsafeAppendToBitmap(length, true);
+    }
   }
 
   ~ComplexExpressionArrayBuilder() override = default;
@@ -146,6 +165,17 @@ public:
     for(int idx = 0; idx < expr.getArguments().size(); ++idx) {
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
       if(!argBuilder.IsSupported(expr.getArguments()[idx])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool IsSupported(std::vector<BatchData> const& argData) {
+    for(int idx = 0; idx < argData.size(); ++idx) {
+      auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
+      auto type = argData[idx].builder->type();
+      if(!argBuilder.IsSupported(*type)) {
         return false;
       }
     }
@@ -200,10 +230,12 @@ public:
       }
 
       // append builder info
-      auto status =
-          argBuilder.AppendExpressions(argData[idx].builder, argData[idx].builderLogicalSize);
-      if(!status.ok()) {
-        return status;
+      if(argData[idx].builder && argData[idx].builderLogicalSize > 0) {
+        auto status =
+            argBuilder.AppendExpressions(argData[idx].builder, argData[idx].builderLogicalSize);
+        if(!status.ok()) {
+          return status;
+        }
       }
     }
 
@@ -277,21 +309,11 @@ public:
 private:
   Symbol m_head;
 
-  static std::vector<std::shared_ptr<arrow::Field>> makeFields(size_t argCount) {
-    std::vector<std::shared_ptr<arrow::Field>> fields;
+  static arrow::FieldVector makeFields(size_t argCount) {
+    arrow::FieldVector fields;
     fields.reserve(argCount);
     for(size_t i = 1; i <= argCount; ++i) {
-      fields.push_back(std::make_shared<arrow::Field>("arg" + std::to_string(i), nullptr));
-    }
-    return fields;
-  }
-
-  static std::vector<std::shared_ptr<arrow::Field>>
-  makeFields(std::vector<std::string> const& columns) {
-    std::vector<std::shared_ptr<arrow::Field>> fields;
-    fields.reserve(columns.size());
-    for(auto const& column : columns) {
-      fields.push_back(std::make_shared<arrow::Field>(column, nullptr));
+      fields.push_back(std::make_shared<arrow::Field>("", nullptr));
     }
     return fields;
   }

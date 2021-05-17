@@ -113,8 +113,20 @@ public:
   /// consume a pair of (array vector, builder) to create a batch from them
   Batch* createBatch(arrow::ArrayVector&& arrays,
                      std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder) const override {
-    // assuming all arrays and builder share the same type!
     auto type = arrayBuilder ? arrayBuilder->type() : arrays[0]->type();
+    // assuming all arrays and builder share the same type!
+    // if not, keep only the latest type
+    auto arrayIt = arrays.rbegin();
+    for(; arrayIt != arrays.rend(); ++arrayIt) {
+      if((*arrayIt)->type_id() != type->id()) {
+        break;
+      }
+    }
+    if(arrayIt != arrays.rend()) {
+      // shrinked without the arrays having a different type
+      arrow::ArrayVector shrinkedArrays(arrayIt.base(), arrays.end());
+      arrays.swap(shrinkedArrays);
+    }
 
     switch(type->id()) {
     case arrow::Type::BOOL:

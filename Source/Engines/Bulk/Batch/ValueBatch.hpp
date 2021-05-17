@@ -118,31 +118,30 @@ public:
   ValueBatch& operator=(ValueBatch&& other) = delete;
 
   /// create a full copy of the batch (without knowing the derived batch type)
-  WritablePtr clone(bool clear = false) const override {
-    return WritablePtr(cloneAsValueBatch(clear));
-  }
-  virtual WritableBatchPtr<ValueBatch> cloneAsValueBatch(bool clear = false) const {
-    return WritableBatchPtr(new ValueBatch(*this, clear));
+  Batch* clone(bool clear = false) const override { return cloneAsValueBatch(clear); }
+
+  virtual ValueBatch* cloneAsValueBatch(bool clear = false) const {
+    return new ValueBatch(*this, clear);
   }
 
   /// convenience function to clone a batch to a specific type
   /// it will work only with the same batch type or derived type
   template <typename BatchType, std::enable_if_t<std::is_base_of_v<BatchType, ValueBatch>, int> = 0>
-  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+  BatchType* cloneAs(bool clear = false) const {
     return cloneAsValueBatch(clear);
   }
 
   // [ISSUE] need to make this iterate on the arrays as well, not only the builder
   // it works for now because we use it only for writing new elements
-  auto begin() { return m_builder->begin(); }
-  auto end() { return m_builder->begin() + m_builderLogicalSize; }
+  // and with this workaround: we provide the offset for the elements we cannot iterate
+  auto begin() { return m_builder->begin(m_arrays.length()); }
+  auto end() { return m_builder->begin(m_arrays.length()) + m_builderLogicalSize; }
 
   // [ISSUE] clean up iterators. maybe part of the arrow API issue too
   // from Holger's comment:
   // can we generalize the different iterators? Or maybe even reuse an existing one?
   class ConstIterator {
   public:
-    using value_type = ValueType;
     ConstIterator(std::vector<std::shared_ptr<ArrayType>> const& arrays, BuilderType const& builder,
                   size_t chunkIndex, size_t rowIndex = 0)
         : m_arrays(arrays), m_builder(builder), m_chunkIndex(chunkIndex), m_rowIndex(rowIndex),
@@ -296,7 +295,15 @@ public:
     ++m_builderLogicalSize;
   }
 
-  BatchData data() const override { return BatchData(m_arrays, m_builder, m_builderLogicalSize); }
+  BatchData data() const override {
+    std::shared_ptr<arrow::Field> field;
+    if(m_parentArray) {
+      field = m_parentArray->childField(m_childIndex);
+    } else {
+      field = std::make_shared<arrow::Field>("", nullptr);
+    }
+    return BatchData(m_arrays, m_builder, m_builderLogicalSize, field);
+  }
 
   bool evaluate(ReadablePtr& outputPtr) const override {
     outputPtr.reset();
@@ -309,24 +316,14 @@ private:
     explicit MutableChunkedArray(arrow::ArrayVector&& arrays)
         : arrow::ChunkedArray(std::move(arrays), nullptr) {
       for(auto& chunk : chunks()) {
-        m_typedChunks.emplace_back(std::dynamic_pointer_cast<ArrayType>(chunk));
+        auto typedChunk = std::dynamic_pointer_cast<ArrayType>(chunk);
+        m_typedChunks.emplace_back(std::move(typedChunk));
       }
     }
 
     std::vector<std::shared_ptr<ArrayType>> const& typedChunks() const { return m_typedChunks; }
 
     void reserve(size_t chunkSize) { chunks_.reserve(chunkSize); }
-
-    void append(std::shared_ptr<arrow::Array> chunkArray) {
-      length_ += chunkArray->length();
-      null_count_ += chunkArray->null_count();
-      m_typedChunks.emplace_back(std::dynamic_pointer_cast<ArrayType>(chunkArray));
-      chunks_.emplace_back(std::move(chunkArray));
-
-      if(!type_ && !chunks_.empty()) {
-        type_ = chunks_[0]->type();
-      }
-    }
 
     void clear() {
       m_typedChunks.clear();

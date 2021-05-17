@@ -18,9 +18,7 @@ class CompoundArray : private arrow::ChunkedArray {
   // can we use delegation here? I feel that private inheritence is (often) a code smell
   // do you think we should make the arrow implementation a template parameter?
 public:
-  explicit CompoundArray(Symbol const& head, std::vector<std::string> const& columns)
-      : arrow::ChunkedArray(arrow::ArrayVector{}, nullptr),
-        m_builder(std::make_shared<ComplexExpressionArrayBuilder>(head, columns)) {}
+  using ComplexExpressionArrayBuilder = ComplexExpressionArrayBuilder<ExpressionArrayBuilder>;
 
   explicit CompoundArray(Symbol const& head, size_t argCount)
       : arrow::ChunkedArray(arrow::ArrayVector{}, nullptr),
@@ -42,7 +40,8 @@ public:
         m_builder(std::move(other.m_builder)) {}
 
   CompoundArray(CompoundArray const& other, bool clear = false)
-      : arrow::ChunkedArray(arrow::ArrayVector{}, nullptr), m_builder(nullptr) {
+      : arrow::ChunkedArray(arrow::ArrayVector{}, nullptr),
+        m_builder(std::make_shared<ComplexExpressionArrayBuilder>(*other.m_builder, clear)) {
     if(!clear) {
       auto const otherChunks = other.getChunkedArray().chunks();
       chunks_.insert(chunks_.begin(), otherChunks.begin(), otherChunks.end());
@@ -62,6 +61,14 @@ public:
                       ? std::make_shared<ComplexExpressionArrayBuilder>(*other.m_builder, true)
                       : nullptr) {}
 
+  explicit CompoundArray(std::shared_ptr<ComplexExpressionArrayBuilder> const& builder)
+      : arrow::ChunkedArray(arrow::ArrayVector{}, nullptr),
+        m_builder(std::make_shared<ComplexExpressionArrayBuilder>(*builder, false)) {}
+
+  explicit CompoundArray(std::shared_ptr<ComplexExpressionArrayBuilder>&& builder)
+      : arrow::ChunkedArray(arrow::ArrayVector{}, nullptr),
+        m_builder(std::make_shared<ComplexExpressionArrayBuilder>(*builder, false)) {}
+
   ~CompoundArray() = default;
   CompoundArray& operator=(CompoundArray const& other) = delete;
   CompoundArray& operator=(CompoundArray&& other) = delete;
@@ -69,6 +76,17 @@ public:
   arrow::ChunkedArray const& getChunkedArray() const { return *this; }
 
   arrow::Status append(ComplexExpression const& expression) {
+    // TODO: need to implement later one of these methods:
+    // A) supporting multiple builders to avoid splitting data too much
+    // B) append all to the same builder and handle well union array with multiple fields
+    // but for now, make sure to split into new chunks every time there is a new type of expression
+    if(m_builder && m_builder->num_fields() > 0) {
+      if(!m_builder->IsSupported(expression)) {
+        freezeData();
+        m_builder = nullptr;
+      }
+    }
+
     if(!m_builder) {
       // initialise builder with the right arguments count at the first insert
       // if it hasn't been specified and initialised yet
@@ -76,22 +94,35 @@ public:
                                                                   expression.getArguments().size());
     }
 
-    // TODO: need to implement later one of these methods:
-    // A) supporting multiple builders to avoid splitting data too much
-    // B) append all to the same builder and handle well union array with multiple fields
-    // but for now, make sure to split into new chunks every time there is a new type of expression
-    if(m_builder->num_fields() > 0) {
-      if(!m_builder->IsSupported(expression)) {
-        freezeData();
-      }
-    }
-
     return m_builder->AppendExpression(expression);
   }
 
   arrow::Status append(Symbol const& head, std::vector<BatchData> const& argData) {
+    // TODO: need to implement later one of these methods:
+    // A) supporting multiple builders to avoid splitting data too much
+    // B) append all to the same builder and handle well union array with multiple fields
+    // but for now, make sure to split into new chunks every time there is a new type of expression
+    if(m_builder && !m_builder->IsSupported(argData)) {
+      freezeData();
+      // try to copy the fields (to transfer column names if it is set)
+      // only if the new ones aren't empty (empty = not coming from columns)
+      auto fields = childFields();
+      for(int i = 0; i < argData.size(); ++i) {
+        if(!fields[i] || !argData[i].field->name().empty()) {
+          fields[i] = argData[i].field;
+        }
+      }
+      m_builder = std::make_shared<ComplexExpressionArrayBuilder>(head, fields);
+    }
+
     if(!m_builder) {
-      m_builder = std::make_shared<ComplexExpressionArrayBuilder>(head, argData.size());
+      // try to copy the fields (to transfer column names if it is set)
+      arrow::FieldVector fields;
+      fields.reserve(argData.size());
+      for(auto const& batchData : argData) {
+        fields.emplace_back(batchData.field);
+      }
+      m_builder = std::make_shared<ComplexExpressionArrayBuilder>(head, fields);
     }
 
     return m_builder->AppendExpressions(argData);
@@ -105,13 +136,13 @@ public:
     std::vector<std::shared_ptr<arrow::DataType>> types;
     types.reserve(argData.size());
     for(auto const& batchData : argData) {
-        if(batchData.builder) {
-            types.emplace_back(batchData.builder->type());
-        } else {
-            // assuming at least one row
-            auto const& chunk = batchData.arrays.chunk(0);
-            types.emplace_back(chunk->type());
-        }
+      if(batchData.builder) {
+        types.emplace_back(batchData.builder->type());
+      } else {
+        // assuming at least one row
+        auto const& chunk = batchData.arrays.chunk(0);
+        types.emplace_back(chunk->type());
+      }
     }
 
     return m_builder->initArguments(types);
@@ -198,6 +229,21 @@ public:
     }
   }
 
+  std::shared_ptr<arrow::Field> field() {
+    if(m_parentArray) {
+      return m_parentArray->childField(m_childIndex);
+    }
+    return std::make_shared<arrow::Field>("", nullptr);
+  }
+
+  std::shared_ptr<arrow::Field> childField(size_t index) {
+    auto fields = childFields();
+    if(!fields.empty()) {
+      return fields[index];
+    }
+    return std::make_shared<arrow::Field>("", nullptr);
+  }
+
   size_t length() const {
     if(m_builder) {
       return arrow::ChunkedArray::length() + m_builder->length();
@@ -212,10 +258,23 @@ public:
     if(num_chunks() > 0) {
       return chunk(0)->num_fields();
     }
-    return m_builder ? m_builder->num_fields() : 0;
+    return m_builder && m_builder->length() > 0 ? m_builder->num_fields() : 0;
   }
 
-  std::shared_ptr<arrow::ArrayBuilder> getBuilder() const { return m_builder; }
+  bool hasBuilder() const { return bool(m_builder && m_builder->length() > 0); }
+  std::shared_ptr<ComplexExpressionArrayBuilder> getBuilder() const { return m_builder; }
+
+  void addArgument(Symbol const& head, std::string const& argName) {
+    arrow::FieldVector fields;
+    if(m_builder) {
+      auto type = m_builder->type();
+      auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
+      auto structType = extensionType.storage_type();
+      fields.insert(fields.begin(), structType->fields().begin(), structType->fields().end());
+    }
+    fields.emplace_back(std::make_shared<arrow::Field>(argName, nullptr));
+    m_builder = std::make_shared<ComplexExpressionArrayBuilder>(head, fields);
+  }
 
   std::shared_ptr<ExpressionArrayBuilder> getArgumentBuilder(size_t columnIdx) const {
     // should this be private?
@@ -230,6 +289,11 @@ public:
     return std::dynamic_pointer_cast<ExpressionArray>(chunkArray.field(columnIdx));
   }
 
+  std::shared_ptr<arrow::ArrayData> getArrayData(size_t chunkIdx) const {
+    auto& chunkArray = dynamic_cast<ComplexExpressionArray&>(*chunk(chunkIdx));
+    return chunkArray.data();
+  }
+
   std::shared_ptr<arrow::Array> getRow(size_t rowIdx) const {
     if(rowIdx >= arrow::ChunkedArray::length()) {
       // extracting row from the builder
@@ -240,12 +304,26 @@ public:
   }
 
 private:
-  using ComplexExpressionArrayBuilder = ComplexExpressionArrayBuilder<ExpressionArrayBuilder>;
-
   std::shared_ptr<ComplexExpressionArrayBuilder> m_builder;
 
   std::shared_ptr<CompoundArray> m_parentArray = nullptr;
   size_t m_childIndex = 0;
+
+  arrow::FieldVector childFields() const {
+    if(m_builder) {
+      auto type = m_builder->type();
+      auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
+      auto structType = extensionType.storage_type();
+      return structType->fields();
+    }
+    if(num_chunks() > 0) {
+      auto type = chunk(0)->type();
+      auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
+      auto structType = extensionType.storage_type();
+      return structType->fields();
+    }
+    return arrow::FieldVector{};
+  }
 };
 
 } // namespace boss::engines::bulk

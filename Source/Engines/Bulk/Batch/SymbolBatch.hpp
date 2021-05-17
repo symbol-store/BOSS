@@ -50,19 +50,18 @@ public:
   SymbolBatch& operator=(SymbolBatch const& other) = delete;
   SymbolBatch& operator=(SymbolBatch&& other) = delete;
 
-  WritablePtr clone(bool clear = false) const override {
-    return WritablePtr(cloneAsSymbolBatch(clear));
+  Batch* clone(bool clear = false) const override { return cloneAsSymbolBatch(clear); }
+
+  ValueBatch* cloneAsValueBatch(bool clear = false) const override {
+    return cloneAsSymbolBatch(clear);
   }
-  WritableBatchPtr<ValueBatch> cloneAsValueBatch(bool clear = false) const override {
-    return WritableBatchPtr<ValueBatch>(cloneAsSymbolBatch(clear));
-  }
-  virtual WritableBatchPtr<SymbolBatch> cloneAsSymbolBatch(bool clear = false) const {
-    return WritableBatchPtr(new SymbolBatch(*this, clear));
+  virtual SymbolBatch* cloneAsSymbolBatch(bool clear = false) const {
+    return new SymbolBatch(*this, clear);
   }
 
   template <typename BatchType,
             std::enable_if_t<std::is_base_of_v<BatchType, SymbolBatch>, int> = 0>
-  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+  BatchType* cloneAs(bool clear = false) const {
     return cloneAsSymbolBatch(clear);
   }
 

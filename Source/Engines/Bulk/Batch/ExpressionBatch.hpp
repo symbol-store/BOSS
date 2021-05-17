@@ -34,19 +34,19 @@ public:
   AnyExpressionBatch& operator=(AnyExpressionBatch const& other) = delete;
   AnyExpressionBatch& operator=(AnyExpressionBatch&& other) = delete;
 
-  WritablePtr clone(bool clear = false) const override {
-    return WritablePtr(cloneAsAnyExpressionBatch(clear));
+  Batch* clone(bool clear = false) const override { return cloneAsAnyExpressionBatch(clear); }
+
+  CompoundBatch* cloneAsCompoundBatch(bool clear = false) const override {
+    return cloneAsAnyExpressionBatch(clear);
   }
-  WritableBatchPtr<CompoundBatch> cloneAsCompoundBatch(bool clear = false) const override {
-    return WritableBatchPtr<CompoundBatch>(cloneAsAnyExpressionBatch(clear));
-  }
-  virtual WritableBatchPtr<AnyExpressionBatch> cloneAsAnyExpressionBatch(bool clear = false) const {
-    return WritableBatchPtr(new AnyExpressionBatch(*this, clear));
+
+  virtual AnyExpressionBatch* cloneAsAnyExpressionBatch(bool clear = false) const {
+    return new AnyExpressionBatch(*this, clear);
   }
 
   template <typename BatchType,
             std::enable_if_t<std::is_base_of_v<BatchType, AnyExpressionBatch>, int> = 0>
-  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+  BatchType* cloneAs(bool clear = false) const {
     return cloneAsAnyExpressionBatch(clear);
   }
 
@@ -74,20 +74,18 @@ public:
   DeferredEvaluationBatch& operator=(DeferredEvaluationBatch const& other) = delete;
   DeferredEvaluationBatch& operator=(DeferredEvaluationBatch&& other) = delete;
 
-  WritablePtr clone(bool clear = false) const override {
-    return WritablePtr(cloneAsDeferredEvaluationBatch(clear));
+  Batch* clone(bool clear = false) const override { return cloneAsDeferredEvaluationBatch(clear); }
+
+  AnyExpressionBatch* cloneAsAnyExpressionBatch(bool clear = false) const override {
+    return cloneAsDeferredEvaluationBatch(clear);
   }
-  WritableBatchPtr<AnyExpressionBatch>
-  cloneAsAnyExpressionBatch(bool clear = false) const override {
-    return WritableBatchPtr<AnyExpressionBatch>(cloneAsDeferredEvaluationBatch(clear));
-  }
-  virtual WritableBatchPtr<DeferredEvaluationBatch> cloneAsDeferredEvaluationBatch(bool clear = false) const {
-    return WritableBatchPtr(new DeferredEvaluationBatch(*this, clear));
+  virtual DeferredEvaluationBatch* cloneAsDeferredEvaluationBatch(bool clear = false) const {
+    return new DeferredEvaluationBatch(*this, clear);
   }
 
   template <typename BatchType,
             std::enable_if_t<std::is_base_of_v<BatchType, DeferredEvaluationBatch>, int> = 0>
-  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+  BatchType* cloneAs(bool clear = false) const {
     return cloneAsDeferredEvaluationBatch(clear);
   }
 
@@ -118,20 +116,19 @@ public:
   ExpressionBatch& operator=(ExpressionBatch const& other) = delete;
   ExpressionBatch& operator=(ExpressionBatch&& other) = delete;
 
-  WritablePtr clone(bool clear = false) const override {
-    return WritablePtr(cloneAsExpressionBatch(clear));
+  Batch* clone(bool clear = false) const override { return cloneAsExpressionBatch(clear); }
+
+  AnyExpressionBatch* cloneAsAnyExpressionBatch(bool clear = false) const override {
+    return cloneAsExpressionBatch(clear);
   }
-  WritableBatchPtr<AnyExpressionBatch>
-  cloneAsAnyExpressionBatch(bool clear = false) const override {
-    return WritableBatchPtr<AnyExpressionBatch>(cloneAsExpressionBatch(clear));
-  }
-  virtual WritableBatchPtr<ExpressionBatch> cloneAsExpressionBatch(bool clear = false) const {
-    return WritableBatchPtr(new ExpressionBatch(*this, clear));
+
+  virtual ExpressionBatch* cloneAsExpressionBatch(bool clear = false) const {
+    return new ExpressionBatch(*this, clear);
   }
 
   template <typename BatchType,
             std::enable_if_t<std::is_base_of_v<BatchType, ExpressionBatch>, int> = 0>
-  WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
+  BatchType* cloneAs(bool clear = false) const {
     return cloneAsExpressionBatch(clear);
   }
 
@@ -175,7 +172,8 @@ private:
         // This is needed because the evaluator arguments cannot be variadic
         // if we want them to be defined by the ExpressionBatch at compile time.
         if(batchIndex < numArguments()) {
-          auto firstArgPtr = std::move(outputPtr);
+          auto firstArgPtr = outputPtr;
+          outputPtr.reset();
           bool visited = false;
           bool evaluated = false;
           EvaluatorType::template visitSupportedType<0>(
@@ -273,9 +271,9 @@ private:
       if(anyEvaluated) {
         // Because some of the arguments have changed (they have been evaluated)
         // We create a new batch as a semi-evaluated one, and insert all the new arguments
-        auto partlyEvaluatedPtr = cloneAsCompoundBatch(true);
-        partlyEvaluatedPtr->insert(argList);
-        outputPtr = std::move(partlyEvaluatedPtr);
+        auto* partlyEvaluatedBatch = cloneAsCompoundBatch(true);
+        partlyEvaluatedBatch->insert(argList);
+        outputPtr = WritableBatchPtr(partlyEvaluatedBatch);
       }
 
       // still returning false, we did only a semi-evaluation
@@ -295,13 +293,15 @@ private:
     // stop if we don't evaluate anymore
     while(evaluated) {
       // or if the batch type isn't compatible with the evaluator's argument type anymore
-      bool hasTypeExpectedByTheEvaluator = EvaluatorType::isSupportedType(batchIndex, *evaluatedPtr);
+      bool hasTypeExpectedByTheEvaluator =
+          EvaluatorType::isSupportedType(batchIndex, *evaluatedPtr);
       if(hadTypeExpectedByTheEvaluator && !hasTypeExpectedByTheEvaluator) {
         break;
       }
 
-      // little trick here until we can support overloading: return as soon as we have compatible
-      // type 1- until we find another way to pass symbol/tableView to the db functions
+      // little trick here until we can support overloading:
+      // return as soon as we have compatible type
+      // 1- until we find another way to pass symbol/tableView to the db functions
       // 2- also for "Function" which are evaluated too early (when not applying the parameters)
       if(hadTypeExpectedByTheEvaluator) {
         previousBatchPtr = std::move(evaluatedPtr);
