@@ -20,25 +20,26 @@ boss::Expression Interpreter::evaluate(boss::Expression e) {
   Expression returnValue;
 
   std::map<std::string, std::function<Expression(ComplexExpression)>> symbolMap{
+      // TODO rewriter lambda arguments
       {"CollectTuples",
        [&](ComplexExpression e) {
          auto newArgs = evaluateArguments(e);
          boss::engines::mlir::Engine engine(*database);
          return engine.evaluate(ComplexExpression(e.getHead(), newArgs));
        }},
+      {"GroupBy", [&](ComplexExpression e) {
+        auto newArgs = evaluateArguments(e);
+        boss::engines::mlir::Engine engine(*database);
+        return engine.evaluate(ComplexExpression(e.getHead(), newArgs));
+       }},
       {"Join", [&](ComplexExpression e) {
          auto newArgs = evaluateArguments(e);
          auto rightTupleStream = newArgs[2];
          auto hashTableBuild = "BuildHashTable"_(newArgs[0], rightTupleStream);
 
+         // Compile and execute the right side of the join
          boss::engines::mlir::Engine engine(*database);
          auto hashTable = engine.evaluate(hashTableBuild);
-
-         auto tablePtr = reinterpret_cast<runtime::hash::HashTable*>(std::get<size_t>(hashTable));
-
-         std::cout << tablePtr->getRelation()->ToString() << std::endl;
-
-         std::cout << hashTable << std::endl;
 
          return ComplexExpression(e.getHead(),
                                   {newArgs[0], newArgs[1], std::get<size_t>(hashTable)});

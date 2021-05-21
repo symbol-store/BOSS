@@ -173,4 +173,23 @@ mlirFieldsToRuntimeFields(const std::map<std::string, ::mlir::Type>& fields) {
   return result;
 }
 
+::mlir::Type stringToMLIRType(::mlir::MLIRContext* context, std::string typeName) {
+  if (typeName == "Int") {
+    return ::mlir::IntegerType::get(32, context);
+  }
+  if (typeName == "Bool") {
+    return ::mlir::IntegerType::get(1, context);
+  }
+  if (typeName == "String") {
+    return StringType::get(context, -1);
+  }
+  if (typeName == "Index") {
+    return ::mlir::IndexType::get(context);
+  }
+  if (typeName == "Symbol") {
+    return SymbolOrValueType::get(context, sexprtype::SymbolOrValue::SYMBOL, {});
+  }
+  return ::mlir::Type{};
+}
+
 } // namespace boss::mlir::conversion

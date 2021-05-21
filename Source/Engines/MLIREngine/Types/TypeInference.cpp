@@ -3,55 +3,82 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprDialect.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
-#include "Engines/MLIREngine/Runtime/Storage.hpp"
 #include "Engines/MLIREngine/Runtime/HashTable.hpp"
+#include "Engines/MLIREngine/Runtime/Storage.hpp"
 #include "TypeConversions.hpp"
 #include <iostream>
 #include <map>
 #include <mlir/IR/OpImplementation.h>
 #include <mlir/IR/Types.h>
+#include <mlir/IR/BuiltinOps.h>
 #include <set>
 
 namespace boss::mlir::inference {
 
+using ::mlir::sexpr::StringConstantOp;
+using ::mlir::sexpr::SymbolOp;
+using ::mlir::sexpr::CombineOp;
 using sexprtype::SymbolOrValue;
 
-static const auto inferArithmeticType = [](std::vector<::mlir::Type>& argTypes,
+// TODO refactor this to its own class or something
+std::vector<std::pair<std::string, std::string>> extractLambdaArgs(TypeInferenceContext& context) {
+  std::vector<std::pair<std::string, std::string>> args;
+  auto const& functionArguments =
+      context.symbolOp->getOperand(0).getDefiningOp<CombineOp>().getHead().getOperands();
+  for(auto const& argument : functionArguments) {
+    // Extract the argument name and type
+    auto nameAndTypePair = argument.getDefiningOp<CombineOp>().getHead();
+    auto name =
+        nameAndTypePair.getOperand(0).getDefiningOp<StringConstantOp>().value().str();
+    auto type =
+        nameAndTypePair.getOperand(1).getDefiningOp<StringConstantOp>().value().str();
+    context.argumentSymbols.push_back(name);
+    args.push_back({name, type});
+  }
+  return args;
+}
+
+static const auto inferArithmeticType = [](std::vector<::mlir::Type> const& argTypes,
                                            TypeInferenceContext& context) -> ::mlir::Type {
   if(hasSymbolicArguments(argTypes)) {
     return SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
   }
 
-  ::mlir::Optional<::mlir::Type> baseType;
-  // Check all input types are the same
-  for(auto& type : argTypes) {
-    ::mlir::Type extractedType;
-    if(type.isa<SymbolOrValueType>()) {
-      extractedType = type.dyn_cast<SymbolOrValueType>().getBaseType();
-    } else {
-      extractedType = type;
-    }
+  // TODO fix type inference
+  return ::mlir::IntegerType::get(32, context.mlirContext);
 
-    // Check that it is an integer
-    // Cast is safe as this is already checked
-    if(!extractedType.isIntOrIndexOrFloat()) {
-      throw std::runtime_error("Expected a type for arithmetic operation");
-    }
-    // Check that all args are of the same type
-    if(baseType.hasValue()) {
-      if(baseType.getValue() != extractedType) {
-        throw std::runtime_error("Expected a type for arithmetic operation");
-      }
-    } else {
-      baseType = extractedType;
-    }
-  }
-
-  if(!baseType.hasValue()) {
-    throw std::runtime_error("Expected a type for arithmetic operation");
-  }
-
-  return baseType.getValue();
+//  context.symbolOp->getParentOfType<::mlir::ModuleOp>().dump();
+//
+//  ::mlir::Optional<::mlir::Type> baseType;
+//  // Check all input types are the same
+//  for(auto& type : argTypes) {
+//    ::mlir::Type extractedType;
+//    if(type.isa<SymbolOrValueType>()) {
+//      extractedType = type.dyn_cast<SymbolOrValueType>().getBaseType();
+//    } else {
+//      extractedType = type;
+//    }
+//
+//    // Check that it is an integer
+//    // Cast is safe as this is already checked
+//    if(!extractedType.isIntOrIndexOrFloat()) {
+//      throw std::runtime_error("Expected a type for arithmetic operation");
+//    }
+//    // Check that all args are of the same type
+//    if(baseType.hasValue()) {
+//      if(baseType.getValue() != extractedType) {
+//        throw std::runtime_error("Expected a type for arithmetic operation");
+//      }
+//    } else {
+//      baseType = extractedType;
+//    }
+//  }
+//
+//  if(!baseType.hasValue()) {
+//    throw std::runtime_error("Expected a type for arithmetic operation");
+//  }
+//
+//  return baseType.getValue();
 };
 
 static const auto inferBooleanCompareFunction = [](std::vector<::mlir::Type> const& argTypes,
@@ -105,7 +132,7 @@ static const auto inferProjectType = [](std::vector<::mlir::Type> const& argType
   }
 
   std::vector<TupleStreamType> newTupleStreams;
-  context.openRelations.clear();
+  context.activePartitions.clear();
 
   // Filter each child TupleStream's column
   for(auto& stream : streamUnion.getTupleStreams()) {
@@ -115,7 +142,7 @@ static const auto inferProjectType = [](std::vector<::mlir::Type> const& argType
     for(auto const& name : columns) {
       newFields[name.str()] = oldFields.at(name.str());
     }
-    context.openRelations.push_back(newFields);
+    context.activePartitions.push_back(newFields);
     newTupleStreams.emplace_back(TupleStreamType::get(symbol.getContext(), newFields));
   }
 
@@ -126,7 +153,13 @@ static const auto inferProjectType = [](std::vector<::mlir::Type> const& argType
 static const auto inferCollectTuplesType = [](std::vector<::mlir::Type> const& /*argTypes*/,
                                               TypeInferenceContext& context) {
   // Ensures column names from closed relation are no longer in context
-  context.openRelations.clear();
+  context.activePartitions.clear();
+  return RelationType::get(context.mlirContext);
+};
+
+static const auto inferGroupbyType = [](std::vector<::mlir::Type> const& /*argTypes*/,
+                                        TypeInferenceContext& context) {
+  context.activePartitions.clear();
   return RelationType::get(context.mlirContext);
 };
 
@@ -165,7 +198,7 @@ static const auto inferGetRelationType = [](std::vector<::mlir::Type> const& /*a
     }
     streamTypes.emplace_back(TupleStreamType::get(symbol.getContext(), fieldsAndTypes));
     // Ensures column names are in type context
-    context.openRelations.push_back(fieldsAndTypes);
+    context.activePartitions.push_back(fieldsAndTypes);
   }
 
   auto openRelationType = TupleStreamUnionType::get(symbol.getContext(), streamTypes);
@@ -201,11 +234,65 @@ static const auto inferSelectType = [](std::vector<::mlir::Type> const& argument
   return arguments[1];
 };
 
+static const auto inferLambdaType = [](std::vector<::mlir::Type> const& arguments,
+                                       TypeInferenceContext& context) -> ::mlir::Type {
+  std::vector<::mlir::Type> resultTypes;
+  std::set<std::string> fieldNames;
+
+  // Create a new function type for each active partition (each stream in the union)
+  for(auto const& relation : context.activePartitions) {
+    std::vector<::mlir::Type> inputTypes;
+
+    for(auto const& argumentSymbol : context.argumentSymbols) {
+      // Check whether this symbol was a normal input symbol
+      auto symbolIt = context.symbolTable.find(argumentSymbol);
+      if (symbolIt != context.symbolTable.end()) {
+        // Add this type to the inputs for the function
+        inputTypes.emplace_back(
+            SymbolOrValueType::get(context.mlirContext, SymbolOrValue::VALUE, symbolIt->second));
+        fieldNames.emplace(argumentSymbol);
+        continue;
+      }
+      // Check whether this symbol was a database symbol
+      auto it = relation.find(argumentSymbol);
+      if(it != relation.end()) {
+        // Add this type to the inputs for the function
+        inputTypes.emplace_back(
+            SymbolOrValueType::get(context.mlirContext, SymbolOrValue::VALUE, it->second));
+        fieldNames.emplace(argumentSymbol);
+        continue;
+      }
+      throw std::runtime_error("The field was neither in the database nor in the symbol table");
+    }
+
+    // Set function type
+    auto returnType = context.symbolOp->getOperand(1).getType();
+    auto funcType = ::mlir::FunctionType::get(inputTypes, returnType, context.mlirContext);
+    resultTypes.emplace_back(funcType);
+  }
+
+  // reset context
+  context.argumentSymbols = {};
+  for(auto const& [arg, _] : extractLambdaArgs(context)) {
+    context.symbolTable.erase(context.symbolTable.find(arg));
+  }
+
+  // Save the database fields that this Where clause interacts with as an attribute
+  std::vector<::mlir::Attribute> fields;
+  std::transform(
+      fieldNames.begin(), fieldNames.end(), std::back_inserter(fields),
+      [&](std::string const& el) { return ::mlir::StringAttr::get(el, context.mlirContext); });
+
+  context.symbolOp->getParentOp()->setAttr("fields",
+                                           ::mlir::ArrayAttr::get(fields, context.mlirContext));
+  return GenericTupleStreamUnionType::get(context.mlirContext, resultTypes);
+};
+
 static const auto inferWhereClauseType = [](std::vector<::mlir::Type> const& arguments,
                                             TypeInferenceContext& context) -> ::mlir::Type {
   std::vector<::mlir::Type> resultTypes;
   std::set<std::string> fieldNames;
-  for(auto const& relation : context.openRelations) {
+  for(auto const& relation : context.activePartitions) {
     std::vector<::mlir::Type> inputTypes;
 
     for(auto const& argumentSymbol : context.argumentSymbols) {
@@ -226,13 +313,17 @@ static const auto inferWhereClauseType = [](std::vector<::mlir::Type> const& arg
     resultTypes.emplace_back(funcType);
   }
 
+  // reset context
+  context.argumentSymbols = {};
+
   // Save the database fields that this Where clause interacts with as an attribute
   std::vector<::mlir::Attribute> fields;
   std::transform(
       fieldNames.begin(), fieldNames.end(), std::back_inserter(fields),
       [&](std::string const& el) { return ::mlir::StringAttr::get(el, context.mlirContext); });
 
-  context.symbolOp->getParentOp()->setAttr("fields", ::mlir::ArrayAttr::get(fields, context.mlirContext));
+  context.symbolOp->getParentOp()->setAttr("fields",
+                                           ::mlir::ArrayAttr::get(fields, context.mlirContext));
   return GenericTupleStreamUnionType::get(context.mlirContext, resultTypes);
 };
 
@@ -240,17 +331,37 @@ static const auto inferCreateSymbolType = [](std::vector<::mlir::Type> const& ar
                                              TypeInferenceContext& context) -> ::mlir::Type {
   // Extract the symbol name
   auto symbolNameDefinition = llvm::dyn_cast_or_null<::mlir::sexpr::StringConstantOp>(
-      context.symbolOp->getOperands()[0].getDefiningOp());
+      context.symbolOp->getOperand(0).getDefiningOp());
   if(!symbolNameDefinition) {
     return SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL,
                                   llvm::Optional<::mlir::Type>{});
   }
   auto symbolName = symbolNameDefinition.value().str();
 
-  // Search whether this symbol is referencing a column of the currently open database
-  if(!context.openRelations.empty()) {
+  // TODO check symbol table
+  auto symbolTableIt = context.symbolTable.find(symbolName);
+  if (symbolTableIt != context.symbolTable.end()) {
+    // Add function argument to context, and store argument index in symbol context
+    auto it = std::find(context.argumentSymbols.begin(), context.argumentSymbols.end(), symbolName);
+    if(it == context.argumentSymbols.end()) {
+      context.symbolOp->setAttr(
+          "functionArgPosition",
+          ::mlir::IntegerAttr::get(::mlir::IntegerType::get(32, context.mlirContext),
+                                   context.argumentSymbols.size()));
+      context.argumentSymbols.push_back(symbolName);
+    } else {
+      context.symbolOp->setAttr(
+          "functionArgPosition",
+          ::mlir::IntegerAttr::get(::mlir::IntegerType::get(32, context.mlirContext),
+                                   std::distance(context.argumentSymbols.begin(), it)));
+    }
+    return symbolTableIt->second;
+  }
+
+  // Search whether this symbol is referencing a column in the partitions
+  if(!context.activePartitions.empty()) {
     std::vector<::mlir::Type> symbolTypes;
-    for(auto const& relation : context.openRelations) {
+    for(auto const& relation : context.activePartitions) {
       auto it = relation.find(symbolName);
       if(it != relation.end()) {
         symbolTypes.emplace_back(it->second);
@@ -282,32 +393,34 @@ static const auto inferCreateSymbolType = [](std::vector<::mlir::Type> const& ar
 };
 
 static const auto inferJoinType = [](std::vector<::mlir::Type> const& arguments,
-                                     TypeInferenceContext& context) -> ::mlir::Type  {
-  auto leftBaseType = arguments[1].dyn_cast_or_null<SymbolOrValueType>().getBaseType();
+                                     TypeInferenceContext& context) -> ::mlir::Type {
+  auto leftBaseType = context.symbolOp->getOperand(1).getType().dyn_cast_or_null<SymbolOrValueType>().getBaseType();
   auto leftTupleStreamUnion = leftBaseType.dyn_cast_or_null<TupleStreamUnionType>();
 
-  auto hashTablePtr = context.symbolOp->getOperand(2).getDefiningOp<::mlir::sexpr::IntegerConstantOp>().value();
+  auto hashTablePtr =
+      context.symbolOp->getOperand(2).getDefiningOp<::mlir::sexpr::IntegerConstantOp>().value();
   auto hashTable = reinterpret_cast<runtime::hash::HashTable*>(hashTablePtr);
 
-  std::cout << hashTable << std::endl;
+  // todo handle context open relations... Actually maybe not, handled by interpreter
 
-  if (!leftTupleStreamUnion || (hashTable == nullptr)) {
+  if(!leftTupleStreamUnion || (hashTable == nullptr)) {
     throw std::runtime_error("Error: Expecting tuple stream union and hash table");
   }
 
   std::vector<TupleStreamType> outputTupleStreams;
-  for (auto const& leftTupleStream : leftTupleStreamUnion.getTupleStreams()) {
-    for (auto i = 0UL; i < hashTable->getNumChildArrays(); i++) {
+  for(auto const& leftTupleStream : leftTupleStreamUnion.getTupleStreams()) {
+    for(auto i = 0UL; i < hashTable->getNumChildArrays(); i++) {
       auto rightFields = hashTable->getChildFields(i);
 
       std::map<std::string, ::mlir::Type> newFields;
 
-      for (auto const& leftField : leftTupleStream.getFields()) {
+      for(auto const& leftField : leftTupleStream.getFields()) {
         newFields[leftField.first] = leftField.second;
       }
 
-      for (auto const& rightField : rightFields) {
-        newFields[rightField.first] = boss::mlir::conversion::arrowTypeToMLIRType(context.mlirContext, rightField.second);
+      for(auto const& rightField : rightFields) {
+        newFields[rightField.first] =
+            boss::mlir::conversion::arrowTypeToMLIRType(context.mlirContext, rightField.second);
       }
 
       // TODO only if the types match on the joining fields
@@ -332,29 +445,50 @@ static const auto inferBooleanType = [](std::vector<::mlir::Type> const& argumen
 };
 
 const std::map<std::string,
-               std::function<::mlir::Type(std::vector<::mlir::Type>&, TypeInferenceContext&)>>
-    operatorToType{
-        {"Plus", inferArithmeticType},         {"Minus", inferArithmeticType},
-        {"Mul", inferArithmeticType},          {"Div", inferArithmeticType},
-        {"StringJoin", inferStringJoin},       {"Greater", inferBooleanCompareFunction},
-        {"And", inferBooleanType},
-        {"Less", inferBooleanCompareFunction}, {"Eq", inferBooleanCompareFunction},
-        {"Symbol", inferCreateSymbolType},     {"Project", inferProjectType},
-        {"Select", inferSelectType},           {"Where", inferWhereClauseType},
-        {"GetRelation", inferGetRelationType}, {"CollectTuples", inferCollectTuplesType},
-        {"Join", inferJoinType}, {"BuildHashTable", inferBuildHashTable}};
+               std::function<::mlir::Type(std::vector<::mlir::Type> const&, TypeInferenceContext&)>>
+    operatorToType{{"Plus", inferArithmeticType},
+                   {"Minus", inferArithmeticType},
+                   {"Mul", inferArithmeticType},
+                   {"Div", inferArithmeticType},
+                   {"StringJoin", inferStringJoin},
+                   {"Greater", inferBooleanCompareFunction},
+                   {"BuildHashTable", inferBuildHashTable},
+                   {"And", inferBooleanType},
+                   {"Less", inferBooleanCompareFunction},
+                   {"Eq", inferBooleanCompareFunction},
+                   {"Symbol", inferCreateSymbolType},
+                   {"Project", inferProjectType},
+                   {"Select", inferSelectType},
+                   {"Where", inferWhereClauseType},
+                   {"Lambda", inferLambdaType},
+                   {"GetRelation", inferGetRelationType},
+                   {"CollectTuples", inferCollectTuplesType},
+                   {"Join", inferJoinType},
+                   {"GroupBy", inferGroupbyType}};
+
+const std::map<std::string, std::function<void(::mlir::sexpr::SymbolOp* op, TypeInferenceContext&)>>
+    contextUpdateMap{
+        {"Lambda", [](::mlir::sexpr::SymbolOp* op, TypeInferenceContext& context) {
+           // Extract lambda arguments
+           auto args = extractLambdaArgs(context);
+           for (auto const& [name, type] : args) {
+             context.symbolTable[name] =
+                 boss::mlir::conversion::stringToMLIRType(context.mlirContext, type);
+           }
+         }}};
 
 bool isRegisteredSymbol(std::string const& name) {
   return operatorToType.find(name) != operatorToType.end();
 }
 
-::mlir::Type inferSymbolType(std::string const& symbolName, std::vector<::mlir::Type>& argTypes,
+::mlir::Type inferSymbolType(std::string const& symbolName, const std::vector<::mlir::Type>& argTypes,
                              TypeInferenceContext& context) {
   auto inferenceFuncIterator = operatorToType.find(symbolName);
   if(inferenceFuncIterator == operatorToType.end()) {
     return SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
   }
 
+  // TODO the arg types are wrong here because we recursed at a different point in time
   auto baseType = (inferenceFuncIterator->second)(argTypes, context);
 
   if(baseType.isa<SymbolOrValueType>()) {
@@ -371,6 +505,13 @@ bool hasSymbolicArguments(const std::vector<::mlir::Type>& arguments) {
     }
   }
   return false;
+}
+
+void updateContext(::mlir::sexpr::SymbolOp* symbolOp, TypeInferenceContext& context) {
+  auto contextUpdater = contextUpdateMap.find(symbolOp->name().str());
+  if(contextUpdater != contextUpdateMap.end()) {
+    contextUpdater->second(symbolOp, context);
+  }
 }
 
 } // namespace boss::mlir::inference

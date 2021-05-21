@@ -153,6 +153,38 @@ def SelectionOp : Database_Op<"selectionOp", []> {
   ];
 }
 
+def GroupByOp : Database_Op<"groupbyOp", []> {
+  let arguments = (ins
+    Variadic<TupleStreamType>:$inputStreams,
+    StrArrayAttr:$groupingFields,
+    StrArrayAttr:$aggregationFields,
+    StrArrayAttr:$aggregationFunctions
+  );
+
+  let results = (outs
+    RelationType:$output
+  );
+}
+
+def GroupByInsert : Database_Op<"groupbyInsert", []> {
+  let arguments = (ins
+    Index:$hash,
+    AnyType:$value,
+    IndexAttr:$hashAggregatePointer
+  );
+}
+
+def GroupByGet : Database_Op<"groupbyLookup", []> {
+  let arguments = (ins
+    Index:$hash,
+    IndexAttr:$hashAggregatePointer
+  );
+
+  let results = (outs
+    AnyType:$aggregate
+  );
+}
+
 def ExtractFieldFromTupleOp : Database_Op<"extractFieldFromTupStream", []> {
   let arguments = (ins
     TupleStreamType:$tupleStream,

@@ -6,6 +6,7 @@
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
+#include "Engines/MLIREngine/Runtime/HashAggregate.hpp"
 #include "Engines/MLIREngine/Runtime/HashTable.hpp"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Runtime/Storage.hpp"
@@ -174,6 +175,7 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
         std::dynamic_pointer_cast<arrow::StringArray>(nameArray->dictionary())->GetString(0);
 
     std::vector<Value> childResults;
+    std::vector<::mlir::Type> operandTypes;
     for(auto i = 1; i < type.num_fields(); i++) {
       auto const& field = type.field(i);
 
@@ -184,16 +186,13 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
       }
 
       childResults.emplace_back(childVisitor.result);
+      operandTypes.emplace_back(childVisitor.result.getType());
     }
 
-    auto symbolOp = rewriter.create<sexpr::SymbolOp>(loc, symbolName, childResults);
-
-    auto typedSymbolOp = mlir::dyn_cast_or_null<TypeInference>(symbolOp.getOperation());
-    if(!typedSymbolOp) {
-      return arrow::Status::TypeError("Could not cast symbol op to type inference interface");
-    }
     TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
-    typedSymbolOp.inferType(&typeContext);
+    auto newType = boss::mlir::inference::inferSymbolType(symbolName, operandTypes, typeContext);
+
+    auto symbolOp = rewriter.create<sexpr::SymbolOp>(loc, newType, StringAttr::get(symbolName, rewriter.getContext()), childResults);
 
     result = symbolOp.getResult();
     return arrow::Status::OK();
@@ -317,6 +316,7 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
 
     // Check that the values really match
     std::vector<Value> comparisonResults;
+    std::vector<Type> comparisonTypes;
     for(auto i = 0U; i < op.leftFields().size(); i++) {
       auto leftFieldName = op.leftFields()[i].dyn_cast_or_null<StringAttr>().getValue().str();
       auto rightFieldName = op.rightFields()[i].dyn_cast_or_null<StringAttr>().getValue().str();
@@ -338,16 +338,18 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
       auto rightValue = visitor.result;
 
       // Compare these values
+      TypeInferenceContext typeContext{op.getContext(), &database, {}, nullptr};
+      auto type = boss::mlir::inference::inferSymbolType("Eq", {leftValue.getType(), rightValue.getType()}, typeContext);
       auto compareOp =
-          rewriter.create<sexpr::SymbolOp>(op.getLoc(), "Eq", ValueRange{leftValue, rightValue});
-      TypeInferenceContext typeContext{op.getContext(), &database, {}, &compareOp};
-      compareOp.inferType(&typeContext);
+          rewriter.create<sexpr::SymbolOp>(op.getLoc(), type, StringAttr::get("Eq", op.getContext()), ValueRange{leftValue, rightValue});
       comparisonResults.emplace_back(compareOp.getResult());
+      comparisonTypes.emplace_back(compareOp.getResult().getType());
     }
 
-    auto wasMatchOp = rewriter.create<sexpr::SymbolOp>(op.getLoc(), "And", comparisonResults);
-    TypeInferenceContext typeContext{op.getContext(), &database, {}, &wasMatchOp};
-    wasMatchOp.inferType(&typeContext);
+    TypeInferenceContext typeContext{op.getContext(), &database, {}, nullptr};
+    auto type = boss::mlir::inference::inferSymbolType("And", comparisonTypes, typeContext);
+
+    auto wasMatchOp = rewriter.create<sexpr::SymbolOp>(op.getLoc(), type, StringAttr::get("And", op.getContext()), comparisonResults);
 
     // If it was a match, load the remaining values and output the tuple
     auto wasMatchCond = rewriter.create<scf::IfOp>(op.getLoc(), wasMatchOp.getResult(), false);
@@ -430,6 +432,101 @@ struct BuildJoinOpLowering : public OpConversionPattern<database::BuildJoinTable
   }
 };
 
+struct GroupByOpLowering : public OpConversionPattern<database::GroupByOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  static boss::Expression defaultValueFromType(database::GroupByOp& op) {
+    auto aggregateFuncName = op.aggregationFunctions()[0].dyn_cast<StringAttr>();
+    auto aggregateFunc = ::mlir::dyn_cast<FuncOp>(
+        op.getParentOfType<ModuleOp>().lookupSymbol(aggregateFuncName.getValue()));
+    auto aggFuncType = aggregateFunc.getType();
+
+    auto runtimeType = boss::mlir::conversion::mlirTypeToRuntimeType(aggFuncType.getResult(0), false);
+    switch (runtimeType) {
+    case boss::mlir::types::RuntimeTypes::INT:
+      return 0;
+    case boss::mlir::types::RuntimeTypes::STRING:
+      return "";
+    case boss::mlir::types::RuntimeTypes::INT64:
+      return static_cast<size_t>(0);
+    default:
+      throw std::runtime_error("Unknown aggregate type");
+    }
+  }
+
+  LogicalResult matchAndRewrite(database::GroupByOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto loc = op.getLoc();
+    auto* context = op.getContext();
+
+    auto initialValue = defaultValueFromType(op);
+    // TODO free somewhere
+    auto* hashTable = new runtime::aggregate::HashAggregate{initialValue};
+    auto hashTablePtr = reinterpret_cast<size_t>(hashTable);
+    auto hashTableAttr = ::mlir::IntegerAttr::get(IndexType::get(context), hashTablePtr);
+
+    // Process all partitions
+    for(auto i = 0UL; i < operands.size(); i++) {
+      auto savedInsertionPoint = rewriter.saveInsertionPoint();
+      rewriter.setInsertionPointAfter(operands[i].getDefiningOp());
+
+      auto tupleStreamType = op.getOperand(i).getType().dyn_cast_or_null<TupleStreamType>();
+      auto tupleStream = op.getOperand(i);
+      auto tupleFields = tupleStreamType.getFields();
+
+      // Hash the grouping fields
+      std::vector<Value> valuesToHash;
+      for(auto const& field : op.groupingFields()) {
+        auto const& fieldName = field.dyn_cast<StringAttr>().getValue().str();
+        auto type = tupleFields.find(fieldName);
+        auto value = rewriter.create<database::ExtractFieldFromTupleOp>(loc, tupleStream, fieldName,
+                                                                        type->second);
+        valuesToHash.emplace_back(value.getResult());
+      }
+      auto hashed = rewriter.create<database::HashValuesOp>(loc, IndexType::get(op.getContext()),
+                                                            valuesToHash);
+
+      // Compute aggregate value
+      // Get the aggregation function
+      auto aggregateFuncName = op.aggregationFunctions()[i].dyn_cast<StringAttr>();
+      auto aggregateFunc = ::mlir::dyn_cast<FuncOp>(
+          op.getParentOfType<ModuleOp>().lookupSymbol(aggregateFuncName.getValue()));
+      auto aggFuncType = aggregateFunc.getType();
+
+      // Get the old value
+      auto oldValue = rewriter.create<database::GroupByGet>(loc, aggFuncType.getResult(0),
+                                                            hashed.getResult(), hashTableAttr);
+
+      // Compute the new value
+      std::vector<Value> aggregationValues;
+      for(auto const& field : op.aggregationFields()) {
+        auto const& fieldName = field.dyn_cast<StringAttr>().getValue().str();
+        auto type = tupleFields.find(fieldName);
+        if(type == tupleFields.end()) {
+          // In this case, it is the lambda parameter
+          aggregationValues.push_back(oldValue.getResult());
+        } else {
+          // In this case, it is a field of the tuple
+          auto value = rewriter.create<database::ExtractFieldFromTupleOp>(loc, tupleStream,
+                                                                          fieldName, type->second);
+          aggregationValues.push_back(value.getResult());
+        }
+      }
+
+      auto newValue = rewriter.create<CallOp>(loc, aggregateFunc, ValueRange(aggregationValues));
+
+      rewriter.create<database::GroupByInsert>(loc, hashed.getResult(), newValue.getResult(0),
+                                               hashTableAttr);
+
+      rewriter.restoreInsertionPoint(savedInsertionPoint);
+    }
+
+    rewriter.replaceOpWithNewOp<ConstantIndexOp>(op, hashTablePtr);
+
+    return success();
+  }
+};
+
 struct SelectionOpLowering : public OpConversionPattern<database::SelectionOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -464,8 +561,6 @@ struct SelectionOpLowering : public OpConversionPattern<database::SelectionOp> {
       arguments.emplace_back(loadedValue.getResult());
     }
 
-    op.getParentOfType<ModuleOp>().dump();
-
     // Call the selection function
     auto funcName = op.getAttr("selectionFunctionName").dyn_cast_or_null<StringAttr>();
     if(!funcName) {
@@ -498,8 +593,6 @@ struct SelectionOpLowering : public OpConversionPattern<database::SelectionOp> {
 
     rewriter.restoreInsertionPoint(savedPoint);
 
-    op.getParentOfType<ModuleOp>().dump();
-
     return success();
   }
 };
@@ -513,7 +606,8 @@ void DatabaseLoweringPass::runOnOperation() {
                     database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
                     database::FinalizeBuilderOp, database::AppendToRelationOp,
                     database::HashValuesOp, database::InsertIntoHashTableOp,
-                    database::AdvanceBuilderOp, database::FindInHashTableOp>();
+                    database::AdvanceBuilderOp, database::FindInHashTableOp,
+                    database::GroupByInsert, database::GroupByGet>();
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
   target.addLegalDialect<::mlir::StandardOpsDialect>();
@@ -541,7 +635,7 @@ void DatabaseLoweringPass::runOnOperation() {
   });
 
   patterns.insert<GetRelationOpLowering, LookupJoinOpLowering>(&getContext(), database);
-  patterns.insert<ProjectionOpLowering, SelectionOpLowering, BuildJoinOpLowering>(&getContext());
+  patterns.insert<ProjectionOpLowering, SelectionOpLowering, BuildJoinOpLowering, GroupByOpLowering>(&getContext());
   patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
 
   // Transitively lower symbol operations
@@ -552,8 +646,6 @@ void DatabaseLoweringPass::runOnOperation() {
   if(failed(applyPartialConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
-
-  module.dump();
 }
 
 // namespace

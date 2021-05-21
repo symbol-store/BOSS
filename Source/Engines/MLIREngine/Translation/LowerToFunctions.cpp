@@ -99,6 +99,49 @@ Value flattenCallsWhereSymbol(sexpr::CombineOp& c, OpBuilder& builder, FuncOp fu
   return newUnionStream.getResult();
 }
 
+Value flattenCallsLambda(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function) {
+  static int generatedFuncs = 0;
+  auto sOrVType = c.getType().dyn_cast_or_null<SymbolOrValueType>();
+  if (!sOrVType) {
+    throw std::runtime_error("Expecting symbol Lambda type to be wrapped in sOrVType");
+  }
+  auto type = sOrVType.getBaseType().dyn_cast_or_null<GenericTupleStreamUnionType>();
+  if (!type) {
+    throw std::runtime_error("Expecting symbol Lambda to return union of functions");
+  }
+
+  std::vector<::mlir::Attribute> functionNames;
+  for (auto const& childType : type.getChildren()) {
+    auto savedInsertionPoint = builder.saveInsertionPoint();
+    builder.setInsertionPointToStart(function.getParentOfType<ModuleOp>().getBody());
+    auto funcType = childType.dyn_cast_or_null<FunctionType>();
+    if (!funcType) {
+      throw std::runtime_error("Expecting symbol Lambda to return union of functions");
+    }
+    auto funcName = "lambda" + std::to_string(generatedFuncs++);
+    auto childFunc = builder.create<FuncOp>(c.getLoc(), funcName, funcType);
+    auto* funcBlock = childFunc.addEntryBlock();
+    builder.setInsertionPointToStart(funcBlock);
+
+    auto secondArg = *c.getRegion().getOps<sexpr::CombineOp>().begin()++;
+
+    // For each input, lower the function body
+    auto combineCopy = secondArg.clone();
+    auto lastVal = flattenCallsRecursive(combineCopy, builder, childFunc);
+    combineCopy.erase();
+    // Create new returnOp
+    builder.create<ReturnOp>(c.getLoc(), lastVal);
+    builder.restoreInsertionPoint(savedInsertionPoint);
+
+    functionNames.emplace_back(::mlir::StringAttr::get(funcName, c.getContext()));
+  }
+
+  auto newUnionStream = builder.create<sexpr::SymbolOp>(c.getLoc(), sOrVType, "Lambda", ::mlir::ValueRange());
+  newUnionStream.setAttr("fields", c.getAttr("fields"));
+  newUnionStream.setAttr("functions", ::mlir::ArrayAttr::get(functionNames, c.getContext()));
+  return newUnionStream.getResult();
+}
+
 Value flattenCallsCreateSymbol(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function) {
   auto endOp = *c.getOps<sexpr::EndOp>().begin();
   auto* abstractSymOp = endOp.getOperand().getDefiningOp();
@@ -119,6 +162,9 @@ Value flattenCallsCreateSymbol(sexpr::CombineOp& c, OpBuilder& builder, FuncOp f
 
 Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function) {
   auto const name = getSymbolName(c);
+  if (name == "Lambda") {
+    return flattenCallsLambda(c, builder, function);
+  }
   if (name == "Where") {
     return flattenCallsWhereSymbol(c, builder, function);
   }

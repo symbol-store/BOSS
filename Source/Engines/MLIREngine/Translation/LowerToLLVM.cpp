@@ -2,6 +2,7 @@
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
 #include "Engines/MLIREngine/Dialect/MemoryDialect/MemoryOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
+#include "Engines/MLIREngine/Runtime/HashAggregate.hpp"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
 #include "Engines/MLIREngine/Runtime/Storage.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
@@ -391,8 +392,7 @@ struct HashFindOpLowering : public OpConversionPattern<database::FindInHashTable
     auto hash = operands[0];
 
     auto intType = LLVM::LLVMIntegerType::get(rewriter.getContext(), 64);
-    auto funcType = LLVM::LLVMFunctionType::get(
-        intType, {intType, intType});
+    auto funcType = LLVM::LLVMFunctionType::get(intType, {intType, intType});
 
     auto lookupFunction = getOrInsertFunction("hashTableLookup", funcType, rewriter, parentModule);
 
@@ -403,8 +403,6 @@ struct HashFindOpLowering : public OpConversionPattern<database::FindInHashTable
     rewriter.replaceOpWithNewOp<CallOp>(op, lookupFunction, intType, ValueRange{mapPointer, hash});
 
     return success();
-
-
   }
 };
 
@@ -419,15 +417,97 @@ struct InsertHashtableOpLowering : public OpConversionPattern<database::InsertIn
 
     auto voidType = LLVM::LLVMVoidType::get(rewriter.getContext());
     auto intType = LLVM::LLVMIntegerType::get(rewriter.getContext(), 64);
-    auto funcType = LLVM::LLVMFunctionType::get(
-        voidType, {intType, intType, intType, intType});
+    auto funcType = LLVM::LLVMFunctionType::get(voidType, {intType, intType, intType, intType});
 
-    auto insertionFunction = getOrInsertFunction("hashTableInsert", funcType, rewriter, parentModule);
+    auto insertionFunction =
+        getOrInsertFunction("hashTableInsert", funcType, rewriter, parentModule);
 
     auto childIndex = rewriter.create<ConstantIndexOp>(op.getLoc(), op.rightTupleStreamIndex());
     auto tablePtr = rewriter.create<ConstantIndexOp>(op.getLoc(), op.tablePtr());
 
-    rewriter.create<CallOp>(op.getLoc(), insertionFunction, voidType, ValueRange{tablePtr, childIndex, hash, offsetPointer});
+    rewriter.create<CallOp>(op.getLoc(), insertionFunction, voidType,
+                            ValueRange{tablePtr, childIndex, hash, offsetPointer});
+    rewriter.eraseOp(op);
+
+    return success();
+  }
+};
+
+struct GroupByGetLowering : public OpConversionPattern<database::GroupByGet> {
+  GroupByGetLowering(MLIRContext* context, LLVMTypeConverter& converter)
+      : converter(converter), OpConversionPattern(context) {}
+
+  LogicalResult matchAndRewrite(database::GroupByGet op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto parentModule = op.getParentOfType<ModuleOp>();
+    auto context = op.getContext();
+    auto loc = op.getLoc();
+
+    auto hash = operands[0];
+    auto tablePtr = op.hashAggregatePointer().getLimitedValue();
+    auto* table = reinterpret_cast<runtime::aggregate::HashAggregate*>(tablePtr);
+    auto aggregateType = table->getAggregateType();
+
+    auto tablePtrValue = rewriter.create<ConstantIndexOp>(loc, tablePtr);
+
+    auto extractionType = converter.convertType(op.getType()).dyn_cast<LLVM::LLVMType>();
+
+    std::string funcName;
+    // TODO remaining types
+    switch(aggregateType) {
+    case boss::mlir::types::RuntimeTypes::INT:
+      funcName = "groupByGet_Int";
+      break;
+    }
+
+    auto intType = LLVM::LLVMIntegerType::get(context, 64);
+    auto funcType = LLVM::LLVMFunctionType::get(extractionType, {intType, intType});
+
+    auto extractionFunction = getOrInsertFunction(funcName, funcType, rewriter, parentModule);
+
+    rewriter.replaceOpWithNewOp<CallOp>(op, extractionFunction, extractionType,
+                                        ValueRange{hash, tablePtrValue.getResult()});
+
+    return success();
+  }
+
+  LLVMTypeConverter& converter;
+};
+
+struct GroupByInsertLowering : public OpConversionPattern<database::GroupByInsert> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(database::GroupByInsert op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto context = op.getContext();
+    auto parentModule = op.getParentOfType<ModuleOp>();
+    auto hash = operands[0];
+    auto value = operands[1];
+    auto tablePtr = op.hashAggregatePointer().getLimitedValue();
+    auto* table = reinterpret_cast<runtime::aggregate::HashAggregate*>(tablePtr);
+
+    auto tablePtrValue = rewriter.create<ConstantIndexOp>(op.getLoc(), tablePtr);
+
+    auto voidType = LLVM::LLVMVoidType::get(rewriter.getContext());
+    auto intType = LLVM::LLVMIntegerType::get(rewriter.getContext(), 64);
+
+    auto valueType = table->getAggregateType();
+    std::string funcName;
+    LLVM::LLVMType argType;
+    switch(valueType) {
+      // TODO other types
+    case boss::mlir::types::RuntimeTypes::INT:
+      funcName = "groupByInsert_Int";
+      argType = LLVM::LLVMIntegerType::get(context, 32);
+      break;
+    }
+
+    auto funcType = LLVM::LLVMFunctionType::get(voidType, {argType, intType, intType});
+
+    auto insertionFunction = getOrInsertFunction(funcName, funcType, rewriter, parentModule);
+
+    rewriter.create<CallOp>(op.getLoc(), insertionFunction, voidType,
+                            ValueRange{value, hash, tablePtrValue.getResult()});
     rewriter.eraseOp(op);
 
     return success();
@@ -484,7 +564,7 @@ struct HashValuesOpLowering : public OpConversionPattern<database::HashValuesOp>
     }
 
     // Hash all the hashed arguments into a single value
-    while (hashedValues.size() > 1) {
+    while(hashedValues.size() > 1) {
       auto leftValue = hashedValues.top();
       hashedValues.pop();
       auto rightValue = hashedValues.top();
@@ -494,8 +574,9 @@ struct HashValuesOpLowering : public OpConversionPattern<database::HashValuesOp>
       auto hashFunctionType = LLVM::LLVMFunctionType::get(intType, {intType, intType});
       auto hashFunction =
           getOrInsertFunction("hash_Combine", hashFunctionType, rewriter, parentModule);
-      auto hashedValue = rewriter.create<CallOp>(op.getLoc(), hashFunction,
-                                                 hashFunctionType.getReturnType(), ValueRange{leftValue, rightValue});
+      auto hashedValue =
+          rewriter.create<CallOp>(op.getLoc(), hashFunction, hashFunctionType.getReturnType(),
+                                  ValueRange{leftValue, rightValue});
       hashedValues.push(hashedValue.getResult(0));
     }
 
@@ -592,12 +673,13 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   populateLoopToStdConversionPatterns(patterns, &getContext());
   populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
-  patterns.insert<PrintMemrefOpLowering, AllocateSymbolOpLowering,
-                  AllocateSymbolicFunctionOpLowering, LoadConstantAddressOpLowering>(&getContext(),
-                                                                                     typeConverter);
+  patterns
+      .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering,
+              LoadConstantAddressOpLowering, GroupByGetLowering>(&getContext(), typeConverter);
 
   patterns.insert<FinalizeBuilderOpLowering, AppendToRelationOpLowering, AdvanceBuilderOpLowering,
-                  HashValuesOpLowering, InsertHashtableOpLowering, HashFindOpLowering>(&getContext());
+                  HashValuesOpLowering, InsertHashtableOpLowering, HashFindOpLowering,
+                  GroupByInsertLowering>(&getContext());
 
   auto module = getOperation();
 

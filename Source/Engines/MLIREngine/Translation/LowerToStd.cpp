@@ -318,6 +318,43 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
            return success();
          }},
+        {"GroupBy",
+         [&]() {
+           auto tupleStreamUnion = converter.convertType(operands[2].getType())
+                                       .dyn_cast_or_null<TupleStreamUnionType>();
+
+           auto* context = s.getContext();
+
+           // Get the fields that are required for the aggregation function
+           auto lambda = s.getOperands()[1].getDefiningOp();
+           auto aggrFields = lambda->getAttr("fields").dyn_cast_or_null<ArrayAttr>();
+           auto funcs = lambda->getAttr("functions").dyn_cast_or_null<ArrayAttr>();
+
+           if(!lambda || !aggrFields || !funcs) {
+             return failure();
+           }
+
+           // Get the fields that are required for the grouping
+           auto groupFields = s.getOperand(0).getDefiningOp<sexpr::SymbolOp>();
+           std::vector<StringRef> groupingFields;
+           for(auto const& arg : groupFields.getOperands()) {
+             groupingFields.emplace_back(arg.getDefiningOp<sexpr::StringConstantOp>().value());
+           }
+           auto grpFieldsAttr = rewriter.getStrArrayAttr(groupingFields);
+
+           std::vector<mlir::Value> tupleStreamValues;
+           for(auto i = 0UL; i < tupleStreamUnion.getNumChildStreams(); i++) {
+             auto tupleStreamTy = tupleStreamUnion.getTupleStreams()[i];
+             auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
+                 s.getLoc(), tupleStreamTy, operands[2], i);
+             tupleStreamValues.emplace_back(extractionOp.getResult());
+           }
+
+           rewriter.replaceOpWithNewOp<database::GroupByOp>(
+               s, RelationType::get(context), tupleStreamValues, grpFieldsAttr, aggrFields, funcs);
+
+           return success();
+         }},
         {"Project",
          [&]() {
            auto inputStreamUnion = converter.convertType(operands[1].getType())
@@ -394,7 +431,6 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
            auto outputStreamUnion =
                converter.convertType(s.getType()).dyn_cast_or_null<TupleStreamUnionType>();
 
-           s.getOperand(2).dump();
            auto hashTablePtr = s.getOperand(2).getDefiningOp<sexpr::IntegerConstantOp>().value();
            auto* hashTable = reinterpret_cast<runtime::hash::HashTable*>(hashTablePtr);
 

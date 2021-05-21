@@ -20,4 +20,8 @@ std::map<std::string, boss::mlir::types::RuntimeTypes> mlirFieldsToRuntimeFields
 
 size_t mlirTypeToArrowRawBuffer(arrow::ChunkedArray* array, ::mlir::Type type, int chunk);
 
+::mlir::Type stringToMLIRType(::mlir::MLIRContext* context, std::string typeName);
+
+::mlir::Type runtimeTypeToMLIRType(boss::mlir::types::RuntimeTypes type, ::mlir::MLIRContext* context);
+
 } // namespace boss

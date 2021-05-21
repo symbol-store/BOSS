@@ -48,12 +48,24 @@ void mlir::sexpr::IntegerConstantOp::inferType(TypeInferenceContext* context) {
 }
 
 void mlir::sexpr::SymbolOp::inferType(TypeInferenceContext* context) {
+  auto* previousSymbol = context->symbolOp;
   context->symbolOp = this;
+
+  // Update context
+  boss::mlir::inference::updateContext(this, *context);
+
+  // Recurse
+  for(auto i = getNumOperands(); i > 0; i--) {
+    auto arg = getOperand(i - 1);
+    arg.getDefiningOp<TypeInference>().inferType(context);
+  }
+
+  // Set own type
   std::vector<::mlir::Type> operandTypes(getOperandTypes().begin(), getOperandTypes().end());
   auto resultType = boss::mlir::inference::inferSymbolType(
       this->name().str(), operandTypes, *context);
 
-  context->symbolOp = nullptr;
+  context->symbolOp = previousSymbol;
   this->getResult().setType(resultType);
 }
 
@@ -69,9 +81,9 @@ void mlir::sexpr::StringConstantOp::inferType(TypeInferenceContext* context) {
 }
 
 void mlir::sexpr::CombineOp::inferType(TypeInferenceContext* context) {
-  for(auto& child : getRegion().front().getOperations()) {
-    mlir::dyn_cast<TypeInference, Operation>(&child).inferType(context);
-  }
+  auto head = getRegion().front().back().getOperand(0).getDefiningOp<SymbolOp>();
+  head.inferType(context);
+  mlir::dyn_cast<TypeInference>(getRegion().front().getTerminator()).inferType(context);
 }
 
 void mlir::sexpr::EndOp::inferType(TypeInferenceContext* context) {
@@ -84,4 +96,8 @@ void mlir::sexpr::EndOp::inferType(TypeInferenceContext* context) {
   }
 
   parent.getResult().setType(inputType);
+}
+
+mlir::sexpr::SymbolOp mlir::sexpr::CombineOp::getHead() {
+  return getRegion().front().getTerminator()->getOperand(0).getDefiningOp<SymbolOp>();
 }

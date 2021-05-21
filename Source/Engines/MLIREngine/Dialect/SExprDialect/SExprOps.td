@@ -76,6 +76,7 @@ def CombineOp: SExpr_Op<"combine", [DeclareOpInterfaceMethods<TypeInferenceOpInt
     SymbolOrValueType:$output
   );
 
+  code extraClassDeclaration = "SymbolOp getHead(); ";
 }
 
 def EndOp: SExpr_Op<"end", [Terminator, DeclareOpInterfaceMethods<TypeInferenceOpInterface>]> {
