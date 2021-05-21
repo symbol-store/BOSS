@@ -118,30 +118,7 @@ public:
   WritableBatchPtr<BatchType> cloneAs(bool clear = false) const {
     return cloneAsExpressionBatch(clear);
   }
-
-  void insert(ValueType const& expression) override {
-    if constexpr(FuncArgCount == 2) {
-      auto argsBegin = expression.getArguments().begin();
-      auto argsEnd = expression.getArguments().end();
-      auto sizeArgs = std::distance(argsBegin, argsEnd);
-      if(sizeArgs > FuncArgCount) {
-        // special case for binary operators
-        // split arguments into pairs and create deeper compound expressions
-        ExpressionArguments newArgList(argsBegin, std::next(argsBegin, FuncArgCount));
-        for(int argIndex = FuncArgCount; argIndex < sizeArgs; ++argIndex) {
-          ComplexExpression compoundExpr{expression.getHead(), newArgList};
-          ExpressionArguments compoundList({compoundExpr, *std::next(argsBegin, argIndex)});
-          newArgList.swap(compoundList);
-        }
-
-        insert(ComplexExpression{expression.getHead(), newArgList});
-        return;
-      }
-    }
-
-    CompoundBatch::insert(expression);
-  }
-
+  
   bool evaluate(ReadablePtr& outputPtr) const override { return evaluateHelper(outputPtr); }
 
 private:
@@ -157,35 +134,65 @@ private:
   // build a tuple of specific Batch argument types
   // from dynamic information extracted from generic Batch list
   template <size_t Index = 0, typename... BatchTupleTypes>
-  bool evaluateHelper(ReadablePtr& outputPtr, std::tuple<BatchTupleTypes...>&& batchTuple =
-                                                  std::tuple<BatchTupleTypes...>()) const {
+  template <typename... BatchTupleTypes>
+  bool evaluateHelper(
+      ReadablePtr& outputPtr, size_t realIndex = 0,
+      std::tuple<BatchTupleTypes...>&& batchTuple = std::tuple<BatchTupleTypes...>()) const {
     using BatchTuple = std::tuple<BatchTupleTypes...>;
-    if constexpr(Index == FuncArgCount) {
+    size_t constexpr ArgIndex = sizeof...(BatchTupleTypes);
+    if constexpr(ArgIndex == FuncArgCount) {
       if constexpr(std::is_same_v<BatchTuple, std::tuple<>>) {
         outputPtr = m_evaluator();
       } else {
         outputPtr = evaluateImpl(std::move(batchTuple), std::make_index_sequence<FuncArgCount>{});
       }
+      if constexpr(FuncArgCount == 2) {
+        // special case for binary operators: we can split arguments into pairs
+        // to treat a longer argument list as a deeper compound expression
+        if(realIndex < numArguments()) {
+          auto firstArgPtr = std::move(outputPtr);
+          bool visited = false;
+          bool evaluated = false;
+          EvaluatorType::template visitExactType<0>(
+              [this, &firstArgPtr, &outputPtr, &visited, &evaluated,
+               &realIndex](auto const& specificBatch) {
+                using BatchType = std::decay_t<decltype(specificBatch)>;
+                ReadableBatchPtr<BatchType> specificBatchPtr(std::move(firstArgPtr));
+                visited = true;
+                evaluated = this->evaluateHelper(
+                    outputPtr, realIndex, std::forward_as_tuple(std::move(specificBatchPtr)));
+              },
+              *firstArgPtr);
+          if(visited) {
+            return evaluated;
+          }
+          // otherwise, the output type wasn't a compatible argument type
+          // in that case, put back the initial output
+          // it will just ignore the remaining arguments
+          // TODO: better returning full arguments but unevaluated expression
+          outputPtr = std::move(firstArgPtr);
+        }
+      }
       return true;
     } else {
-      auto batchIt = begin() + Index;
+      auto batchIt = begin() + realIndex;
       auto batchPtr = *batchIt;
-      auto evaluatedPtr = evaluateHelper(Index, batchPtr);
+      auto evaluatedPtr = evaluateHelper(ArgIndex, batchPtr);
 
       bool visited = false;
       bool evaluated = false;
       outputPtr.reset();
-      EvaluatorType::template visitExactType<Index>(
-          [this, &batchTuple, &evaluatedPtr, &outputPtr, &visited,
-           &evaluated](auto const& specificBatch) {
+      EvaluatorType::template visitExactType<ArgIndex>(
+          [this, &batchTuple, &evaluatedPtr, &outputPtr, &visited, &evaluated,
+           &realIndex](auto const& specificBatch) {
             using BatchType = std::decay_t<decltype(specificBatch)>;
             ReadableBatchPtr<BatchType> specificBatchPtr(std::move(evaluatedPtr));
             visited = true;
             evaluated = std::apply(
-                [&specificBatchPtr, &outputPtr, this](auto... arg) {
+                [this, &specificBatchPtr, &outputPtr, realIndex](auto... arg) {
                   // move evaluated ptr to the derived type
-                  return this->evaluateHelper<Index + 1>(
-                      outputPtr,
+                  return this->evaluateHelper(
+                      outputPtr, realIndex + 1,
                       std::forward_as_tuple((std::move(arg))..., std::move(specificBatchPtr)));
                 },
                 std::move(batchTuple));
@@ -210,18 +217,19 @@ private:
 
       // check if they anything has been evaluated
       bool anyEvaluated = false;
-      for(size_t index = 0; index < Index; ++index) {
-        auto beforePtr = *(begin() + index);
-        if(argList[index].get() != beforePtr.get()) {
+      for(size_t i = 0; i < realIndex; ++i) {
+        auto beforePtr = *(begin() + i);
+        if(argList[i].get() != beforePtr.get()) {
           anyEvaluated = true;
           break;
         }
       }
 
       // still evaluate remaining args as much as possible
-      for(size_t index = Index + 1; index < FuncArgCount; ++index) {
-        auto otherPtr = *(begin() + index);
-        auto otherEvaluatedPtr = evaluateHelper(index, otherPtr);
+      for(size_t i = realIndex + 1; i < numArguments(); ++i) {
+        auto otherPtr = *(begin() + i);
+        auto argIndex = i < FuncArgCount ? i : FuncArgCount - 1;
+        auto otherEvaluatedPtr = evaluateHelper(i, otherPtr);
         if(otherEvaluatedPtr.get() != otherPtr.get()) {
           anyEvaluated = true;
         }
