@@ -1,18 +1,16 @@
 #pragma once
 #include "../Engine.hpp"
 #include "Engines/MLIREngine/Runtime/Storage.hpp"
+#include "Engines/MLIREngine/Executors/Interpreter.hpp"
 
 namespace boss::engines::mlir {
 class Engine : public boss::Engine {
-  new_runtime::Database* database;
-
 public:
-  explicit Engine(new_runtime::Database& database) : database(&database) {
+  explicit Engine(new_runtime::Database& database) : database(&database), interpreter(&database) {
     ownsDatabase = false;
   }
 
-  Engine() {
-      database = new new_runtime::Database;
+  Engine(): database(new new_runtime::Database), interpreter(database) {
       ownsDatabase = true;
   };
 
@@ -32,6 +30,8 @@ public:
 
 private:
   bool ownsDatabase;
+  new_runtime::Database* database;
+  interpreter::Interpreter interpreter;
 };
 
 }; // namespace boss::engines::mlir

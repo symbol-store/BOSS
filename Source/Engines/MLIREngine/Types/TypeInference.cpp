@@ -327,18 +327,7 @@ static const auto inferWhereClauseType = [](std::vector<::mlir::Type> const& arg
   return GenericTupleStreamUnionType::get(context.mlirContext, resultTypes);
 };
 
-static const auto inferCreateSymbolType = [](std::vector<::mlir::Type> const& arguments,
-                                             TypeInferenceContext& context) -> ::mlir::Type {
-  // Extract the symbol name
-  auto symbolNameDefinition = llvm::dyn_cast_or_null<::mlir::sexpr::StringConstantOp>(
-      context.symbolOp->getOperand(0).getDefiningOp());
-  if(!symbolNameDefinition) {
-    return SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL,
-                                  llvm::Optional<::mlir::Type>{});
-  }
-  auto symbolName = symbolNameDefinition.value().str();
-
-  // TODO check symbol table
+::mlir::Type getSymbolTableType(std::string const& symbolName, TypeInferenceContext& context) {
   auto symbolTableIt = context.symbolTable.find(symbolName);
   if (symbolTableIt != context.symbolTable.end()) {
     // Add function argument to context, and store argument index in symbol context
@@ -390,7 +379,7 @@ static const auto inferCreateSymbolType = [](std::vector<::mlir::Type> const& ar
 
   return SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL,
                                 llvm::Optional<::mlir::Type>{});
-};
+}
 
 static const auto inferJoinType = [](std::vector<::mlir::Type> const& arguments,
                                      TypeInferenceContext& context) -> ::mlir::Type {
@@ -456,7 +445,6 @@ const std::map<std::string,
                    {"And", inferBooleanType},
                    {"Less", inferBooleanCompareFunction},
                    {"Eq", inferBooleanCompareFunction},
-                   {"Symbol", inferCreateSymbolType},
                    {"Project", inferProjectType},
                    {"Select", inferSelectType},
                    {"Where", inferWhereClauseType},
@@ -483,14 +471,20 @@ bool isRegisteredSymbol(std::string const& name) {
 
 ::mlir::Type inferSymbolType(std::string const& symbolName, const std::vector<::mlir::Type>& argTypes,
                              TypeInferenceContext& context) {
+  ::mlir::Type baseType;
+
+  // Check whether it is a built-in function
   auto inferenceFuncIterator = operatorToType.find(symbolName);
   if(inferenceFuncIterator == operatorToType.end()) {
-    return SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
+    // If not, check whether this symbol has been defined in the symbol table
+    baseType = getSymbolTableType(symbolName, context);
+  } else {
+    // If yes, call the correct inference function
+    // TODO the arg types are wrong here because we recursed at a different point in time
+    baseType = (inferenceFuncIterator->second)(argTypes, context);
   }
 
-  // TODO the arg types are wrong here because we recursed at a different point in time
-  auto baseType = (inferenceFuncIterator->second)(argTypes, context);
-
+  // Make sure we don't get recursive SymbolOrValue types
   if(baseType.isa<SymbolOrValueType>()) {
     return baseType;
   }

@@ -110,7 +110,8 @@ set(MLIREngineImplFiles
   Source/Engines/MLIREngine/Runtime/BuiltinOps.cpp
   Source/Engines/MLIREngine/Runtime/HashTable.cpp
   Source/Engines/MLIREngine/Runtime/HashAggregate.cpp
-  Source/Engines/MLIREngine/Interpreter/Interpreter.cpp
+  Source/Engines/MLIREngine/Executors/Interpreter.cpp
+  Source/Engines/MLIREngine/Executors/Compiler.cpp
 )
 
 # Get MLIR dialect and conversion libraries

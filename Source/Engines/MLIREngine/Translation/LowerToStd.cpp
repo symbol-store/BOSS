@@ -669,6 +669,10 @@ void SexprToStdLoweringPass::runOnFunction() {
   if(failed(res)) {
     signalPassFailure();
   }
+
+  printMutex.lock();
+  getOperation().dump();
+  printMutex.unlock();
 }
 
 std::unique_ptr<mlir::Pass> createLowerToStdPass() {

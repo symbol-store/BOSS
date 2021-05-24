@@ -14,6 +14,9 @@ private:
   new_runtime::Database* database;
 
   std::vector<boss::Expression> evaluateArguments(boss::ComplexExpression const& expression);
+
+  template<typename T>
+  boss::Expression evaluateArithmeticOperator(boss::ComplexExpression e, std::function<T(T,T)>, T initialVal);
 };
 
 }

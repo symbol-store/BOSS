@@ -16,18 +16,31 @@ namespace {
 using namespace mlir;
 using namespace boss::mlir::types;
 
-std::string getSymbolName(sexpr::CombineOp& c) {
-  auto endOp = *c.getOps<sexpr::EndOp>().begin();
-  auto* abstractSymOp = endOp.getOperand().getDefiningOp();
-  auto symbolOp = llvm::dyn_cast_or_null<sexpr::SymbolOp>(abstractSymOp);
-  if (!symbolOp) {
-    throw std::runtime_error("Expected a symbol inside the combine OP");
-  }
+Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function);
 
-  return symbolOp.name().str();
+bool hasAttribute(std::string const& name, sexpr::SymbolOp op) {
+  for (auto const& attr : op.getAttrs()) {
+    if (attr.first.str() == name) {
+      op.removeAttr("temp");
+      return true;
+    }
+  }
+  return false;
 }
 
-Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function);
+llvm::Optional<Value> replaceSymbol(Operation* op, FuncOp function) {
+  auto symbol = mlir::dyn_cast_or_null<sexpr::SymbolOp>(op);
+  if (!symbol) {
+    return {};
+  }
+  if (!hasAttribute("functionArgPosition", symbol)) {
+    return {};
+  }
+  auto symbolArgPosition = symbol.getAttrOfType<::mlir::IntegerAttr>("functionArgPosition");
+  auto argPosition = symbolArgPosition.getInt();
+  auto argument = function.getArgument(argPosition);
+  return argument;
+}
 
 Value flattenCallsStandard(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function) {
   // Recursively flatten al child combineOps
@@ -44,9 +57,17 @@ Value flattenCallsStandard(sexpr::CombineOp& c, OpBuilder& builder, FuncOp funct
 
   // Clone all the operations into the function body
   for(auto& op : c.getRegion().getBlocks().front().without_terminator()) {
-    auto* clone = op.clone();
-    op.replaceAllUsesWith(clone->getResults());
-    function.getRegion().getBlocks().front().push_back(clone);
+    // Check whether the op is a symbol, if it is, replace with argument
+    auto maybeNewValue = replaceSymbol(&op, function);
+    if (maybeNewValue.hasValue()) {
+      auto newValue = maybeNewValue.getValue();
+      op.replaceAllUsesWith(ValueRange{newValue});
+    } else {
+      // Else, just copy over the op
+      auto* clone = op.clone();
+      op.replaceAllUsesWith(clone->getResults());
+      function.getRegion().getBlocks().front().push_back(clone);
+    }
   }
 
   // Extract what the combine op returned, so it can be passed to the caller
@@ -142,35 +163,16 @@ Value flattenCallsLambda(sexpr::CombineOp& c, OpBuilder& builder, FuncOp functio
   return newUnionStream.getResult();
 }
 
-Value flattenCallsCreateSymbol(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function) {
-  auto endOp = *c.getOps<sexpr::EndOp>().begin();
-  auto* abstractSymOp = endOp.getOperand().getDefiningOp();
-  auto symbolOp = llvm::dyn_cast_or_null<sexpr::SymbolOp>(abstractSymOp);
-  if (!symbolOp) {
-    throw std::runtime_error("Expected a symbol inside the combine OP");
-  }
-
-  auto symbolArgPosition = symbolOp.getAttrOfType<::mlir::IntegerAttr>("functionArgPosition");
-  if (!symbolArgPosition) {
-    return flattenCallsStandard(c, builder, function);
-  }
-  auto argPosition = symbolArgPosition.getInt();
-
-  auto argument = function.getArgument(argPosition);
-  return argument;
-}
-
 Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function) {
-  auto const name = getSymbolName(c);
+  auto symbol = c.getHead();
+  auto const& name = symbol.name().str();
   if (name == "Lambda") {
     return flattenCallsLambda(c, builder, function);
   }
   if (name == "Where") {
     return flattenCallsWhereSymbol(c, builder, function);
   }
-  if (name == "Symbol") {
-    return flattenCallsCreateSymbol(c, builder, function);
-  }
+
   return flattenCallsStandard(c, builder, function);
 }
 
@@ -229,6 +231,8 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
 
   // Erase the combine that we flattened
   rootCombine.erase();
+
+  getOperation().dump();
 }
 
 }; // namespace
