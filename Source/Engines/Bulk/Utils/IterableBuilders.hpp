@@ -6,8 +6,11 @@
 
 namespace boss::engines::bulk {
 
+/** Special case to iterate a boolean builder.
+ * This is because data is compressed into a bit array,
+ * so we cannot read and write data the same as we do for other simple data types.
+ * It has to be converted in and out using arrow::bitUtil functions. */
 class IterableBooleanBuilder : public arrow::BooleanBuilder {
-  // can these builders not be templatized? If not, we should document why not
 public:
   explicit IterableBooleanBuilder(arrow::MemoryPool* pool = arrow::default_memory_pool())
       : arrow::BooleanBuilder(pool) {}
@@ -23,10 +26,9 @@ public:
   uint8_t const* raw_values() const { return data_builder_.data(); }
   uint8_t* raw_values() { return data_builder_.mutable_data(); }
 
-  class BoolIterator;
+  // need a proxy to pretend having a reference to a bool
+  // when we actually need to go through the SetValue/GetValue interface of the array
   class BoolBuilderProxy {
-    friend class BoolIterator;
-
   public:
     BoolBuilderProxy(IterableBooleanBuilder& builder, int index)
         : m_builder(builder), m_index(index) {}
@@ -35,6 +37,9 @@ public:
       m_builder.SetValue(m_index, value);
       return *this;
     }
+    IterableBooleanBuilder& getBuilder() const { return m_builder; }
+    int getIndex() const { return m_index; }
+    void incrementIndex() { ++m_index; }
 
   private:
     IterableBooleanBuilder& m_builder;
@@ -46,21 +51,24 @@ public:
     BoolIterator(IterableBooleanBuilder& builder, int index) : m_proxy(builder, index) {}
     auto& operator*() { return m_proxy; }
     bool operator!=(BoolIterator const& rhs) const {
-      return m_proxy.m_index != rhs.m_proxy.m_index;
+      return m_proxy.getIndex() != rhs.m_proxy.getIndex();
     }
-    bool operator!=(BoolIterator&& rhs) const { return m_proxy.m_index != rhs.m_proxy.m_index; }
+    bool operator!=(BoolIterator&& rhs) const {
+      return m_proxy.getIndex() != rhs.m_proxy.getIndex();
+    }
     BoolIterator operator+(int incr) const {
-      return BoolIterator(m_proxy.m_builder, m_proxy.m_index + incr);
+      return BoolIterator(m_proxy.getBuilder(), m_proxy.getIndex() + incr);
     }
-    void operator++() { ++m_proxy.m_index; }
+    void operator++() { m_proxy.incrementIndex(); }
 
   private:
     BoolBuilderProxy m_proxy;
   };
 
-  // offset is a workaround for now, because not all elements are iterable
-  // (if they are already in an array)
-  auto begin(size_t offset = 0) { return BoolIterator(*this, -offset); }
+  // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
+  // because not all elements are iterable (if they are already in an array).
+  // So we use the offset to start in the negative "before" the beginning of the builder array
+  auto begin(int offset = 0) { return BoolIterator(*this, -offset); }
   auto end() { return BoolIterator(*this, length()); }
 
   class BoolConstIterator {
@@ -80,31 +88,37 @@ public:
     int m_index;
   };
 
-  // offset is a workaround for now, because not all elements are iterable
-  // (if they are already in an array)
-  auto begin(size_t offset = 0) const { return BoolConstIterator(*this, -offset); }
+  // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
+  // because not all elements are iterable (if they are already in an array).
+  // So we use the offset to start in the negative "before" the beginning of the builder array
+  auto begin(int offset = 0) const { return BoolConstIterator(*this, -offset); }
   auto end() const { return BoolConstIterator(*this, length()); }
 };
 
+/** Special case to iterate a string builder.
+ * This is because we cannot have random write like other simple data types.
+ * We can only iterate as read-only and write by appending to the end.
+ * Because for now, we need to fit this builder API with other builders,
+ * we pretend to resize+set data, but we should do is actually reserve+insert. */
+template <typename ElementType = std::string> // allow to handle Symbol as well
 class IterableStringBuilder : public arrow::StringBuilder {
+  // [https://github.com/symbol-store/BOSS/issues/88] we need one of those changes:
+  // - a separate StringBatch with a different API
+  // - change all batches to be reserve+insert (but how to be still efficient?)
+  // - use a dictionary for strings, so can separate ordered insert and data allocation
 public:
   explicit IterableStringBuilder(arrow::MemoryPool* pool = arrow::default_memory_pool())
       : arrow::StringBuilder(pool) {}
 
-  // TODO: what to do with strings?
-  // Let's open a ticket
-  // we should have reserve+insert instead of resize+set
-  // need one of those changes:
-  // - a separate StringBatch with a different API
-  // - change all batches to be reserve+insert (but how to be still efficient?)
-  // - use a dictionary for strings, so can separate ordered insert and data allocation
+  // need a proxy to pretend having a reference to a string
+  // when we actually need to iterate using the append workaround
   class StringBuilderProxy {
   public:
     StringBuilderProxy(IterableStringBuilder& builder, int index)
         : m_builder(builder), m_index(index) {}
     ~StringBuilderProxy() = default;
     StringBuilderProxy(StringBuilderProxy const& other) = default;
-    StringBuilderProxy(StringBuilderProxy&& other) = default;
+    StringBuilderProxy(StringBuilderProxy&& other) noexcept = default;
     bool operator!=(StringBuilderProxy const& rhs) const { return m_index != rhs.m_index; }
     bool operator!=(StringBuilderProxy&& rhs) const { return m_index != rhs.m_index; }
     StringBuilderProxy operator+(int incr) const {
@@ -112,9 +126,11 @@ public:
     }
     void operator++() { ++m_index; }
 
-    explicit operator std::string() const { return std::string(m_builder.GetView(m_index)); }
+    explicit operator ElementType() const {
+      return ElementType(std::string(m_builder.GetView(m_index)));
+    }
 
-    StringBuilderProxy& operator=(std::string const& value) {
+    StringBuilderProxy& operator=(ElementType const& value) {
       if(m_builder.length() > m_index) {
         // TODO: need another solution for the storage for random write
         // cannot replace a previously inserted value...
@@ -127,29 +143,30 @@ public:
           return *this;
         }
       }
-      auto status = m_builder.Append(value);
+
+      auto toStringRef = [](auto const& value) -> std::string const& {
+        if constexpr(std::is_same_v<ElementType, Symbol>) {
+          return value.getName();
+        } else {
+          return value;
+        }
+      };
+
+      auto status = m_builder.Append(toStringRef(value));
       if(!status.ok()) {
+        // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
         return *this;
       }
-      // TODO: ideally should be able to do this following and reserve size,
-      // but it works only if we can ReserveData() as well for binary arrays:
-      // assuming it has been reserved!
-      // m_builder.UnsafeAppend(value);
-      return *this;
-    }
 
-    StringBuilderProxy& operator=(Symbol const& value) {
-      // not sure I like this! Did this ever come up as a case?
-      *this = value.getName();
       return *this;
     }
 
     StringBuilderProxy& operator=(StringBuilderProxy const& other) {
-      *this = static_cast<std::string>(other);
+      *this = static_cast<ElementType>(other);
       return *this;
     }
     StringBuilderProxy& operator=(StringBuilderProxy&& other) noexcept {
-      *this = static_cast<std::string>(other);
+      *this = static_cast<ElementType>(other);
       return *this;
     }
 
@@ -173,8 +190,9 @@ public:
     StringBuilderProxy m_proxy;
   };
 
-  // offset is a workaround for now, because not all elements of the array are iterable
-  // (if they are already in an array)
+  // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
+  // because not all elements are iterable (if they are already in an array).
+  // So we use the offset to start in the negative "before" the beginning of the builder array
   auto begin(size_t offset = 0) { return StringIterator(*this, -offset); }
   auto end() { return StringIterator(*this, length()); }
 
@@ -195,8 +213,9 @@ public:
     int m_index;
   };
 
-  // offset is a workaround for now, because not all elements of the array are iterable
-  // (if they are already in an array)
+  // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
+  // because not all elements are iterable (if they are already in an array).
+  // So we use the offset to start in the negative "before" the beginning of the builder array
   auto begin(size_t offset = 0) const { return StringConstIterator(*this, -offset); }
   auto end() const { return StringConstIterator(*this, length()); }
 };
@@ -219,33 +238,35 @@ public:
     return reinterpret_cast<value_type*>(arrow::NumericBuilder<T>::data_builder_.mutable_data());
   }
 
-  class PointerIterator {
+  /// Just wrap an iterator around a pointer to the underline c-array
+  class NumericIterator {
   public:
-    explicit PointerIterator(value_type* pointer) : m_pointer(pointer) {}
+    explicit NumericIterator(value_type* pointer) : m_pointer(pointer) {}
     value_type& operator*() const { return *m_pointer; }
-    bool operator!=(PointerIterator const& rhs) const { return m_pointer != rhs.m_pointer; }
-    bool operator!=(PointerIterator&& rhs) const { return m_pointer != rhs.m_pointer; }
-    PointerIterator operator+(size_t incr) const { return PointerIterator(m_pointer + incr); }
+    bool operator!=(NumericIterator const& rhs) const { return m_pointer != rhs.m_pointer; }
+    bool operator!=(NumericIterator&& rhs) const { return m_pointer != rhs.m_pointer; }
+    NumericIterator operator+(size_t incr) const { return NumericIterator(m_pointer + incr); }
     void operator++() { ++m_pointer; }
 
   private:
     value_type* m_pointer;
   };
 
-  // offset is a workaround for now, because not all elements of the array are iterable
-  // (if they are already in an array)
-  auto begin(size_t offset = 0) { return PointerIterator(raw_values() - offset); }
-  // is this weird? a NumericBuilder that has a PointerIterator?
-  auto end() { return PointerIterator(raw_values() + arrow::NumericBuilder<T>::length()); }
+  // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
+  // because not all elements are iterable (if they are already in an array).
+  // So we use the offset to start in the negative "before" the beginning of the builder array
+  auto begin(size_t offset = 0) { return NumericIterator(raw_values() - offset); }
+  auto end() { return NumericIterator(raw_values() + arrow::NumericBuilder<T>::length()); }
 
-  class PointerConstIterator {
+  /// Just wrap an iterator around a pointer to the underline c-array
+  class NumericConstIterator {
   public:
-    explicit PointerConstIterator(value_type const* pointer) : m_pointer(pointer) {}
+    explicit NumericConstIterator(value_type const* pointer) : m_pointer(pointer) {}
     value_type const& operator*() const { return *m_pointer; }
-    bool operator!=(PointerConstIterator const& rhs) const { return m_pointer != rhs.m_pointer; }
-    bool operator!=(PointerConstIterator&& rhs) const { return m_pointer != rhs.m_pointer; }
-    PointerConstIterator operator+(size_t incr) const {
-      return PointerConstIterator(m_pointer + incr);
+    bool operator!=(NumericConstIterator const& rhs) const { return m_pointer != rhs.m_pointer; }
+    bool operator!=(NumericConstIterator&& rhs) const { return m_pointer != rhs.m_pointer; }
+    NumericConstIterator operator+(size_t incr) const {
+      return NumericConstIterator(m_pointer + incr);
     }
     void operator++() { ++m_pointer; }
 
@@ -253,11 +274,12 @@ public:
     value_type const* m_pointer;
   };
 
-  // offset is a workaround for now, because not all elements of the array are iterable
-  // (if they are already in an array)
-  auto begin(size_t offset = 0) const { return PointerConstIterator(raw_values() - offset); }
+  // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
+  // because not all elements are iterable (if they are already in an array).
+  // So we use the offset to start in the negative "before" the beginning of the builder array
+  auto begin(size_t offset = 0) const { return NumericConstIterator(raw_values() - offset); }
   auto end() const {
-    return PointerConstIterator(raw_values() + arrow::NumericBuilder<T>::length());
+    return NumericConstIterator(raw_values() + arrow::NumericBuilder<T>::length());
   }
 };
 

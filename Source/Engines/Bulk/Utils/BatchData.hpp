@@ -15,10 +15,10 @@ public:
         field(std::move(_field)) {}
   arrow::ChunkedArray const& arrays;
   std::shared_ptr<arrow::ArrayBuilder> builder;
-
-  // [ISSUE] (part of arrow API issue) needed until we can shrink a builder
-  size_t builderLogicalSize;
   std::shared_ptr<arrow::Field> field;
+  // [https://github.com/symbol-store/BOSS/issues/88]
+  // needed until we can shrink a builder
+  size_t builderLogicalSize;
 };
 
 } // namespace boss::engines::bulk

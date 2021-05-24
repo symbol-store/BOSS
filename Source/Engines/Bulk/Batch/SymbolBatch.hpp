@@ -2,9 +2,7 @@
 
 #include "ValueBatch.hpp"
 
-#include "../BatchFactory.hpp"
-#include "../BatchHelper.hpp"
-#include "../SymbolPool.hpp"
+#include "../SymbolRegistry.hpp"
 
 #include "../../../Expression.hpp"
 
@@ -26,25 +24,18 @@ public:
     return std::holds_alternative<ValueType>(val);
   }
 
-  explicit SymbolBatch(BatchFactory const& factory, size_t count = 0)
-      : m_factory(factory), ValueBatch(count) {}
-  explicit SymbolBatch(BatchFactory const& factory, Symbol const& symbol)
-      : m_factory(factory), ValueBatch(0, symbol) {}
-  explicit SymbolBatch(BatchFactory const& factory, Symbol&& symbol)
-      : m_factory(factory), ValueBatch(0, std::move(symbol)) {}
-  SymbolBatch(BatchFactory const& factory, size_t size, Symbol const& symbol)
-      : m_factory(factory), ValueBatch(size, symbol) {}
-  SymbolBatch(BatchFactory const& factory, size_t size, Symbol&& symbol)
-      : m_factory(factory), ValueBatch(size, std::move(symbol)) {}
+  explicit SymbolBatch(size_t count = 0) : ValueBatch(count) {}
+  explicit SymbolBatch(Symbol const& symbol) : ValueBatch(0, symbol) {}
+  explicit SymbolBatch(Symbol&& symbol) : ValueBatch(0, std::move(symbol)) {}
+  SymbolBatch(size_t size, Symbol const& symbol) : ValueBatch(size, symbol) {}
+  SymbolBatch(size_t size, Symbol&& symbol) : ValueBatch(size, std::move(symbol)) {}
 
-  SymbolBatch(BatchFactory const& factory, arrow::ArrayVector&& arrays,
-              std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder)
-      : m_factory(factory), ValueBatch(std::move(arrays), std::move(arrayBuilder)) {}
+  SymbolBatch(arrow::ArrayVector&& arrays, std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder)
+      : ValueBatch(std::move(arrays), std::move(arrayBuilder)) {}
 
-  SymbolBatch(SymbolBatch const& other, bool clear = false)
-      : m_factory(other.m_factory), ValueBatch(other, clear) {}
+  SymbolBatch(SymbolBatch const& other, bool clear = false) : ValueBatch(other, clear) {}
   SymbolBatch(SymbolBatch&& other, bool clear = false) noexcept
-      : m_factory(other.m_factory), ValueBatch(std::move(other), clear) {}
+      : ValueBatch(std::move(other), clear) {}
 
   ~SymbolBatch() override = default;
   SymbolBatch& operator=(SymbolBatch const& other) = delete;
@@ -71,12 +62,12 @@ public:
       return false;
     }
 
-    // [ISSUE] handle returning multiple array type
+    // TODO: handle returning multiple array type
     // (for now just assume always a single symbol)
 
     // make sure to return a non-writable...
-    // [ISSUE] cleanup SymbolPool to avoid mistakes (part of ReadablePtr/WritablePtr cleanup?)
-    auto const& batchPtr = DefaultSymbolPool::instance().findSymbol(*begin());
+    // [https://github.com/symbol-store/BOSS/issues/90] cleanup SymbolRegistry to avoid mistakes
+    auto const& batchPtr = DefaultSymbolRegistry::instance().findSymbol(*begin());
     if(!batchPtr) {
       return false;
     }
@@ -85,9 +76,6 @@ public:
 
     return true;
   }
-
-private:
-  BatchFactory const& m_factory;
 };
 
 } // namespace boss::engines::bulk

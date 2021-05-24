@@ -14,7 +14,7 @@ namespace boss::engines::bulk {
 
 class Batch;
 
-// [ISSUE] likely unnecessary. see issue.
+// [https://github.com/symbol-store/BOSS/issues/90] remove if unnecessary
 /** This is acting like a shared ptr but additional keeping track of the writable property
  * It means that a ReadablePtr is providing only a const Batch
  * and then we can explicitely convert to WritablePtr if we want a non-const Batch:
@@ -198,7 +198,7 @@ public:
   Batch(Batch&& other) = delete;
   Batch& operator=(Batch const& other) = delete;
   Batch& operator=(Batch&& other) = delete;
-  
+
   /// create a full copy of the batch (without knowing the derived batch type)
   virtual Batch* clone(bool clear = false) const = 0;
 
@@ -213,11 +213,11 @@ public:
   /// check if this batch is able to store this type of expression
   virtual bool canContain(Expression const& val) const = 0;
 
-  virtual void insert(Expression const& val) = 0;
+  virtual void append(Expression const& val) = 0;
 
   virtual BatchData data() const = 0;
 
-  // [ISSUE] cleanup usage of arrow API
+  // [https://github.com/symbol-store/BOSS/issues/88]
   virtual void setOwner(std::shared_ptr<CompoundArray> parentArray, size_t childIndex) = 0;
 
   /** set outputPtr to the new evaluated batch and return true if an evaluation occurred,

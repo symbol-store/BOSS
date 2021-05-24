@@ -68,11 +68,10 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLIN
   SECTION("Relational (simple)") {
     eval("CreateTable"_("Customer"_, "FirstName"_, "LastName"_));
     if constexpr(std::is_same_v<TestType, boss::engines::bulk::Engine>) {
-      // temporary fix until this is fixed in bulk backend
+      // [https://github.com/symbol-store/BOSS/issues/84]
       eval("InsertInto"_("Customer"_, "List"_("John", "McCarthy")));
       eval("InsertInto"_("Customer"_, "List"_("Sam", "Madden")));
       eval("InsertInto"_("Customer"_, "List"_("Barbara", "Liskov")));
-      // do we have a ticket for that?
     } else {
       eval("InsertInto"_("Customer"_, "John", "McCarthy"));
       eval("InsertInto"_("Customer"_, "Sam", "Madden"));

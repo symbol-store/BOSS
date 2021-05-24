@@ -2,6 +2,7 @@
 
 #include "Batch.hpp"
 
+#include "../ArrowExtensions/MutableChunkedArray.hpp"
 #include "../Utils/CompoundArray.hpp"
 #include "../Utils/IterableBuilders.hpp"
 #include "../Utils/SymbolArray.hpp"
@@ -12,6 +13,7 @@
 
 namespace boss::engines::bulk {
 
+// builder type and array type we use for all the data types supported by ValueBatch
 template <typename T> struct BatchTypeToArrowType;
 template <> struct BatchTypeToArrowType<bool> {
   using arrayType = arrow::BooleanArray;
@@ -27,7 +29,7 @@ template <> struct BatchTypeToArrowType<float> {
 };
 template <> struct BatchTypeToArrowType<std::string> {
   using arrayType = arrow::StringArray;
-  using builderType = IterableStringBuilder;
+  using builderType = IterableStringBuilder<>;
 };
 template <> struct BatchTypeToArrowType<Symbol> {
   using arrayType = SymbolArray;
@@ -131,15 +133,14 @@ public:
     return cloneAsValueBatch(clear);
   }
 
-  // [ISSUE] need to make this iterate on the arrays as well, not only the builder
-  // it works for now because we use it only for writing new elements
-  // and with this workaround: we provide the offset for the elements we cannot iterate
+  // [https://github.com/symbol-store/BOSS/issues/88]
+  // need to make this iterate on the arrays as well, not only the builder.
+  // it works for now because we use it only for writing new elements and with this
+  // workaround: we provide the offset for the elements we cannot iterate
   auto begin() { return m_builder->begin(m_arrays.length()); }
   auto end() { return m_builder->begin(m_arrays.length()) + m_builderLogicalSize; }
 
-  // [ISSUE] clean up iterators. maybe part of the arrow API issue too
-  // from Holger's comment:
-  // can we generalize the different iterators? Or maybe even reuse an existing one?
+  // [https://github.com/symbol-store/BOSS/issues/88] clean up iterators
   class ConstIterator {
   public:
     ConstIterator(std::vector<std::shared_ptr<ArrayType>> const& arrays, BuilderType const& builder,
@@ -212,7 +213,7 @@ public:
                          m_builder->length());
   }
 
-  // [ISSUE] cleanup usage of arrow API
+  // [https://github.com/symbol-store/BOSS/issues/88]
   void setOwner(std::shared_ptr<CompoundArray> parentArray, size_t childIndex) override {
     // used to set the owner (parent batch) after creating a child batch in CompoundBatch::column()
     // so the parent can freezeData() when the child need to freezeData()
@@ -235,7 +236,7 @@ public:
         // nothing new
         return;
       }
-      // [ISSUE] handle multiple types in union
+      // [https://github.com/symbol-store/BOSS/issues/92] handle multiple types in union
       chunkArray = m_parentArray->getArgument(newChunkIndex, m_childIndex)->field(0);
     } else {
       if(m_builder->length() == 0) {
@@ -259,13 +260,14 @@ public:
 
   void resize(size_t size) override {
     if(size < m_arrays.length()) {
-      // [ISSUE] (part of arrow API issue) any way to handle this case? with slicing?
+      // [https://github.com/symbol-store/BOSS/issues/88]
+      // any way to handle this case? with slicing?
       return;
     }
     size -= m_arrays.length();
     if(size > m_builderLogicalSize) {
       if constexpr(std::is_same_v<T, std::string> || std::is_same_v<T, Symbol>) {
-        // [ISSUE] (part of arrow API issue) need cleaner implementation
+        // [https://github.com/symbol-store/BOSS/issues/88] need cleaner implementation
         // don't resize the internal data in advance when using the proxy
         // since it cannot revisit previous empty values
         // m_builder.Reserve(size - m_builder.length()); // and cannot reserve neither! since append
@@ -277,7 +279,7 @@ public:
         }
       }
     } else if(size < m_builderLogicalSize) {
-      // [ISSUE] (part of arrow API issue) need a way to shrink builder size
+      // [https://github.com/symbol-store/BOSS/issues/88] need a way to shrink builder size
       // m_builder->Resize(size);
     }
     m_builderLogicalSize = size;
@@ -285,9 +287,9 @@ public:
 
   size_t size() const override { return m_builderLogicalSize + m_arrays.length(); }
 
-  void insert(Expression const& expression) override { insert(std::get<ValueType>(expression)); }
+  void append(Expression const& expression) override { append(std::get<ValueType>(expression)); }
 
-  void insert(ValueType const& value) {
+  void append(ValueType const& value) {
     auto status = m_builder->Append(value);
     if(!status.ok()) {
       return;
@@ -311,10 +313,12 @@ public:
   }
 
 private:
-  class MutableChunkedArray : public arrow::ChunkedArray {
+  /// This class is additionally storing a vector of the casted array types
+  /// to avoid having to do the cast at every iteration (see iterators)
+  class TypedChunkedArray : public MutableChunkedArray {
   public:
-    explicit MutableChunkedArray(arrow::ArrayVector&& arrays)
-        : arrow::ChunkedArray(std::move(arrays), nullptr) {
+    explicit TypedChunkedArray(arrow::ArrayVector&& arrays)
+        : MutableChunkedArray(std::move(arrays)) {
       for(auto& chunk : chunks()) {
         auto typedChunk = std::dynamic_pointer_cast<ArrayType>(chunk);
         m_typedChunks.emplace_back(std::move(typedChunk));
@@ -323,24 +327,20 @@ private:
 
     std::vector<std::shared_ptr<ArrayType>> const& typedChunks() const { return m_typedChunks; }
 
-    void reserve(size_t chunkSize) { chunks_.reserve(chunkSize); }
-
     void clear() {
       m_typedChunks.clear();
-      chunks_.clear();
-      length_ = 0;
-      null_count_ = 0;
-      type_.reset();
+      MutableChunkedArray::clear();
     }
 
   private:
     std::vector<std::shared_ptr<ArrayType>> m_typedChunks;
   };
 
-  MutableChunkedArray m_arrays;
+  TypedChunkedArray m_arrays;
   std::shared_ptr<BuilderType> m_builder;
 
-  // [ISSUE] (part of arrow API issue) needed until we can shrink a builder
+  // [https://github.com/symbol-store/BOSS/issues/88]
+  // needed until we can shrink a builder
   size_t m_builderLogicalSize;
 
   std::shared_ptr<CompoundArray> m_parentArray;

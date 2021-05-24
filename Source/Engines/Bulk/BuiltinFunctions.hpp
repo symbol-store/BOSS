@@ -1,8 +1,9 @@
 #pragma once
 
+#include "../Bulk.hpp"
 #include "Batch/FunctionBatch.hpp"
-#include "BatchTemplates.hpp"
-#include "SymbolPool.hpp"
+#include "BatchPrototypes.hpp"
+#include "SymbolRegistry.hpp"
 #include "TableView.hpp"
 
 #include "../../Expression.hpp"
@@ -25,28 +26,27 @@ using boss::utilities::operator""_;
 /* Helper class just for registering all the builin functions */
 /**************************************************************/
 
-template <typename BatchTemplates> class BuiltinFunctions {
+template <typename BatchPrototypes> class BuiltinFunctions {
   // Wow, this thing is massive. I think we want to spend some time refactoring it (happy to do that
   // in a pair). In particular, I think we should see what utility functions we want to
   // extract. Extending the engine should be really (!) easy
 public:
-  using AnyBatch = typename BatchTemplates::AnyBatch;
-  using NonSymbolicBatch = typename BatchTemplates::NonSymbolicBatch;
-  using AnySimpleBatch = typename BatchTemplates::AnySimpleBatch;
-  using AnyCompoundBatch = typename BatchTemplates::AnyCompoundBatch;
-  using BatchHelperAny = typename BatchTemplates::BatchHelper;
+  using AnyBatch = typename BatchPrototypes::AnyBatch;
+  using NonSymbolicBatch = typename BatchPrototypes::NonSymbolicBatch;
+  using AnySimpleBatch = typename BatchPrototypes::AnySimpleBatch;
+  using AnyCompoundBatch = typename BatchPrototypes::AnyCompoundBatch;
 
-  static void registerAll(BatchTemplates& templates) {
-    arithmetic(templates);
-    comparison(templates);
-    logic(templates);
-    conversions(templates);
-    stringOps(templates);
-    symbolicOps(templates);
-    collections(templates);
-    aggregates(templates);
-    dbManagement(templates);
-    queries(templates);
+  static void registerAll(BatchPrototypes& prototypes) {
+    arithmetic(prototypes);
+    comparison(prototypes);
+    logic(prototypes);
+    conversions(prototypes);
+    stringOps(prototypes);
+    symbolicOps(prototypes);
+    collections(prototypes);
+    aggregates(prototypes);
+    dbManagement(prototypes);
+    queries(prototypes);
   }
 
   // safe iterator which can fake iterating for arguments which are constants
@@ -74,8 +74,7 @@ public:
 
   // helpers to iterate and evaluate on each element of a batch
   template <typename Func, typename... BatchPtrIn>
-  static Batch::WritablePtr evaluateElements(BatchTemplates& templates, Func&& func,
-                                             BatchPtrIn&&... in) {
+  static Batch::WritablePtr evaluateElements(Func&& func, BatchPtrIn&&... in) {
     auto apply = [&](auto& out, auto&&... inIt) {
       auto outIt = out.begin();
       for(; outIt != out.end(); ++outIt, ((++inIt), ...)) {
@@ -87,11 +86,11 @@ public:
     if constexpr(std::is_same_v<ReturnType, Symbol>) {
       // assuming symbol to be always a single output
       // (different symbols must be dispatched to different batches!)
-      auto* outputBatch = new SymbolBatch(templates, 1);
+      auto* outputBatch = new SymbolBatch(1);
       apply(*outputBatch, in->begin()...);
       return Batch::WritablePtr(outputBatch);
     } else if constexpr(std::is_same_v<ReturnType, ComplexExpression>) {
-      auto* outputBatch = new CompoundBatch(templates);
+      auto* outputBatch = new CompoundBatch();
       apply(*outputBatch, in->begin()...);
       return Batch::WritablePtr(outputBatch);
     } else {
@@ -105,135 +104,121 @@ public:
   }
 
 private:
-  static void arithmetic(BatchTemplates& templates) {
-    templates.template allowedTypes<int, float>().template registerFunction<2>(
-        "Plus", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+  static void arithmetic(BatchPrototypes& prototypes) {
+    prototypes.template allowedTypes<int, float>().template registerFunction<2>(
+        "Plus", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
           return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> auto { return a + b; }, lhsBatchPtr,
-              rhsBatchPtr);
+              [](auto const& a, auto const& b) -> auto { return a + b; }, lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<int, float>().template registerFunction<2>(
-        "Minus", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+    prototypes.template allowedTypes<int, float>().template registerFunction<2>(
+        "Minus", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
           return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> auto { return a - b; }, lhsBatchPtr,
-              rhsBatchPtr);
+              [](auto const& a, auto const& b) -> auto { return a - b; }, lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<int, float>().template registerFunction<2>(
-        "Times", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+    prototypes.template allowedTypes<int, float>().template registerFunction<2>(
+        "Times", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
           return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> auto { return a * b; }, lhsBatchPtr,
-              rhsBatchPtr);
+              [](auto const& a, auto const& b) -> auto { return a * b; }, lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<int, float>().template registerFunction<2>(
-        "Divide", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+    prototypes.template allowedTypes<int, float>().template registerFunction<2>(
+        "Divide", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
           return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> auto { return a / b; }, lhsBatchPtr,
-              rhsBatchPtr);
+              [](auto const& a, auto const& b) -> auto { return a / b; }, lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<int, float>().template registerFunction<1>(
-        "Negation", [&templates](auto&& lhsBatchPtr) {
+    prototypes.template allowedTypes<int, float>().template registerFunction<1>(
+        "Negation", [](auto&& lhsBatchPtr) {
           return evaluateElements(
-              templates, [](auto const& a) -> auto { return -a; }, lhsBatchPtr);
+              [](auto const& a) -> auto { return -a; }, lhsBatchPtr);
         });
-    templates.template allowedTypes<float>().template registerFunction<3>(
-        "Lerp", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr, auto&& ratioBatchPtr) {
+    prototypes.template allowedTypes<float>().template registerFunction<3>(
+        "Lerp", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr, auto&& ratioBatchPtr) {
           return evaluateElements(
-              templates,
+
               [](auto const& a, auto const& b, auto const& t) -> auto { return a + (b - a) * t; },
               lhsBatchPtr, rhsBatchPtr, ratioBatchPtr);
         });
   };
 
-  static void comparison(BatchTemplates& templates) {
-    templates.template allowedTypes<bool, int, float, std::string>().template registerFunction<2>(
-        "Equal", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+  static void comparison(BatchPrototypes& prototypes) {
+    prototypes.template allowedTypes<bool, int, float, std::string>().template registerFunction<2>(
+        "Equal", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
           using BatchTypeA = typename std::decay_t<decltype(lhsBatchPtr)>::BatchType;
           using BatchTypeB = typename std::decay_t<decltype(rhsBatchPtr)>::BatchType;
           using ValueTypeA = typename BatchTypeA::ValueType;
           using ValueTypeB = typename BatchTypeB::ValueType;
           if constexpr(std::is_convertible_v<ValueTypeB, ValueTypeA>) {
             return evaluateElements(
-                templates,
                 [](auto const& a, auto const& b) -> bool {
                   return static_cast<ValueTypeA>(a) == static_cast<ValueTypeB>(b);
                 },
                 lhsBatchPtr, rhsBatchPtr);
           } else {
             return evaluateElements(
-                templates, [](auto const& /*a*/, auto const& /*b*/) -> bool { return false; },
-                lhsBatchPtr, rhsBatchPtr);
+                [](auto const& /*a*/, auto const& /*b*/) -> bool { return false; }, lhsBatchPtr,
+                rhsBatchPtr);
           }
         });
-    templates.template allowedTypes<bool, int, float, std::string>().template registerFunction<2>(
-        "NotEqual", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+    prototypes.template allowedTypes<bool, int, float, std::string>().template registerFunction<2>(
+        "NotEqual", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
           using BatchTypeA = typename std::decay_t<decltype(lhsBatchPtr)>::BatchType;
           using BatchTypeB = typename std::decay_t<decltype(rhsBatchPtr)>::BatchType;
           using ValueTypeA = typename BatchTypeA::ValueType;
           using ValueTypeB = typename BatchTypeB::ValueType;
           if constexpr(std::is_convertible_v<ValueTypeB, ValueTypeA>) {
             return evaluateElements(
-                templates,
                 [](auto const& a, auto const& b) -> bool {
                   return static_cast<ValueTypeA>(a) != static_cast<ValueTypeB>(b);
                 },
                 lhsBatchPtr, rhsBatchPtr);
           } else {
             return evaluateElements(
-                templates, [](auto const& /*a*/, auto const& /*b*/) -> bool { return true; },
-                lhsBatchPtr, rhsBatchPtr);
+                [](auto const& /*a*/, auto const& /*b*/) -> bool { return true; }, lhsBatchPtr,
+                rhsBatchPtr);
           }
         });
-    templates.template allowedTypes<int, float>().template registerFunction<2>(
-        "Less", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
-          return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> bool { return a < b; }, lhsBatchPtr,
-              rhsBatchPtr);
+    prototypes.template allowedTypes<int, float>().template registerFunction<2>(
+        "Less", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+          return evaluateElements([](auto const& a, auto const& b) -> bool { return a < b; },
+                                  lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<int, float>().template registerFunction<2>(
-        "LessEqual", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
-          return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> bool { return a <= b; }, lhsBatchPtr,
-              rhsBatchPtr);
+    prototypes.template allowedTypes<int, float>().template registerFunction<2>(
+        "LessEqual", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+          return evaluateElements([](auto const& a, auto const& b) -> bool { return a <= b; },
+                                  lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<int, float>().template registerFunction<2>(
-        "Greater", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
-          return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> bool { return a > b; }, lhsBatchPtr,
-              rhsBatchPtr);
+    prototypes.template allowedTypes<int, float>().template registerFunction<2>(
+        "Greater", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+          return evaluateElements([](auto const& a, auto const& b) -> bool { return a > b; },
+                                  lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<int, float>().template registerFunction<2>(
-        "GreaterEqual", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
-          return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> bool { return a >= b; }, lhsBatchPtr,
-              rhsBatchPtr);
+    prototypes.template allowedTypes<int, float>().template registerFunction<2>(
+        "GreaterEqual", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+          return evaluateElements([](auto const& a, auto const& b) -> bool { return a >= b; },
+                                  lhsBatchPtr, rhsBatchPtr);
         });
   }
 
-  static void logic(BatchTemplates& templates) {
-    templates.template allowedTypes<bool>().template registerFunction<2>(
-        "And", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
-          return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> bool { return a && b; }, lhsBatchPtr,
-              rhsBatchPtr);
+  static void logic(BatchPrototypes& prototypes) {
+    prototypes.template allowedTypes<bool>().template registerFunction<2>(
+        "And", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+          return evaluateElements([](auto const& a, auto const& b) -> bool { return a && b; },
+                                  lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<bool>().template registerFunction<2>(
-        "Or", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
-          return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> bool { return a || b; }, lhsBatchPtr,
-              rhsBatchPtr);
+    prototypes.template allowedTypes<bool>().template registerFunction<2>(
+        "Or", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+          return evaluateElements([](auto const& a, auto const& b) -> bool { return a || b; },
+                                  lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<bool>().template registerFunction<1>(
-        "Not", [&templates](auto const& batch) {
-          return evaluateElements(
-              templates, [](auto const& a) -> bool { return !a; }, batch);
+    prototypes.template allowedTypes<bool>().template registerFunction<1>(
+        "Not", [](auto const& batch) {
+          return evaluateElements([](auto const& a) -> bool { return !a; }, batch);
         });
   }
 
-  static void conversions(BatchTemplates& templates) {
-    templates.template allowedTypes<std::string>().template registerFunction<1>(
-        "UnixTime", [&templates](auto const& batch) {
+  static void conversions(BatchPrototypes& prototypes) {
+    prototypes.template allowedTypes<std::string>().template registerFunction<1>(
+        "UnixTime", [](auto const& batch) {
           return evaluateElements(
-              templates,
               [](auto const& str) -> int {
                 std::istringstream iss;
                 iss.str(str);
@@ -246,71 +231,67 @@ private:
         });
   }
 
-  static void stringOps(BatchTemplates& templates) {
-    templates.template allowedTypes<std::string>().template registerFunction<2>(
-        "StringJoin", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
-          return evaluateElements(
-              templates, [](auto const& a, auto const& b) -> std::string { return a + b; },
-              lhsBatchPtr, rhsBatchPtr);
+  static void stringOps(BatchPrototypes& prototypes) {
+    prototypes.template allowedTypes<std::string>().template registerFunction<2>(
+        "StringJoin", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+          return evaluateElements([](auto const& a, auto const& b) -> std::string { return a + b; },
+                                  lhsBatchPtr, rhsBatchPtr);
         });
-    templates.template allowedTypes<std::string>().template registerFunction<2>(
-        "StringContainsQ", [&templates](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
+    prototypes.template allowedTypes<std::string>().template registerFunction<2>(
+        "StringContainsQ", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
           return evaluateElements(
-              templates,
               [](auto const& a, auto const& b) -> bool { return a.find(b) != std::string::npos; },
               lhsBatchPtr, rhsBatchPtr);
         });
   }
 
-  static void symbolicOps(BatchTemplates& templates) {
-    templates.template allowedTypes<std::string>().template registerFunction<1>(
-        "Symbol", [&templates](auto&& batchPtr) {
-          return evaluateElements(
-              templates, [](auto const& name) -> Symbol { return Symbol(name); }, batchPtr);
+  static void symbolicOps(BatchPrototypes& prototypes) {
+    prototypes.template allowedTypes<std::string>().template registerFunction<1>(
+        "Symbol", [](auto&& batchPtr) {
+          return evaluateElements([](auto const& name) -> Symbol { return Symbol(name); },
+                                  batchPtr);
         });
 
-    templates.template argBatchTypes<AnySimpleBatch>().template registerFunction<1>(
-        "Function", [&templates](auto bodyBatchPtr) {
+    prototypes.template argBatchTypes<AnySimpleBatch>().template registerFunction<1>(
+        "Function", [](auto bodyBatchPtr) {
           Batch::ReadablePtr bodyPtr(std::move(bodyBatchPtr));
           return Batch::WritablePtr(
-              new FunctionBatch(templates, FunctionBatch::ParameterList{}, std::move(bodyPtr)));
+              new FunctionBatch(FunctionBatch::ParameterList{}, std::move(bodyPtr)));
         });
 
-    templates.template argBatchTypes<AllowedBatches<CompoundBatch, SymbolBatch>, AnyBatch>()
-        .template registerFunction<2>(
-            "Function", [&templates](auto&& argBatchPtr, auto bodyBatchPtr) {
-              using ArgsBatchPtrType = std::decay_t<decltype(argBatchPtr)>;
-              using ArgsBatchType = typename ArgsBatchPtrType::BatchType;
-              FunctionBatch::ParameterList args;
-              if constexpr(std::is_base_of_v<CompoundBatch, ArgsBatchType>) {
-                args.reserve(argBatchPtr->size());
-                for(auto const& symbolBatchPtr : *argBatchPtr) {
-                  if(symbolBatchPtr->typeId() == UniqueId::forType<SymbolBatch>()) {
-                    args.emplace_back(
-                        (*static_cast<SymbolBatch const*>(symbolBatchPtr.get())->begin()));
-                  }
-                }
-              } else {
-                args.emplace_back((*argBatchPtr->begin()));
+    prototypes.template argBatchTypes<AllowedBatches<CompoundBatch, SymbolBatch>, AnyBatch>()
+        .template registerFunction<2>("Function", [](auto&& argBatchPtr, auto bodyBatchPtr) {
+          using ArgsBatchPtrType = std::decay_t<decltype(argBatchPtr)>;
+          using ArgsBatchType = typename ArgsBatchPtrType::BatchType;
+          FunctionBatch::ParameterList args;
+          if constexpr(std::is_base_of_v<CompoundBatch, ArgsBatchType>) {
+            args.reserve(argBatchPtr->size());
+            for(auto const& symbolBatchPtr : *argBatchPtr) {
+              if(symbolBatchPtr->typeId() == UniqueId::forType<SymbolBatch>()) {
+                args.emplace_back(
+                    (*static_cast<SymbolBatch const*>(symbolBatchPtr.get())->begin()));
               }
-              Batch::ReadablePtr bodyPtr(std::move(bodyBatchPtr));
-              return Batch::WritablePtr(new FunctionBatch(templates, args, std::move(bodyPtr)));
-            });
+            }
+          } else {
+            args.emplace_back((*argBatchPtr->begin()));
+          }
+          Batch::ReadablePtr bodyPtr(std::move(bodyBatchPtr));
+          return Batch::WritablePtr(new FunctionBatch(args, std::move(bodyPtr)));
+        });
   }
 
-  static void collections(BatchTemplates& templates) {
-    templates.template argBatchTypes<NonSymbolicBatch, ValueBatch<int>>()
+  static void collections(BatchPrototypes& prototypes) {
+    prototypes.template argBatchTypes<NonSymbolicBatch, ValueBatch<int>>()
         .template registerFunction<2>(
-            "Extract",
-            [&templates](auto&& exprBatchesPtr, auto&& indexBatchPtr) -> Batch::ReadablePtr {
-              auto extraction = [&templates](auto const& exprBatch, size_t index) {
+            "Extract", [](auto&& exprBatchesPtr, auto&& indexBatchPtr) -> Batch::ReadablePtr {
+              auto extraction = [](auto const& exprBatch, size_t index) {
                 using BatchType = std::decay_t<decltype(exprBatch)>;
                 using ValueType = typename BatchType::ValueType;
                 if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
                   return exprBatch.extract(index);
                 } else {
                   auto const& value = static_cast<ValueType>(*(exprBatch.begin() + index));
-                  return Batch::WritablePtr(templates.createBatch(value));
+                  return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
                 }
               };
 
@@ -318,7 +299,7 @@ private:
               auto const& indexBatch = *indexBatchPtr;
               if(indexBatch.size() == 1) {
                 // special case for single batch extraction
-                size_t index = *indexBatch.begin() - 1;
+                size_t index = *indexBatch.begin() - 1u;
                 return Batch::ReadablePtr(extraction(exprBatches, index));
               }
               // general case for multiple extraction
@@ -334,21 +315,21 @@ private:
                 argBatches.reserve(indexBatch.size());
                 for(; indexIt != indexBatch.end() && exprIt != exprBatches.end();
                     ++indexIt, ++exprIt) {
-                  size_t index = *indexIt - 1;
+                  size_t index = *indexIt - 1u;
                   auto exprBatchPtr = *exprIt;
-                  BatchHelperAny::visit(
+                  BatchPrototypes::BatchVisitDispatcher::visit(
                       [&index, &argBatches, &extraction](auto const& exprBatch) {
                         argBatches.emplace_back(extraction(exprBatch, index));
                       },
                       *exprBatchPtr);
                 }
-                compoundBatch.insert(argBatches);
+                compoundBatch.append(argBatches);
               }
               return Batch::ReadablePtr(std::move(compoundBatchPtr));
             });
 
-    templates.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
-        "First", [&templates](auto&& batchPtrExpr) {
+    prototypes.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
+        "First", [](auto&& batchPtrExpr) {
           using BatchPtrType = std::decay_t<decltype(batchPtrExpr)>;
           using BatchType = typename BatchPtrType::BatchType;
           using ValueType = typename BatchType::ValueType;
@@ -356,12 +337,12 @@ private:
             return batchPtrExpr->extract(0);
           } else {
             auto const& value = static_cast<ValueType>(*batchPtrExpr->begin());
-            return Batch::WritablePtr(templates.createBatch(value));
+            return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
           }
         });
 
-    templates.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
-        "Last", [&templates](auto&& batchPtrExpr) {
+    prototypes.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
+        "Last", [](auto&& batchPtrExpr) {
           using BatchPtrType = std::decay_t<decltype(batchPtrExpr)>;
           using BatchType = typename BatchPtrType::BatchType;
           using ValueType = typename BatchType::ValueType;
@@ -370,24 +351,24 @@ private:
             return batchPtrExpr->extract(index);
           } else {
             auto const& value = static_cast<ValueType>(*(batchPtrExpr->begin() + index));
-            return Batch::WritablePtr(templates.createBatch(value));
+            return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
           }
         });
 
-    templates.template argBatchTypes<AllowedBatches<CompoundBatch, TableView>, ValueBatch<int>>()
+    prototypes.template argBatchTypes<AllowedBatches<CompoundBatch, TableView>, ValueBatch<int>>()
         .template registerFunction<2>("Column", [](auto&& batchPtrExpr, auto&& batchPtrNth) {
           size_t index = *batchPtrNth->begin() - 1;
           return batchPtrExpr->column(index);
         });
 
-    templates.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
-        "Length", [&templates](auto&& batchPtrExpr) {
+    prototypes.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
+        "Length", [](auto&& batchPtrExpr) {
           int value = batchPtrExpr->size();
-          return Batch::WritablePtr(templates.createBatch(value));
+          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
         });
 
-    templates.template argBatchTypes<CompoundBatch, AnySimpleBatch>().template registerFunction<2>(
-        "IndexOf", [&templates](auto&& listBatchPtr, auto&& valueBatchPtr) {
+    prototypes.template argBatchTypes<CompoundBatch, AnySimpleBatch>().template registerFunction<2>(
+        "IndexOf", [](auto&& listBatchPtr, auto&& valueBatchPtr) {
           auto const& valueBatch = *valueBatchPtr;
           using ValueBatchType = std::decay_t<decltype(valueBatch)>;
           int index = 1;
@@ -395,7 +376,7 @@ private:
           for(auto argBatchPtr : *listBatchPtr) {
             // check for equality on the same type only
             bool equals = false;
-            BatchHelper<ValueBatchType>::visit(
+            BatchVisitDispatcher<ValueBatchType>::visit(
                 [&equals, &value](auto& argBatchTyped) {
                   if(*argBatchTyped.begin() == value) {
                     equals = true;
@@ -403,23 +384,23 @@ private:
                 },
                 *argBatchPtr);
             if(equals) {
-              return Batch::WritablePtr(templates.createBatch(index));
+              return Batch::WritablePtr(Engine::getBatchFactory().createBatch(index));
             }
             ++index;
           }
-          return Batch::WritablePtr(templates.createBatch(0));
+          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(0));
         });
   }
 
-  static void aggregates(BatchTemplates& templates) {
-    templates.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
-        "Count", [&templates](auto&& batchPtr) {
+  static void aggregates(BatchPrototypes& prototypes) {
+    prototypes.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
+        "Count", [](auto&& batchPtr) {
           int value = batchPtr->size();
-          return Batch::WritablePtr(templates.createBatch(value));
+          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
         });
 
-    templates.template allowedTypes<int, float>().template registerFunction<1>(
-        "Sum", [&templates](auto&& batchPtr) {
+    prototypes.template allowedTypes<int, float>().template registerFunction<1>(
+        "Sum", [](auto&& batchPtr) {
           auto it = batchPtr->begin();
           auto sum = *it;
           ++it;
@@ -427,11 +408,11 @@ private:
             sum += *it;
             ++it;
           }
-          return Batch::WritablePtr(templates.createBatch(sum));
+          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(sum));
         });
 
-    templates.template allowedTypes<int, float>().template registerFunction<1>(
-        "Min", [&templates](auto&& batchPtr) {
+    prototypes.template allowedTypes<int, float>().template registerFunction<1>(
+        "Min", [](auto&& batchPtr) {
           auto it = batchPtr->begin();
           auto min = *it;
           ++it;
@@ -442,11 +423,11 @@ private:
             }
             ++it;
           }
-          return Batch::WritablePtr(templates.createBatch(min));
+          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(min));
         });
 
-    templates.template allowedTypes<int, float>().template registerFunction<1>(
-        "Max", [&templates](auto&& batchPtr) {
+    prototypes.template allowedTypes<int, float>().template registerFunction<1>(
+        "Max", [](auto&& batchPtr) {
           auto it = batchPtr->begin();
           auto max = *it;
           ++it;
@@ -457,43 +438,41 @@ private:
             }
             ++it;
           }
-          return Batch::WritablePtr(templates.createBatch(max));
+          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(max));
         });
   }
 
-  static void dbManagement(BatchTemplates& templates) {
-    manageTables(templates);
-    manageColumns(templates);
-    manageRows(templates);
+  static void dbManagement(BatchPrototypes& prototypes) {
+    manageTables(prototypes);
+    manageColumns(prototypes);
+    manageRows(prototypes);
   }
 
-  static void manageTables(BatchTemplates& templates) {
-    auto& tableViewPool = DefaultSymbolPool::instance();
+  static void manageTables(BatchPrototypes& prototypes) {
+    auto& tableViewPool = DefaultSymbolRegistry::instance();
 
-    templates.template argTypes<Symbol>().template registerFunction<1>(
-        "CreateTable", [&templates, &tableViewPool](auto&& batchPtr) {
+    prototypes.template argTypes<Symbol>().template registerFunction<1>(
+        "CreateTable", [&tableViewPool](auto&& batchPtr) {
           return evaluateElements(
-              templates,
-              [&templates, &tableViewPool](auto const& table) -> Symbol {
+              [&tableViewPool](auto const& table) -> Symbol {
                 auto& symbolPtr = tableViewPool.findSymbol(table);
-                symbolPtr = Batch::WritablePtr(new TableView(templates));
+                symbolPtr = Batch::WritablePtr(new TableView());
                 return table;
               },
               batchPtr);
         });
 
-    templates.template argTypes<Symbol, Symbol>().template registerFunction<2>(
-        "CreateTable", [&templates, &tableViewPool](auto&& tableBatchPtr, auto&& columnBatchPtr) {
+    prototypes.template argTypes<Symbol, Symbol>().template registerFunction<2>(
+        "CreateTable", [&tableViewPool](auto&& tableBatchPtr, auto&& columnBatchPtr) {
           return evaluateElements(
-              templates,
-              [&templates, &tableViewPool](auto const& table, auto const& column) -> Symbol {
+              [&tableViewPool](auto const& table, auto const& column) -> Symbol {
                 auto& symbolPtr = tableViewPool.findSymbol(table);
                 TableView* tableView = nullptr;
                 if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
                   tableView =
                       static_cast<TableView*>(Batch::WritablePtr::asWritable(symbolPtr).get());
                 } else {
-                  tableView = new TableView(templates);
+                  tableView = new TableView();
                   symbolPtr = Batch::WritablePtr(tableView);
                 }
                 tableView->addColumn(column);
@@ -502,10 +481,9 @@ private:
               tableBatchPtr, columnBatchPtr);
         });
 
-    templates.template argTypes<Symbol>().template registerFunction<1>(
-        "RemoveTable", [&templates, &tableViewPool](auto&& batchPtr) {
+    prototypes.template argTypes<Symbol>().template registerFunction<1>(
+        "RemoveTable", [&tableViewPool](auto&& batchPtr) {
           return evaluateElements(
-              templates,
               [&tableViewPool](auto const& table) -> Symbol {
                 auto& symbolPtr = tableViewPool.findSymbol(table);
                 symbolPtr.reset();
@@ -515,13 +493,12 @@ private:
         });
   }
 
-  static void manageColumns(BatchTemplates& templates) {
-    auto& tableViewPool = DefaultSymbolPool::instance();
+  static void manageColumns(BatchPrototypes& prototypes) {
+    auto& tableViewPool = DefaultSymbolRegistry::instance();
 
-    templates.template argTypes<Symbol, Symbol>().template registerFunction<2>(
-        "AddColumn", [&templates, &tableViewPool](auto&& tableBatchPtr, auto&& columnBatchPtr) {
+    prototypes.template argTypes<Symbol, Symbol>().template registerFunction<2>(
+        "AddColumn", [&tableViewPool](auto&& tableBatchPtr, auto&& columnBatchPtr) {
           return evaluateElements(
-              templates,
               [&tableViewPool](auto const& table, auto const& column) -> Symbol {
                 auto& symbolPtr = tableViewPool.findSymbol(table);
                 if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
@@ -534,7 +511,7 @@ private:
               tableBatchPtr, columnBatchPtr);
         });
 
-    templates.template argTypes<Symbol>().template registerFunction<1>(
+    prototypes.template argTypes<Symbol>().template registerFunction<1>(
         "Columns", [&tableViewPool](auto&& symbolBatchPtr) -> Batch::ReadablePtr {
           auto& symbolPtr = tableViewPool.findSymbol(*symbolBatchPtr->begin());
           if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
@@ -545,15 +522,15 @@ private:
         });
   }
 
-  static void manageRows(BatchTemplates& templates) {
-    auto& tableViewPool = DefaultSymbolPool::instance();
+  static void manageRows(BatchPrototypes& prototypes) {
+    auto& tableViewPool = DefaultSymbolRegistry::instance();
 
-    templates.template argTypes<Symbol, ComplexExpression>().template registerFunction<2>(
-        "InsertInto", [&templates, &tableViewPool](auto symbolBatchPtr, auto rowBatchPtr) {
+    prototypes.template argTypes<Symbol, ComplexExpression>().template registerFunction<2>(
+        "InsertInto", [&tableViewPool](auto symbolBatchPtr, auto rowBatchPtr) {
           auto& symbolPtr = tableViewPool.findSymbol(*symbolBatchPtr->begin());
           if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
-            BatchHelper<TableView>::visit(
-                [&templates, &rowBatchPtr](auto& tableView) {
+            BatchVisitDispatcher<TableView>::visit(
+                [&rowBatchPtr](auto& tableView) {
                   size_t numColumns = tableView.numColumns();
                   size_t numArgsToInsert = rowBatchPtr->numArguments();
                   size_t numRowsToInsert =
@@ -567,27 +544,26 @@ private:
                   // add missing columns
                   Symbol missingSymbol("Missing");
                   for(auto index = argBatches.size(); index < numColumns; ++index) {
-                    auto missingBatchPtr = Batch::WritablePtr(
-                        new SymbolBatch(templates, numRowsToInsert, missingSymbol));
+                    auto missingBatchPtr =
+                        Batch::WritablePtr(new SymbolBatch(numRowsToInsert, missingSymbol));
                     argBatches.emplace_back(std::move(missingBatchPtr));
                   }
-                  tableView.insert(std::move(argBatches));
+                  tableView.append(std::move(argBatches));
                 },
                 *Batch::WritablePtr::asWritable(symbolPtr));
           }
-          Batch::ReadablePtr outputPtr(symbolBatchPtr);
-          return Batch::WritablePtr::asWritable(std::move(outputPtr));
+          return Batch::WritablePtr::asWritable(Batch::ReadablePtr(symbolBatchPtr));
         });
   }
 
-  static void queries(BatchTemplates& templates) {
-    selection(templates);
-    projection(templates);
-    sorting(templates);
-    grouping(templates);
+  static void queries(BatchPrototypes& prototypes) {
+    selection(prototypes);
+    projection(prototypes);
+    sorting(prototypes);
+    grouping(prototypes);
   }
 
-  static void selection(BatchTemplates& templates) {
+  static void selection(BatchPrototypes& prototypes) {
     auto select = [](auto&& tableViewPtr, auto&& predicatePtr) -> Batch::WritablePtr {
       auto& tableOut = *tableViewPtr->template cloneAs<TableView>(true);
 
@@ -597,7 +573,7 @@ private:
         // all false => nothing to do
 
         auto batchOutPtr = WritableBatchPtr(batch.cloneAsCompoundBatch(true));
-        insertRowValuesWithCondition(*batchOutPtr, batch, toKeep);
+        BuiltinFunctions::insertRowValuesWithCondition(*batchOutPtr, batch, toKeep);
         size_t numColumns = batchOutPtr->numArguments();
         if(numColumns > 0) {
           std::vector<Batch::ReadablePtr> argBatches;
@@ -605,15 +581,15 @@ private:
           for(auto batchPtr : *batchOutPtr) {
             argBatches.emplace_back(std::move(batchPtr));
           }
-          tableOut.insert(std::move(argBatches));
+          tableOut.append(std::move(argBatches));
         }
       };
 
       tableViewPtr->visitChunks([&predicatePtr, &forEachBatchOfRows](auto&& batchOfRowsPtr) {
-        // TODO: need to evaluate later more precisely
-        // so only the rows actually used as criteria are evaluated
+        // TODO: should evaluate only the columns used as criteria for the predicate
         // but for now it causes issues for where to set the "$tuple" information
         // (since the rows wouldn't be explicitely evaluated as a CBatch)
+        // maybe should clean up "$tuple" if it is unused
         Batch::ReadablePtr evaluatedRowsPtr;
         bool evaluated = batchOfRowsPtr->evaluate(evaluatedRowsPtr);
 
@@ -627,11 +603,11 @@ private:
         auto toKeepPtr = predicatePtr->evaluateWith(args);
 
         // apply the predicate
-        BatchHelper<ValueBatch<bool>>::visit(
+        BatchVisitDispatcher<ValueBatch<bool>>::visit(
             [&evaluated, &batchOfRowsPtr, &evaluatedRowsPtr,
              &forEachBatchOfRows](auto const& toKeep) {
               if(evaluated) {
-                BatchHelper<CompoundBatch>::visit(
+                BatchVisitDispatcher<CompoundBatch>::visit(
                     [&toKeep, &forEachBatchOfRows](auto const& batchofRows) {
                       forEachBatchOfRows(batchofRows, toKeep);
                     },
@@ -646,15 +622,15 @@ private:
       return Batch::WritablePtr(&tableOut);
     };
 
-    templates.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
+    prototypes.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
         "Select", [select](auto&& tableViewPtr, auto&& predicatePtr) -> Batch::ReadablePtr {
           return select(tableViewPtr, predicatePtr);
         });
   }
 
-  static void projection(BatchTemplates& templates) {
-    auto project = [&templates](auto&& tableViewPtr, auto&& projectorPtr) -> Batch::WritablePtr {
-      auto& tableOut = *(new TableView(templates)); // not a clone so we clear columns too
+  static void projection(BatchPrototypes& prototypes) {
+    auto project = [](auto&& tableViewPtr, auto&& projectorPtr) -> Batch::WritablePtr {
+      auto& tableOut = *(new TableView()); // not a clone so we clear columns too
 
       // evaluate the projection
       std::vector<Batch::ReadablePtr> args;
@@ -662,26 +638,26 @@ private:
       auto projectionPtr = projectorPtr->evaluateWith(args);
 
       // copy the new batches back to the table
-      BatchHelper<CompoundBatch>::visit(
+      BatchVisitDispatcher<CompoundBatch>::visit(
           [&tableOut](auto const& projectionBatch) {
             std::vector<Batch::ReadablePtr> columnBatches;
             for(auto srcBatchPtr : projectionBatch) {
               columnBatches.emplace_back(std::move(srcBatchPtr));
             }
-            tableOut.insert(columnBatches);
+            tableOut.append(columnBatches);
           },
           *projectionPtr);
 
       return Batch::WritablePtr(&tableOut);
     };
 
-    templates.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
+    prototypes.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
         "Project", [project](auto&& tableViewPtr, auto&& projectorPtr) {
           return project(tableViewPtr, projectorPtr);
         });
   }
 
-  static void sorting(BatchTemplates& templates) {
+  static void sorting(BatchPrototypes& prototypes) {
     // sortFunction: Function(tuple) return the key used for sorting
     // e.g to sort by first column: "Function"_(List_("tuple"_), "Column"_("tuple"_, 1))
     auto sortBy = [](auto&& tableViewPtr, auto&& sortFunctionPtr) -> Batch::WritablePtr {
@@ -710,7 +686,7 @@ private:
         auto batchOutPtr = WritableBatchPtr(batch.cloneAsCompoundBatch(true));
         for(auto const& sortedIt : sorted) {
           auto const& rowIndices = sortedIt.second;
-          insertRowValuesInOrder(*batchOutPtr, batch, rowIndices);
+          BuiltinFunctions::insertRowValuesInOrder(*batchOutPtr, batch, rowIndices);
         }
 
         size_t numColumns = batchOutPtr->numArguments();
@@ -720,7 +696,7 @@ private:
           for(auto batchPtr : *batchOutPtr) {
             argBatches.emplace_back(std::move(batchPtr));
           }
-          tableOut.insert(std::move(argBatches));
+          tableOut.append(std::move(argBatches));
         }
       };
 
@@ -731,7 +707,7 @@ private:
         auto keysPtr = sortFunctionPtr->evaluateWith(args);
 
         // sort using these keys
-        BatchHelperAny::visit(
+        BatchPrototypes::BatchVisitDispatcher::visit(
             [&batchOfRowsPtr, &forEachBatchOfRows](auto const& keys) {
               if(keys.size() == 0) {
                 return;
@@ -740,7 +716,8 @@ private:
               if constexpr(!std::is_base_of_v<CompoundBatch, KeyBatchType>) {
                 forEachBatchOfRows(*batchOfRowsPtr, keys);
               } else {
-                // TODO: how to do sorting if we handle list as a key?
+                // [https://github.com/symbol-store/BOSS/issues/86]
+                // how to do sorting if we handle list/expression as a key?
                 // create a tuple of the values?
               }
             },
@@ -750,29 +727,29 @@ private:
       return Batch::WritablePtr(&tableOut);
     };
 
-    templates.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
+    prototypes.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
         "SortBy", [sortBy](auto&& tableViewPtr, auto&& sortFunctionPtr) -> Batch::ReadablePtr {
           return sortBy(tableViewPtr, sortFunctionPtr);
         });
   }
 
-  static void grouping(BatchTemplates& templates) {
+  static void grouping(BatchPrototypes& prototypes) {
     // groupFunction: Function(tuple) return a key
     // e.g to group by first column: "Function"_(List_("tuple"_), "Extract"_("tuple"_,
     // 1)) aggregator: Function("tuple", "aggregateResult") return the aggregate result
     // e.g to count: "Function"_(List_("tuple"_), "Count"_("Extract"_("tuple"_, 1)))
     // e.g to sum: "Function"_(List_("tuple"_), "Sum_("Extract"_("tuple"_, 1)))
     // e.g to return the key: "Function"_(List_("tuple"_), "Extract"_("tuple"_, 1))
-    auto groupBy = [&templates](auto&& tableViewPtr, auto&& groupFunctionPtr,
-                                auto const& aggregator) -> Batch::WritablePtr {
-      auto& tableOut = *(new TableView(templates)); // not a clone so we clear columns too
+    auto groupBy = [](auto&& tableViewPtr, auto&& groupFunctionPtr,
+                      auto const& aggregator) -> Batch::WritablePtr {
+      auto& tableOut = *(new TableView()); // not a clone so we clear columns too
 
       auto aggregate = [&aggregator](auto& destbatches, auto const& srcBatch, auto const& sorted) {
         auto groupedPtr = WritableBatchPtr(srcBatch.cloneAsCompoundBatch(true));
         for(auto const& sortedIt : sorted) {
           // prepare the rows for the group to be processed
           auto const& rowIndices = sortedIt.second;
-          insertRowValuesInOrder(*groupedPtr, srcBatch, rowIndices);
+          BuiltinFunctions::insertRowValuesInOrder(*groupedPtr, srcBatch, rowIndices);
 
           // process to be called for each group of (sorted) table rows
           std::vector<Batch::ReadablePtr> args;
@@ -803,7 +780,7 @@ private:
         std::vector<Batch::WritablePtr> newBatches;
         aggregate(newBatches, batch, sorted);
 
-        tableOut.insert(std::vector<Batch::ReadablePtr>(newBatches.begin(), newBatches.end()));
+        tableOut.append(std::vector<Batch::ReadablePtr>(newBatches.begin(), newBatches.end()));
       };
 
       tableViewPtr->visitChunks([&groupFunctionPtr, &forEachBatchOfRows](auto&& batchOfRowsPtr) {
@@ -813,7 +790,7 @@ private:
         auto keysPtr = groupFunctionPtr->evaluateWith(args);
 
         // sort using these keys
-        BatchHelperAny::visit(
+        BatchPrototypes::BatchVisitDispatcher::visit(
             [&batchOfRowsPtr, &forEachBatchOfRows](auto const& keys) {
               if(keys.size() == 0) {
                 return;
@@ -822,7 +799,8 @@ private:
               if constexpr(!std::is_base_of_v<CompoundBatch, KeyBatchType>) {
                 forEachBatchOfRows(*batchOfRowsPtr, keys);
               } else {
-                // TODO: how to do sorting if we handle list as a key?
+                // [https://github.com/symbol-store/BOSS/issues/86]
+                // how to do grouping if we handle list/expression as a key?
                 // create a tuple of the values?
               }
             },
@@ -832,32 +810,31 @@ private:
       return Batch::WritablePtr(&tableOut);
     };
 
-    templates
+    prototypes
         .template argBatchTypes<TableView, FunctionBatch,
                                 AllowedBatches<FunctionBatch, SymbolBatch>>()
         .template registerFunction<3>(
             "GroupBy",
-            [groupBy, &templates](auto&& tableViewPtr, auto&& groupFunctionPtr,
-                                  auto&& aggregatorPtr) -> Batch::ReadablePtr {
+            [&prototypes, groupBy](auto&& tableViewPtr, auto&& groupFunctionPtr,
+                                   auto&& aggregatorPtr) -> Batch::ReadablePtr {
               Batch::WritablePtr resultPtr;
-              BatchHelper<FunctionBatch, SymbolBatch>::visit(
-                  [&templates, &groupBy, &tableViewPtr, &groupFunctionPtr,
+              BatchVisitDispatcher<FunctionBatch, SymbolBatch>::visit(
+                  [&prototypes, &groupBy, &tableViewPtr, &groupFunctionPtr,
                    &resultPtr](auto const& aggregatorBatch) {
                     using BatchType = std::decay_t<decltype(aggregatorBatch)>;
                     if constexpr(std::is_same_v<BatchType, FunctionBatch>) {
                       resultPtr = groupBy(tableViewPtr, groupFunctionPtr, aggregatorBatch);
                     } else {
-                      // construct an expression batch from the head (assuming single symbol value)
-                      // also assuming a function with 1 argument only
+                      // construct an expression batch from the head (assuming single symbol
+                      // value) also assuming a function with 1 argument only
                       Symbol const& head = *aggregatorBatch.begin();
-                      Batch::WritablePtr bodyBatchPtr(templates.createBatch(head, 1));
+                      Batch::WritablePtr bodyBatchPtr(prototypes.createBatch(head, 1));
                       // we pass a symbol as unique argument
                       Symbol functionArg("tuple");
-                      bodyBatchPtr->insert(ComplexExpression(head, {functionArg}));
+                      bodyBatchPtr->append(ComplexExpression(head, {functionArg}));
                       // and now we create a function batch using this expression as body
-                      WritableBatchPtr<FunctionBatch> functionPtr(
-                          new FunctionBatch(templates, FunctionBatch::ParameterList{functionArg},
-                                            std::move(bodyBatchPtr)));
+                      WritableBatchPtr<FunctionBatch> functionPtr(new FunctionBatch(
+                          FunctionBatch::ParameterList{functionArg}, std::move(bodyBatchPtr)));
                       resultPtr = groupBy(tableViewPtr, groupFunctionPtr, *functionPtr);
                     }
                   },
@@ -872,16 +849,10 @@ private:
   using ReturnType = typename std::invoke_result_t<
       Func, FromBatchTypeToElementType<typename BatchPtrTypes::BatchType>...>;
 
+  /// copy row values in sorted order (based on indices), column per column
   template <typename DestBatchType, typename SrcBatchType>
   static void insertRowValuesInOrder(DestBatchType& destBatch, SrcBatchType const& srcBatch,
                                      std::vector<size_t> const& rowIndices) {
-    // copy row values in sorted order, column per column
-    // TODO: insert together consecutive rows
-    // (or directly re-implement with a more efficient method...)
-    if constexpr(!std::is_base_of_v<std::remove_const_t<SrcBatchType>, DestBatchType>) {
-      using X = typename std::remove_const_t<SrcBatchType>::nothing;
-      using Y = typename DestBatchType::nothing;
-    }
     static_assert(std::is_base_of_v<std::remove_const_t<SrcBatchType>, DestBatchType>);
     // special case for columns of complex expressions
     if constexpr(std::is_base_of_v<CompoundBatch, SrcBatchType>) {
@@ -898,12 +869,12 @@ private:
       // then recursive call for every argument
       size_t childrenSize = 0;
       auto destArgBatchIt = destBatch.begin();
-      srcBatch.template visitBatches<BatchHelperAny>(
+      srcBatch.template visitBatches<typename BatchPrototypes::BatchVisitDispatcher>(
           [&childrenSize, &destArgBatchIt, &rowIndices](auto const& srcColumn) {
             using ColumnBatchType = std::decay_t<decltype(srcColumn)>;
             // insert to existing arg column
             auto destArgBatchPtr = *destArgBatchIt;
-            BatchHelper<ColumnBatchType>::visit(
+            BatchVisitDispatcher<ColumnBatchType>::visit(
                 [&childrenSize, &srcColumn, &rowIndices](auto& destColumn) {
                   insertRowValuesInOrder(destColumn, srcColumn, rowIndices);
                   childrenSize = destColumn.size();
@@ -925,60 +896,11 @@ private:
     }
   }
 
-  template <typename DestBatchType, typename SrcBatchType>
-  static void insertRowValues(DestBatchType& destBatch, SrcBatchType const& srcBatch) {
-    // copy row values in sorted order, column per column
-    // TODO: insert together consecutive rows
-    // (or directly re-implement with a more efficient method...)
-    if constexpr(!std::is_base_of_v<std::remove_const_t<SrcBatchType>, DestBatchType>) {
-      using X = typename std::remove_const_t<SrcBatchType>::nothing;
-      using Y = typename DestBatchType::nothing;
-    }
-    static_assert(std::is_base_of_v<std::remove_const_t<SrcBatchType>, DestBatchType>);
-    // special case for columns of complex expressions
-    if constexpr(std::is_base_of_v<CompoundBatch, SrcBatchType>) {
-      // check if the columns already exist in the destination
-      // if not initialise the right arg batch types (but empty so far)
-      if(destBatch.numArguments() == 0) {
-        std::vector<Batch::ReadablePtr> srcArgBatches;
-        srcArgBatches.reserve(srcBatch.numArguments());
-        for(auto const& srcArgBatchPtr : srcBatch) {
-          srcArgBatches.emplace_back(srcArgBatchPtr);
-        }
-        destBatch.initArguments(srcArgBatches);
-      }
-      // then recursive call for every argument
-      size_t childrenSize = 0;
-      auto destArgBatchIt = destBatch.begin();
-      srcBatch.template visitBatches<BatchHelperAny>(
-          [&childrenSize, &destArgBatchIt](auto const& srcColumn) {
-            using ColumnBatchType = std::decay_t<decltype(srcColumn)>;
-            // insert to existing arg column
-            auto destArgBatchPtr = *destArgBatchIt;
-            BatchHelper<ColumnBatchType>::visit(
-                [&childrenSize, &srcColumn](auto& destColumn) {
-                  insertRowValues(destColumn, srcColumn);
-                  childrenSize = destColumn.size();
-                },
-                *Batch::WritablePtr::asWritable(std::move(destArgBatchPtr)));
-            ++destArgBatchIt;
-          });
-      // and make sure to adjust the size of the parent array
-      destBatch.resize(childrenSize);
-    } else {
-      size_t previousNumRows = destBatch.size();
-      destBatch.resize(previousNumRows + srcBatch.size());
-      auto srcBatchIt = srcBatch.begin();
-      auto destBatchIt = destBatch.begin() + previousNumRows;
-      for(; srcBatchIt != srcBatch.end(); ++srcBatchIt, ++destBatchIt) {
-        *destBatchIt = *srcBatchIt;
-      }
-    }
-  }
-
+  /// copy row values if matches a condition, column per column
   template <typename DestBatchType, typename SrcBatchType, typename ConditionBatchType>
   static void insertRowValuesWithCondition(DestBatchType& destBatch, SrcBatchType const& srcBatch,
                                            ConditionBatchType const& conditionBatch) {
+    static_assert(std::is_base_of_v<std::remove_const_t<SrcBatchType>, DestBatchType>);
     if constexpr(std::is_base_of_v<CompoundBatch, SrcBatchType>) {
       // special case for columns of complex expressions
       std::vector<Batch::WritablePtr> argBatches;
@@ -991,13 +913,13 @@ private:
       // then recursive call for every argument
       auto destArgBatchIt = argBatches.begin();
       auto destArgBatchEnd = argBatches.end();
-      srcBatch.template visitBatches<BatchHelperAny>(
+      srcBatch.template visitBatches<typename BatchPrototypes::BatchVisitDispatcher>(
           [&destArgBatchIt, &destArgBatchEnd, &conditionBatch, &argBatches](auto const& srcColumn) {
             using ColumnBatchType = std::decay_t<decltype(srcColumn)>;
             if(destArgBatchIt != destArgBatchEnd) {
               // insert to existing arg column
               auto& destArgBatchPtr = *destArgBatchIt;
-              BatchHelper<ColumnBatchType>::visit(
+              BatchVisitDispatcher<ColumnBatchType>::visit(
                   [&srcColumn, &conditionBatch](auto& destColumn) {
                     insertRowValuesWithCondition(destColumn, srcColumn, conditionBatch);
                   },
@@ -1015,7 +937,7 @@ private:
       // if they are new arg columns, insert them now
       if(destBatch.numArguments() == 0) {
         if(!argBatches.empty() && argBatches[0]->size() > 0) {
-          destBatch.insert(std::vector<Batch::ReadablePtr>(argBatches.begin(), argBatches.end()));
+          destBatch.append(std::vector<Batch::ReadablePtr>(argBatches.begin(), argBatches.end()));
         }
       }
     } else {

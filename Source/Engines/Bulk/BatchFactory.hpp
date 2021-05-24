@@ -10,7 +10,7 @@ namespace boss::engines::bulk {
 
 /** This is the interface class for the batch creation.
  * It allows to keep it separate from the Batch types and avoid issues with cycling includes.
- * The actual implementation is in BatchTemplates. */
+ * The actual implementation is in BatchPrototypes. */
 class BatchFactory {
 public:
   virtual ~BatchFactory() = default;

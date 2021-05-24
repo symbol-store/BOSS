@@ -2,6 +2,7 @@
 
 #include "BatchFactory.hpp"
 #include "Evaluator.hpp"
+#include "SymbolRegistry.hpp"
 #include "TableView.hpp"
 
 #include "Batch/Batch.hpp"
@@ -29,13 +30,14 @@ namespace boss::engines::bulk {
  functions. Those evaluators are stored into Batch prototypes. Then, when calling CreateBatch, we
  retrieve the prototype using a map from the operator signature, and the prototype can create the
  ExpressionBatch by passing over the stored evaluator. */
-template <typename... SupportedTypes> class BatchTemplates : public BatchFactory {
+template <typename... SupportedTypes> class BatchPrototypes : public BatchFactory {
 public:
-  using CompoundBatchHelper =
-      BatchHelper<CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
+  using CompoundBatchDispatcher =
+      BatchVisitDispatcher<CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
 
-  using BatchHelper = BatchHelper<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch,
-                                  CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
+  using BatchVisitDispatcher =
+      BatchVisitDispatcher<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch,
+                           CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
 
   using AnyBatch = AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch,
                                   CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
@@ -49,11 +51,11 @@ public:
   using AnyCompoundBatch =
       AllowedBatches<CompoundBatch, FunctionBatch, AnyExpressionBatch, TableView>;
 
-  BatchTemplates() {
-    // [ISSUE] get rid of this special case
-    BatchTemplateKey unevaluatedKey("Unevaluated", std::vector<size_t>(1, 0));
-    m_templates[unevaluatedKey] =
-        BatchTemplatePtr(new DeferredEvaluationBatchTemplate("Unevaluated"));
+  BatchPrototypes() {
+    // [https://github.com/symbol-store/BOSS/issues/85] get rid of this special case
+    BatchPrototypeKey unevaluatedKey("Unevaluated", std::vector<size_t>(1, 0));
+    m_prototypes[unevaluatedKey] =
+        BatchPrototypePtr(new DeferredEvaluationBatchPrototype("Unevaluated"));
   }
 
   Batch* createBatch(Expression const& expression) const override {
@@ -67,17 +69,17 @@ public:
     size_t numArgs = expression.getArguments().size();
     auto* newBatch = createBatch(symbol, numArgs);
     // I think, in general we can inline a lot of things here
-    newBatch->insert(expression);
+    newBatch->append(expression);
     return newBatch;
   }
 
   Batch* createBatch(Symbol const& symbol, size_t numArgs) const {
     std::vector<size_t> argumentTypes(numArgs, 0);
-    BatchTemplateKey key(symbol.getName(), argumentTypes);
-    auto templateIt = m_templates.find(key);
-    if(templateIt != m_templates.end()) {
-      auto* batchTemplate = templateIt->second.get();
-      return batchTemplate->createBatch(*this);
+    BatchPrototypeKey key(symbol.getName(), argumentTypes);
+    auto prototypeIt = m_prototypes.find(key);
+    if(prototypeIt != m_prototypes.end()) {
+      auto* batchPrototype = prototypeIt->second.get();
+      return batchPrototype->createBatch();
     }
 
     // Special case for binary operators: we can split arguments into pairs
@@ -86,24 +88,24 @@ public:
     // if we want them to be defined by the ExpressionBatch at compile time.
     if(numArgs > 1) {
       // try to find a function with less arguments
-      // // and expect the compound batch to be able to handle that
-      // [ISSUE] only if variadic is allowed on these functions
-      auto closestTemplateIt = m_templates.lower_bound(key);
-      if(closestTemplateIt != m_templates.end() && closestTemplateIt != m_templates.begin()) {
-        --closestTemplateIt;
-        auto* batchTemplate = closestTemplateIt->second.get();
-        if(closestTemplateIt->first.getKey() == symbol.getName()) {
-          if(closestTemplateIt->first.getArgumentCount() == 2) {
+      // and expect the compound batch to be able to handle that
+      // [https://github.com/symbol-store/BOSS/issues/95] ideally, only if allowed on this operator
+      auto closestPrototypeIt = m_prototypes.lower_bound(key);
+      if(closestPrototypeIt != m_prototypes.end() && closestPrototypeIt != m_prototypes.begin()) {
+        --closestPrototypeIt;
+        auto* batchPrototype = closestPrototypeIt->second.get();
+        if(closestPrototypeIt->first.getKey() == symbol.getName()) {
+          if(closestPrototypeIt->first.getArgumentCount() == 2) {
             // create a compound expression batch
             // (the special case will be handled at evaluation time)
-            return batchTemplate->createBatch(*this);
+            return batchPrototype->createBatch();
           }
         }
       }
     }
 
     // symbol not found, return a generic batch with arguments at least
-    return new CompoundBatch(*this, symbol);
+    return new CompoundBatch(symbol);
   }
 
   template <typename T> Batch* createBatch(T const& value) const {
@@ -141,16 +143,16 @@ public:
       auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
       if(extensionType.extension_name()[0] == 's') {
         // SYMBOL
-        return new SymbolBatch(*this, std::move(arrays), std::move(arrayBuilder));
+        return new SymbolBatch(std::move(arrays), std::move(arrayBuilder));
       }
       // COMPLEX EXPRESSION
       auto const& complexType =
           dynamic_cast<ComplexExpressionArray::ComplexExpressionArrayType const&>(extensionType);
       auto const& head = complexType.getHead();
       auto* batchPtr = createBatch(head, extensionType.storage_type()->num_fields());
-      CompoundBatchHelper::visit(
+      CompoundBatchDispatcher::visit(
           [&arrays, &arrayBuilder](auto& batch) {
-            batch.insert(CompoundArray(std::move(arrays), std::move(arrayBuilder)));
+            batch.append(CompoundArray(std::move(arrays), std::move(arrayBuilder)));
           },
           *batchPtr);
       return batchPtr;
@@ -159,7 +161,7 @@ public:
       break;
     }
 
-    // [ISSUE] handle exceptions. with a pre-processor flag if affects performance.
+    // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
     return nullptr; // should not happen!
   }
 
@@ -169,11 +171,11 @@ public:
       // save the query result into a temporary symbol
       // this is a workaround to avoid a whole table to be converted back
       // to a long list of tuples
-      // [ISSUE] (symbol pool symbols lifetime handling) find a way to garbage-collect them
+      // [https://github.com/symbol-store/BOSS/issues/91] find a way to garbage-collect them
       static int i = 0;
       auto symbolName = "_table" + std::to_string(i++);
       auto writablePtr = Batch::WritablePtr::asWritable(batchPtr);
-      boss::engines::bulk::BatchHelper<TableView>::visit(
+      boss::engines::bulk::BatchVisitDispatcher<TableView>::visit(
           [&symbolName](auto& tableView) {
             auto numRows = tableView.size();
             auto numCols = tableView.numColumns();
@@ -181,7 +183,7 @@ public:
           },
           *writablePtr);
       Symbol savedSymbol(symbolName);
-      auto& savedSymbolPtr = DefaultSymbolPool::instance().findSymbol(savedSymbol);
+      auto& savedSymbolPtr = DefaultSymbolRegistry::instance().findSymbol(savedSymbol);
       savedSymbolPtr = std::move(batchPtr);
       return savedSymbol;
     }
@@ -201,7 +203,7 @@ public:
     std::optional<Symbol> rootHead;
     ExpressionArguments arguments;
     arguments.reserve(batch.size());
-    BatchHelper::visit(
+    BatchVisitDispatcher::visit(
         [this, &arguments, &rootHead, batchPtr{std::move(batchPtr)}](auto const& batch) {
           using BatchType = std::decay_t<decltype(batch)>;
           if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
@@ -234,16 +236,16 @@ public:
   friend class AllowedTypes;
   template <typename... Types> class AllowedTypes {
   public:
-    explicit AllowedTypes(BatchTemplates& batchTemplates) : m_batchTemplates(batchTemplates) {}
+    explicit AllowedTypes(BatchPrototypes& prototypes) : m_batchPrototypes(prototypes) {}
 
-    /** This is the function to call to define a new oeprator
-     * by passing a lambda function taking generic paremeters.
+    /** This is the function to call to define a new operator
+     * by passing a lambda function taking generic parameters.
      * The AllowedTypes wrapper is used to define types of the arguments,
      * and it will be resolve at compile-time to pass typed batch to the lambda function.*/
     template <size_t N, typename Func>
     void registerFunction(std::string const& symbol, Func&& func) {
       std::vector<size_t> argumentTypes(N, 0);
-      // [ISSUE] nto handling overloading yet
+      // [https://github.com/symbol-store/BOSS/issues/96] not handling overloading yet
       /*
         // support overloading only when specify every argument type
         if constexpr(IsBatchType) {
@@ -251,14 +253,14 @@ public:
         Types::ValueType>())...}; } else { argumentTypes =
         std::vector<size_t>{((size_t)UniqueId::forType<Types>())...};
       }*/
-      BatchTemplateKey key(symbol, argumentTypes);
-      auto* templateBatch =
-          new ExpressionBatchTemplate<Func, N, Types...>(symbol, std::forward<Func>(func));
-      m_batchTemplates.m_templates[key] = BatchTemplatePtr(templateBatch);
+      BatchPrototypeKey key(symbol, argumentTypes);
+      auto* prototypeBatch =
+          new ExpressionBatchPrototype<Func, N, Types...>(symbol, std::forward<Func>(func));
+      m_batchPrototypes.m_prototypes[key] = BatchPrototypePtr(prototypeBatch);
     }
 
   private:
-    BatchTemplates& m_batchTemplates;
+    BatchPrototypes& m_batchPrototypes;
   };
 
   template <typename... Types> auto allowedTypes() {
@@ -275,25 +277,24 @@ public:
   }
 
 private:
+  /////////////////////////////////////////////////////////////
+  // [https://github.com/symbol-store/BOSS/issues/94] to refactor
   template <typename> struct IsAllowedBatches : std::false_type {};
   template <typename... T> struct IsAllowedBatches<AllowedBatches<T...>> : std::true_type {};
   template <typename T>
   using AsAllowedBatches = std::conditional_t<IsAllowedBatches<T>::value, T, AllowedBatches<T>>;
-
   template <typename, typename> struct MergeTwoFixedTypes;
   template <typename... Args0, typename... Args1>
   struct MergeTwoFixedTypes<AllowedTypes<AllowedBatches<Args0...>>,
                             AllowedTypes<AllowedBatches<Args1...>>> {
     using type = AllowedTypes<AllowedBatches<Args0...>, AllowedBatches<Args1...>>;
   };
-
   template <typename, typename> struct MergeTwoAllowedTypes;
   template <typename... Args0, typename... Args1>
   struct MergeTwoAllowedTypes<AllowedTypes<AllowedBatches<Args0...>>,
                               AllowedTypes<AllowedBatches<Args1...>>> {
     using type = AllowedTypes<AllowedBatches<Args0..., Args1...>>;
   };
-
   template <bool, typename...> struct MergeAllowedTypes;
   template <bool UsingFixedTypes, typename FirstAllowedType>
   struct MergeAllowedTypes<UsingFixedTypes, FirstAllowedType> {
@@ -310,7 +311,6 @@ private:
             FirstAllowedType,
             typename MergeAllowedTypes<UsingFixedTypes, OtherAllowedTypes...>::type>::type>;
   };
-
   template <bool UsingFixedTypes, typename... Types>
   using FromElementTypesToAllowedTypes = typename MergeAllowedTypes<
       UsingFixedTypes,
@@ -319,22 +319,23 @@ private:
                                             AllowedTypes<AllowedBatches<CompoundBatch>>,
                                             AllowedTypes<AllowedBatches<ValueBatch<Types>>>>>...>::
       type;
+  /////////////////////////////////////////////////////////////
 
-  // [ISSUE] factor this out (using the already existing CompareExpression class?)
+  // [https://github.com/symbol-store/BOSS/issues/93] to refactor
   // This is the class used to map an operator signature (head + arguments)
-  // to the batch templates (and so the evaluators)
-  class BatchTemplateKey {
+  // to the batch prototypes (and so the evaluators)
+  class BatchPrototypeKey {
   public:
-    BatchTemplateKey(std::string const& symbol, std::vector<size_t> const& argumentTypes)
+    BatchPrototypeKey(std::string const& symbol, std::vector<size_t> const& argumentTypes)
         : m_symbol(symbol), m_argumentTypes(argumentTypes) {}
-    BatchTemplateKey(std::string const& symbol, std::vector<size_t>&& argumentTypes)
+    BatchPrototypeKey(std::string const& symbol, std::vector<size_t>&& argumentTypes)
         : m_symbol(symbol), m_argumentTypes(std::move(argumentTypes)) {}
 
     std::string const& getKey() const { return m_symbol; }
 
     size_t getArgumentCount() const { return m_argumentTypes.size(); }
 
-    bool operator<(const BatchTemplateKey& rhs) const {
+    bool operator<(const BatchPrototypeKey& rhs) const {
       if(m_symbol != rhs.m_symbol) {
         return m_symbol < rhs.m_symbol;
       }
@@ -356,25 +357,25 @@ private:
     std::vector<size_t> m_argumentTypes;
   };
 
-  class BatchTemplateBase {
+  class BatchPrototypeBase {
   public:
-    virtual ~BatchTemplateBase() = default;
-    BatchTemplateBase() = default;
-    BatchTemplateBase(BatchTemplateBase const& other) = delete;
-    BatchTemplateBase(BatchTemplateBase&& other) = delete;
-    BatchTemplateBase& operator=(BatchTemplateBase const& other) = delete;
-    BatchTemplateBase& operator=(BatchTemplateBase&& other) = delete;
+    virtual ~BatchPrototypeBase() = default;
+    BatchPrototypeBase() = default;
+    BatchPrototypeBase(BatchPrototypeBase const& other) = delete;
+    BatchPrototypeBase(BatchPrototypeBase&& other) = delete;
+    BatchPrototypeBase& operator=(BatchPrototypeBase const& other) = delete;
+    BatchPrototypeBase& operator=(BatchPrototypeBase&& other) = delete;
 
-    virtual Batch* createBatch(BatchTemplates const&) const = 0;
+    virtual Batch* createBatch() const = 0;
   };
 
-  class DeferredEvaluationBatchTemplate : public BatchTemplateBase {
+  class DeferredEvaluationBatchPrototype : public BatchPrototypeBase {
   public:
-    explicit DeferredEvaluationBatchTemplate(std::string const& symbolName)
+    explicit DeferredEvaluationBatchPrototype(std::string const& symbolName)
         : m_symbolName(symbolName) {}
 
-    Batch* createBatch(BatchTemplates const& templates) const override {
-      return new DeferredEvaluationBatch(templates, Symbol(m_symbolName));
+    Batch* createBatch() const override {
+      return new DeferredEvaluationBatch(Symbol(m_symbolName));
     }
 
   private:
@@ -382,24 +383,22 @@ private:
   };
 
   template <typename Func, int N, typename... AllowedTypes>
-  class ExpressionBatchTemplate : public BatchTemplateBase {
+  class ExpressionBatchPrototype : public BatchPrototypeBase {
   public:
     using EvaluatorType = typename ForTypes<AllowedTypes...>::template Evaluator<Func>;
     using BatchType = ExpressionBatch<EvaluatorType, Func, N>;
 
-    ExpressionBatchTemplate(std::string const& symbol, Func&& func)
+    ExpressionBatchPrototype(std::string const& symbol, Func&& func)
         : m_evaluator(symbol, std::forward<Func>(func)) {}
 
-    Batch* createBatch(BatchTemplates const& templates) const override {
-      return new BatchType(templates, m_evaluator);
-    }
+    Batch* createBatch() const override { return new BatchType(m_evaluator); }
 
   private:
     EvaluatorType m_evaluator;
   };
 
-  using BatchTemplatePtr = std::unique_ptr<BatchTemplateBase>;
-  std::map<BatchTemplateKey, BatchTemplatePtr> m_templates;
+  using BatchPrototypePtr = std::unique_ptr<BatchPrototypeBase>;
+  std::map<BatchPrototypeKey, BatchPrototypePtr> m_prototypes;
 };
 
 } // namespace boss::engines::bulk

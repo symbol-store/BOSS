@@ -4,7 +4,7 @@
 
 namespace boss::engines::bulk {
 
-template <typename... BatchTypes> class BatchHelper {
+template <typename... BatchTypes> class BatchVisitDispatcher {
 public:
   template <typename Func> static bool visit(Func&& func, Batch& batch) {
     return visit(std::forward<Func>(func), batch, BatchTypeList{});

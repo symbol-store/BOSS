@@ -4,7 +4,7 @@ namespace boss::engines::bulk {
 
 /** Utility to return a compile-time type unique for any class T.
  * We use it visit or check a list of supported type for the Batch classes.
- * See BatchHelpers for usage.
+ * See BatchVisitDispatcher for usage.
  * We can obtain a similar behaviour using standard typeid()
  * but this implementation doesn't require RTTI. */
 class UniqueId {

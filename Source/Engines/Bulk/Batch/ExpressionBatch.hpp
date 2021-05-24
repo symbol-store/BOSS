@@ -23,8 +23,7 @@ public:
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
-  AnyExpressionBatch(BatchFactory const& factory, Symbol const& symbol)
-      : CompoundBatch(factory, symbol) {}
+  explicit AnyExpressionBatch(Symbol const& symbol) : CompoundBatch(symbol) {}
 
   AnyExpressionBatch(AnyExpressionBatch const& other, bool clear = false)
       : CompoundBatch(other, clear) {}
@@ -53,8 +52,7 @@ public:
 protected:
 };
 
-// [ISSUE] support for an evaluator flag to not enforce the arguments to be evaluated
-// then we can get rid of this class
+// [https://github.com/symbol-store/BOSS/issues/85] then we can get rid of this class
 /** DeferredEvaluationBatch is a special case for an expression batch.
  * Instead of using an evaluator, we implement a specific evaluate function.
  * If we use an evaluator for it, it will force the argument to be evaluated first.
@@ -63,8 +61,7 @@ class DeferredEvaluationBatch : public AnyExpressionBatch {
 public:
   using ValueType = AnyExpressionBatch::ValueType;
 
-  DeferredEvaluationBatch(BatchFactory const& factory, Symbol const& symbol)
-      : AnyExpressionBatch(factory, symbol) {}
+  explicit DeferredEvaluationBatch(Symbol const& symbol) : AnyExpressionBatch(symbol) {}
 
   DeferredEvaluationBatch(DeferredEvaluationBatch const& other, bool clear = false)
       : AnyExpressionBatch(other, clear) {}
@@ -105,8 +102,8 @@ class ExpressionBatch : public AnyExpressionBatch {
 public:
   using ValueType = AnyExpressionBatch::ValueType;
 
-  ExpressionBatch(BatchFactory const& factory, EvaluatorType const& evaluator)
-      : AnyExpressionBatch(factory, Symbol(evaluator.getSymbol())), m_evaluator(evaluator) {}
+  explicit ExpressionBatch(EvaluatorType const& evaluator)
+      : AnyExpressionBatch(Symbol(evaluator.getSymbol())), m_evaluator(evaluator) {}
 
   ExpressionBatch(ExpressionBatch const& other, bool clear = false)
       : AnyExpressionBatch(other, clear), m_evaluator(other.m_evaluator) {}
@@ -192,7 +189,8 @@ private:
           // Otherwise, the output type wasn't a compatible argument type.
           // In that case, put back the initial output
           // it will just ignore the remaining arguments
-          // TODO: better returning full arguments but unevaluated expression
+          // [https://github.com/symbol-store/BOSS/issues/87] probably related with it
+          // better returning full arguments but unevaluated expression
           outputPtr = std::move(firstArgPtr);
         }
       }
@@ -272,7 +270,7 @@ private:
         // Because some of the arguments have changed (they have been evaluated)
         // We create a new batch as a semi-evaluated one, and insert all the new arguments
         auto* partlyEvaluatedBatch = cloneAsCompoundBatch(true);
-        partlyEvaluatedBatch->insert(argList);
+        partlyEvaluatedBatch->append(argList);
         outputPtr = WritableBatchPtr(partlyEvaluatedBatch);
       }
 
@@ -283,7 +281,8 @@ private:
 
   /// Retrieve and evaluate an argument batch
   /// doing multiple evaluation in a row if needed.
-  /// Usually batchIndex == argIndex, except in the case that we re-arrange a binary operator
+  /// Usually batchIndex == argIndex
+  /// except in the case that we re-arrange a binary operator with 3+ arguments
   Batch::ReadablePtr getArgumentBatch(size_t batchIndex, size_t argIndex) const {
     Batch::ReadablePtr previousBatchPtr;
     Batch::ReadablePtr evaluatedPtr = *(begin() + batchIndex);
@@ -293,23 +292,22 @@ private:
     // stop if we don't evaluate anymore
     while(evaluated) {
       // or if the batch type isn't compatible with the evaluator's argument type anymore
-      bool hasTypeExpectedByTheEvaluator =
-          EvaluatorType::isSupportedType(batchIndex, *evaluatedPtr);
+      bool hasTypeExpectedByTheEvaluator = EvaluatorType::isSupportedType(argIndex, *evaluatedPtr);
       if(hadTypeExpectedByTheEvaluator && !hasTypeExpectedByTheEvaluator) {
         break;
       }
+
+      previousBatchPtr = evaluatedPtr;
 
       // little trick here until we can support overloading:
       // return as soon as we have compatible type
       // 1- until we find another way to pass symbol/tableView to the db functions
       // 2- also for "Function" which are evaluated too early (when not applying the parameters)
       if(hadTypeExpectedByTheEvaluator) {
-        previousBatchPtr = std::move(evaluatedPtr);
         break;
       }
 
       hadTypeExpectedByTheEvaluator = hasTypeExpectedByTheEvaluator;
-      previousBatchPtr = std::move(evaluatedPtr);
       evaluated = previousBatchPtr->evaluate(evaluatedPtr);
     }
 

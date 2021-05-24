@@ -15,50 +15,12 @@
 
 namespace boss::engines::bulk {
 
+/** We use ComplexExpressionArray to store complex expressions.
+ * This is an extension of the StructArray.
+ * The children array are the arguments.
+ * We store the head symbol as a metadata to the custom type. */
 class ComplexExpressionArray : public arrow::StructArray {
 public:
-  class ComplexExpressionArrayType : public arrow::ExtensionType {
-  public:
-    explicit ComplexExpressionArrayType(Symbol const& head, arrow::FieldVector const& fields)
-        : ExtensionType(arrow::struct_(fields)), m_head(head) {}
-
-    Symbol const& getHead() const { return m_head; }
-
-    std::string extension_name() const override { return "complex-expr-type"; }
-    // what is that?
-
-    bool ExtensionEquals(ExtensionType const& other) const override {
-      // ???
-      auto const& other_ext = static_cast<ExtensionType const&>(other);
-      if(other_ext.extension_name() != this->extension_name()) {
-        return false;
-      }
-      return this->getHead() == dynamic_cast<ComplexExpressionArrayType const&>(other).getHead();
-    }
-
-    std::shared_ptr<arrow::Array> MakeArray(std::shared_ptr<arrow::ArrayData> data) const override {
-      // why and when is this needed?
-      // temporarly change to the underline type for the construction
-      // it will be reverted in the ComplexExpressionArray constructor
-      auto adjustedData = data->Copy();
-      adjustedData->type = arrow::struct_(storage_type()->fields());
-      return std::make_shared<ComplexExpressionArray>(adjustedData, m_head);
-    }
-
-    arrow::Result<std::shared_ptr<DataType>>
-    Deserialize(std::shared_ptr<DataType> storage_type,
-                std::string const& serialized) const override {
-      return std::make_shared<ComplexExpressionArrayType>(Symbol(serialized),
-                                                          storage_type->fields());
-    }
-
-    std::string Serialize() const override { return m_head.getName(); }
-    // why is this called?
-
-  private:
-    Symbol m_head;
-  };
-
   explicit ComplexExpressionArray(std::shared_ptr<arrow::ArrayData> const& data, Symbol const& head)
       : arrow::StructArray(data) {
     // make sure to set back the extension type after the end of call from base array class
@@ -66,14 +28,60 @@ public:
     adjustedData->type = std::make_shared<ComplexExpressionArrayType>(head, data->type->fields());
     SetData(adjustedData);
   }
+
+  /** Custom type to implement an Arrow array for complex expressions.
+   * This is mostly boilerplate code to be compliant with Arrow.
+   * It also stores an additional metadata for the head symbol. */
+  class ComplexExpressionArrayType : public arrow::ExtensionType {
+  public:
+    explicit ComplexExpressionArrayType(Symbol const& head, arrow::FieldVector const& fields)
+        : ExtensionType(arrow::struct_(fields)), m_head(head) {}
+
+    Symbol const& getHead() const { return m_head; }
+
+    /// Called by Arrow to create our custom ComplexExpressionArray from a
+    /// ComplexExpressionArrayBuilder
+    std::shared_ptr<arrow::Array> MakeArray(std::shared_ptr<arrow::ArrayData> data) const override {
+      // temporarly change to the underline type for the construction
+      // it will be reverted in the ComplexExpressionArray constructor
+      auto adjustedData = data->Copy();
+      adjustedData->type = arrow::struct_(storage_type()->fields());
+      return std::make_shared<ComplexExpressionArray>(adjustedData, m_head);
+    }
+
+    ///////////////////////////////////////////////////////////////////////
+    // code required by Arrow to implement an extension type
+    std::string extension_name() const override { return "complex-expr-type"; }
+    bool ExtensionEquals(ExtensionType const& other) const override {
+      auto const& other_ext = static_cast<ExtensionType const&>(other);
+      if(other_ext.extension_name() != this->extension_name()) {
+        return false;
+      }
+      return this->getHead() == dynamic_cast<ComplexExpressionArrayType const&>(other).getHead();
+    }
+    arrow::Result<std::shared_ptr<DataType>>
+    Deserialize(std::shared_ptr<DataType> storage_type,
+                std::string const& serialized) const override {
+      return std::make_shared<ComplexExpressionArrayType>(Symbol(serialized),
+                                                          storage_type->fields());
+    }
+    std::string Serialize() const override { return m_head.getName(); }
+    ///////////////////////////////////////////////////////////////////////
+
+  private:
+    Symbol m_head;
+  };
 };
 
+/** ExpressionArrayBuilder is the builder corresponding to ComplexExpressionArray.
+ * Because it uses custom type ComplexExpressionArrayType, Arrow will automatically
+ * pick it up to create ComplexExpressionArray when finishing the builder.*/
 template <typename ExpressionArrayBuilder>
 class ComplexExpressionArrayBuilder : public arrow::StructBuilder {
-  // I think we should separate arrow stuff & utilities more clearly from core functionality
 public:
+  // Arrow requires to register custom extension types.
+  // So we make sure to do this the first time we need it.
   static void initialisation() {
-    // ???
     static bool initialised = false;
     if(!initialised) {
       auto status = arrow::RegisterExtensionType(
@@ -103,13 +111,14 @@ public:
   }
 
   ComplexExpressionArrayBuilder(ComplexExpressionArrayBuilder const& other, bool clear = false)
-      : arrow::StructBuilder(other.arrow::StructBuilder::type(), other.pool_,
-                             clear ? makeChildBuilders(other.arrow::StructBuilder::type()->num_fields(), other.pool_)
-                                   : other.children_),
+      : arrow::StructBuilder(
+            other.arrow::StructBuilder::type(), other.pool_,
+            clear ? makeChildBuilders(other.arrow::StructBuilder::type()->num_fields(), other.pool_)
+                  : other.children_),
         m_head(other.m_head) {
     initialisation();
     // initialise properly the struct builder
-    // since the children arrays wreen't empty but not handle by StructBuilder constructor
+    // since the children arrays weren't empty but not handle by StructBuilder constructor
     if(!children_.empty()) {
       auto length = children_[0]->length();
       auto reserveStatus = Reserve(length);
@@ -121,9 +130,10 @@ public:
   }
 
   ComplexExpressionArrayBuilder(ComplexExpressionArrayBuilder&& other, bool clear = false) noexcept
-      : arrow::StructBuilder(other.arrow::StructBuilder::type(), other.pool_,
-                             clear ? makeChildBuilders(other.arrow::StructBuilder::type()->num_fields(), other.pool_)
-                                   : other.children_),
+      : arrow::StructBuilder(
+            other.arrow::StructBuilder::type(), other.pool_,
+            clear ? makeChildBuilders(other.arrow::StructBuilder::type()->num_fields(), other.pool_)
+                  : other.children_),
         m_head(other.m_head) {
     initialisation();
     // initialise properly the struct builder
@@ -149,10 +159,14 @@ public:
         m_head, arrow::StructBuilder::type()->fields());
   }
 
-  // this doesn't resize the children!
-  // they have to be extracted and resize manually afterwards!
+  // Usually when resizing a struct array, we need to resize both the struct array itself
+  // and the children arrays. This function only resize the struct array itself..
+  // For now, the children array have to be extracted as Batch and resized manually afterwards.
+  // [https://github.com/symbol-store/BOSS/issues/88]
+  // We need to do that until we have a more robust arrow array API.
+  // This is because we don't have yet a consistent method to resize the children,
+  // so it has to be done through each of the children's batch resize() call.
   arrow::Status resizeStructArray(size_t size) {
-    // what children? Why do they need resizing?
     if(size < length()) {
       // TODO: do we need to support that case?
       return arrow::Status::OK();
@@ -160,8 +174,11 @@ public:
     return AppendToBitmap(size - length(), true);
   }
 
+  // [https://github.com/symbol-store/BOSS/issues/92]
+  /// Check if the expression type of each argument
+  /// is already supported by the child union array builder
+  /// or if it will require to create a new array type
   bool IsSupported(ComplexExpression const& expr) {
-    // by whom?
     for(int idx = 0; idx < expr.getArguments().size(); ++idx) {
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
       if(!argBuilder.IsSupported(expr.getArguments()[idx])) {
@@ -171,6 +188,10 @@ public:
     return true;
   }
 
+  // [https://github.com/symbol-store/BOSS/issues/92]
+  /// Check if the expression type of each argument
+  /// is already supported by the child union array builder
+  /// or if it will require to create a new array type
   bool IsSupported(std::vector<BatchData> const& argData) {
     for(int idx = 0; idx < argData.size(); ++idx) {
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
@@ -182,6 +203,8 @@ public:
     return true;
   }
 
+  // [https://github.com/symbol-store/BOSS/issues/88]
+  // refactor all the AppendExpression once we have a better array API
   arrow::Status AppendExpression(ComplexExpression const& expr) {
     // append to the args structure
     auto structStatus = Append();
@@ -201,6 +224,8 @@ public:
     return arrow::Status::OK();
   };
 
+  // [https://github.com/symbol-store/BOSS/issues/88]
+  // refactor all the AppendExpression once we have a better array API
   arrow::Status AppendExpressions(std::vector<BatchData> const& argData) {
     if(argData.empty()) {
       // no arguments?
@@ -242,8 +267,9 @@ public:
     return arrow::Status::OK();
   }
 
+  // [https://github.com/symbol-store/BOSS/issues/88]
+  // refactor all the AppendExpression once we have a better array API
   arrow::Status AppendExpressions(ComplexExpressionArray const& complexArray) {
-    // can't we refactor some of the AppendExpressions functions?
     auto length = complexArray.length();
 
     // append to the args structure
@@ -267,6 +293,8 @@ public:
     return arrow::Status::OK();
   }
 
+  // [https://github.com/symbol-store/BOSS/issues/88]
+  // refactor all the AppendExpression once we have a better array API
   arrow::Status AppendExpressions(ComplexExpressionArrayBuilder const& complexArrayBuilder,
                                   size_t logicalSize) {
     // append to the args structure
@@ -291,6 +319,7 @@ public:
     return arrow::Status::OK();
   }
 
+  /// prepare the array to receive the argument types, but not appending anything yet
   arrow::Status initArguments(std::vector<std::shared_ptr<arrow::DataType>> const& types) {
     if(types.empty()) {
       // no arguments?

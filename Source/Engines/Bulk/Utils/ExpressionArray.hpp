@@ -22,9 +22,14 @@
 
 namespace boss::engines::bulk {
 
+/** ExpressionArray is for storing an expression of any type.
+ * It currently implements a dense union so each expression type
+ * is dispatched to a different child array.*/
 using ExpressionArray = arrow::DenseUnionArray;
 
 // workaround to access offsets_builders in ExpressionArrayBuilder
+// [https://github.com/symbol-store/BOSS/issues/88]
+// clean up usage of arrow API to avoid issues for accessing private members.
 template <typename Tag, typename Tag::type PrivateMember> struct AccessPrivateMember {
   friend typename Tag::type get(Tag /*unused*/) { return PrivateMember; }
 };
@@ -35,17 +40,25 @@ struct DenseUnionBuilder_member {
 template struct AccessPrivateMember<DenseUnionBuilder_member,
                                     &arrow::DenseUnionBuilder::offsets_builder_>;
 
+/** This builder is implementing convenience functions to append expression to a dense union:
+ * - creating a child buidler whose class corresponding to a specific expression type
+ * - mapping the expression type to a child builder in which to append the expression
+ * - checking if an expression type is already supported by any of th existing child builder */
 class ExpressionArrayBuilder : public arrow::DenseUnionBuilder {
-  // documentation
 public:
   explicit ExpressionArrayBuilder(arrow::MemoryPool* pool = arrow::default_memory_pool())
       : arrow::DenseUnionBuilder(pool) {}
 
+  // [https://github.com/symbol-store/BOSS/issues/92]
+  /// Check if the expression type is already handled by this union array builder
+  /// or if it will require to create a new array type
   bool IsSupported(Expression const& expr) {
-    // how?
     return m_expressionToType.find(expr) != m_expressionToType.end();
   }
 
+  // [https://github.com/symbol-store/BOSS/issues/92]
+  /// Check if the expression type is already handled by this union array builder
+  /// or if it will require to create a new array type
   bool IsSupported(arrow::DataType const& type) {
     for(int i = 0; i < num_children(); ++i) {
       auto builder = child_builder(i);
@@ -71,11 +84,12 @@ public:
     return false;
   }
 
+  /// dispatch the expression to the corresponding child builder
+  /// and append to both the union builder and the child builder
   arrow::Status AppendExpression(Expression const& expr) {
     auto it = m_expressionToType.find(expr);
     std::shared_ptr<ArrayBuilder> childBuilder;
-    bool foundInCache(it != m_expressionToType.end());
-    // let's use assignment for basic types
+    bool foundInCache = (it != m_expressionToType.end());
     auto& cachedTypeId = foundInCache ? it->second : m_expressionToType[expr];
     if(foundInCache) {
       // retrieve from the cache
@@ -94,8 +108,10 @@ public:
     return appendToChildBuilder(expr, childBuilder);
   }
 
+  /// append a full array at once
+  /// dispatching to the child builder based on the type of the source array
   arrow::Status AppendExpressions(std::shared_ptr<arrow::Array> const& exprArrayPtr) {
-    // TODO: more proper type handling of type
+    // [https://github.com/symbol-store/BOSS/issues/88] more proper type handling of type
     if(exprArrayPtr->type_id() != arrow::Type::DENSE_UNION) {
       // this is not an expression array
       // merge it as a normal batch array
@@ -140,9 +156,12 @@ public:
     return arrow::Status::OK();
   }
 
+  /// append a full builder at once
+  /// dispatching to the child builder based on the type of the source builder
+  /// logicalSize: real builder size, needed for the builder until we can support shrinking builders
   arrow::Status AppendExpressions(std::shared_ptr<arrow::ArrayBuilder> const& exprArrayBuilderPtr,
                                   size_t logicalSize) {
-    // TODO: more proper type handling of type
+    // [https://github.com/symbol-store/BOSS/issues/88] more proper type handling of type
     if(exprArrayBuilderPtr->type()->id() != arrow::Type::DENSE_UNION) {
       // this is not an expression array builder
       // merge it as a normal batch array builder
@@ -168,7 +187,6 @@ public:
       if(!childStatus.ok()) {
         return childStatus;
       }
-      // I guess this is still WIP
 
       return arrow::Status::OK();
     }
@@ -187,10 +205,10 @@ public:
 
     return arrow::Status::OK();
   }
-  
+
+  /// prepare the array for a specific type, but don't append anything yet
   void CopyFields(std::shared_ptr<arrow::DataType> const& type) {
-    // is that necessary?
-    // TODO: more proper type handling of type
+    // [https://github.com/symbol-store/BOSS/issues/88] more proper type handling of type
     if(type->id() != arrow::Type::DENSE_UNION) {
       // this is not an expression array builder
       // merge it as a normal batch array builder
@@ -203,10 +221,6 @@ public:
     for(auto const& field : type->fields()) {
       CopyFields(field->type());
     }
-  }
-
-  arrow::Status FinishInternal(std::shared_ptr<arrow::ArrayData>* out) override {
-    return DenseUnionBuilder::FinishInternal(out);
   }
 
 private:
@@ -245,7 +259,7 @@ private:
                             return std::make_shared<IterableFloatBuilder>(pool_);
                           },
                           [&](std::string const& /*v*/) -> std::shared_ptr<arrow::ArrayBuilder> {
-                            return std::make_shared<IterableStringBuilder>(pool_);
+                            return std::make_shared<IterableStringBuilder<>>(pool_);
                           },
                           [&](Symbol const& /*s*/) -> std::shared_ptr<arrow::ArrayBuilder> {
                             return std::make_shared<SymbolArrayBuilder>(pool_);
@@ -266,7 +280,7 @@ private:
     case arrow::Type::FLOAT:
       return std::make_shared<IterableFloatBuilder>(pool_);
     case arrow::Type::STRING:
-      return std::make_shared<IterableStringBuilder>(pool_);
+      return std::make_shared<IterableStringBuilder<>>(pool_);
     case arrow::Type::EXTENSION: {
       auto const& extensionType = dynamic_cast<arrow::ExtensionType const&>(type);
       if(extensionType.extension_name()[0] == 's') {
@@ -317,7 +331,7 @@ private:
             [&](int v) { return dynamic_cast<IterableInt32Builder&>(*childBuilder).Append(v); },
             [&](float v) { return dynamic_cast<IterableFloatBuilder&>(*childBuilder).Append(v); },
             [&](std::string const& v) {
-              return dynamic_cast<IterableStringBuilder&>(*childBuilder).Append(v);
+              return dynamic_cast<IterableStringBuilder<>&>(*childBuilder).Append(v);
             },
             [&](Symbol const& s) {
               return dynamic_cast<SymbolArrayBuilder&>(*childBuilder).Append(s);
@@ -353,7 +367,7 @@ private:
     case arrow::Type::STRING: {
       auto const& typedSrcArray = dynamic_cast<arrow::StringArray const&>(srcArray);
       auto const& valueData = *typedSrcArray.value_data();
-      auto& typedDestBuilder = dynamic_cast<IterableStringBuilder&>(*destBuilder);
+      auto& typedDestBuilder = dynamic_cast<IterableStringBuilder<>&>(*destBuilder);
       auto reserveStatus = typedDestBuilder.Reserve(typedSrcArray.length());
       if(!reserveStatus.ok()) {
         return reserveStatus;
@@ -425,9 +439,9 @@ private:
           .AppendValues(srcValues, srcLogicalSize);
     }
     case arrow::Type::STRING: {
-      auto const& typedSrcBuilder = dynamic_cast<IterableStringBuilder const&>(srcBuilder);
+      auto const& typedSrcBuilder = dynamic_cast<IterableStringBuilder<> const&>(srcBuilder);
       auto const& valueDataLength = typedSrcBuilder.value_data_length();
-      auto& typedDestBuilder = dynamic_cast<IterableStringBuilder&>(*destBuilder);
+      auto& typedDestBuilder = dynamic_cast<IterableStringBuilder<>&>(*destBuilder);
       auto reserveStatus = typedDestBuilder.Reserve(srcLogicalSize);
       if(!reserveStatus.ok()) {
         return reserveStatus;

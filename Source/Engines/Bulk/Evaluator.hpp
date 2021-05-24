@@ -1,6 +1,6 @@
 #pragma once
 
-#include "BatchHelper.hpp"
+#include "BatchVisitDispatcher.hpp"
 
 #include <array>
 #include <tuple>
@@ -10,7 +10,7 @@ namespace boss::engines::bulk {
 
 template <typename... BatchTypes> class AllowedBatches {
 public:
-  using BatchHelper = BatchHelper<BatchTypes...>;
+  using BatchVisitDispatcher = BatchVisitDispatcher<BatchTypes...>;
   template <typename Type>
   static constexpr bool includes = ((std::is_same_v<Type, BatchTypes>) || ...);
 
@@ -58,7 +58,7 @@ public:
       return isSupportedTypeInternal(argumentIndex, batch,
                                      std::make_index_sequence<sizeof...(AllowedBatches)>{});
     }
-    
+
     /// Check if the batch type matches one of the expected types for the evaluator's nth argument.
     /// This is a compile-time check alternative.
     template <size_t ArgumentIndex, typename BatchType> static constexpr bool isSupportedType() {
@@ -80,11 +80,11 @@ public:
       if constexpr(ArgumentIndex < sizeof...(AllowedBatches)) {
         using AllowedBatchTypes =
             std::tuple_element_t<ArgumentIndex, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::BatchHelper::visit(visitor, batch);
+        return AllowedBatchTypes::BatchVisitDispatcher::visit(visitor, batch);
       } else {
         using AllowedBatchTypes =
             std::tuple_element_t<sizeof...(AllowedBatches) - 1, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::BatchHelper::visit(visitor, batch);
+        return AllowedBatchTypes::BatchVisitDispatcher::visit(visitor, batch);
       }
     };
 

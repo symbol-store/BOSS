@@ -11,19 +11,19 @@
 
 namespace boss::engines::bulk {
 
-template <typename BatchType> class SymbolPool {
+template <typename BatchType> class SymbolRegistry {
 private:
-  SymbolPool() = default;
+  SymbolRegistry() = default;
 
 public:
-  ~SymbolPool() = default;
-  SymbolPool(SymbolPool const& other) = delete;
-  SymbolPool(SymbolPool&& other) = delete;
-  SymbolPool& operator=(SymbolPool const& other) = delete;
-  SymbolPool& operator=(SymbolPool&& other) = delete;
+  ~SymbolRegistry() = default;
+  SymbolRegistry(SymbolRegistry const& other) = delete;
+  SymbolRegistry(SymbolRegistry&& other) = delete;
+  SymbolRegistry& operator=(SymbolRegistry const& other) = delete;
+  SymbolRegistry& operator=(SymbolRegistry&& other) = delete;
 
-  static SymbolPool& instance() {
-    static SymbolPool instance;
+  static SymbolRegistry& instance() {
+    static SymbolRegistry instance;
     return instance;
   }
 
@@ -42,6 +42,6 @@ private:
   SymbolMapping m_symbolMap;
 };
 
-using DefaultSymbolPool = SymbolPool<Batch>;
+using DefaultSymbolRegistry = SymbolRegistry<Batch>;
 
 } // namespace boss::engines::bulk

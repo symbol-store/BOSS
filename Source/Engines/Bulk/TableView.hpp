@@ -1,5 +1,8 @@
 #pragma once
 
+#include "SymbolRegistry.hpp"
+
+#include "../Bulk.hpp"
 #include "Batch/Batch.hpp"
 #include "Batch/CompoundBatch.hpp"
 #include "Batch/ValueBatch.hpp"
@@ -9,12 +12,11 @@
 
 namespace boss::engines::bulk {
 
-// [ISSUE] now that TableView contains no particular metadata,
-// see if we can get rid of it and support it with normal CompoundBatch
+// [https://github.com/symbol-store/BOSS/issues/89]
 /** TableView is an extension to the CompoundBatch
  * to support specific functions for accessing column information.
  * Also, the main difference with a CompoundBatch is that it passes the decomposed flag
- * to handle the logifc to store a row differently than a list of lists.
+ * to handle the logic to store a row differently than a list of lists.
  * One additional purpose of having this class is to allow an operator
  * to specifically take a TableView as argument (for the query oeprators). */
 class TableView : public CompoundBatch {
@@ -25,7 +27,7 @@ public:
   UniqueId::type typeId() const override { return UniqueId; }
   UniqueId::type elementTypeId() const override { return UniqueId::forType<ValueType>(); }
 
-  explicit TableView(BatchFactory const& factory) : CompoundBatch(factory, true) {}
+  explicit TableView() : CompoundBatch(true) {}
   TableView(TableView const& other, bool clear = false) : CompoundBatch(other, clear) {}
 
   ~TableView() override = default;
@@ -54,7 +56,7 @@ public:
     // create a temporary column batch (compound) from the array fields
     auto const& batchData = CompoundBatch::data();
     ExpressionArguments columns;
-    if(batchData.builder || batchData.arrays.chunks().size() > 0) {
+    if(batchData.builder || !batchData.arrays.chunks().empty()) {
       auto type = batchData.builder ? batchData.builder->type() : batchData.arrays.chunk(0)->type();
       auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
       auto structType = extensionType.storage_type();
@@ -64,7 +66,7 @@ public:
       }
     }
     ComplexExpression columnList("List"_, columns);
-    return Batch::WritablePtr(CompoundBatch::createBatch(columnList));
+    return Batch::WritablePtr(Engine::getBatchFactory().createBatch(columnList));
   }
 
   size_t numColumns() const {
@@ -80,7 +82,7 @@ public:
 
   bool evaluate(ReadablePtr& outputPtr) const override {
     // set the local columns to be accessible by the rows evaluation
-    auto& symbolPtr = DefaultSymbolPool::instance().findSymbol(Symbol("$columns"));
+    auto& symbolPtr = DefaultSymbolRegistry::instance().findSymbol(Symbol("$columns"));
     auto backupSymbol = std::move(symbolPtr);
     symbolPtr = columns();
 

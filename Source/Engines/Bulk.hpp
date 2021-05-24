@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Bulk/BatchFactory.hpp"
+
 #include "../Engine.hpp"
 #include "../Expression.hpp"
 
@@ -14,12 +16,20 @@ public:
   Engine& operator=(Engine&&) = delete;
 
   Engine();
-  ~Engine();
+  ~Engine() = default;
 
   Expression evaluate(Expression const& e);
 
+  static BatchFactory const& getBatchFactory() {
+    static BatchFactory const* factoryInstance = nullptr;
+    if(factoryInstance == nullptr) {
+      factoryInstance = &createBatchFactory();
+    }
+    return *factoryInstance;
+  }
+
 private:
-  BatchFactory& batchFactory;
+  static BatchFactory const& createBatchFactory();
 };
 
 } // namespace boss::engines::bulk

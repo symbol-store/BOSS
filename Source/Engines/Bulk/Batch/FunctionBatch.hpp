@@ -1,16 +1,11 @@
 #pragma once
 
-#include "../SymbolPool.hpp"
+#include "../SymbolRegistry.hpp"
 
 namespace boss::engines::bulk {
 
-// [ISSUE] try to get rid of it.
-// but still currently useful, at least to apply it as a type to other operators.
-// start a discussion in the issue...
-// from Holger's comment: I would generally advise to
-// avoid coding out functionality as part of the core engine at the C++ level.
-// Maybe we should think about an (object-oriented) extension interface
-/** FunctionBatch is a special case of compound batch where the only child batch is the body0
+// [https://github.com/symbol-store/BOSS/issues/83]
+/** FunctionBatch is a special case of compound batch where the only child batch is the body
  * We use it for queries requiring to pass a function (as predicate, custom aggregation, grouping
  * etc). Those queries can call evaluateWith, passing the relation as parameter (but could be
  * anything else too). We store the parameter as symbol, and then the body will be able to evaluate
@@ -25,16 +20,14 @@ public:
 
   using ParameterList = std::vector<Symbol>;
 
-  FunctionBatch(BatchFactory const& factory, ParameterList const& parameters,
-                ReadablePtr&& definitionBatchPtr)
-      : m_parameters(parameters), CompoundBatch(factory, Symbol("Function")) {
-    insert(std::vector{std::move(definitionBatchPtr)});
+  FunctionBatch(ParameterList const& parameters, ReadablePtr&& definitionBatchPtr)
+      : m_parameters(parameters), CompoundBatch(Symbol("Function")) {
+    append(std::vector{std::move(definitionBatchPtr)});
   }
 
-  FunctionBatch(BatchFactory const& factory, ParameterList&& parameters,
-                ReadablePtr&& definitionBatchPtr)
-      : m_parameters(std::move(parameters)), CompoundBatch(factory, Symbol("Function")) {
-    insert(std::vector{std::move(definitionBatchPtr)});
+  FunctionBatch(ParameterList&& parameters, ReadablePtr&& definitionBatchPtr)
+      : m_parameters(std::move(parameters)), CompoundBatch(Symbol("Function")) {
+    append(std::vector{std::move(definitionBatchPtr)});
   }
 
   FunctionBatch(FunctionBatch const& other, bool clear = false)
@@ -65,7 +58,8 @@ public:
     auto candidatePtr = *begin(); // always single argument (the body)
 
     // replace parameter symbols with arguments
-    std::vector<std::pair<DefaultSymbolPool::SymbolPtr&, DefaultSymbolPool::SymbolPtr>> oldSymbols;
+    std::vector<std::pair<DefaultSymbolRegistry::SymbolPtr&, DefaultSymbolRegistry::SymbolPtr>>
+        oldSymbols;
     oldSymbols.reserve(args.size());
     auto paramIt = m_parameters.begin();
     for(auto arg : args) {
@@ -76,7 +70,7 @@ public:
       // store existing symbols
       // to retrieve later in case of name collision
       // (and make sure they are not destroyed while dereferenced...)
-      auto& batchPtr = DefaultSymbolPool::instance().findSymbol(Symbol(*paramIt));
+      auto& batchPtr = DefaultSymbolRegistry::instance().findSymbol(Symbol(*paramIt));
       oldSymbols.emplace_back(batchPtr, std::move(batchPtr));
 
       // set symbol at the function scope
@@ -104,7 +98,8 @@ public:
   }
 
   bool evaluate(ReadablePtr& outputPtr) const override {
-    // [ISSUE] how to generalise the evaluation of a FunctionBatch.
+    // [https://github.com/symbol-store/BOSS/issues/83]
+    // how to generalise the evaluation of a FunctionBatch?
     // from Holger's comment: do you think we could remove this function and always call
     // evaluateWith but without parameters?
 

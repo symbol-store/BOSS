@@ -2,8 +2,9 @@
 
 #include "Batch.hpp"
 
-#include "../BatchHelper.hpp"
-#include "../SymbolPool.hpp"
+#include "../../Bulk.hpp"
+#include "../BatchVisitDispatcher.hpp"
+#include "../SymbolRegistry.hpp"
 #include "../Utils/CompoundArray.hpp"
 
 #include "../../../Utilities.hpp"
@@ -40,31 +41,26 @@ public:
     return std::holds_alternative<ValueType>(val);
   }
 
-  /// factory: used to create the children batches on insert
   /// decomposed: see class description for the meaning
   /// defaulting to create a "List" as head for the expressions we insert
-  explicit CompoundBatch(BatchFactory const& factory, bool decomposed = false)
-      : m_factory(factory), m_array(std::make_shared<CompoundArray>()), m_symbol("List"_),
-        m_decomposed(decomposed) {}
+  explicit CompoundBatch(bool decomposed = false)
+      : m_array(std::make_shared<CompoundArray>()), m_symbol("List"_), m_decomposed(decomposed) {}
 
-  /// factory: used to create the children batches on insert
   /// symbol: head for the expressions we insert
   /// decomposed: see class description for the meaning
-  CompoundBatch(BatchFactory const& factory, Symbol const& symbol, bool decomposed = false)
-      : m_factory(factory), m_array(std::make_shared<CompoundArray>()), m_symbol(symbol),
-        m_decomposed(decomposed) {}
+  explicit CompoundBatch(Symbol const& symbol, bool decomposed = false)
+      : m_array(std::make_shared<CompoundArray>()), m_symbol(symbol), m_decomposed(decomposed) {}
 
-  // just a shallow copy
+  // [https://github.com/symbol-store/BOSS/issues/88] to clean up
+  // Internally, we do just a shallow copy for now (see in CompoundArray copy
+  // constructor) but it really should be a deep copy or it can cause some issues at some point
   CompoundBatch(CompoundBatch const& other, bool clear = false)
-      : m_factory(other.m_factory), m_array(std::make_shared<CompoundArray>(*other.m_array, clear)),
-        m_symbol(other.m_symbol), m_decomposed(other.m_decomposed) {}
-  // what do we do with shallow copies? Should we have a "ViewBatch" type or something to designate
-  // that?
+      : m_array(std::make_shared<CompoundArray>(*other.m_array, clear)), m_symbol(other.m_symbol),
+        m_decomposed(other.m_decomposed) {}
 
-  CompoundBatch(BatchFactory const& factory, Symbol const& symbol, CompoundArray&& compoundArray,
-                bool decomposed = false)
-      : m_factory(factory), m_array(std::make_shared<CompoundArray>(std::move(compoundArray))),
-        m_symbol(symbol), m_decomposed(decomposed) {}
+  CompoundBatch(Symbol const& symbol, CompoundArray&& compoundArray, bool decomposed = false)
+      : m_array(std::make_shared<CompoundArray>(std::move(compoundArray))), m_symbol(symbol),
+        m_decomposed(decomposed) {}
 
   ~CompoundBatch() override = default;
   CompoundBatch(CompoundBatch&& other) = delete;
@@ -140,9 +136,9 @@ public:
     }
   }
 
-  template <typename BatchHelper, typename Func> void visitBatches(Func&& visitor) const {
+  template <typename BatchVisitDispatcher, typename Func> void visitBatches(Func&& visitor) const {
     for(auto const& batchPtr : *this) {
-      BatchHelper::visit([&visitor](auto const& batch) { visitor(batch); }, *batchPtr);
+      BatchVisitDispatcher::visit([&visitor](auto const& batch) { visitor(batch); }, *batchPtr);
     }
   }
 
@@ -151,13 +147,13 @@ public:
     for(auto chunk : chunks) {
       CompoundArray compoundChunk(*m_array, std::move(chunk));
       auto* batch = cloneAsCompoundBatch(true);
-      batch->insert(std::move(compoundChunk));
+      batch->append(std::move(compoundChunk));
       visitor(WritableBatchPtr<CompoundBatch>(batch));
     }
     if(m_array->hasBuilder()) {
       CompoundArray compoundChunk(m_array->getBuilder());
       auto* batch = cloneAsCompoundBatch(true);
-      batch->insert(std::move(compoundChunk));
+      batch->append(std::move(compoundChunk));
       visitor(WritableBatchPtr<CompoundBatch>(batch));
     }
   }
@@ -167,14 +163,14 @@ public:
     for(auto chunk : chunks) {
       CompoundArray compoundChunk(*m_array, std::move(chunk));
       auto* batch = cloneAsCompoundBatch(true);
-      batch->insert(std::move(compoundChunk));
+      batch->append(std::move(compoundChunk));
       auto const* constBatch = batch;
       visitor(ReadableBatchPtr<CompoundBatch>(constBatch));
     }
     if(m_array->hasBuilder()) {
       CompoundArray compoundChunk(m_array->getBuilder());
       auto* batch = cloneAsCompoundBatch(true);
-      batch->insert(std::move(compoundChunk));
+      batch->append(std::move(compoundChunk));
       auto const* constBatch = batch;
       visitor(ReadableBatchPtr<CompoundBatch>(constBatch));
     }
@@ -189,7 +185,7 @@ public:
 
     auto rowArray = m_array->getRow(index);
     CompoundArray compoundRow(*m_array, std::move(rowArray));
-    auto* batch = new CompoundBatch(m_factory, m_symbol, std::move(compoundRow));
+    auto* batch = new CompoundBatch(m_symbol, std::move(compoundRow));
     auto const* constBatch = batch;
     return Batch::ReadablePtr(constBatch);
   }
@@ -208,7 +204,8 @@ public:
     std::shared_ptr<arrow::ArrayBuilder> argBuilder = getBuilder(index);
 
     // create a batch of the right type from these arrays/builder
-    Batch* batch = m_factory.createBatch(std::move(argChunks), std::move(argBuilder));
+    Batch* batch =
+        Engine::getBatchFactory().createBatch(std::move(argChunks), std::move(argBuilder));
     batch->setOwner(m_array, index);
     auto const* constBatch = batch;
     return Batch::ReadablePtr(constBatch);
@@ -228,22 +225,34 @@ public:
     std::shared_ptr<arrow::ArrayBuilder> argBuilder = getBuilder(index);
 
     // create a batch of the right type from these arrays/builder
-    Batch* batch = m_factory.createBatch(std::move(argChunks), std::move(argBuilder));
+    Batch* batch =
+        Engine::getBatchFactory().createBatch(std::move(argChunks), std::move(argBuilder));
     batch->setOwner(m_array, index);
     return Batch::WritablePtr(batch);
   }
 
-  // TODO: rename to pushBack? push_back? append?
-  void insert(Expression const& expression) override { insert(std::get<ValueType>(expression)); }
+  void append(Expression const& expression) override { append(std::get<ValueType>(expression)); }
 
-  void insert(ValueType const& expression) {
+  void append(ValueType const& expression) {
     auto status = m_array->append(expression);
     if(!status.ok()) {
       return;
     }
   }
 
-  void insert(CompoundArray&& compoundArray) { m_array->merge(std::move(compoundArray)); }
+  void append(CompoundArray&& compoundArray) { m_array->append(std::move(compoundArray)); }
+
+  void append(std::vector<ReadablePtr> const& argBatches) {
+    std::vector<BatchData> argData;
+    argData.reserve(argBatches.size());
+    for(const auto& batchPtr : argBatches) {
+      argData.emplace_back(batchPtr->data());
+    }
+    auto status = m_array->append(m_symbol, argData);
+    if(!status.ok()) {
+      return;
+    }
+  }
 
   void initArguments(std::vector<ReadablePtr> const& argBatches) {
     std::vector<BatchData> m_argData;
@@ -257,21 +266,9 @@ public:
     }
   }
 
-  void insert(std::vector<ReadablePtr> const& argBatches) {
-    std::vector<BatchData> argData;
-    argData.reserve(argBatches.size());
-    for(const auto& batchPtr : argBatches) {
-      argData.emplace_back(batchPtr->data());
-    }
-    auto status = m_array->append(m_symbol, argData);
-    if(!status.ok()) {
-      return;
-    }
-  }
-
   bool evaluate(ReadablePtr& outputPtr) const override {
     // set the local tuple to be accessible by the row values
-    auto& symbolPtr = DefaultSymbolPool::instance().findSymbol(Symbol("$tuple"));
+    auto& symbolPtr = DefaultSymbolRegistry::instance().findSymbol(Symbol("$tuple"));
     auto backupSymbol = std::move(symbolPtr);
     symbolPtr = Batch::ReadablePtr(shared_from_this());
 
@@ -298,7 +295,7 @@ public:
     }
 
     auto* newCompoundBatch = cloneAsCompoundBatch(true);
-    newCompoundBatch->insert(argBatches);
+    newCompoundBatch->append(argBatches);
     outputPtr = WritableBatchPtr(newCompoundBatch);
     return true;
   }
@@ -310,7 +307,7 @@ public:
                      m_array->field());
   }
 
-  // [ISSUE] cleanup usage of arrow API
+  // [https://github.com/symbol-store/BOSS/issues/88]
   void setOwner(std::shared_ptr<CompoundArray> parentArray, size_t childIndex) override {
     // used to set the owner (parent batch) after creating a child batch in CompoundBatch::column()
     // so the parent can freezeData() when the child need to freezeData()
@@ -321,30 +318,27 @@ public:
 protected:
   // for TableView to add columns to the builder fields
   void addArgument(std::string const& argName) { m_array->addArgument(m_symbol, argName); }
-  // for TableView to create a temporary batch for the columns
-  Batch* createBatch(Expression const& expression) const {
-    return m_factory.createBatch(expression);
-  }
 
 private:
   std::shared_ptr<arrow::Array> getChunk(size_t index, size_t chunkIndex) const {
     auto argArray = m_array->getArgument(chunkIndex, index);
     auto const& argArrayData = *m_array->getArrayData(chunkIndex);
-    // TODO: handle heterogeneous arrays (returning field(1), etc)
+    // [https://github.com/symbol-store/BOSS/issues/92]
+    // handle heterogeneous arrays (returning field(1), etc)
     // but need to think about how to slice them
     return argArray->field(0)->Slice(argArrayData.offset, argArrayData.length);
   }
 
   std::shared_ptr<arrow::ArrayBuilder> getBuilder(size_t index) const {
     auto argBuilder = m_array->getArgumentBuilder(index);
-    // TODO: handle heterogeneous arrays (returning child_builder(1), etc)
+    // [https://github.com/symbol-store/BOSS/issues/92]
+    // handle heterogeneous arrays (returning child_builder(1), etc)
     if(argBuilder && argBuilder->num_children() > 0) {
       return argBuilder->child_builder(0);
     }
     return nullptr;
   }
 
-  BatchFactory const& m_factory;
   Symbol m_symbol;
   bool m_decomposed;
 
