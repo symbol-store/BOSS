@@ -163,6 +163,25 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
                                       "Function"_(0), "Count"_),
                            1),
                 1))) == 1);
+      CHECK(get<int>(eval("Extract"_(
+                "Extract"_("GroupBy"_("Customer"_,
+                                      "Function"_(0), "Total"_("BirthYear"_)),
+                           1),
+                1))) == 5842);
+      {
+        auto const& mean = get<int>(eval("Extract"_(
+                  "Extract"_("GroupBy"_("Customer"_,
+                                        "Function"_(0), "Mean"_("BirthYear"_)),
+                             1),
+                  1)));
+        CHECK(mean < 1947.34);
+        CHECK(mean > 1947.32);
+      }
+      CHECK(get<int>(eval("Extract"_(
+                "Extract"_("GroupBy"_("Customer"_,
+                                      "Function"_(0), "Max"_("BirthYear"_)),
+                           1),
+                1))) == 1976);
     }
   }
 }
