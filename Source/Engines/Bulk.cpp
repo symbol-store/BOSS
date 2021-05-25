@@ -1,7 +1,16 @@
 #include "Bulk.hpp"
 
 #include "Bulk/BatchPrototypes.hpp"
-#include "Bulk/BuiltinFunctions.hpp"
+#include "Bulk/BuiltinFunctions/Aggregates.hpp"
+#include "Bulk/BuiltinFunctions/ArithmeticFunctions.hpp"
+#include "Bulk/BuiltinFunctions/Collections.hpp"
+#include "Bulk/BuiltinFunctions/ComparisonFunctions.hpp"
+#include "Bulk/BuiltinFunctions/ConversionFunctions.hpp"
+#include "Bulk/BuiltinFunctions/DBManagementOps.hpp"
+#include "Bulk/BuiltinFunctions/LogicFunctions.hpp"
+#include "Bulk/BuiltinFunctions/Queries.hpp"
+#include "Bulk/BuiltinFunctions/StringFunctions.hpp"
+#include "Bulk/BuiltinFunctions/SymbolicFunctions.hpp"
 #include "Bulk/SymbolRegistry.hpp"
 
 namespace boss::engines::bulk {
@@ -17,12 +26,21 @@ Engine::Engine() { DefaultSymbolRegistry::instance().clear(); }
   static BatchPrototypesImpl prototypesInstance;
 
   // register all built-in functions here
-  BuiltinFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  ArithmeticFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  ComparisonFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  LogicFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  ConversionFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  StringFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  SymbolicFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  Collections<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  Aggregates<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  DBManagementOps<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  Queries<BatchPrototypesImpl>::registerAll(prototypesInstance);
 
   return prototypesInstance;
 }
 
-Expression Engine::evaluate(Expression const& e) { //NOLINT
+Expression Engine::evaluate(Expression const& e) { // NOLINT
   Batch::WritablePtr batchPtr;
   auto const* expr = std::get_if<ComplexExpression>(&e);
   bool done = false;
