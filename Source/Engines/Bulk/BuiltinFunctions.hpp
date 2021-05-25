@@ -2,9 +2,9 @@
 
 #include "../Bulk.hpp"
 #include "Batch/FunctionBatch.hpp"
+#include "Batch/TableView.hpp"
 #include "BatchPrototypes.hpp"
 #include "SymbolRegistry.hpp"
-#include "TableView.hpp"
 
 #include "../../Expression.hpp"
 #include "../../Utilities.hpp"

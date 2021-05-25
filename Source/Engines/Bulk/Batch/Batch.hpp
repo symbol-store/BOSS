@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../Utils/BatchData.hpp"
-#include "../Utils/CompoundArray.hpp"
+#include "../ArrowExtensions/CompoundArray.hpp"
+#include "../BatchData.hpp"
 #include "../Utils/UniqueTypeId.hpp"
 
 #include "../../../Expression.hpp"

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CompareExpression.hpp"
+#include "../Utils/CompareExpression.hpp"
 #include "ComplexExpressionArray.hpp"
 #include "IterableBuilders.hpp"
 #include "SymbolArray.hpp"

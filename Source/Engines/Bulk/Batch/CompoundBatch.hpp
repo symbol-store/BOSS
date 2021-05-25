@@ -3,9 +3,9 @@
 #include "Batch.hpp"
 
 #include "../../Bulk.hpp"
+#include "../ArrowExtensions/CompoundArray.hpp"
 #include "../BatchVisitDispatcher.hpp"
 #include "../SymbolRegistry.hpp"
-#include "../Utils/CompoundArray.hpp"
 
 #include "../../../Utilities.hpp"
 

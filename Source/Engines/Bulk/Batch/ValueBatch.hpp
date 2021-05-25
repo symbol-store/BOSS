@@ -2,10 +2,10 @@
 
 #include "Batch.hpp"
 
+#include "../ArrowExtensions/CompoundArray.hpp"
+#include "../ArrowExtensions/IterableBuilders.hpp"
 #include "../ArrowExtensions/MutableChunkedArray.hpp"
-#include "../Utils/CompoundArray.hpp"
-#include "../Utils/IterableBuilders.hpp"
-#include "../Utils/SymbolArray.hpp"
+#include "../ArrowExtensions/SymbolArray.hpp"
 
 #include <arrow/array.h>
 

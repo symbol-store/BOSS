@@ -1,16 +1,15 @@
 #pragma once
 
-#include "BatchFactory.hpp"
-#include "Evaluator.hpp"
-#include "SymbolRegistry.hpp"
-#include "TableView.hpp"
-
 #include "Batch/Batch.hpp"
 #include "Batch/CompoundBatch.hpp"
 #include "Batch/ExpressionBatch.hpp"
 #include "Batch/FunctionBatch.hpp"
 #include "Batch/SymbolBatch.hpp"
+#include "Batch/TableView.hpp"
 #include "Batch/ValueBatch.hpp"
+#include "BatchFactory.hpp"
+#include "Evaluator.hpp"
+#include "SymbolRegistry.hpp"
 
 #include "../../Expression.hpp"
 
