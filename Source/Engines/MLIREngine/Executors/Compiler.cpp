@@ -67,7 +67,7 @@ Expression Compiler::evaluate(Expression const& e) {
   passManager.addNestedPass<::mlir::FuncOp>(createLowerToStdPass());
   passManager.addPass(::mlir::createCanonicalizerPass());
   passManager.addPass(::mlir::createInlinerPass());
-  passManager.addPass(createLowerToDatabasePass(*database));
+  passManager.addPass(createLowerToDatabasePass(*database, symbolTable));
   passManager.addPass(::mlir::createCanonicalizerPass());
   passManager.addPass(createLowerToLLVMPass(*database));
 

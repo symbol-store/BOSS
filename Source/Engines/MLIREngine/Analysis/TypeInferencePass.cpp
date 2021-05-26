@@ -20,9 +20,6 @@ void TypeInferencePass::runOnOperation() {
   auto& ops = module.getBody()->getOperations();
 
   dyn_cast<TypeInference, Operation>(ops.front()).inferType(context);
-
-
-  module.dump();
 }
 
 std::unique_ptr<mlir::Pass> createTypeInferencePass(boss::mlir::inference::TypeInferenceContext* context) {

@@ -235,19 +235,37 @@ TEST_CASE("STORAGE_TEST") {
     auto* onlyIntsRel = reinterpret_cast<new_runtime::Relation*>(intsPtr);
 
     std::cout << onlyIntsRel->get()->ToString() << std::endl;
+  }
 
+  SECTION("AssumingOperator") {
+    new_runtime::Relation relation;
 
-//    auto resAll = engine.evaluate(
-//        "CollectTuples"_(
-//            "Select"_(
-//                "Where"_("Or"_("Eq"_("Symbol"_("A"), 1)), "IsSymbol"_("A"_)),
-//                "GetRelation"_(std::string("Foo")))
-//        ));
-//
-//    auto allPtr = std::get<size_t>(resOnlyInts);
-//    auto* resultRelation = reinterpret_cast<new_runtime::Relation*>(allPtr);
-//
-//    std::cout << resultRelation->get()->ToString() << std::endl;
+    relation.bulk_load({
+                           {{"A", 1}, {"B", 5}},
+                           {{"A", "x"_}, {"B", 6}},
+//                           {{"A", "y"_}, {"B", 7}},
+                           {{"A", "x"_}, {"B", 7}}
+                       });
+
+    std::cout << relation.get()->ToString() << std::endl;
+
+    new_runtime::Database database;
+
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto result = engine.evaluate(
+        "Assuming"_("x"_, 5, "GroupBy"_("Fields"_("A"),
+                                          "Lambda"_("Args"_("Pair"_("currentValue", "Int")),
+                                                    "Plus"_("Symbol"_("currentValue"), "Symbol"_("B"))),
+                                          "GetRelation"_("Foo"))));
+
+    auto ptr = std::get<size_t>(result);
+    auto* group = reinterpret_cast<runtime::aggregate::HashAggregate*>(ptr);
+
+    for (auto it = group->begin(); it != group->end(); it++) {
+      std::cout << it->second << std::endl;
+    }
   }
 
 }

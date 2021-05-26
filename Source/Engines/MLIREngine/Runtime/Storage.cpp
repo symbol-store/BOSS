@@ -34,10 +34,10 @@ private:
     }
 
     // uncomment to dispatch symbols
-    /*if(auto const* lhsSymbol = std::get_if<Symbol>(&lhs)) {
+    if(auto const* lhsSymbol = std::get_if<Symbol>(&lhs)) {
       auto const& rhsSymbol = std::get<Symbol>(rhs);
       return lhsSymbol->getName() < rhsSymbol.getName() ? -1 : 1;
-    }*/
+    }
 
     if(auto const* lhsExpr = std::get_if<ComplexExpression>(&lhs)) {
       auto const& rhsExpr = std::get<ComplexExpression>(rhs);
@@ -111,10 +111,10 @@ private:
     }
 
     // uncomment to dispatch symbols
-    /*if(auto const* lhsSymbol = std::get_if<Symbol>(&lhs)) {
+    if(auto const* lhsSymbol = std::get_if<Symbol>(&lhs)) {
       auto const& rhsSymbol = std::get<Symbol>(rhs);
       return lhsSymbol->getName() < rhsSymbol.getName() ? -1 : 1;
-    }*/
+    }
 
     if(auto const* lhsExpr = std::get_if<ComplexExpression>(&lhs)) {
       auto const& rhsExpr = std::get<ComplexExpression>(rhs);

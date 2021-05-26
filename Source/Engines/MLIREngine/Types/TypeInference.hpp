@@ -3,7 +3,9 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprOps.h"
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/Runtime/Storage.hpp"
+#include <Utilities.hpp>
 #include <map>
+#include <mlir/IR/Types.h>
 #include <string>
 #include <utility>
 
@@ -13,10 +15,37 @@ bool hasSymbolicArguments(std::vector<::mlir::Type> const& arguments);
 
 struct TypeInferenceContext {
   TypeInferenceContext(::mlir::MLIRContext* mlirContext, const new_runtime::Database* database,
-                       std::vector<std::map<std::string, ::mlir::Type>>  openRelations,
+                       std::vector<std::map<std::string, ::mlir::Type>> openRelations,
                        ::mlir::sexpr::SymbolOp* symbolOp)
       : mlirContext(mlirContext), database(database), activePartitions(std::move(openRelations)),
         symbolOp(symbolOp) {}
+
+  TypeInferenceContext(::mlir::MLIRContext* mlirContext, const new_runtime::Database* database,
+                       std::unordered_map<std::string, boss::Expression> symbolTable)
+      : mlirContext(mlirContext), database(database) {
+    for(auto const& symbol : symbolTable) {
+      auto name = symbol.first;
+      std::visit(
+          boss::utilities::overload(
+              [&](int e) { this->symbolTable[name] = ::mlir::IntegerType::get(32, mlirContext); },
+              [&](size_t e) {
+                this->symbolTable[name] = ::mlir::IntegerType::get(64, mlirContext);
+              },
+              [&](bool e) { this->symbolTable[name] = ::mlir::IntegerType::get(1, mlirContext); },
+              [&](char const* e) { this->symbolTable[name] = StringType::get(mlirContext, -1); },
+              [&](std::string e) { this->symbolTable[name] = StringType::get(mlirContext, -1); },
+              [&](float e) { this->symbolTable[name] = ::mlir::Float32Type::get(mlirContext); },
+              [&](Symbol e) {
+                this->symbolTable[name] =
+                    SymbolOrValueType::get(mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
+              },
+              [&](ComplexExpression e) {
+                this->symbolTable[name] =
+                    SymbolOrValueType::get(mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
+              }),
+          symbol.second);
+    }
+  }
 
   // The MLIR context
   ::mlir::MLIRContext* mlirContext;
@@ -32,7 +61,8 @@ struct TypeInferenceContext {
   std::vector<std::string> argumentSymbols;
 };
 
-::mlir::Type inferSymbolType(std::string const& symbolName, const std::vector<::mlir::Type>& argTypes,
+::mlir::Type inferSymbolType(std::string const& symbolName,
+                             const std::vector<::mlir::Type>& argTypes,
                              TypeInferenceContext& context);
 
 void updateContext(::mlir::sexpr::SymbolOp* symbolOp, TypeInferenceContext& context);

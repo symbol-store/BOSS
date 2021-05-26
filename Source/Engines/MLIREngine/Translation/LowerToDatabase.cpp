@@ -13,6 +13,7 @@
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
 #include "Engines/MLIREngine/Types/TypeInference.hpp"
+#include "Expression.hpp"
 #include "LowerDatabase.hpp"
 #include "Utilities.hpp"
 #include <iostream>
@@ -24,6 +25,7 @@
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <mutex>
+#include <variant>
 
 namespace {
 using namespace mlir;
@@ -34,13 +36,14 @@ std::mutex printMutex;
 
 struct DatabaseLoweringPass : public PassWrapper<DatabaseLoweringPass, OperationPass<ModuleOp>> {
 
-  DatabaseLoweringPass(new_runtime::Database& database) : database(database){};
+  DatabaseLoweringPass(new_runtime::Database& database, std::unordered_map<std::string, boss::Expression> symbolTable) : database(database), symbolTable(std::move(symbolTable)){};
 
   void getDependentDialects(DialectRegistry& registry) const override {
     registry.insert<LLVM::LLVMDialect>();
   }
   void runOnOperation() final;
 
+  std::unordered_map<std::string, boss::Expression> symbolTable;
   new_runtime::Database& database;
 };
 
@@ -139,15 +142,16 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
 
   ArrayLoaderTypeVisitor(std::shared_ptr<arrow::Array> baseArray, mlir::Value offset,
                          ConversionPatternRewriter& rewriter, mlir::Location loc,
-                         new_runtime::Database& database)
+                         new_runtime::Database& database, std::unordered_map<std::string, boss::Expression> const& symbolTable)
       : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc),
-        database(database) {}
+        database(database), symbolTable(symbolTable) {}
 
   std::shared_ptr<arrow::Array> baseArray;
   mlir::Value offset;
   mlir::ConversionPatternRewriter& rewriter;
   mlir::Location loc;
   new_runtime::Database& database;
+  std::unordered_map<std::string, boss::Expression> const& symbolTable;
 
   // TODO remaining types
   arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
@@ -179,7 +183,7 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
     for(auto i = 1; i < type.num_fields(); i++) {
       auto const& field = type.field(i);
 
-      ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database);
+      ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database, symbolTable);
       auto status = field->type()->Accept(&childVisitor);
       if(!status.ok()) {
         return status;
@@ -197,11 +201,57 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
     result = symbolOp.getResult();
     return arrow::Status::OK();
   }
+
+  arrow::Status Visit(const arrow::DictionaryType& type) override {
+    auto* context = rewriter.getContext();
+    auto dictArray = std::dynamic_pointer_cast<arrow::DictionaryArray>(baseArray);
+    auto symbolArray = std::dynamic_pointer_cast<arrow::StringArray>(dictArray->dictionary());
+    auto symbol = symbolArray->GetString(0);
+
+    auto it = symbolTable.find(symbol);
+    if (it == symbolTable.end()) {
+      return arrow::Status::NotImplemented("Not implemented: Undefined symbol " + symbol);
+    }
+
+    arrow::Status resultStatus;
+    std::visit(boss::utilities::overload(
+                   [&](int a) {
+                     auto intOp = rewriter.create<ConstantIntOp>(loc, a, 32);
+                     result = intOp.getResult();
+                     resultStatus = arrow::Status::OK();
+                   },
+                   [&](float a) {
+                     auto floatOp = rewriter.create<ConstantFloatOp>(loc, APFloat(a), FloatType::getF32(context));
+                     result = floatOp.getResult();
+                     resultStatus = arrow::Status::OK();
+                   },
+                   [&](bool) {
+                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type bool");
+                   },
+                   [&](size_t) {
+                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type size_t");
+                   },
+                   [&](char const*) {
+                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type string");
+                   },
+                   [&](std::string) {
+                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type string");
+                   },
+                   [&](boss::Symbol) {
+                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type symbol");
+                   },
+                   [&](boss::ComplexExpression) {
+                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type complex expression");
+                   }
+                   ), it->second);
+
+    return resultStatus;
+  }
 };
 
 struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationOp> {
-  GetRelationOpLowering(MLIRContext* ctx, new_runtime::Database& database)
-      : OpConversionPattern(ctx), database(database) {}
+  GetRelationOpLowering(MLIRContext* ctx, new_runtime::Database& database, std::unordered_map<std::string, boss::Expression> const& symbolTable)
+      : OpConversionPattern(ctx), database(database), symbolTable(symbolTable) {}
 
   LogicalResult matchAndRewrite(database::GetRelationOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
@@ -226,7 +276,7 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     std::vector<::mlir::Value> loadedValues;
     for(auto const& field : relation->fields()) {
       // Different loading code based on type
-      ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc, database);
+      ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc, database, symbolTable);
       auto status = field->type()->Accept(&visitor);
       if(!status.ok()) {
         throw std::runtime_error(status.message());
@@ -241,6 +291,7 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
   }
 
   new_runtime::Database& database;
+  std::unordered_map<std::string, boss::Expression> const& symbolTable;
 };
 
 struct ProjectionOpLowering : public OpConversionPattern<database::ProjectionOp> {
@@ -333,7 +384,7 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
       auto rightArray = structArray->field(rightFieldPosition);
 
       ArrayLoaderTypeVisitor visitor(rightArray, hashTableResult.getResult(), rewriter, op.getLoc(),
-                                     database);
+                                     database, {});
       rightArray->type()->Accept(&visitor);
       auto rightValue = visitor.result;
 
@@ -367,7 +418,7 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
     // Load right values
     for(auto const& field : structArray->fields()) {
       ArrayLoaderTypeVisitor visitor(field, hashTableResult.getResult(), rewriter, op.getLoc(),
-                                     database);
+                                     database, {});
       field->type()->Accept(&visitor);
       loadedTupleValues.emplace_back(visitor.result);
     }
@@ -634,9 +685,10 @@ void DatabaseLoweringPass::runOnOperation() {
     return true;
   });
 
-  patterns.insert<GetRelationOpLowering, LookupJoinOpLowering>(&getContext(), database);
+  patterns.insert<LookupJoinOpLowering>(&getContext(), database);
   patterns.insert<ProjectionOpLowering, SelectionOpLowering, BuildJoinOpLowering, GroupByOpLowering>(&getContext());
   patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
+  patterns.insert<GetRelationOpLowering>(&getContext(), database, symbolTable);
 
   // Transitively lower symbol operations
   populateSymbolToStdPatterns(patterns, typeConverter, &getContext());
@@ -651,6 +703,6 @@ void DatabaseLoweringPass::runOnOperation() {
 // namespace
 } // namespace
 
-std::unique_ptr<mlir::Pass> createLowerToDatabasePass(new_runtime::Database& database) {
-  return std::make_unique<DatabaseLoweringPass>(database);
+std::unique_ptr<mlir::Pass> createLowerToDatabasePass(new_runtime::Database& database, std::unordered_map<std::string, boss::Expression> symbolTable) {
+  return std::make_unique<DatabaseLoweringPass>(database, symbolTable);
 }

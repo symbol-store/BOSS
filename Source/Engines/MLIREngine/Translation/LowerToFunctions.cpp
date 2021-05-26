@@ -250,8 +250,6 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
 
   // Erase the combine that we flattened
   rootCombine.erase();
-
-  getOperation().dump();
 }
 
 }; // namespace

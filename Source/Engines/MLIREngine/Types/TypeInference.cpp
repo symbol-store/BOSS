@@ -191,8 +191,14 @@ static const auto inferGetRelationType = [](std::vector<::mlir::Type> const& /*a
     auto structType = std::dynamic_pointer_cast<arrow::StructType>(field->type());
     for(auto const& columnWithType : structType->fields()) {
       // TODO: take into account what type an expression evaluates to
-      fieldsAndTypes[columnWithType->name()] =
-          conversion::arrowTypeToMLIRType(symbol.getContext(), columnWithType->type().get());
+      if (context.symbolTable.find(columnWithType->name()) != context.symbolTable.end()) {
+        // Check if its in the symbol table
+        fieldsAndTypes[columnWithType->name()] = context.symbolTable[columnWithType->name()];
+      } else {
+        // Else just convert the arrow type
+        fieldsAndTypes[columnWithType->name()] =
+            conversion::arrowTypeToMLIRType(symbol.getContext(), columnWithType->type().get());
+      }
     }
     streamTypes.emplace_back(TupleStreamType::get(symbol.getContext(), fieldsAndTypes));
     // Ensures column names are in type context
@@ -310,7 +316,6 @@ static const auto inferWhereClauseType = [](std::vector<::mlir::Type> const& arg
     }
 
     // Set function type
-    const_cast<::mlir::Type*>(&arguments[0])->dump();
     auto returnBase = arguments[0]
                           .dyn_cast<SymbolOrValueType>()
                           .getBaseType()
@@ -519,7 +524,6 @@ int numUnionStreamArgs(std::vector<::mlir::Type> const& arguments) {
     if(!argument.isa<SymbolOrValueType>()) {
       continue;
     }
-    const_cast<::mlir::Type*>(&argument)->dump();
     auto base = argument.dyn_cast<SymbolOrValueType>().getBaseTypeChecked();
 
     if(!base.hasValue()) {
@@ -536,7 +540,6 @@ int numUnionStreamArgs(std::vector<::mlir::Type> const& arguments) {
 bool hasSymbolicArguments(std::vector<::mlir::Type> const& arguments) {
   // TODO propagate generictuplestream properly
   for(auto& argument : arguments) {
-    const_cast<::mlir::Type*>(&argument)->dump();
     if(isSymbolic(argument)) {
       return true;
     }

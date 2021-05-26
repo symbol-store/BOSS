@@ -12,6 +12,7 @@ public:
 
 private:
   new_runtime::Database* database;
+  std::unordered_map<std::string, boss::Expression> symbolTable;
 
   std::vector<boss::Expression> evaluateArguments(boss::ComplexExpression const& expression);
 

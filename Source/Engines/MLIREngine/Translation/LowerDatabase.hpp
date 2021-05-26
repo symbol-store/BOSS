@@ -3,4 +3,4 @@
 #include <memory>
 #include <mlir/Pass/Pass.h>
 
-std::unique_ptr<mlir::Pass> createLowerToDatabasePass(new_runtime::Database& database);
+std::unique_ptr<mlir::Pass> createLowerToDatabasePass(new_runtime::Database& database, std::unordered_map<std::string, boss::Expression> symbolTable);
