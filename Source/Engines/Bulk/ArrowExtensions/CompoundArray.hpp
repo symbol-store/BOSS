@@ -1,6 +1,6 @@
 #pragma once
 
-#include "BatchData.hpp"
+#include "../BatchData.hpp"
 #include "ComplexExpressionArray.hpp"
 #include "ExpressionArray.hpp"
 

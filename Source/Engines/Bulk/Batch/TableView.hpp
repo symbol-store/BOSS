@@ -1,11 +1,10 @@
 #pragma once
 
-#include "SymbolRegistry.hpp"
-
-#include "../Bulk.hpp"
-#include "Batch/Batch.hpp"
-#include "Batch/CompoundBatch.hpp"
-#include "Batch/ValueBatch.hpp"
+#include "../../Bulk.hpp"
+#include "../SymbolRegistry.hpp"
+#include "Batch.hpp"
+#include "CompoundBatch.hpp"
+#include "ValueBatch.hpp"
 
 #include <string>
 #include <vector>
