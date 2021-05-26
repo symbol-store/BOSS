@@ -81,7 +81,7 @@ void mlir::sexpr::StringConstantOp::inferType(TypeInferenceContext* context) {
 }
 
 void mlir::sexpr::CombineOp::inferType(TypeInferenceContext* context) {
-  auto head = getRegion().front().back().getOperand(0).getDefiningOp<SymbolOp>();
+  auto head = getHead();
   head.inferType(context);
   mlir::dyn_cast<TypeInference>(getRegion().front().getTerminator()).inferType(context);
 }

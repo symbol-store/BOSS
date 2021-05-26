@@ -16,7 +16,8 @@ namespace {
 using namespace mlir;
 using namespace boss::mlir::types;
 
-Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function);
+Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function,
+                            int unionIndex);
 
 bool hasAttribute(std::string const& name, sexpr::SymbolOp op) {
   for (auto const& attr : op.getAttrs()) {
@@ -42,10 +43,10 @@ llvm::Optional<Value> replaceSymbol(Operation* op, FuncOp function) {
   return argument;
 }
 
-Value flattenCallsStandard(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function) {
+Value flattenCallsStandard(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function, int unionIndex) {
   // Recursively flatten al child combineOps
   for(auto combineOp : c.getRegion().getOps<sexpr::CombineOp>()) {
-    auto val = flattenCallsRecursive(combineOp, builder, function);
+    auto val = flattenCallsRecursive(combineOp, builder, function, -1);
     combineOp.replaceAllUsesWith(val);
   }
 
@@ -57,6 +58,21 @@ Value flattenCallsStandard(sexpr::CombineOp& c, OpBuilder& builder, FuncOp funct
 
   // Clone all the operations into the function body
   for(auto& op : c.getRegion().getBlocks().front().without_terminator()) {
+    // Select the correct type in a union tuple stream for this function
+    auto resultType = op.getResult(0).getType().dyn_cast<SymbolOrValueType>().getBaseTypeChecked();
+    if(resultType.hasValue() && resultType->isa<GenericTupleStreamUnionType>()) {
+      auto childType = resultType->dyn_cast<GenericTupleStreamUnionType>().getChildren()[unionIndex];
+      ::mlir::Type replaceType;
+
+      if (childType.isa<SymbolOrValueType>()) {
+        replaceType = childType;
+      } else {
+        replaceType = SymbolOrValueType::get(childType.getContext(), sexprtype::SymbolOrValue::VALUE, childType);
+      }
+
+      op.getResult(0).setType(replaceType);
+    }
+
     // Check whether the op is a symbol, if it is, replace with argument
     auto maybeNewValue = replaceSymbol(&op, function);
     if (maybeNewValue.hasValue()) {
@@ -89,6 +105,7 @@ Value flattenCallsWhereSymbol(sexpr::CombineOp& c, OpBuilder& builder, FuncOp fu
   }
 
   std::vector<::mlir::Attribute> functionNames;
+  auto i = 0;
   for (auto const& childType : type.getChildren()) {
     auto savedInsertionPoint = builder.saveInsertionPoint();
     builder.setInsertionPointToStart(function.getParentOfType<ModuleOp>().getBody());
@@ -104,7 +121,7 @@ Value flattenCallsWhereSymbol(sexpr::CombineOp& c, OpBuilder& builder, FuncOp fu
     for (auto combineOp : c.getRegion().getOps<sexpr::CombineOp>()) {
       // For each input, lower the function body
       auto combineCopy = combineOp.clone();
-      auto lastVal = flattenCallsRecursive(combineCopy, builder, childFunc);
+      auto lastVal = flattenCallsRecursive(combineCopy, builder, childFunc, i++);
       combineCopy.erase();
       // Create new returnOp
       builder.create<ReturnOp>(c.getLoc(), lastVal);
@@ -131,6 +148,7 @@ Value flattenCallsLambda(sexpr::CombineOp& c, OpBuilder& builder, FuncOp functio
     throw std::runtime_error("Expecting symbol Lambda to return union of functions");
   }
 
+  auto i = 0;
   std::vector<::mlir::Attribute> functionNames;
   for (auto const& childType : type.getChildren()) {
     auto savedInsertionPoint = builder.saveInsertionPoint();
@@ -148,7 +166,7 @@ Value flattenCallsLambda(sexpr::CombineOp& c, OpBuilder& builder, FuncOp functio
 
     // For each input, lower the function body
     auto combineCopy = secondArg.clone();
-    auto lastVal = flattenCallsRecursive(combineCopy, builder, childFunc);
+    auto lastVal = flattenCallsRecursive(combineCopy, builder, childFunc, i++);
     combineCopy.erase();
     // Create new returnOp
     builder.create<ReturnOp>(c.getLoc(), lastVal);
@@ -163,7 +181,8 @@ Value flattenCallsLambda(sexpr::CombineOp& c, OpBuilder& builder, FuncOp functio
   return newUnionStream.getResult();
 }
 
-Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function) {
+Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function,
+                            int unionIndex) {
   auto symbol = c.getHead();
   auto const& name = symbol.name().str();
   if (name == "Lambda") {
@@ -173,7 +192,7 @@ Value flattenCallsRecursive(sexpr::CombineOp& c, OpBuilder& builder, FuncOp func
     return flattenCallsWhereSymbol(c, builder, function);
   }
 
-  return flattenCallsStandard(c, builder, function);
+  return flattenCallsStandard(c, builder, function, unionIndex);
 }
 
 struct SexprToFunctionsLoweringPass
@@ -224,7 +243,7 @@ void SexprToFunctionsLoweringPass::runOnOperation() {
   auto* entry = func.addEntryBlock();
   builder.setInsertionPointToStart(entry);
 
-  auto lastVal = flattenCallsRecursive(rootCombine, builder, func);
+  auto lastVal = flattenCallsRecursive(rootCombine, builder, func, -1);
 
   // Create new returnOp
   builder.create<ReturnOp>(rootCombine.getLoc(), lastVal);

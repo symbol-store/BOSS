@@ -141,7 +141,7 @@ TEST_CASE("STORAGE_TEST") {
     auto result = engine.evaluate(
         "CollectTuples"_(
             "Select"_(
-                "Where"_("Eq"_("Symbol"_("A"), 1)),
+                "Where"_("Eq"_("A"_, 1)),
                 "GetRelation"_(std::string("Foo")))
             ));
 
@@ -211,40 +211,43 @@ TEST_CASE("STORAGE_TEST") {
     CHECK(firstVal != secondVal);
   }
 
-//  SECTION("Join") {
-//    new_runtime::Relation leftRelation;
-//    new_runtime::Relation rightRelation;
-//
-//    leftRelation.bulk_load({
-//                               {{"A", 1}},
-//                               {{"A", 2}}
-//    });
-//
-//    rightRelation.bulk_load({
-//                               {{"B", 1}},
-//                               {{"B", 4}}
-//                           });
-//
-//    new_runtime::Database database;
-//
-//    database.addRelation("Left", std::move(leftRelation));
-//    database.addRelation("Right", std::move(rightRelation));
-//
-//    boss::engines::mlir::Engine engine(database);
-//
-//    auto result = engine.evaluate("CollectTuples"_(
-//        "Join"_(
-//            "On"_("Pair"_("A", "B")),
-//            "GetRelation"_("Left"),
-//            "GetRelation"_("Right")
-//            )
+  SECTION("SelectSymbol") {
+    new_runtime::Relation relation;
+
+    relation.bulk_load({
+                           {{"A", 1}, {"B", 5}},
+                           {{"A", "x"_}, {"B", 3}}
+                       });
+
+    new_runtime::Database database;
+
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto resOnlyInts = engine.evaluate(
+        "CollectTuples"_(
+            "Select"_(
+                "Where"_("Eq"_("Symbol"_("A"), 1)),
+                "GetRelation"_(std::string("Foo")))
+        ));
+
+    auto intsPtr = std::get<size_t>(resOnlyInts);
+    auto* onlyIntsRel = reinterpret_cast<new_runtime::Relation*>(intsPtr);
+
+    std::cout << onlyIntsRel->get()->ToString() << std::endl;
+
+
+//    auto resAll = engine.evaluate(
+//        "CollectTuples"_(
+//            "Select"_(
+//                "Where"_("Or"_("Eq"_("Symbol"_("A"), 1)), "IsSymbol"_("A"_)),
+//                "GetRelation"_(std::string("Foo")))
 //        ));
 //
-//    auto pointer = std::get<size_t>(result);
-//    auto* resultRelation = reinterpret_cast<new_runtime::Relation*>(pointer);
+//    auto allPtr = std::get<size_t>(resOnlyInts);
+//    auto* resultRelation = reinterpret_cast<new_runtime::Relation*>(allPtr);
 //
-//    std::cout << resultRelation->get()->ToString();
-//
-//  }
+//    std::cout << resultRelation->get()->ToString() << std::endl;
+  }
 
 }

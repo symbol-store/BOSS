@@ -43,6 +43,11 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
     return arrow::Status::OK();
   }
 
+  arrow::Status Visit(const arrow::DictionaryType& type) override {
+    resultType = SymbolOrValueType::get(context, sexprtype::SymbolOrValue::SYMBOL, {});
+    return arrow::Status::OK();
+  }
+
   // We have an expression struct, infer the return type
   arrow::Status Visit(const arrow::StructType& type) override {
     auto operationName = type.field(0)->name();

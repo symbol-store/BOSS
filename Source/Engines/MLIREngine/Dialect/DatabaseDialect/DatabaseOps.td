@@ -17,7 +17,7 @@ def TupleStreamType : Type<CPred<"$_self.isa<TupleStreamType>()">,
 
 def GenericTupleStreamUnionType : Type<CPred<"$_self.isa<GenericTupleStreamUnionType>()">, "GenericTupleStreamUnionType">;
 
-def GetRelationOp : Database_Op<"getRelation", []> {
+def GetRelationOp : Database_Op<"getRelation", [NoSideEffect]> {
   let arguments = (ins
       StrAttr:$relationName,
       I32Attr:$unionChildIndex
@@ -65,7 +65,7 @@ def BuildJoinTableOp : Database_Op<"buildJoinTable", []> {
   ];
 }
 
-def LookupJoinOp : Database_Op<"lookupJoin", []> {
+def LookupJoinOp : Database_Op<"lookupJoin", [NoSideEffect]> {
   let arguments = (ins
     TupleStreamType:$inputStream,
     I64Attr:$table,
@@ -90,7 +90,7 @@ def LookupJoinOp : Database_Op<"lookupJoin", []> {
   ];
 }
 
-def HashValuesOp : Database_Op<"hashValues", []> {
+def HashValuesOp : Database_Op<"hashValues", [NoSideEffect]> {
   let arguments = (ins
     Variadic<AnyType>:$inputs
   );
@@ -109,7 +109,7 @@ def InsertIntoHashTableOp : Database_Op<"insertHashtableOp", []> {
   );
 }
 
-def FindInHashTableOp : Database_Op<"findInHashtableOp", []> {
+def FindInHashTableOp : Database_Op<"findInHashtableOp", [NoSideEffect]> {
   let arguments = (ins
     Index:$hash,
     I64Attr:$tablePtr
@@ -122,7 +122,7 @@ def FindInHashTableOp : Database_Op<"findInHashtableOp", []> {
 
 }
 
-def ProjectionOp : Database_Op<"projectionOp", []> {
+def ProjectionOp : Database_Op<"projectionOp", [NoSideEffect]> {
   let arguments = (ins
     TupleStreamType:$inputStream
   );
@@ -132,7 +132,7 @@ def ProjectionOp : Database_Op<"projectionOp", []> {
   );
 }
 
-def SelectionOp : Database_Op<"selectionOp", []> {
+def SelectionOp : Database_Op<"selectionOp", [NoSideEffect]> {
   let arguments = (ins
     TupleStreamType:$inputStream,
     StrArrayAttr:$fields,
@@ -153,7 +153,7 @@ def SelectionOp : Database_Op<"selectionOp", []> {
   ];
 }
 
-def GroupByOp : Database_Op<"groupbyOp", []> {
+def GroupByOp : Database_Op<"groupbyOp", [NoSideEffect]> {
   let arguments = (ins
     Variadic<TupleStreamType>:$inputStreams,
     StrArrayAttr:$groupingFields,
@@ -174,7 +174,7 @@ def GroupByInsert : Database_Op<"groupbyInsert", []> {
   );
 }
 
-def GroupByGet : Database_Op<"groupbyLookup", []> {
+def GroupByGet : Database_Op<"groupbyLookup", [NoSideEffect]> {
   let arguments = (ins
     Index:$hash,
     IndexAttr:$hashAggregatePointer

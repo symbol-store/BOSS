@@ -195,6 +195,11 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
   template <CmpIPredicate cmpPred>
   LogicalResult replaceBooleanCompareOp(sexpr::SymbolOp s, ArrayRef<Value> operands,
                                         ConversionPatternRewriter& rewriter) const {
+
+    if (s.getResult().getType().dyn_cast<SymbolOrValueType>().isSymbolic() == sexprtype::SymbolOrValue::SYMBOL) {
+      return replaceOpWithSymbol(s, rewriter);
+    }
+
     // TODO make it work for strings
     auto cmpOp = rewriter.create<mlir::CmpIOp>(s.getLoc(), cmpPred, operands[0], operands[1]);
     rewriter.replaceOp(s.getOperation(), cmpOp.result());
@@ -290,6 +295,7 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
          }},
         {"Select",
          [&]() {
+           auto module = s.getParentOfType<ModuleOp>();
            auto tupleStreamUnion = converter.convertType(operands[1].getType())
                                        .dyn_cast_or_null<TupleStreamUnionType>();
 
@@ -302,18 +308,28 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
            }
 
            std::vector<mlir::Value> tupleStreamValues;
+           std::vector<TupleStreamType> unionChildTypes;
            for(auto i = 0UL; i < tupleStreamUnion.getNumChildStreams(); i++) {
              auto tupleStreamTy = tupleStreamUnion.getTupleStreams()[i];
              auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
                  s.getLoc(), tupleStreamTy, operands[1], i);
 
+             auto func = ::mlir::dyn_cast<FuncOp>(module.lookupSymbol(filterFunctions[i].dyn_cast<StringAttr>().getValue()));
+             if (func.getType().getResult(0).isa<SymbolOrValueType>() && func.getType().getResult(0).dyn_cast<SymbolOrValueType>().isSymbolic() == sexprtype::SymbolOrValue::SYMBOL) {
+               // TODO conditional tuple, or something else?
+               continue;
+             }
+
              auto selectionOp = rewriter.create<database::SelectionOp>(
                  s.getLoc(), extractionOp.getResult(),
                  filterFunctions[i].dyn_cast_or_null<StringAttr>(), fields);
              tupleStreamValues.emplace_back(selectionOp.getResult());
+             unionChildTypes.emplace_back(tupleStreamTy);
            }
 
-           rewriter.replaceOpWithNewOp<database::CreateUnionTupleStream>(s, tupleStreamUnion,
+           auto newTupleStreamUnion = TupleStreamUnionType::get(s.getContext(), unionChildTypes);
+
+           rewriter.replaceOpWithNewOp<database::CreateUnionTupleStream>(s, newTupleStreamUnion,
                                                                          tupleStreamValues);
 
            return success();
@@ -512,12 +528,14 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
     }
 
     // Function is not defined here
-    auto funcName = rewriter.create<sexpr::StringConstantOp>(s.getLoc(), std::string{symbolName});
+    return replaceOpWithSymbol(s, rewriter);
+  }
+
+  LogicalResult replaceOpWithSymbol(sexpr::SymbolOp op, ConversionPatternRewriter& rewriter) const {
+    auto funcName = rewriter.create<sexpr::StringConstantOp>(op.getLoc(), op.name().str());
     auto allocOp = rewriter.create<memory::AllocateSymbolicFunctionOp, Value, ValueRange>(
-        s.getLoc(), funcName.getResult(), s.getOperands());
-
-    rewriter.replaceOp(s.getOperation(), allocOp.getResult());
-
+        op.getLoc(), funcName.getResult(), op.getOperands());
+    rewriter.replaceOp(op.getOperation(), allocOp.getResult());
     return success();
   }
 
