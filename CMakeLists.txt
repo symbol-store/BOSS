@@ -46,7 +46,7 @@ ExternalProject_Add(googlebenchmark
   )
 
 ExternalProject_Add(catch2
-	URL https://github.com/catchorg/Catch2/archive/v2.9.2.tar.gz
+	URL https://github.com/catchorg/Catch2/archive/v2.13.6.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCATCH_BUILD_TESTING=NO -DBUILD_TESTING=NO -DCATCH_ENABLE_WERROR=NO -DCATCH_INSTALL_DOCS=NO -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DDCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS}
   )

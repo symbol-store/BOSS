@@ -18,22 +18,51 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
   using type = std::variant<Args0..., Args1...>;
 };
 
-using AtomicExpression = std::variant<bool, int, float, std::string, Symbol>;
-class ComplexExpression;
-using Expression = variant_amend<AtomicExpression, ComplexExpression>::type;
-using ExpressionArguments = std::vector<Expression>;
+template <typename... AdditionalCustomAtoms>
+using AtomicExpressionWithAdditionalCustomAtoms =
+    std::variant<bool, int, float, std::string, Symbol, AdditionalCustomAtoms...>;
+template <typename... AdditionalCustomAtoms> class ComplexExpressionWithAdditionalCustomAtoms;
+template <typename... AdditionalCustomAtoms>
+using ExpressionWithAdditionalCustomAtoms = typename variant_amend<
+    AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
+    ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type;
+template <typename... AdditionalCustomAtoms>
+using ExpressionArgumentsWithAdditionalCustomAtoms =
+    std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>;
 
-class ComplexExpression {
+template <typename... AdditionalCustomAtoms> class ComplexExpressionWithAdditionalCustomAtoms {
 private:
   Symbol head;
-  ExpressionArguments arguments;
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments;
 
 public:
-  explicit ComplexExpression(Symbol const& head, ExpressionArguments const& arguments)
+  explicit ComplexExpressionWithAdditionalCustomAtoms(
+      Symbol const& head,
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& arguments)
       : head(head), arguments(arguments){};
-  ExpressionArguments const& getArguments() const { return arguments; };
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const&
+  getArguments() const {
+    return arguments;
+  };
   Symbol const& getHead() const { return head; };
 };
+
+template <typename... AdditionalCustomAtoms> class ExtensibleExpressionSystem {
+public:
+  using AtomicExpression = AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+  using ComplexExpression = ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+  using Expression = ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+  using ExpressionArguments =
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+};
+
+using DefaultExpressionSystem = ExtensibleExpressionSystem<>;
+
+using AtomicExpression = DefaultExpressionSystem::ComplexExpression;
+using ComplexExpression = DefaultExpressionSystem::ComplexExpression;
+using Expression = DefaultExpressionSystem::Expression;
+using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
+
 } // namespace boss
 bool operator==(boss::Expression const& r1, boss::Expression const& r2);
 static bool operator!=(boss::Expression const& r1, boss::Expression const& r2) {
