@@ -622,6 +622,39 @@ struct AdvanceBuilderOpLowering : public OpConversionPattern<database::AdvanceBu
   }
 };
 
+struct LoadArrayIndirectOpLowering : public OpConversionPattern<database::LoadArrayIndirectOp> {
+  LoadArrayIndirectOpLowering(MLIRContext* context, LLVMTypeConverter& converter): OpConversionPattern(context), converter(converter) {}
+
+  LogicalResult matchAndRewrite(database::LoadArrayIndirectOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto parentModule = op.getParentOfType<ModuleOp>();
+
+    auto resultType = converter.convertType(op.getType()).dyn_cast<LLVM::LLVMType>();
+
+    auto indexType = LLVM::LLVMIntegerType::get(op.getContext(), 64);
+    auto funcType =
+        LLVM::LLVMFunctionType::get(resultType, {indexType, indexType, indexType, indexType});
+
+    // TODO different func depending on type
+    auto loadFunction = getOrInsertFunction("loadIndirect_Int", funcType, rewriter, parentModule);
+
+    auto databasePtr =
+        rewriter.create<ConstantIndexOp>(op.getLoc(), op.databasePtr().getLimitedValue());
+    auto colIndex =
+        rewriter.create<ConstantIndexOp>(op.getLoc(), op.columnIndex().getLimitedValue());
+
+    auto callOp = rewriter.create<CallOp>(
+        op.getLoc(), loadFunction, funcType.getReturnType(),
+        ValueRange{databasePtr.getResult(), colIndex.getResult(), op.typeId(), op.valueOffset()});
+
+    rewriter.replaceOp(op, callOp.getResult(0));
+
+    return success();
+  }
+
+  LLVMTypeConverter& converter;
+};
+
 void SexprToLLVMLoweringPass::runOnOperation() {
   LLVMConversionTarget target(getContext());
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
@@ -675,7 +708,7 @@ void SexprToLLVMLoweringPass::runOnOperation() {
 
   patterns
       .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering,
-              LoadConstantAddressOpLowering, GroupByGetLowering>(&getContext(), typeConverter);
+              LoadConstantAddressOpLowering, GroupByGetLowering, LoadArrayIndirectOpLowering>(&getContext(), typeConverter);
 
   patterns.insert<FinalizeBuilderOpLowering, AppendToRelationOpLowering, AdvanceBuilderOpLowering,
                   HashValuesOpLowering, InsertHashtableOpLowering, HashFindOpLowering,

@@ -307,6 +307,32 @@ def FinalizeBuilderOp : Database_Op<"finalizeBuilderOp"> {
   ];
 }
 
+def NextValueOp : Database_Op<"nextValue"> {
+  let arguments = (ins
+    StrAttr:$relationName,
+    StrAttr:$fieldName,
+    Index:$count,
+    Index:$offset
+  );
+
+  let results = (outs
+    AnyType:$value
+  );
+}
+
+def LoadArrayIndirectOp : Database_Op<"loadArrayIndirect"> {
+  let arguments = (ins
+    IndexAttr:$databasePtr,
+    IndexAttr:$columnIndex,
+    Index:$typeId,
+    Index:$valueOffset
+  );
+
+  let results = (outs
+    AnyType:$value
+  );
+}
+
 def AdvanceBuilderOp : Database_Op<"advanceBuilder"> {
   let arguments = (ins
     I64Attr:$structBuilderPtr,

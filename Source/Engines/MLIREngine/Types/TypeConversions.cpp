@@ -33,6 +33,10 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
     resultType = ::mlir::IntegerType::get(32, context);
     return arrow::Status::OK();
   }
+  arrow::Status Visit(const arrow::Int64Type& type) override {
+    resultType = ::mlir::IndexType::get(context);
+    return arrow::Status::OK();
+  }
   arrow::Status Visit(const arrow::StringType& type) override {
     resultType = StringType::get(context, -1);
     return arrow::Status::OK();
@@ -52,6 +56,12 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
   arrow::Status Visit(const arrow::StructType& type) override {
     auto operationName = type.field(0)->name();
     std::vector<::mlir::Type> argumentTypes;
+
+    if (operationName == "Symbol") {
+      // This expression represents a symbol with no arguments
+      resultType = SymbolOrValueType::get(context, sexprtype::SymbolOrValue::SYMBOL, {});
+      return arrow::Status::OK();
+    }
 
     std::cout << type << std::endl;
 

@@ -456,6 +456,12 @@ static const auto inferBooleanType = [](std::vector<::mlir::Type> const& argumen
   return ::mlir::IntegerType::get(1, context.mlirContext);
 };
 
+static const auto inferNextValueType = [](std::vector<::mlir::Type> const& arguments,
+                                          TypeInferenceContext& context) -> ::mlir::Type {
+  // TODO DANGEROUS HARDCODED VALUE
+  return ::mlir::IntegerType::get(32, context.mlirContext);
+};
+
 const std::map<std::string,
                std::function<::mlir::Type(std::vector<::mlir::Type> const&, TypeInferenceContext&)>>
     operatorToType{{"Plus", inferArithmeticType},
@@ -474,6 +480,7 @@ const std::map<std::string,
                    {"Lambda", inferLambdaType},
                    {"GetRelation", inferGetRelationType},
                    {"CollectTuples", inferCollectTuplesType},
+                   {"NextValue", inferNextValueType},
                    {"Join", inferJoinType},
                    {"GroupBy", inferGroupbyType}};
 

@@ -16,10 +16,13 @@ class Relation;
 
 class RelationBuilder {
   using Fields = std::map<std::string, boss::mlir::types::RuntimeTypes>;
-public:
-  RelationBuilder(): builder(std::make_shared<arrow::DenseUnionBuilder>(arrow::default_memory_pool())) {}
 
-  std::shared_ptr<arrow::ArrayBuilder> getOrCreateColumnBuilder(std::string fieldName, Fields const& fields);
+public:
+  RelationBuilder()
+      : builder(std::make_shared<arrow::DenseUnionBuilder>(arrow::default_memory_pool())) {}
+
+  std::shared_ptr<arrow::ArrayBuilder> getOrCreateColumnBuilder(std::string fieldName,
+                                                                Fields const& fields);
 
   std::shared_ptr<arrow::ArrayBuilder> getOrCreateTypedStructBuilder(Fields const& fields);
   int8_t getOrCreateTypedStructBuilderIndex(Fields const& fields);
@@ -29,12 +32,13 @@ public:
   std::shared_ptr<arrow::DenseUnionBuilder> rawBuilder() { return builder; };
 
 private:
-
   static std::shared_ptr<arrow::ArrayBuilder> builderForType(boss::mlir::types::RuntimeTypes type);
 
-  // TODO create a dense union builder, then create a method that selects the correct child builder given the fields and field name
+  // TODO create a dense union builder, then create a method that selects the correct child builder
+  // given the fields and field name
 
-  // The builder for expression will need to be done dynamically at runtime because we don't know the full expression type
+  // The builder for expression will need to be done dynamically at runtime because we don't know
+  // the full expression type
 
   std::shared_ptr<arrow::DenseUnionBuilder> builder;
 
@@ -43,14 +47,11 @@ private:
   std::map<Fields, uint8_t> fieldsToBuilder;
 };
 
-
 class Relation {
 public:
-  Relation(): relation(nullptr) {}
+  Relation() : relation(nullptr) {}
 
-  explicit Relation(std::shared_ptr<arrow::DenseUnionArray> array) {
-    relation = std::move(array);
-  }
+  explicit Relation(std::shared_ptr<arrow::DenseUnionArray> array) { relation = std::move(array); }
 
   void bulk_load(std::vector<std::map<std::string, boss::Expression>> const& tuples);
 

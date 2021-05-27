@@ -36,15 +36,17 @@ std::mutex printMutex;
 
 struct DatabaseLoweringPass : public PassWrapper<DatabaseLoweringPass, OperationPass<ModuleOp>> {
 
-  DatabaseLoweringPass(new_runtime::Database& database, std::unordered_map<std::string, boss::Expression> symbolTable) : database(database), symbolTable(std::move(symbolTable)){};
+  DatabaseLoweringPass(new_runtime::Database& database,
+                       std::unordered_map<std::string, boss::Expression> symbolTable)
+      : database(database), symbolTable(std::move(symbolTable)){};
 
   void getDependentDialects(DialectRegistry& registry) const override {
     registry.insert<LLVM::LLVMDialect>();
   }
   void runOnOperation() final;
 
-  std::unordered_map<std::string, boss::Expression> symbolTable;
   new_runtime::Database& database;
+  std::unordered_map<std::string, boss::Expression> symbolTable;
 };
 
 struct FuncOpSignatureConversion : public OpConversionPattern<mlir::FuncOp> {
@@ -142,7 +144,8 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
 
   ArrayLoaderTypeVisitor(std::shared_ptr<arrow::Array> baseArray, mlir::Value offset,
                          ConversionPatternRewriter& rewriter, mlir::Location loc,
-                         new_runtime::Database& database, std::unordered_map<std::string, boss::Expression> const& symbolTable)
+                         new_runtime::Database& database,
+                         std::unordered_map<std::string, boss::Expression> const& symbolTable)
       : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc),
         database(database), symbolTable(symbolTable) {}
 
@@ -162,6 +165,14 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
     return arrow::Status::OK();
   }
 
+  arrow::Status Visit(const arrow::Int64Type& /*type*/) override {
+    auto integerArray = std::dynamic_pointer_cast<arrow::Int64Array>(baseArray);
+    auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
+        loc, reinterpret_cast<size_t>(integerArray->raw_values()), rewriter.getIndexType(), offset);
+    result = loadOp.getResult();
+    return arrow::Status::OK();
+  }
+
   arrow::Status Visit(const arrow::FloatType& /*type*/) override {
     auto typedArray = std::dynamic_pointer_cast<arrow::FloatArray>(baseArray);
     auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
@@ -172,18 +183,22 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
 
   // Visit complex expression
   arrow::Status Visit(const arrow::StructType& type) override {
-    auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
+    auto symbolName = type.field(0)->name();
 
-    auto nameArray = std::dynamic_pointer_cast<arrow::DictionaryArray>(structArray->field(0));
-    auto symbolName =
-        std::dynamic_pointer_cast<arrow::StringArray>(nameArray->dictionary())->GetString(0);
+    if(symbolName == "Symbol") {
+      // This complex expression is just a single symbol
+      return handleSymbol();
+    }
+
+    auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
 
     std::vector<Value> childResults;
     std::vector<::mlir::Type> operandTypes;
     for(auto i = 1; i < type.num_fields(); i++) {
       auto const& field = type.field(i);
 
-      ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database, symbolTable);
+      ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database,
+                                          symbolTable);
       auto status = field->type()->Accept(&childVisitor);
       if(!status.ok()) {
         return status;
@@ -196,20 +211,23 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
     TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
     auto newType = boss::mlir::inference::inferSymbolType(symbolName, operandTypes, typeContext);
 
-    auto symbolOp = rewriter.create<sexpr::SymbolOp>(loc, newType, StringAttr::get(symbolName, rewriter.getContext()), childResults);
+    auto symbolOp = rewriter.create<sexpr::SymbolOp>(
+        loc, newType, StringAttr::get(symbolName, rewriter.getContext()), childResults);
 
     result = symbolOp.getResult();
     return arrow::Status::OK();
   }
 
-  arrow::Status Visit(const arrow::DictionaryType& type) override {
+  arrow::Status handleSymbol() {
     auto* context = rewriter.getContext();
-    auto dictArray = std::dynamic_pointer_cast<arrow::DictionaryArray>(baseArray);
+    auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
+
+    auto dictArray = std::dynamic_pointer_cast<arrow::DictionaryArray>(structArray->field(0));
     auto symbolArray = std::dynamic_pointer_cast<arrow::StringArray>(dictArray->dictionary());
     auto symbol = symbolArray->GetString(0);
 
     auto it = symbolTable.find(symbol);
-    if (it == symbolTable.end()) {
+    if(it == symbolTable.end()) {
       return arrow::Status::NotImplemented("Not implemented: Undefined symbol " + symbol);
     }
 
@@ -221,7 +239,8 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
                      resultStatus = arrow::Status::OK();
                    },
                    [&](float a) {
-                     auto floatOp = rewriter.create<ConstantFloatOp>(loc, APFloat(a), FloatType::getF32(context));
+                     auto floatOp = rewriter.create<ConstantFloatOp>(loc, APFloat(a),
+                                                                     FloatType::getF32(context));
                      result = floatOp.getResult();
                      resultStatus = arrow::Status::OK();
                    },
@@ -241,16 +260,72 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
                      resultStatus = arrow::Status::NotImplemented("Not implemented: Type symbol");
                    },
                    [&](boss::ComplexExpression) {
-                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type complex expression");
-                   }
-                   ), it->second);
+                     resultStatus =
+                         arrow::Status::NotImplemented("Not implemented: Type complex expression");
+                   }),
+               it->second);
 
     return resultStatus;
   }
 };
 
+struct NextValueOpLowering : public OpConversionPattern<database::NextValueOp> {
+  NextValueOpLowering(MLIRContext* ctx, new_runtime::Database& database)
+      : OpConversionPattern(ctx), database(database) {}
+
+  LogicalResult matchAndRewrite(database::NextValueOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto const& relationName = op.relationName().str();
+    auto relation = database.getRelation(relationName);
+    auto* rawTypeCodes = relation.get()->raw_type_codes();
+    auto* rawValueOffsets = relation.get()->raw_value_offsets();
+
+    // The actual offset to load in the database
+    auto offsetIndex =
+        rewriter.create<mlir::IndexCastOp>(op.getLoc(), operands[0], rewriter.getIndexType());
+    auto nextValueIndex =
+        rewriter.create<mlir::AddIOp>(op.getLoc(), offsetIndex.getResult(), operands[1]);
+
+    // Load the type id and the offset into the child array where the actual data is stored
+    auto typeId = rewriter.create<memory::LoadConstantAddressOp>(
+        op.getLoc(), reinterpret_cast<size_t>(rawTypeCodes),
+        IntegerType::get(8, rewriter.getContext()), nextValueIndex.getResult());
+    auto valueOffset = rewriter.create<memory::LoadConstantAddressOp>(
+        op.getLoc(), reinterpret_cast<size_t>(rawValueOffsets),
+        IntegerType::get(32, rewriter.getContext()), nextValueIndex.getResult());
+
+    auto typeIdIndex =
+        rewriter.create<mlir::IndexCastOp>(op.getLoc(), typeId.getResult(), rewriter.getIndexType());
+    auto valueOffsetIndex =
+        rewriter.create<mlir::IndexCastOp>(op.getLoc(), valueOffset.getResult(), rewriter.getIndexType());
+
+    auto columnId = 0;
+    auto relationFields = std::dynamic_pointer_cast<arrow::StructArray>(relation.get()->field(0))
+                              ->struct_type()
+                              ->fields();
+    for(auto it = relationFields.begin(); it != relationFields.end(); it++) {
+      if(it->get()->name() == op.fieldName().str()) {
+        columnId = std::distance(relationFields.begin(), it);
+      }
+    }
+
+    auto relationAttr = rewriter.getIndexAttr(reinterpret_cast<size_t>(relation.get().get()));
+    auto columnIdAttr = rewriter.getIndexAttr(columnId);
+
+    auto loadOp = rewriter.create<database::LoadArrayIndirectOp>(op.getLoc(), op.getType(), relationAttr,
+                                                   columnIdAttr, typeIdIndex.getResult(),
+                                                   valueOffsetIndex.getResult());
+
+    rewriter.replaceOp(op, loadOp.getResult());
+    return success();
+  }
+
+  new_runtime::Database& database;
+};
+
 struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationOp> {
-  GetRelationOpLowering(MLIRContext* ctx, new_runtime::Database& database, std::unordered_map<std::string, boss::Expression> const& symbolTable)
+  GetRelationOpLowering(MLIRContext* ctx, new_runtime::Database& database,
+                        std::unordered_map<std::string, boss::Expression> const& symbolTable)
       : OpConversionPattern(ctx), database(database), symbolTable(symbolTable) {}
 
   LogicalResult matchAndRewrite(database::GetRelationOp op, ArrayRef<Value> operands,
@@ -262,7 +337,7 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
 
     auto unionChildArray =
         database.getRelation(op.relationName().str()).get()->field(op.unionChildIndex());
-    auto relationLength = unionChildArray->length() / unionChildArray->num_fields();
+    auto relationLength = unionChildArray->length();
     auto relation = std::dynamic_pointer_cast<arrow::StructArray>(unionChildArray);
 
     // Create loop
@@ -276,7 +351,8 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     std::vector<::mlir::Value> loadedValues;
     for(auto const& field : relation->fields()) {
       // Different loading code based on type
-      ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc, database, symbolTable);
+      ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc, database,
+                                     symbolTable);
       auto status = field->type()->Accept(&visitor);
       if(!status.ok()) {
         throw std::runtime_error(status.message());
@@ -390,9 +466,11 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
 
       // Compare these values
       TypeInferenceContext typeContext{op.getContext(), &database, {}, nullptr};
-      auto type = boss::mlir::inference::inferSymbolType("Eq", {leftValue.getType(), rightValue.getType()}, typeContext);
-      auto compareOp =
-          rewriter.create<sexpr::SymbolOp>(op.getLoc(), type, StringAttr::get("Eq", op.getContext()), ValueRange{leftValue, rightValue});
+      auto type = boss::mlir::inference::inferSymbolType(
+          "Eq", {leftValue.getType(), rightValue.getType()}, typeContext);
+      auto compareOp = rewriter.create<sexpr::SymbolOp>(op.getLoc(), type,
+                                                        StringAttr::get("Eq", op.getContext()),
+                                                        ValueRange{leftValue, rightValue});
       comparisonResults.emplace_back(compareOp.getResult());
       comparisonTypes.emplace_back(compareOp.getResult().getType());
     }
@@ -400,7 +478,8 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
     TypeInferenceContext typeContext{op.getContext(), &database, {}, nullptr};
     auto type = boss::mlir::inference::inferSymbolType("And", comparisonTypes, typeContext);
 
-    auto wasMatchOp = rewriter.create<sexpr::SymbolOp>(op.getLoc(), type, StringAttr::get("And", op.getContext()), comparisonResults);
+    auto wasMatchOp = rewriter.create<sexpr::SymbolOp>(
+        op.getLoc(), type, StringAttr::get("And", op.getContext()), comparisonResults);
 
     // If it was a match, load the remaining values and output the tuple
     auto wasMatchCond = rewriter.create<scf::IfOp>(op.getLoc(), wasMatchOp.getResult(), false);
@@ -492,8 +571,9 @@ struct GroupByOpLowering : public OpConversionPattern<database::GroupByOp> {
         op.getParentOfType<ModuleOp>().lookupSymbol(aggregateFuncName.getValue()));
     auto aggFuncType = aggregateFunc.getType();
 
-    auto runtimeType = boss::mlir::conversion::mlirTypeToRuntimeType(aggFuncType.getResult(0), false);
-    switch (runtimeType) {
+    auto runtimeType =
+        boss::mlir::conversion::mlirTypeToRuntimeType(aggFuncType.getResult(0), false);
+    switch(runtimeType) {
     case boss::mlir::types::RuntimeTypes::INT:
       return 0;
     case boss::mlir::types::RuntimeTypes::STRING:
@@ -653,12 +733,12 @@ void DatabaseLoweringPass::runOnOperation() {
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
 
   target.addIllegalDialect<mlir::database::DatabaseDialect>();
-  target.addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
-                    database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
-                    database::FinalizeBuilderOp, database::AppendToRelationOp,
-                    database::HashValuesOp, database::InsertIntoHashTableOp,
-                    database::AdvanceBuilderOp, database::FindInHashTableOp,
-                    database::GroupByInsert, database::GroupByGet>();
+  target
+      .addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
+                  database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
+                  database::FinalizeBuilderOp, database::AppendToRelationOp, database::HashValuesOp,
+                  database::InsertIntoHashTableOp, database::AdvanceBuilderOp,
+                  database::FindInHashTableOp, database::GroupByInsert, database::GroupByGet, database::LoadArrayIndirectOp>();
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
   target.addLegalDialect<::mlir::StandardOpsDialect>();
@@ -685,8 +765,10 @@ void DatabaseLoweringPass::runOnOperation() {
     return true;
   });
 
-  patterns.insert<LookupJoinOpLowering>(&getContext(), database);
-  patterns.insert<ProjectionOpLowering, SelectionOpLowering, BuildJoinOpLowering, GroupByOpLowering>(&getContext());
+  patterns.insert<LookupJoinOpLowering, NextValueOpLowering>(&getContext(), database);
+  patterns
+      .insert<ProjectionOpLowering, SelectionOpLowering, BuildJoinOpLowering, GroupByOpLowering>(
+          &getContext());
   patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
   patterns.insert<GetRelationOpLowering>(&getContext(), database, symbolTable);
 
@@ -703,6 +785,8 @@ void DatabaseLoweringPass::runOnOperation() {
 // namespace
 } // namespace
 
-std::unique_ptr<mlir::Pass> createLowerToDatabasePass(new_runtime::Database& database, std::unordered_map<std::string, boss::Expression> symbolTable) {
+std::unique_ptr<mlir::Pass>
+createLowerToDatabasePass(new_runtime::Database& database,
+                          std::unordered_map<std::string, boss::Expression> symbolTable) {
   return std::make_unique<DatabaseLoweringPass>(database, symbolTable);
 }

@@ -238,6 +238,16 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
            return success();
          }},
+        {"NextValue", [&]() {
+           s.dump();
+           auto returnType = converter.convertType(s.getType());
+
+           // TODO don't hardcode things :(
+           auto nextVal = rewriter.create<database::NextValueOp>(s.getLoc(), returnType, "Foo", "A", s.getOperand(0), s.getOperand(1));
+
+           rewriter.replaceOp(s, nextVal.getResult());
+            return success();
+         }},
         {"GetRelation",
          [&]() {
            auto stringVal = s.getOperand(0);

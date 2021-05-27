@@ -22,6 +22,26 @@ public:
       : arrow::StructBuilder(type, pool, std::move(fieldBuilders)) {}
 };
 
+class SymbolArrayBuilder : public arrow::StructBuilder {
+public:
+  SymbolArrayBuilder(std::shared_ptr<arrow::DataType>&& type,
+                     std::vector<std::shared_ptr<arrow::ArrayBuilder>>&& fieldBuilders,
+                     arrow::MemoryPool* pool = arrow::default_memory_pool())
+      : arrow::StructBuilder(type, pool, std::move(fieldBuilders)) {}
+
+  arrow::Status AppendSymbol(std::string const& symbolName, size_t globalOffset) {
+    auto status = Append();
+    ARROW_RETURN_NOT_OK(status);
+    auto stringStatus = std::dynamic_pointer_cast<arrow::StringDictionaryBuilder>(child_builder(0))
+                            ->Append(symbolName);
+    ARROW_RETURN_NOT_OK(stringStatus);
+    auto offsetStatus =
+        std::dynamic_pointer_cast<arrow::Int64Builder>(child_builder(1))->Append(globalOffset);
+    ARROW_RETURN_NOT_OK(offsetStatus);
+    return arrow::Status::OK();
+  }
+};
+
 struct CompareExpression {
   bool operator()(Expression const& lhs, Expression const& rhs) const {
     return compare(lhs, rhs) < 0;
@@ -170,17 +190,13 @@ public:
                                                   std::move(argBuilders));
   }
 
-  arrow::Status AppendTuple(Tuple const& tuple) {
+  arrow::Status AppendTuple(Tuple const& tuple, size_t globalUnionIndex) {
     auto i = 0U;
+    auto parentStatus = Append();
+    ARROW_RETURN_NOT_OK(parentStatus);
     for(auto const& field : tuple) {
-      auto parentStatus = Append();
-      auto childStatus = appendToChildBuilder(field.second, this->child_builder(i++));
-      if(!childStatus.ok()) {
-        return childStatus;
-      }
-      if(!parentStatus.ok()) {
-        return parentStatus;
-      }
+      auto childStatus = appendToChildBuilder(field.second, this->child_builder(i++), globalUnionIndex);
+      ARROW_RETURN_NOT_OK(childStatus);
     }
     return arrow::Status::OK();
   }
@@ -205,7 +221,18 @@ private:
               return std::make_shared<arrow::StringBuilder>();
             },
             [&](Symbol const& /*s*/) -> std::shared_ptr<arrow::ArrayBuilder> {
-              return std::make_shared<arrow::StringDictionaryBuilder>();
+              std::vector<std::shared_ptr<arrow::ArrayBuilder>> argBuilders(2);
+              std::vector<std::shared_ptr<arrow::Field>> fields(2);
+
+              // Make field to hold symbol name
+              argBuilders[0] = std::make_shared<arrow::StringDictionaryBuilder>();
+              fields[0] = std::make_shared<arrow::Field>("Symbol", nullptr);
+              // Make fields to hold offset in global union array order
+              argBuilders[1] = std::make_shared<arrow::Int64Builder>();
+              fields[1] = std::make_shared<arrow::Field>("GlobalOffset", nullptr);
+
+              return std::make_shared<SymbolArrayBuilder>(
+                  std::make_shared<arrow::StructType>(fields), std::move(argBuilders));
             },
             [&](ComplexExpression const& e) -> std::shared_ptr<arrow::ArrayBuilder> {
               std::vector<std::shared_ptr<arrow::ArrayBuilder>> argBuilders;
@@ -217,7 +244,8 @@ private:
               // head
               auto headBuilder = std::make_shared<arrow::StringDictionaryBuilder>();
               argBuilders.push_back(std::move(headBuilder));
-              // TODO currently using the name of the first field to store head name. The name is also stored in the array itself.
+              // TODO currently using the name of the first field to store head name. The name is
+              // also stored in the array itself.
               // TODO maybe make the array null instead? Or find a way to add metadata
               fields.push_back(std::make_shared<arrow::Field>(e.getHead().getName(), nullptr));
 
@@ -228,15 +256,20 @@ private:
                     std::make_shared<arrow::Field>("arg" + std::to_string(fields.size()), nullptr));
               }
 
+              if (e.getHead().getName() == "NextValue") {
+                // If the symbol is next value, also add an index for this value
+                argBuilders.push_back(std::make_shared<arrow::Int64Builder>());
+                fields.push_back(std::make_shared<arrow::Field>("GlobalOffset", nullptr));
+              }
+
               return std::make_shared<ComplexExpressionArrayBuilder>(
                   std::make_shared<arrow::StructType>(fields), std::move(argBuilders));
             }),
         expr);
   }
 
-  static arrow::Status
-  appendToChildBuilder(Expression const& expr,
-                       std::shared_ptr<arrow::ArrayBuilder> const& childBuilder) {
+  arrow::Status appendToChildBuilder(Expression const& expr,
+                                     std::shared_ptr<arrow::ArrayBuilder> const& childBuilder, size_t globalIdx) {
     return std::visit(
         boss::utilities::overload(
             [&](bool v) {
@@ -255,8 +288,8 @@ private:
               return std::dynamic_pointer_cast<arrow::StringBuilder>(childBuilder)->Append(v);
             },
             [&](Symbol const& s) {
-              return std::dynamic_pointer_cast<arrow::StringDictionaryBuilder>(childBuilder)
-                  ->Append(s.getName());
+              return std::dynamic_pointer_cast<SymbolArrayBuilder>(childBuilder)
+                  ->AppendSymbol(s.getName(), globalIdx);
             },
             [&](ComplexExpression const& e) {
               auto exprBuilder =
@@ -264,26 +297,28 @@ private:
 
               // append to the args structure
               auto structStatus = exprBuilder->Append();
-              if(!structStatus.ok()) {
-                return structStatus;
-              }
+              ARROW_RETURN_NOT_OK(structStatus);
 
               // append head
               auto headStatus = std::dynamic_pointer_cast<arrow::StringDictionaryBuilder>(
                                     exprBuilder->child_builder(0))
                                     ->Append(e.getHead().getName());
-              if(!headStatus.ok()) {
-                return headStatus;
-              }
+              ARROW_RETURN_NOT_OK(headStatus);
 
               // append each argument
               for(auto idx = 0U; idx < e.getArguments().size(); ++idx) {
                 auto argBuilder = exprBuilder->child_builder(1 + idx);
-                auto status = appendToChildBuilder(e.getArguments()[idx], argBuilder);
-                if(!status.ok()) {
-                  return status;
-                }
+                auto status = appendToChildBuilder(e.getArguments()[idx], argBuilder, globalIdx);
+                ARROW_RETURN_NOT_OK(status);
               }
+
+              // If the symbol needs to refer to other database values, add index
+              if (e.getHead().getName() == "NextValue") {
+                auto idxBdr = exprBuilder->child_builder(e.getArguments().size() + 1);
+                auto s = std::dynamic_pointer_cast<arrow::Int64Builder>(idxBdr)->Append(globalIdx);
+                ARROW_RETURN_NOT_OK(s);
+              }
+
               return arrow::Status::OK();
             }),
         expr);
@@ -311,16 +346,15 @@ public:
       cachedTypeId = AppendChild(childBuilder);
     }
     auto status = Append(cachedTypeId);
-    if(!status.ok()) {
-      return status;
-    }
+    ARROW_RETURN_NOT_OK(status);
     return appendToChildBuilder(tuple, childBuilder);
   }
 
 private:
-  static arrow::Status appendToChildBuilder(Tuple const& tuple,
+  arrow::Status appendToChildBuilder(Tuple const& tuple,
                                             std::shared_ptr<ArrayBuilder> const& childBuilder) {
-    return std::dynamic_pointer_cast<TypedDatabaseBuilder>(childBuilder)->AppendTuple(tuple);
+    auto globalUnionIndex = length() - 1;
+    return std::dynamic_pointer_cast<TypedDatabaseBuilder>(childBuilder)->AppendTuple(tuple, globalUnionIndex);
   }
 
   static std::shared_ptr<TypedDatabaseBuilder> makeTypedDatabaseBuilder(Tuple const& tuple) {
@@ -427,6 +461,16 @@ int8_t new_runtime::RelationBuilder::getOrCreateTypedStructBuilderIndex(
   return childBuilderIndex->second;
 }
 
+extern "C" int loadIndirect_Int(arrow::DenseUnionArray* array, size_t columnIndex, size_t typeId, size_t valueOffset) {
+  auto childArray = array->field(typeId);
+  auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(childArray);
+  auto column = structArray->field(columnIndex);
+  auto intColumn = std::dynamic_pointer_cast<arrow::Int32Array>(column);
+  std::cout << intColumn->ToString() << std::endl;
+  auto result = intColumn->Value(valueOffset);
+  return result;
+}
+
 extern "C" new_runtime::Relation* finalizeRelationBuilder(new_runtime::RelationBuilder& builder) {
   return builder.build();
 }
@@ -444,7 +488,7 @@ extern "C" void addToRelation_Bool(arrow::ArrayBuilder* builder, bool value) {
 }
 
 extern "C" size_t advanceBuilder(arrow::StructBuilder* structBuilder,
-                               arrow::DenseUnionBuilder* unionBuilder, int8_t child) {
+                                 arrow::DenseUnionBuilder* unionBuilder, int8_t child) {
   // TODO error handling
   unionBuilder->Append(child);
   structBuilder->Append();

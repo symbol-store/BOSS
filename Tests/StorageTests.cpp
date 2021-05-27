@@ -16,6 +16,8 @@ TEST_CASE("STORAGE_TEST") {
                         {{"A", 1}, {"B", 2}},
                         {{"A", "Undefined"_}, {"B", false}},
                         {{"A", "Redefined"_}, {"B", false}},
+                        {{"A", "foo"_("x"_)}, {"B", false}},
+                        {{"A", "foo"_("y"_)}, {"B", false}},
                         {{"A", 42}, {"B", 2}},
                         {{"A", "Mul"_(50, 60)}, {"B", false}},
                         {{"A", "Mul"_(60, 80)}, {"B", true}}});
@@ -36,6 +38,8 @@ TEST_CASE("STORAGE_TEST") {
     for(auto const& field : data->union_type()->fields()) {
       std::cout << field->type()->ToString() << std::endl;
     }
+
+    std::cout << data->ToString() << std::endl;
   }
 
   SECTION("Scan and Aggregate") {
@@ -267,5 +271,56 @@ TEST_CASE("STORAGE_TEST") {
       std::cout << it->second << std::endl;
     }
   }
+
+  SECTION("NextValue") {
+    new_runtime::Relation relation;
+
+    relation.bulk_load({
+                           {{"A", 1}, {"B", 5}},
+                           {{"A", "NextValue"_(1)}, {"B", 6}},
+                           {{"A", 2}, {"B", 7}}
+                       });
+
+    new_runtime::Database database;
+
+    std::cout << relation.get()->ToString() << std::endl;
+
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto result = engine.evaluate("CollectTuples"_("GetRelation"_("Foo")));
+
+    auto ptr = std::get<size_t>(result);
+    auto* resultRel = reinterpret_cast<new_runtime::Relation*>(ptr);
+
+    std::cout << resultRel->get()->ToString() << std::endl;
+  }
+
+//  SECTION("Interpolation") {
+//    new_runtime::Relation relation;
+//
+//    relation.bulk_load({
+//                           {{"A", 1}, {"B", 5}},
+//                           {{"A", "x"_}, {"B", 6}},
+//                           {{"A", 2}, {"B", 7}}
+//                       });
+//
+//    new_runtime::Database database;
+//    database.addRelation("Foo", std::move(relation));
+//    boss::engines::mlir::Engine engine(database);
+//
+//    auto result = engine.evaluate(
+//        "Assuming"_("x"_, "NextValue"_(1), "GroupBy"_("Fields"_("A"),
+//                                        "Lambda"_("Args"_("Pair"_("currentValue", "Int")),
+//                                                  "Plus"_("Symbol"_("currentValue"), "Symbol"_("B"))),
+//                                        "GetRelation"_("Foo"))));
+//
+//    auto ptr = std::get<size_t>(result);
+//    auto* group = reinterpret_cast<runtime::aggregate::HashAggregate*>(ptr);
+//
+//    for (auto it = group->begin(); it != group->end(); it++) {
+//      std::cout << it->second << std::endl;
+//    }
+//  }
 
 }
