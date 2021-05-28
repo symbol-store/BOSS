@@ -196,8 +196,8 @@ private:
     // e.g to count: "Function"_(List_("tuple"_), "Count"_("Extract"_("tuple"_, 1)))
     // e.g to sum: "Function"_(List_("tuple"_), "Sum_("Extract"_("tuple"_, 1)))
     // e.g to return the key: "Function"_(List_("tuple"_), "Extract"_("tuple"_, 1))
-    auto groupBy = [](auto&& tableViewPtr, auto&& groupFunctionPtr,
-                      auto const& aggregator) -> Batch::WritablePtr {
+    auto group = [](auto&& tableViewPtr, auto&& groupFunctionPtr,
+                    auto const& aggregator) -> Batch::WritablePtr {
       auto& tableOut = *(new TableView()); // not a clone so we clear columns too
 
       auto aggregate = [&aggregator](auto& destbatches, auto const& srcBatch, auto const& sorted) {
@@ -270,16 +270,17 @@ private:
         .template argBatchTypes<TableView, FunctionBatch,
                                 AllowedBatches<FunctionBatch, SymbolBatch>>()
         .template registerFunction<3>(
-            "GroupBy",
-            [&prototypes, groupBy](auto&& tableViewPtr, auto&& groupFunctionPtr,
-                                   auto&& aggregatorPtr) -> Batch::ReadablePtr {
+            "Group",
+            [&prototypes, group](auto&& tableViewPtr, auto&& groupFunctionPtr,
+                                 auto&& aggregatorPtr) -> Batch::ReadablePtr {
               Batch::WritablePtr resultPtr;
               BatchVisitDispatcher<FunctionBatch, SymbolBatch>::visit(
-                  [&prototypes, &groupBy, &tableViewPtr, &groupFunctionPtr,
+                  [&prototypes, &group, &tableViewPtr, &groupFunctionPtr,
                    &resultPtr](auto const& aggregatorBatch) {
                     using BatchType = std::decay_t<decltype(aggregatorBatch)>;
                     if constexpr(std::is_same_v<BatchType, FunctionBatch>) {
-                      resultPtr = groupBy(tableViewPtr, groupFunctionPtr, aggregatorBatch);
+                      resultPtr = group(tableViewPtr, groupFunctionPtr, aggregatorBatch);
+
                     } else {
                       // construct an expression batch from the head (assuming single symbol
                       // value) also assuming a function with 1 argument only
@@ -291,7 +292,7 @@ private:
                       // and now we create a function batch using this expression as body
                       WritableBatchPtr<FunctionBatch> functionPtr(new FunctionBatch(
                           FunctionBatch::ParameterList{functionArg}, std::move(bodyBatchPtr)));
-                      resultPtr = groupBy(tableViewPtr, groupFunctionPtr, *functionPtr);
+                      resultPtr = group(tableViewPtr, groupFunctionPtr, *functionPtr);
                     }
                   },
                   *aggregatorPtr);
