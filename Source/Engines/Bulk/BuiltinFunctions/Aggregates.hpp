@@ -1,22 +1,23 @@
 #pragma once
 
-#include "../OperatorUtils.hpp"
+#include "../Batch/ValueBatch.hpp"
 
 namespace boss::engines::bulk {
 
-template <typename BatchPrototypes> class Aggregates {
-  using Utils = OperatorUtils<BatchPrototypes>;
-  using NonSymbolicBatch = typename BatchPrototypes::NonSymbolicBatch;
+template <typename OperatorUtils, typename OperatorRegistry> class Aggregates {
+  using NonSymbolicBatch = typename OperatorUtils::NonSymbolicBatch;
 
 public:
-  static void registerAll(BatchPrototypes& prototypes) {
-    prototypes.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
+  static void registerAll() {
+    auto& operatorRegistry = OperatorRegistry::instance();
+
+    operatorRegistry.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
         "Count", [](auto&& batchPtr) {
           int value = batchPtr->size();
-          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
+          return Batch::WritablePtr(new ValueBatch(1, value));
         });
 
-    prototypes.template allowedTypes<int, float>().template registerFunction<1>(
+    operatorRegistry.template allowedTypes<int, float>().template registerFunction<1>(
         "Sum", [](auto&& batchPtr) {
           auto it = batchPtr->begin();
           auto sum = *it;
@@ -25,10 +26,10 @@ public:
             sum += *it;
             ++it;
           }
-          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(sum));
+          return Batch::WritablePtr(new ValueBatch(1, sum));
         });
 
-    prototypes.template allowedTypes<int, float>().template registerFunction<1>(
+    operatorRegistry.template allowedTypes<int, float>().template registerFunction<1>(
         "Min", [](auto&& batchPtr) {
           auto it = batchPtr->begin();
           auto min = *it;
@@ -40,10 +41,10 @@ public:
             }
             ++it;
           }
-          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(min));
+          return Batch::WritablePtr(new ValueBatch(1, min));
         });
 
-    prototypes.template allowedTypes<int, float>().template registerFunction<1>(
+    operatorRegistry.template allowedTypes<int, float>().template registerFunction<1>(
         "Max", [](auto&& batchPtr) {
           auto it = batchPtr->begin();
           auto max = *it;
@@ -55,7 +56,7 @@ public:
             }
             ++it;
           }
-          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(max));
+          return Batch::WritablePtr(new ValueBatch(1, max));
         });
   }
 };

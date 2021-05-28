@@ -1,25 +1,24 @@
 #pragma once
 
-#include "../OperatorUtils.hpp"
-
 #include <string>
 
 namespace boss::engines::bulk {
 
-template <typename BatchPrototypes> class StringFunctions {
-  using Utils = OperatorUtils<BatchPrototypes>;
+template <typename OperatorUtils, typename OperatorRegistry> class StringFunctions {
 
 public:
-  static void registerAll(BatchPrototypes& prototypes) {
-    prototypes.template allowedTypes<std::string>().template registerFunction<2>(
+  static void registerAll() {
+    auto& operatorRegistry = OperatorRegistry::instance();
+
+    operatorRegistry.template allowedTypes<std::string>().template registerFunction<2>(
         "StringJoin", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
-          return Utils::evaluateElements(
+          return OperatorUtils::evaluateElements(
               [](auto const& a, auto const& b) -> std::string { return a + b; }, lhsBatchPtr,
               rhsBatchPtr);
         });
-    prototypes.template allowedTypes<std::string>().template registerFunction<2>(
+    operatorRegistry.template allowedTypes<std::string>().template registerFunction<2>(
         "StringContainsQ", [](auto&& lhsBatchPtr, auto&& rhsBatchPtr) {
-          return Utils::evaluateElements(
+          return OperatorUtils::evaluateElements(
               [](auto const& a, auto const& b) -> bool { return a.find(b) != std::string::npos; },
               lhsBatchPtr, rhsBatchPtr);
         });

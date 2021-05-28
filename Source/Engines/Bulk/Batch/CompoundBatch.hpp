@@ -4,8 +4,9 @@
 
 #include "../../Bulk.hpp"
 #include "../ArrowExtensions/CompoundArray.hpp"
-#include "../BatchVisitDispatcher.hpp"
 #include "../SymbolRegistry.hpp"
+#include "SymbolBatch.hpp"
+#include "ValueBatch.hpp"
 
 #include "../../../Utilities.hpp"
 
@@ -68,6 +69,8 @@ public:
   CompoundBatch& operator=(CompoundBatch&& other) = delete;
 
   Symbol const& getHead() const { return m_symbol; }
+
+  bool isDecomposed() const { return m_decomposed; }
 
   /// create a full copy of the batch (without knowing the derived batch type)
   Batch* clone(bool clear = false) const override { return cloneAsCompoundBatch(clear); }
@@ -191,7 +194,7 @@ public:
   }
 
   /// extract a child batch (regardless of the decomposed flag)
-  /// It will creat a child batch from the underline arrow array
+  /// It will create a child batch from the underline arrow array
   /// (const version, returning a WritablePtr)
   virtual Batch::ReadablePtr column(size_t index) const {
     // retrieve all the array chunks from the child array
@@ -204,8 +207,7 @@ public:
     std::shared_ptr<arrow::ArrayBuilder> argBuilder = getBuilder(index);
 
     // create a batch of the right type from these arrays/builder
-    Batch* batch =
-        Engine::getBatchFactory().createBatch(std::move(argChunks), std::move(argBuilder));
+    Batch* batch = createBatch(std::move(argChunks), std::move(argBuilder));
     batch->setOwner(m_array, index);
     auto const* constBatch = batch;
     return Batch::ReadablePtr(constBatch);
@@ -225,8 +227,7 @@ public:
     std::shared_ptr<arrow::ArrayBuilder> argBuilder = getBuilder(index);
 
     // create a batch of the right type from these arrays/builder
-    Batch* batch =
-        Engine::getBatchFactory().createBatch(std::move(argChunks), std::move(argBuilder));
+    Batch* batch = createBatch(std::move(argChunks), std::move(argBuilder));
     batch->setOwner(m_array, index);
     return Batch::WritablePtr(batch);
   }
@@ -315,9 +316,37 @@ public:
     m_array->setOwner(std::move(parentArray), childIndex);
   }
 
-protected:
-  // for TableView to add columns to the builder fields
-  void addArgument(std::string const& argName) { m_array->addArgument(m_symbol, argName); }
+  void addColumn(Symbol const& column) { m_array->addArgument(m_symbol, column.getName()); }
+
+  Batch::WritablePtr columns() const {
+    // create a temporary column batch (compound) from the array fields
+    auto const& batchData = CompoundBatch::data();
+    ExpressionArguments columns;
+    if(batchData.builder || !batchData.arrays.chunks().empty()) {
+      auto type = batchData.builder ? batchData.builder->type() : batchData.arrays.chunk(0)->type();
+      auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
+      auto structType = extensionType.storage_type();
+      columns.reserve(structType->num_fields());
+      for(auto const& field : structType->fields()) {
+        columns.emplace_back(Symbol(field->name()));
+      }
+    }
+    ComplexExpression columnList("List"_, columns);
+    auto columnBatch = Batch::WritablePtr(new CompoundBatch(columnList.getHead()));
+    columnBatch->append(columnList);
+    return columnBatch;
+  }
+
+  size_t numColumns() const {
+    auto const& data = CompoundBatch::data();
+    if(data.builder) {
+      return data.builder->num_children();
+    }
+    if(!data.arrays.chunks().empty()) {
+      return data.arrays.chunk(0)->num_fields();
+    }
+    return 0;
+  }
 
 private:
   std::shared_ptr<arrow::Array> getChunk(size_t index, size_t chunkIndex) const {
@@ -337,6 +366,54 @@ private:
       return argBuilder->child_builder(0);
     }
     return nullptr;
+  }
+
+  /// consume a pair of (array vector, builder) to create a batch from them
+  static Batch* createBatch(arrow::ArrayVector&& arrays,
+                            std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder) {
+    auto type = arrayBuilder ? arrayBuilder->type() : arrays[0]->type();
+    // assuming all arrays and builder share the same type!
+    // if not, keep only the latest type
+    auto arrayIt = arrays.rbegin();
+    for(; arrayIt != arrays.rend(); ++arrayIt) {
+      if((*arrayIt)->type_id() != type->id()) {
+        break;
+      }
+    }
+    if(arrayIt != arrays.rend()) {
+      // shrinked without the arrays having a different type
+      arrow::ArrayVector shrinkedArrays(arrayIt.base(), arrays.end());
+      arrays.swap(shrinkedArrays);
+    }
+
+    switch(type->id()) {
+    case arrow::Type::BOOL:
+      return new ValueBatch<bool>(std::move(arrays), std::move(arrayBuilder));
+    case arrow::Type::INT32:
+      return new ValueBatch<int>(std::move(arrays), std::move(arrayBuilder));
+    case arrow::Type::FLOAT:
+      return new ValueBatch<float>(std::move(arrays), std::move(arrayBuilder));
+    case arrow::Type::STRING:
+      return new ValueBatch<std::string>(std::move(arrays), std::move(arrayBuilder));
+    case arrow::Type::EXTENSION: {
+      auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
+      if(extensionType.extension_name()[0] == 's') {
+        // SYMBOL
+        return new SymbolBatch(std::move(arrays), std::move(arrayBuilder));
+      }
+      // COMPLEX EXPRESSION
+      auto const& complexType =
+          dynamic_cast<ComplexExpressionArray::ComplexExpressionArrayType const&>(extensionType);
+      auto* batch = new CompoundBatch(complexType.getHead());
+      batch->append(CompoundArray(std::move(arrays), std::move(arrayBuilder)));
+      return batch;
+    }
+    default:
+      break;
+    }
+
+    // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
+    return nullptr; // should not happen!
   }
 
   Symbol m_symbol;

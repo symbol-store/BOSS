@@ -1,20 +1,19 @@
 #pragma once
 
-#include "../OperatorUtils.hpp"
-
 #include <iomanip>
 #include <sstream>
 
 namespace boss::engines::bulk {
 
-template <typename BatchPrototypes> class ConversionFunctions {
-  using Utils = OperatorUtils<BatchPrototypes>;
+template <typename OperatorUtils, typename OperatorRegistry> class ConversionFunctions {
 
 public:
-  static void registerAll(BatchPrototypes& prototypes) {
-    prototypes.template allowedTypes<std::string>().template registerFunction<1>(
+  static void registerAll() {
+    auto& operatorRegistry = OperatorRegistry::instance();
+
+    operatorRegistry.template allowedTypes<std::string>().template registerFunction<1>(
         "UnixTime", [](auto const& batch) {
-          return Utils::evaluateElements(
+          return OperatorUtils::evaluateElements(
               [](auto const& str) -> int {
                 std::istringstream iss;
                 iss.str(str);

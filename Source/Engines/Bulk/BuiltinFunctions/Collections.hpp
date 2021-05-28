@@ -1,17 +1,19 @@
 #pragma once
 
-#include "../OperatorUtils.hpp"
+#include "../Batch/ValueBatch.hpp"
+#include "../BatchVisitDispatcher.hpp"
 
 namespace boss::engines::bulk {
 
-template <typename BatchPrototypes> class Collections {
-  using Utils = OperatorUtils<BatchPrototypes>;
-  using AnySimpleBatch = typename BatchPrototypes::AnySimpleBatch;
-  using NonSymbolicBatch = typename BatchPrototypes::NonSymbolicBatch;
+template <typename OperatorUtils, typename OperatorRegistry> class Collections {
+  using AnySimpleBatch = typename OperatorUtils::AnySimpleBatch;
+  using NonSymbolicBatch = typename OperatorUtils::NonSymbolicBatch;
 
 public:
-  static void registerAll(BatchPrototypes& prototypes) {
-    prototypes.template argBatchTypes<NonSymbolicBatch, ValueBatch<int>>()
+  static void registerAll() {
+    auto& operatorRegistry = OperatorRegistry::instance();
+
+    operatorRegistry.template argBatchTypes<NonSymbolicBatch, ValueBatch<int>>()
         .template registerFunction<2>(
             "Extract", [](auto&& exprBatchesPtr, auto&& indexBatchPtr) -> Batch::ReadablePtr {
               auto extraction = [](auto const& exprBatch, size_t index) {
@@ -21,7 +23,7 @@ public:
                   return exprBatch.extract(index);
                 } else {
                   auto const& value = static_cast<ValueType>(*(exprBatch.begin() + index));
-                  return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
+                  return Batch::WritablePtr(new ValueBatch(1, value));
                 }
               };
 
@@ -47,7 +49,7 @@ public:
                     ++indexIt, ++exprIt) {
                   size_t index = *indexIt - 1u;
                   auto exprBatchPtr = *exprIt;
-                  BatchPrototypes::BatchVisitDispatcher::visit(
+                  OperatorUtils::AnyBatchVisitDispatcher::visit(
                       [&index, &argBatches, &extraction](auto const& exprBatch) {
                         argBatches.emplace_back(extraction(exprBatch, index));
                       },
@@ -58,7 +60,7 @@ public:
               return Batch::ReadablePtr(std::move(compoundBatchPtr));
             });
 
-    prototypes.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
+    operatorRegistry.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
         "First", [](auto&& batchPtrExpr) {
           using BatchPtrType = std::decay_t<decltype(batchPtrExpr)>;
           using BatchType = typename BatchPtrType::BatchType;
@@ -67,11 +69,11 @@ public:
             return batchPtrExpr->extract(0);
           } else {
             auto const& value = static_cast<ValueType>(*batchPtrExpr->begin());
-            return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
+            return Batch::WritablePtr(new ValueBatch(1, value));
           }
         });
 
-    prototypes.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
+    operatorRegistry.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
         "Last", [](auto&& batchPtrExpr) {
           using BatchPtrType = std::decay_t<decltype(batchPtrExpr)>;
           using BatchType = typename BatchPtrType::BatchType;
@@ -81,24 +83,24 @@ public:
             return batchPtrExpr->extract(index);
           } else {
             auto const& value = static_cast<ValueType>(*(batchPtrExpr->begin() + index));
-            return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
+            return Batch::WritablePtr(new ValueBatch(1, value));
           }
         });
 
-    prototypes.template argBatchTypes<AllowedBatches<CompoundBatch, TableView>, ValueBatch<int>>()
+    operatorRegistry.template argBatchTypes<CompoundBatch, ValueBatch<int>>()
         .template registerFunction<2>("Column", [](auto&& batchPtrExpr, auto&& batchPtrNth) {
           size_t index = *batchPtrNth->begin() - 1;
           return batchPtrExpr->column(index);
         });
 
-    prototypes.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
+    operatorRegistry.template argBatchTypes<NonSymbolicBatch>().template registerFunction<1>(
         "Length", [](auto&& batchPtrExpr) {
           int value = batchPtrExpr->size();
-          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(value));
+          return Batch::WritablePtr(new ValueBatch(1, value));
         });
 
-    prototypes.template argBatchTypes<CompoundBatch, AnySimpleBatch>().template registerFunction<2>(
-        "IndexOf", [](auto&& listBatchPtr, auto&& valueBatchPtr) {
+    operatorRegistry.template argBatchTypes<CompoundBatch, AnySimpleBatch>()
+        .template registerFunction<2>("IndexOf", [](auto&& listBatchPtr, auto&& valueBatchPtr) {
           auto const& valueBatch = *valueBatchPtr;
           using ValueBatchType = std::decay_t<decltype(valueBatch)>;
           int index = 1;
@@ -114,11 +116,11 @@ public:
                 },
                 *argBatchPtr);
             if(equals) {
-              return Batch::WritablePtr(Engine::getBatchFactory().createBatch(index));
+              return Batch::WritablePtr(new ValueBatch(1, index));
             }
             ++index;
           }
-          return Batch::WritablePtr(Engine::getBatchFactory().createBatch(0));
+          return Batch::WritablePtr(new ValueBatch(1, 0));
         });
   }
 };

@@ -11,6 +11,7 @@
 
 namespace boss::engines::bulk {
 
+/** Keep any type of batch stored and map to a symbol. */
 template <typename BatchType> class SymbolRegistry {
 private:
   SymbolRegistry() = default;

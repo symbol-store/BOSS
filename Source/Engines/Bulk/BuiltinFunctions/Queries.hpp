@@ -1,27 +1,29 @@
 #pragma once
 
-#include "../OperatorUtils.hpp"
+#include "../Batch/CompoundBatch.hpp"
+#include "../Executor.hpp"
 
 #include <map>
 #include <vector>
 
 namespace boss::engines::bulk {
 
-template <typename BatchPrototypes> class Queries {
-  using Utils = OperatorUtils<BatchPrototypes>;
+template <typename OperatorUtils, typename OperatorRegistry> class Queries {
 
 public:
-  static void registerAll(BatchPrototypes& prototypes) {
-    selection(prototypes);
-    projection(prototypes);
-    sorting(prototypes);
-    grouping(prototypes);
+  static void registerAll() {
+    selection();
+    projection();
+    sorting();
+    grouping();
   }
 
 private:
-  static void selection(BatchPrototypes& prototypes) {
-    auto select = [](auto&& tableViewPtr, auto&& predicatePtr) -> Batch::WritablePtr {
-      auto& tableOut = *tableViewPtr->template cloneAs<TableView>(true);
+  static void selection() {
+    auto& operatorRegistry = OperatorRegistry::instance();
+
+    auto select = [](auto&& tableBatchPtr, auto&& predicatePtr) -> Batch::WritablePtr {
+      auto& tableOut = *tableBatchPtr->cloneAsCompoundBatch(true);
 
       auto forEachBatchOfRows = [&tableOut](CompoundBatch const& batch, auto const& toKeep) {
         // TODO: optimisation if toKeep is all true or false?
@@ -29,7 +31,7 @@ private:
         // all false => nothing to do
 
         auto batchOutPtr = WritableBatchPtr(batch.cloneAsCompoundBatch(true));
-        Utils::insertRowValuesWithCondition(*batchOutPtr, batch, toKeep);
+        OperatorUtils::insertRowValuesWithCondition(*batchOutPtr, batch, toKeep);
         size_t numColumns = batchOutPtr->numArguments();
         if(numColumns > 0) {
           std::vector<Batch::ReadablePtr> argBatches;
@@ -41,13 +43,13 @@ private:
         }
       };
 
-      tableViewPtr->visitChunks([&predicatePtr, &forEachBatchOfRows](auto&& batchOfRowsPtr) {
+      tableBatchPtr->visitChunks([&predicatePtr, &forEachBatchOfRows](auto&& batchOfRowsPtr) {
         // TODO: should evaluate only the columns used as criteria for the predicate
         // but for now it causes issues for where to set the "$tuple" information
         // (since the rows wouldn't be explicitely evaluated as a CBatch)
         // maybe should clean up "$tuple" if it is unused
         Batch::ReadablePtr evaluatedRowsPtr;
-        bool evaluated = batchOfRowsPtr->evaluate(evaluatedRowsPtr);
+        bool evaluated = Executor::evaluate(*batchOfRowsPtr, evaluatedRowsPtr);
 
         // evaluate the predicate
         std::vector<Batch::ReadablePtr> args;
@@ -56,7 +58,10 @@ private:
         } else {
           args.emplace_back(batchOfRowsPtr);
         }
-        auto toKeepPtr = predicatePtr->evaluateWith(args);
+        Batch::ReadablePtr toKeepPtr;
+        if(!Executor::evaluate(*predicatePtr, args, toKeepPtr)) {
+          return;
+        }
 
         // apply the predicate
         BatchVisitDispatcher<ValueBatch<bool>>::visit(
@@ -78,46 +83,53 @@ private:
       return Batch::WritablePtr(&tableOut);
     };
 
-    prototypes.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
-        "Select", [select](auto&& tableViewPtr, auto&& predicatePtr) -> Batch::ReadablePtr {
-          return select(tableViewPtr, predicatePtr);
-        });
+    operatorRegistry.template argBatchTypes<CompoundBatch, CompoundBatch>()
+        .template registerFunction<2>(
+            "Select", [select](auto&& tableBatchPtr, auto&& predicatePtr) -> Batch::ReadablePtr {
+              return select(tableBatchPtr, predicatePtr);
+            });
   }
 
-  static void projection(BatchPrototypes& prototypes) {
-    auto project = [](auto&& tableViewPtr, auto&& projectorPtr) -> Batch::WritablePtr {
-      auto& tableOut = *(new TableView()); // not a clone so we clear columns too
+  static void projection() {
+    auto& operatorRegistry = OperatorRegistry::instance();
+
+    auto project = [](auto&& tableBatchPtr, auto&& projectorPtr) -> Batch::WritablePtr {
+      auto& tableOut = *(new CompoundBatch(true)); // not a clone so we clear columns too
 
       // evaluate the projection
       std::vector<Batch::ReadablePtr> args;
-      args.emplace_back(tableViewPtr);
-      auto projectionPtr = projectorPtr->evaluateWith(args);
+      args.emplace_back(tableBatchPtr);
+      Batch::ReadablePtr projectionPtr;
+      bool evaluated = Executor::evaluate(*projectorPtr, args, projectionPtr);
 
-      // copy the new batches back to the table
-      BatchVisitDispatcher<CompoundBatch>::visit(
-          [&tableOut](auto const& projectionBatch) {
-            std::vector<Batch::ReadablePtr> columnBatches;
-            for(auto srcBatchPtr : projectionBatch) {
-              columnBatches.emplace_back(std::move(srcBatchPtr));
-            }
-            tableOut.append(columnBatches);
-          },
-          *projectionPtr);
+      if(evaluated) {
+        // copy the new batches back to the table
+        BatchVisitDispatcher<CompoundBatch>::visit(
+            [&tableOut](auto const& projectionBatch) {
+              std::vector<Batch::ReadablePtr> columnBatches;
+              for(auto srcBatchPtr : projectionBatch) {
+                columnBatches.emplace_back(std::move(srcBatchPtr));
+              }
+              tableOut.append(columnBatches);
+            },
+            *projectionPtr);
+      }
 
       return Batch::WritablePtr(&tableOut);
     };
 
-    prototypes.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
-        "Project", [project](auto&& tableViewPtr, auto&& projectorPtr) {
-          return project(tableViewPtr, projectorPtr);
-        });
+    operatorRegistry.template argBatchTypes<CompoundBatch, CompoundBatch>()
+        .template registerFunction<2>("Project",
+                                      [project](auto&& tableBatchPtr, auto&& projectorPtr) {
+                                        return project(tableBatchPtr, projectorPtr);
+                                      });
   }
 
-  static void sorting(BatchPrototypes& prototypes) {
-    // sortFunction: Function(tuple) return the key used for sorting
-    // e.g to sort by first column: "Function"_(List_("tuple"_), "Column"_("tuple"_, 1))
-    auto sortBy = [](auto&& tableViewPtr, auto&& sortFunctionPtr) -> Batch::WritablePtr {
-      auto& tableOut = *tableViewPtr->template cloneAs<TableView>(true);
+  static void sorting() {
+    auto& operatorRegistry = OperatorRegistry::instance();
+
+    auto sortBy = [](auto&& tableBatchPtr, auto&& sortFunctionPtr) -> Batch::WritablePtr {
+      auto& tableOut = *tableBatchPtr->cloneAsCompoundBatch(true);
 
       auto forEachBatchOfRows = [&tableOut](CompoundBatch const& batch, auto& keys) {
         using ElementType = typename std::decay_t<decltype(keys)>::ValueType;
@@ -142,7 +154,7 @@ private:
         auto batchOutPtr = WritableBatchPtr(batch.cloneAsCompoundBatch(true));
         for(auto const& sortedIt : sorted) {
           auto const& rowIndices = sortedIt.second;
-          Utils::insertRowValuesInOrder(*batchOutPtr, batch, rowIndices);
+          OperatorUtils::insertRowValuesInOrder(*batchOutPtr, batch, rowIndices);
         }
 
         size_t numColumns = batchOutPtr->numArguments();
@@ -156,14 +168,17 @@ private:
         }
       };
 
-      tableViewPtr->visitChunks([&sortFunctionPtr, &forEachBatchOfRows](auto&& batchOfRowsPtr) {
+      tableBatchPtr->visitChunks([&sortFunctionPtr, &forEachBatchOfRows](auto&& batchOfRowsPtr) {
         // evaluate the keys
         std::vector<Batch::ReadablePtr> args;
         args.emplace_back(batchOfRowsPtr);
-        auto keysPtr = sortFunctionPtr->evaluateWith(args);
+        Batch::ReadablePtr keysPtr;
+        if(!Executor::evaluate(*sortFunctionPtr, args, keysPtr)) {
+          return;
+        }
 
         // sort using these keys
-        BatchPrototypes::BatchVisitDispatcher::visit(
+        OperatorUtils::AnyBatchVisitDispatcher::visit(
             [&batchOfRowsPtr, &forEachBatchOfRows](auto const& keys) {
               if(keys.size() == 0) {
                 return;
@@ -183,35 +198,39 @@ private:
       return Batch::WritablePtr(&tableOut);
     };
 
-    prototypes.template argBatchTypes<TableView, FunctionBatch>().template registerFunction<2>(
-        "SortBy", [sortBy](auto&& tableViewPtr, auto&& sortFunctionPtr) -> Batch::ReadablePtr {
-          return sortBy(tableViewPtr, sortFunctionPtr);
-        });
+    // sortFunction: Function(tuple) return the key used for sorting
+    // e.g to sort by first column: "Function"_(List_("tuple"_), "Column"_("tuple"_, 1))
+    operatorRegistry.template argBatchTypes<CompoundBatch, CompoundBatch>()
+        .template registerFunction<2>(
+            "SortBy", [sortBy](auto&& tableBatchPtr, auto&& sortFunctionPtr) -> Batch::ReadablePtr {
+              return sortBy(tableBatchPtr, sortFunctionPtr);
+            });
   }
 
-  static void grouping(BatchPrototypes& prototypes) {
-    // groupFunction: Function(tuple) return a key
-    // e.g to group by first column: "Function"_(List_("tuple"_), "Extract"_("tuple"_,
-    // 1)) aggregator: Function("tuple", "aggregateResult") return the aggregate result
-    // e.g to count: "Function"_(List_("tuple"_), "Count"_("Extract"_("tuple"_, 1)))
-    // e.g to sum: "Function"_(List_("tuple"_), "Sum_("Extract"_("tuple"_, 1)))
-    // e.g to return the key: "Function"_(List_("tuple"_), "Extract"_("tuple"_, 1))
-    auto group = [](auto&& tableViewPtr, auto&& groupFunctionPtr,
-                    auto const& aggregator) -> Batch::WritablePtr {
-      auto& tableOut = *(new TableView()); // not a clone so we clear columns too
+  static void grouping() {
+    auto& operatorRegistry = OperatorRegistry::instance();
 
+    auto group = [](auto&& tableBatchPtr, auto&& groupFunctionPtr,
+                    auto const& aggregator) -> Batch::WritablePtr {
+      auto& tableOut = *(new CompoundBatch(true)); // not a clone so we clear columns too
+
+      // to be called for each group of (sorted) table rows
       auto aggregate = [&aggregator](auto& destbatches, auto const& srcBatch, auto const& sorted) {
         auto groupedPtr = WritableBatchPtr(srcBatch.cloneAsCompoundBatch(true));
+
         for(auto const& sortedIt : sorted) {
           // prepare the rows for the group to be processed
           auto const& rowIndices = sortedIt.second;
-          Utils::insertRowValuesInOrder(*groupedPtr, srcBatch, rowIndices);
+          OperatorUtils::insertRowValuesInOrder(*groupedPtr, srcBatch, rowIndices);
 
-          // process to be called for each group of (sorted) table rows
+          // evaluate the aggregate on the group
           std::vector<Batch::ReadablePtr> args;
           args.emplace_back(groupedPtr);
-          auto aggregatedBatchPtr = aggregator.evaluateWith(args);
-          destbatches.emplace_back(std::move(aggregatedBatchPtr));
+          Batch::ReadablePtr aggregatedBatchPtr;
+          if(Executor::evaluate(aggregator, args, aggregatedBatchPtr)) {
+            destbatches.emplace_back(std::move(aggregatedBatchPtr));
+          }
+
           groupedPtr->clear();
         }
       };
@@ -239,14 +258,17 @@ private:
         tableOut.append(std::vector<Batch::ReadablePtr>(newBatches.begin(), newBatches.end()));
       };
 
-      tableViewPtr->visitChunks([&groupFunctionPtr, &forEachBatchOfRows](auto&& batchOfRowsPtr) {
+      tableBatchPtr->visitChunks([&groupFunctionPtr, &forEachBatchOfRows](auto&& batchOfRowsPtr) {
         // evaluate the keys
         std::vector<Batch::ReadablePtr> args;
         args.emplace_back(batchOfRowsPtr);
-        auto keysPtr = groupFunctionPtr->evaluateWith(args);
+        Batch::ReadablePtr keysPtr;
+        if(!Executor::evaluate(*groupFunctionPtr, args, keysPtr)) {
+          return;
+        }
 
         // sort using these keys
-        BatchPrototypes::BatchVisitDispatcher::visit(
+        OperatorUtils::AnyBatchVisitDispatcher::visit(
             [&batchOfRowsPtr, &forEachBatchOfRows](auto const& keys) {
               if(keys.size() == 0) {
                 return;
@@ -266,33 +288,45 @@ private:
       return Batch::WritablePtr(&tableOut);
     };
 
-    prototypes
-        .template argBatchTypes<TableView, FunctionBatch,
-                                AllowedBatches<FunctionBatch, SymbolBatch>>()
+    // groupFunction: Function(tuple) return a key
+    // e.g to group by first column: "Function"_("tuple"_, "Extract"_("tuple"_, 1))
+    // aggregator: Function("tuple", "aggregateResult") return the aggregate result
+    // e.g to count: "Function"_("tuple"_, "Count"_("Column"_("tuple"_, 1)))
+    // e.g to sum: "Function"_("tuple"_, "Sum_("Column"_("tuple"_, 1)))
+    // e.g to return the key: "Function"_("tuple"_, "Column"_("tuple"_, 1))
+    operatorRegistry
+        .template argBatchTypes<CompoundBatch, CompoundBatch,
+                                AllowedBatches<CompoundBatch, SymbolBatch>>()
         .template registerFunction<3>(
             "Group",
-            [&prototypes, group](auto&& tableViewPtr, auto&& groupFunctionPtr,
-                                 auto&& aggregatorPtr) -> Batch::ReadablePtr {
+            [group](auto&& tableBatchPtr, auto&& groupFunctionPtr,
+                    auto&& aggregatorPtr) -> Batch::ReadablePtr {
               Batch::WritablePtr resultPtr;
-              BatchVisitDispatcher<FunctionBatch, SymbolBatch>::visit(
-                  [&prototypes, &group, &tableViewPtr, &groupFunctionPtr,
+              BatchVisitDispatcher<CompoundBatch, SymbolBatch>::visit(
+                  [&group, &tableBatchPtr, &groupFunctionPtr,
                    &resultPtr](auto const& aggregatorBatch) {
                     using BatchType = std::decay_t<decltype(aggregatorBatch)>;
-                    if constexpr(std::is_same_v<BatchType, FunctionBatch>) {
-                      resultPtr = group(tableViewPtr, groupFunctionPtr, aggregatorBatch);
-
+                    if constexpr(std::is_same_v<BatchType, CompoundBatch>) {
+                      resultPtr = group(tableBatchPtr, groupFunctionPtr, aggregatorBatch);
                     } else {
+                      // special case when providing aggregator as just a symbol head
+
                       // construct an expression batch from the head (assuming single symbol
                       // value) also assuming a function with 1 argument only
                       Symbol const& head = *aggregatorBatch.begin();
-                      Batch::WritablePtr bodyBatchPtr(prototypes.createBatch(head, 1));
+                      auto* bodyBatch = new CompoundBatch(head);
                       // we pass a symbol as unique argument
-                      Symbol functionArg("tuple");
-                      bodyBatchPtr->append(ComplexExpression(head, {functionArg}));
-                      // and now we create a function batch using this expression as body
-                      WritableBatchPtr<FunctionBatch> functionPtr(new FunctionBatch(
-                          FunctionBatch::ParameterList{functionArg}, std::move(bodyBatchPtr)));
-                      resultPtr = group(tableViewPtr, groupFunctionPtr, *functionPtr);
+                      Symbol parameter("tuple");
+                      bodyBatch->append(ComplexExpression(head, {parameter}));
+
+                      // construct the parameters batch
+                      auto* paramsBatch = new SymbolBatch(1, parameter);
+
+                      // and now we create a function batch using the parameters + body
+                      CompoundBatch functionBatch(Symbol("Function"));
+                      functionBatch.append({Batch::ReadablePtr((Batch const*)(paramsBatch)),
+                                            Batch::ReadablePtr((Batch const*)(bodyBatch))});
+                      resultPtr = group(tableBatchPtr, groupFunctionPtr, functionBatch);
                     }
                   },
                   *aggregatorPtr);

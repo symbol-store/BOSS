@@ -39,7 +39,9 @@ public:
       : m_arrays(std::move(other.m_arrays)), m_builder(std::move(other.m_builder)) {}
 
   CompoundArray(CompoundArray const& other, bool clear = false)
-      : m_builder(std::make_shared<ComplexExpressionArrayBuilder>(*other.m_builder, clear)) {
+      : m_builder(other.m_builder != nullptr
+                      ? std::make_shared<ComplexExpressionArrayBuilder>(*other.m_builder, clear)
+                      : nullptr) {
     if(!clear) {
       m_arrays.append(other.m_arrays);
     }
@@ -47,13 +49,13 @@ public:
 
   CompoundArray(CompoundArray const& other, std::shared_ptr<arrow::Array> const& singleArray)
       : m_arrays({singleArray}),
-        m_builder(other.m_builder
+        m_builder(other.m_builder != nullptr
                       ? std::make_shared<ComplexExpressionArrayBuilder>(*other.m_builder, true)
                       : nullptr) {}
 
   CompoundArray(CompoundArray const& other, std::shared_ptr<arrow::Array>&& singleArray)
       : m_arrays({std::move(singleArray)}),
-        m_builder(other.m_builder
+        m_builder(other.m_builder != nullptr
                       ? std::make_shared<ComplexExpressionArrayBuilder>(*other.m_builder, true)
                       : nullptr) {}
 

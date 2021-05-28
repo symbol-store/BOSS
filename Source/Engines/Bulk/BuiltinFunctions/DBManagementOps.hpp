@@ -1,58 +1,56 @@
 #pragma once
 
-#include "../OperatorUtils.hpp"
-
 namespace boss::engines::bulk {
 
-template <typename BatchPrototypes> class DBManagementOps {
-  using Utils = OperatorUtils<BatchPrototypes>;
+template <typename OperatorUtils, typename OperatorRegistry> class DBManagementOps {
 
 public:
-  static void registerAll(BatchPrototypes& prototypes) {
-    manageTables(prototypes);
-    manageColumns(prototypes);
-    manageRows(prototypes);
+  static void registerAll() {
+    manageTables();
+    manageColumns();
+    manageRows();
   }
 
 private:
-  static void manageTables(BatchPrototypes& prototypes) {
-    auto& tableViewPool = DefaultSymbolRegistry::instance();
+  static void manageTables() {
+    auto& symbolRegistry = DefaultSymbolRegistry::instance();
+    auto& operatorRegistry = OperatorRegistry::instance();
 
-    prototypes.template argTypes<Symbol>().template registerFunction<1>(
-        "CreateTable", [&tableViewPool](auto&& batchPtr) {
-          return Utils::evaluateElements(
-              [&tableViewPool](auto const& table) -> Symbol {
-                auto& symbolPtr = tableViewPool.findSymbol(table);
-                symbolPtr = Batch::WritablePtr(new TableView());
+    operatorRegistry.template argTypes<Symbol>().template registerFunction<1>(
+        "CreateTable", [&symbolRegistry](auto&& batchPtr) {
+          return OperatorUtils::evaluateElements(
+              [&symbolRegistry](auto const& table) -> Symbol {
+                auto& symbolPtr = symbolRegistry.findSymbol(table);
+                symbolPtr = Batch::WritablePtr(new CompoundBatch(true));
                 return table;
               },
               batchPtr);
         });
 
-    prototypes.template argTypes<Symbol, Symbol>().template registerFunction<2>(
-        "CreateTable", [&tableViewPool](auto&& tableBatchPtr, auto&& columnBatchPtr) {
-          return Utils::evaluateElements(
-              [&tableViewPool](auto const& table, auto const& column) -> Symbol {
-                auto& symbolPtr = tableViewPool.findSymbol(table);
-                TableView* tableView = nullptr;
-                if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
-                  tableView =
-                      static_cast<TableView*>(Batch::WritablePtr::asWritable(symbolPtr).get());
+    operatorRegistry.template argTypes<Symbol, Symbol>().template registerFunction<2>(
+        "CreateTable", [&symbolRegistry](auto&& tableBatchPtr, auto&& columnBatchPtr) {
+          return OperatorUtils::evaluateElements(
+              [&symbolRegistry](auto const& table, auto const& column) -> Symbol {
+                auto& symbolPtr = symbolRegistry.findSymbol(table);
+                CompoundBatch* batch = nullptr;
+                if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<CompoundBatch>()) {
+                  auto batchPtr = Batch::WritablePtr::asWritable(symbolPtr);
+                  batch = static_cast<CompoundBatch*>(batchPtr.get());
                 } else {
-                  tableView = new TableView();
-                  symbolPtr = Batch::WritablePtr(tableView);
+                  batch = new CompoundBatch(true);
+                  symbolPtr = Batch::WritablePtr(batch);
                 }
-                tableView->addColumn(column);
+                batch->addColumn(column);
                 return table;
               },
               tableBatchPtr, columnBatchPtr);
         });
 
-    prototypes.template argTypes<Symbol>().template registerFunction<1>(
-        "RemoveTable", [&tableViewPool](auto&& batchPtr) {
-          return Utils::evaluateElements(
-              [&tableViewPool](auto const& table) -> Symbol {
-                auto& symbolPtr = tableViewPool.findSymbol(table);
+    operatorRegistry.template argTypes<Symbol>().template registerFunction<1>(
+        "RemoveTable", [&symbolRegistry](auto&& batchPtr) {
+          return OperatorUtils::evaluateElements(
+              [&symbolRegistry](auto const& table) -> Symbol {
+                auto& symbolPtr = symbolRegistry.findSymbol(table);
                 symbolPtr.reset();
                 return table;
               },
@@ -60,45 +58,47 @@ private:
         });
   }
 
-  static void manageColumns(BatchPrototypes& prototypes) {
-    auto& tableViewPool = DefaultSymbolRegistry::instance();
+  static void manageColumns() {
+    auto& symbolRegistry = DefaultSymbolRegistry::instance();
+    auto& operatorRegistry = OperatorRegistry::instance();
 
-    prototypes.template argTypes<Symbol, Symbol>().template registerFunction<2>(
-        "AddColumn", [&tableViewPool](auto&& tableBatchPtr, auto&& columnBatchPtr) {
-          return Utils::evaluateElements(
-              [&tableViewPool](auto const& table, auto const& column) -> Symbol {
-                auto& symbolPtr = tableViewPool.findSymbol(table);
-                if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
-                  auto& tableView =
-                      *static_cast<TableView*>(Batch::WritablePtr::asWritable(symbolPtr).get());
-                  tableView.addColumn(column);
+    operatorRegistry.template argTypes<Symbol, Symbol>().template registerFunction<2>(
+        "AddColumn", [&symbolRegistry](auto&& tableBatchPtr, auto&& columnBatchPtr) {
+          return OperatorUtils::evaluateElements(
+              [&symbolRegistry](auto const& table, auto const& column) -> Symbol {
+                auto& symbolPtr = symbolRegistry.findSymbol(table);
+                if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<CompoundBatch>()) {
+                  auto batchPtr = Batch::WritablePtr::asWritable(symbolPtr);
+                  auto& batch = static_cast<CompoundBatch&>(*batchPtr);
+                  batch.addColumn(column);
                 }
                 return table;
               },
               tableBatchPtr, columnBatchPtr);
         });
 
-    prototypes.template argTypes<Symbol>().template registerFunction<1>(
-        "Columns", [&tableViewPool](auto&& symbolBatchPtr) -> Batch::ReadablePtr {
-          auto& symbolPtr = tableViewPool.findSymbol(*symbolBatchPtr->begin());
-          if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
-            auto const& tableView = *static_cast<TableView const*>(symbolPtr.get());
-            return Batch::ReadablePtr(tableView.columns());
+    operatorRegistry.template argTypes<Symbol>().template registerFunction<1>(
+        "Columns", [&symbolRegistry](auto&& symbolBatchPtr) -> Batch::ReadablePtr {
+          auto& symbolPtr = symbolRegistry.findSymbol(*symbolBatchPtr->begin());
+          if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<CompoundBatch>()) {
+            auto const& batch = static_cast<CompoundBatch const&>(*symbolPtr);
+            return Batch::ReadablePtr(batch.columns());
           }
           return Batch::WritablePtr(new ValueBatch<std::string>());
         });
   }
 
-  static void manageRows(BatchPrototypes& prototypes) {
-    auto& tableViewPool = DefaultSymbolRegistry::instance();
+  static void manageRows() {
+    auto& symbolRegistry = DefaultSymbolRegistry::instance();
+    auto& operatorRegistry = OperatorRegistry::instance();
 
-    prototypes.template argTypes<Symbol, ComplexExpression>().template registerFunction<2>(
-        "InsertInto", [&tableViewPool](auto symbolBatchPtr, auto rowBatchPtr) {
-          auto& symbolPtr = tableViewPool.findSymbol(*symbolBatchPtr->begin());
-          if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<TableView>()) {
-            BatchVisitDispatcher<TableView>::visit(
-                [&rowBatchPtr](auto& tableView) {
-                  size_t numColumns = tableView.numColumns();
+    operatorRegistry.template argTypes<Symbol, ComplexExpression>().template registerFunction<2>(
+        "InsertInto", [&symbolRegistry](auto symbolBatchPtr, auto rowBatchPtr) {
+          auto& symbolPtr = symbolRegistry.findSymbol(*symbolBatchPtr->begin());
+          if(symbolPtr && symbolPtr->typeId() == UniqueId::forType<CompoundBatch>()) {
+            BatchVisitDispatcher<CompoundBatch>::visit(
+                [&rowBatchPtr](auto& batch) {
+                  size_t numColumns = batch.numColumns();
                   size_t numArgsToInsert = rowBatchPtr->numArguments();
                   size_t numRowsToInsert =
                       numArgsToInsert > 0 ? (*rowBatchPtr->begin())->size() : 0;
@@ -115,7 +115,7 @@ private:
                         Batch::WritablePtr(new SymbolBatch(numRowsToInsert, missingSymbol));
                     argBatches.emplace_back(std::move(missingBatchPtr));
                   }
-                  tableView.append(std::move(argBatches));
+                  batch.append(std::move(argBatches));
                 },
                 *Batch::WritablePtr::asWritable(symbolPtr));
           }

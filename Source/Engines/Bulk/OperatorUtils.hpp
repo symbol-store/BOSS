@@ -1,11 +1,26 @@
 #pragma once
 
 #include "Batch/Batch.hpp"
+#include "BatchVisitDispatcher.hpp"
 
 namespace boss::engines::bulk {
 
-template <typename BatchPrototypes> class OperatorUtils {
+/** A set of util functions which can be called by the operators to avoid repeating common code.*/
+template <typename... SupportedTypes> class OperatorUtils {
 public:
+  using AnyBatchVisitDispatcher =
+      BatchVisitDispatcher<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch,
+                           CompoundBatch>;
+
+  using AnyBatch =
+      AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch, CompoundBatch>;
+
+  using NonSymbolicBatch =
+      AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, CompoundBatch>;
+
+  using AnySimpleBatch =
+      AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch>;
+
   /// to iterate and evaluate on each element of a batch
   template <typename Func, typename... BatchPtrIn>
   static Batch::WritablePtr evaluateElements(Func&& func, BatchPtrIn&&... in) {
@@ -57,7 +72,7 @@ public:
       // then recursive call for every argument
       size_t childrenSize = 0;
       auto destArgBatchIt = destBatch.begin();
-      srcBatch.template visitBatches<typename BatchPrototypes::BatchVisitDispatcher>(
+      srcBatch.template visitBatches<AnyBatchVisitDispatcher>(
           [&childrenSize, &destArgBatchIt, &rowIndices](auto const& srcColumn) {
             using ColumnBatchType = std::decay_t<decltype(srcColumn)>;
             // insert to existing arg column
@@ -101,7 +116,7 @@ public:
       // then recursive call for every argument
       auto destArgBatchIt = argBatches.begin();
       auto destArgBatchEnd = argBatches.end();
-      srcBatch.template visitBatches<typename BatchPrototypes::BatchVisitDispatcher>(
+      srcBatch.template visitBatches<AnyBatchVisitDispatcher>(
           [&destArgBatchIt, &destArgBatchEnd, &conditionBatch, &argBatches](auto const& srcColumn) {
             using ColumnBatchType = std::decay_t<decltype(srcColumn)>;
             if(destArgBatchIt != destArgBatchEnd) {

@@ -1,6 +1,6 @@
 #include "Bulk.hpp"
 
-#include "Bulk/BatchPrototypes.hpp"
+#include "Bulk/Batch/CompoundBatch.hpp"
 #include "Bulk/BuiltinFunctions/Aggregates.hpp"
 #include "Bulk/BuiltinFunctions/ArithmeticFunctions.hpp"
 #include "Bulk/BuiltinFunctions/Collections.hpp"
@@ -11,33 +11,106 @@
 #include "Bulk/BuiltinFunctions/Queries.hpp"
 #include "Bulk/BuiltinFunctions/StringFunctions.hpp"
 #include "Bulk/BuiltinFunctions/SymbolicFunctions.hpp"
+#include "Bulk/Executor.hpp"
+#include "Bulk/OperatorRegistry.hpp"
+#include "Bulk/OperatorUtils.hpp"
 #include "Bulk/SymbolRegistry.hpp"
+
+#include <optional>
 
 namespace boss::engines::bulk {
 
-// BatchPrototypes is where we create batches for all the supported types
-// we need to pass the list of atomic types we support
-// so they are handled by all the compile-time boilerplate code
-using BatchPrototypesImpl = BatchPrototypes<bool, int, float, std::string>;
+using OperatorUtilsImpl = OperatorUtils<bool, int, float, std::string>;
 
-Engine::Engine() { DefaultSymbolRegistry::instance().clear(); }
+using OperatorRegistryWithExecutor = OperatorRegistry<Executor>;
 
-/*static*/ BatchFactory const& Engine::createBatchFactory() {
-  static BatchPrototypesImpl prototypesInstance;
+Engine::Engine() {
+  DefaultSymbolRegistry::instance().clear();
 
-  // register all built-in functions here
-  ArithmeticFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
-  ComparisonFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
-  LogicFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
-  ConversionFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
-  StringFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
-  SymbolicFunctions<BatchPrototypesImpl>::registerAll(prototypesInstance);
-  Collections<BatchPrototypesImpl>::registerAll(prototypesInstance);
-  Aggregates<BatchPrototypesImpl>::registerAll(prototypesInstance);
-  DBManagementOps<BatchPrototypesImpl>::registerAll(prototypesInstance);
-  Queries<BatchPrototypesImpl>::registerAll(prototypesInstance);
+  static bool registered = false;
+  if(!registered) {
+    // register all built-in functions here
+    ArithmeticFunctions<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    ComparisonFunctions<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    LogicFunctions<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    ConversionFunctions<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    StringFunctions<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    SymbolicFunctions<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    Collections<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    Aggregates<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    DBManagementOps<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    Queries<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+  }
+}
 
-  return prototypesInstance;
+Batch* createBatch(Expression const& expression) {
+  return std::visit([](auto&& value) { return createBatch(value); }, expression);
+}
+
+Batch* createBatch(ComplexExpression const& expression) {
+  auto* newBatch = new CompoundBatch(expression.getHead());
+  newBatch->append(expression);
+  return newBatch;
+}
+
+template <typename T> Batch* createBatch(T const& value) { return new ValueBatch<T>(1, value); }
+
+/// convert the batch back to an expression
+Expression revertToExpression(Batch::ReadablePtr&& batchPtr) {
+  bool handledAsSymbol = false;
+  std::string symbolName;
+  boss::engines::bulk::BatchVisitDispatcher<CompoundBatch>::visit(
+      [&handledAsSymbol, &symbolName, &batchPtr](auto& tableBatch) {
+        if(tableBatch.isDecomposed() == false) {
+          return;
+        }
+        // save the query result into a temporary symbol
+        // this is a workaround to avoid a whole table to be converted back
+        // to a long list of tuples
+        // [https://github.com/symbol-store/BOSS/issues/91] find a way to garbage-collect them
+        static int i = 0;
+        symbolName = "_table" + std::to_string(i++);
+        auto numRows = tableBatch.size();
+        auto numCols = tableBatch.numColumns();
+        symbolName += "_cols" + std::to_string(numCols) + "rows" + std::to_string(numRows);
+        Symbol savedSymbol(symbolName);
+        auto& savedSymbolPtr = DefaultSymbolRegistry::instance().findSymbol(savedSymbol);
+        savedSymbolPtr = std::move(batchPtr);
+        handledAsSymbol = true;
+      },
+      *batchPtr);
+  if(handledAsSymbol) {
+    return Symbol(symbolName);
+  }
+
+  auto const& batch = *batchPtr;
+  std::optional<Symbol> rootHead;
+  ExpressionArguments arguments;
+  arguments.reserve(batch.size());
+  OperatorUtilsImpl::AnyBatchVisitDispatcher::visit(
+      [&arguments, &rootHead, batchPtr{std::move(batchPtr)}](auto const& batch) {
+        using BatchType = std::decay_t<decltype(batch)>;
+        if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
+          rootHead = batch.getHead();
+          size_t batchSize = batch.size();
+          for(size_t index = 0; index < batchSize; ++index) {
+            auto extractedPtr = batch.extract(index);
+            arguments.emplace_back(revertToExpression(std::move(extractedPtr)));
+          }
+        } else {
+          for(auto const& value : batch) {
+            arguments.emplace_back(static_cast<typename BatchType::ValueType>(value));
+          }
+        }
+      },
+      batch);
+
+  if(arguments.size() == 1 && !rootHead) {
+    return arguments[0];
+  }
+
+  Symbol const& head = rootHead ? *rootHead : Symbol("List");
+  return ComplexExpression(head, arguments);
 }
 
 Expression Engine::evaluate(Expression const& e) { // NOLINT
@@ -48,7 +121,7 @@ Expression Engine::evaluate(Expression const& e) { // NOLINT
     // special case if the root head is a list
     // can just put all arguments in a single batch
     auto argsIt = expr->getArguments().begin();
-    batchPtr = Batch::WritablePtr(getBatchFactory().createBatch(*argsIt));
+    batchPtr = Batch::WritablePtr(createBatch(*argsIt));
     auto& batch = *batchPtr;
 
     // still check if all arguments are compatible
@@ -66,16 +139,16 @@ Expression Engine::evaluate(Expression const& e) { // NOLINT
 
   if(!done) {
     // default case, create just a single element batch for the root expression
-    batchPtr = Batch::WritablePtr(getBatchFactory().createBatch(e));
+    batchPtr = Batch::WritablePtr(createBatch(e));
   }
 
   Batch::ReadablePtr outputPtr;
-  if(!batchPtr->evaluate(outputPtr)) {
+  if(!Executor::evaluate(*batchPtr, outputPtr)) {
     return e;
   }
 
   // transform the batch back to an expression
-  return getBatchFactory().revertToExpression(std::move(outputPtr));
+  return revertToExpression(std::move(outputPtr));
 }
 
 } // namespace boss::engines::bulk
