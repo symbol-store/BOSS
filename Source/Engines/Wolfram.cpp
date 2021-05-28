@@ -54,52 +54,52 @@ struct EngineImplementation {
 
   void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier,
                            std::ostream& console) {
-    std::visit(boss::utilities::overload(
-                   [&](bool a) {
-                     console << (a ? "True" : "False");
-                     WSPutSymbol(link, (a ? "True" : "False"));
-                   },
-                   [&](int a) {
-                     console << a;
-                     WSPutInteger(link, a);
-                   },
-                   [&](char const* a) {
-                     console << a;
-                     WSPutString(link, a);
-                   },
-                   [&](float a) {
-                     console << a;
-                     WSPutFloat(link, a);
-                   },
-                   [&](Symbol const& a) {
-                     auto normalizedName = mangle(a.getName());
-                     auto unnamespacedSymbols = set<string>{"TimeZone"};
-                     auto namespaced =
-                         (unnamespacedSymbols.count(normalizedName) > 0 ? "" : namespaceIdentifier) +
-                         normalizedName;
-                     console << namespaced;
-                     WSPutSymbol(link, namespaced.c_str());
-                   },
-                   [&](std::string const& a) {
-                     console << "\"" << a << "\"";
-                     WSPutString(link, a.c_str());
-                   },
-                   [&](ComplexExpression const& expression) {
-                     console << (namespaceIdentifier + expression.getHead().getName()) << "[";
-                     WSPutFunction(link,
-                                   (namespaceIdentifier + expression.getHead().getName()).c_str(),
-                                   expression.getArguments().size());
-                     for(auto it = expression.getArguments().begin();
-                         it != expression.getArguments().end(); ++it) {
-                       auto const& argument = *it;
-                       if(it != expression.getArguments().begin()) {
-                         console << ", ";
-                       }
-                       putExpressionOnLink(argument, namespaceIdentifier, console);
-                     }
-                     console << "]";
-                   }),
-               expression);
+    std::visit(
+        boss::utilities::overload(
+            [&](bool a) {
+              console << (a ? "True" : "False");
+              WSPutSymbol(link, (a ? "True" : "False"));
+            },
+            [&](int a) {
+              console << a;
+              WSPutInteger(link, a);
+            },
+            [&](char const* a) {
+              console << a;
+              WSPutString(link, a);
+            },
+            [&](float a) {
+              console << a;
+              WSPutFloat(link, a);
+            },
+            [&](Symbol const& a) {
+              auto normalizedName = mangle(a.getName());
+              auto unnamespacedSymbols = set<string>{"TimeZone"};
+              auto namespaced =
+                  (unnamespacedSymbols.count(normalizedName) > 0 ? "" : namespaceIdentifier) +
+                  normalizedName;
+              console << namespaced;
+              WSPutSymbol(link, namespaced.c_str());
+            },
+            [&](std::string const& a) {
+              console << "\"" << a << "\"";
+              WSPutString(link, a.c_str());
+            },
+            [&](ComplexExpression const& expression) {
+              console << (namespaceIdentifier + expression.getHead().getName()) << "[";
+              WSPutFunction(link, (namespaceIdentifier + expression.getHead().getName()).c_str(),
+                            expression.getArguments().size());
+              for(auto it = expression.getArguments().begin();
+                  it != expression.getArguments().end(); ++it) {
+                auto const& argument = *it;
+                if(it != expression.getArguments().begin()) {
+                  console << ", ";
+                }
+                putExpressionOnLink(argument, namespaceIdentifier, console);
+              }
+              console << "]";
+            }),
+        expression);
   }
 
   Expression readExpressionFromLink() {
