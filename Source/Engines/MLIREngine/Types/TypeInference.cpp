@@ -186,9 +186,10 @@ static const auto inferGetRelationType = [](std::vector<::mlir::Type> const& /*a
   auto unionType = rawTablePtr->union_type();
 
   std::vector<TupleStreamType> streamTypes;
-  for(auto const& field : unionType->fields()) {
+  for(auto i = 0; i < unionType->num_fields(); i++) {
     std::map<std::string, ::mlir::Type> fieldsAndTypes;
-    auto structType = std::dynamic_pointer_cast<arrow::StructType>(field->type());
+    auto structType = std::dynamic_pointer_cast<arrow::StructType>(unionType->field(i)->type());
+    auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(rawTablePtr->field(i));
     for(auto const& columnWithType : structType->fields()) {
       // TODO: take into account what type an expression evaluates to
       if (context.symbolTable.find(columnWithType->name()) != context.symbolTable.end()) {
@@ -196,8 +197,9 @@ static const auto inferGetRelationType = [](std::vector<::mlir::Type> const& /*a
         fieldsAndTypes[columnWithType->name()] = context.symbolTable[columnWithType->name()];
       } else {
         // Else just convert the arrow type
+        context.currentArray = structArray->GetFieldByName(columnWithType->name());
         fieldsAndTypes[columnWithType->name()] =
-            conversion::arrowTypeToMLIRType(symbol.getContext(), columnWithType->type().get());
+            conversion::arrowTypeToMLIRType(context, columnWithType->type().get());
       }
     }
     streamTypes.emplace_back(TupleStreamType::get(symbol.getContext(), fieldsAndTypes));
@@ -430,7 +432,7 @@ static const auto inferJoinType = [](std::vector<::mlir::Type> const& arguments,
 
       for(auto const& rightField : rightFields) {
         newFields[rightField.first] =
-            boss::mlir::conversion::arrowTypeToMLIRType(context.mlirContext, rightField.second);
+            boss::mlir::conversion::arrowTypeToMLIRType(context, rightField.second);
       }
 
       // TODO only if the types match on the joining fields
@@ -458,8 +460,9 @@ static const auto inferBooleanType = [](std::vector<::mlir::Type> const& argumen
 
 static const auto inferNextValueType = [](std::vector<::mlir::Type> const& arguments,
                                           TypeInferenceContext& context) -> ::mlir::Type {
-  // TODO DANGEROUS HARDCODED VALUE
-  return ::mlir::IntegerType::get(32, context.mlirContext);
+  // The return type is passed in as argument 2
+  const_cast<::mlir::Type*>(&arguments[2])->dump();
+  return arguments[2];
 };
 
 const std::map<std::string,

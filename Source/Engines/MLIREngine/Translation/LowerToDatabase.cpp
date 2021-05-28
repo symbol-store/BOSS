@@ -145,9 +145,11 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
   ArrayLoaderTypeVisitor(std::shared_ptr<arrow::Array> baseArray, mlir::Value offset,
                          ConversionPatternRewriter& rewriter, mlir::Location loc,
                          new_runtime::Database& database,
-                         std::unordered_map<std::string, boss::Expression> const& symbolTable)
+                         std::unordered_map<std::string, boss::Expression> const& symbolTable,
+                         std::string const& relationName, std::string const& fieldName)
       : baseArray(std::move(baseArray)), offset(offset), rewriter(rewriter), loc(loc),
-        database(database), symbolTable(symbolTable) {}
+        database(database), symbolTable(symbolTable), relationName(relationName),
+        fieldName(fieldName) {}
 
   std::shared_ptr<arrow::Array> baseArray;
   mlir::Value offset;
@@ -156,6 +158,8 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
   new_runtime::Database& database;
   std::unordered_map<std::string, boss::Expression> const& symbolTable;
   ::mlir::Value globalSymbolOffset;
+  std::string const& relationName;
+  std::string const& fieldName;
 
   // TODO remaining types
   arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
@@ -182,6 +186,51 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
     return arrow::Status::OK();
   }
 
+  static std::string symbolNameFromSymbolArray(std::shared_ptr<arrow::Array> array) {
+    auto typeNameSymbol = std::dynamic_pointer_cast<arrow::StructArray>(array);
+    auto typeNameStringDict = std::dynamic_pointer_cast<arrow::DictionaryArray>(typeNameSymbol->field(0));
+    auto typeNameStringArray = std::dynamic_pointer_cast<arrow::StringArray>(typeNameStringDict->dictionary());
+    auto typeName = typeNameStringArray->GetString(0);
+    return typeName;
+  }
+
+  arrow::Status handleNextValueSymbol(const arrow::StructType& type) {
+    auto symbolName = type.field(0)->name();
+    auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
+
+    std::cout << type.ToString() << std::endl;
+
+    std::vector<Value> childResults;
+    std::vector<::mlir::Type> operandTypes;
+    // Process arguments 1 and 3 - argument 0 is the name, argument 2 is the type id
+    for(auto i : {1, 3}) {
+      auto const& field = type.field(i);
+
+      ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database,
+                                          symbolTable, relationName, fieldName);
+      auto status = field->type()->Accept(&childVisitor);
+      ARROW_RETURN_NOT_OK(status);
+
+      childResults.emplace_back(childVisitor.result);
+      operandTypes.emplace_back(childVisitor.result.getType());
+    }
+
+    // Get the type name of the nextValue target and pass it to the type inference function
+    auto typeName = boss::mlir::conversion::symbolNameFromSymbolArray(structArray->field(2));
+    auto loadType = boss::mlir::conversion::stringToMLIRType(rewriter.getContext(), typeName);
+    operandTypes.push_back(loadType);
+
+    TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
+    auto newType = boss::mlir::inference::inferSymbolType(symbolName, operandTypes, typeContext);
+
+    auto symbolOp = rewriter.create<sexpr::SymbolOp>(
+        loc, newType, StringAttr::get(symbolName, rewriter.getContext()), childResults);
+    symbolOp.setAttr("relationName", rewriter.getStringAttr(relationName));
+    symbolOp.setAttr("fieldName", rewriter.getStringAttr(fieldName));
+    result = symbolOp.getResult();
+    return arrow::Status::OK();
+  }
+
   // Visit complex expression
   arrow::Status Visit(const arrow::StructType& type) override {
     auto symbolName = type.field(0)->name();
@@ -189,6 +238,10 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
     if(symbolName == "Symbol") {
       // This complex expression is just a single symbol
       return handleSymbol();
+    }
+    if (symbolName == "NextValue") {
+      // This complex expression refers to some other database value - special case
+      return handleNextValueSymbol(type);
     }
 
     auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
@@ -199,11 +252,9 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
       auto const& field = type.field(i);
 
       ArrayLoaderTypeVisitor childVisitor(structArray->field(i), offset, rewriter, loc, database,
-                                          symbolTable);
+                                          symbolTable, relationName, fieldName);
       auto status = field->type()->Accept(&childVisitor);
-      if(!status.ok()) {
-        return status;
-      }
+      ARROW_RETURN_NOT_OK(status);
 
       childResults.emplace_back(childVisitor.result);
       operandTypes.emplace_back(childVisitor.result.getType());
@@ -214,7 +265,6 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
 
     auto symbolOp = rewriter.create<sexpr::SymbolOp>(
         loc, newType, StringAttr::get(symbolName, rewriter.getContext()), childResults);
-    globalSymbolOffset = symbolOp.getResult();
 
     result = symbolOp.getResult();
     return arrow::Status::OK();
@@ -222,60 +272,80 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
 
   mlir::Value expressionToValue(boss::Expression const& e, MLIRContext* context) {
     mlir::Value returnValue;
-    std::visit(boss::utilities::overload(
-        [&](int a) {
-          auto intOp = rewriter.create<ConstantIntOp>(loc, a, 32);
-          returnValue = intOp.getResult();
-        },
-        [&](float a) {
-          auto floatOp = rewriter.create<ConstantFloatOp>(loc, APFloat(a),
-                                                          FloatType::getF32(context));
-          returnValue = floatOp.getResult();
-        },
-        [&](bool) {
-          throw std::runtime_error("Not implemented: Type bool");
-        },
-        [&](size_t) {
-          throw std::runtime_error("Not implemented: Type size_t");
-        },
-        [&](char const*) {
-          throw std::runtime_error("Not implemented: Type string");
-        },
-        [&](std::string) {
-          throw std::runtime_error("Not implemented: Type string");
-        },
-        [&](boss::Symbol) {
-          throw std::runtime_error("Not implemented: Type symbol");
-        },
-        [&](boss::ComplexExpression ce) {
-          auto symbolName = ce.getHead().getName();
 
-          std::vector<mlir::Value> childResults;
-          std::vector<mlir::Type> operandTypes;
-          for (auto const& arg : ce.getArguments()) {
-            auto childValue = expressionToValue(arg, context);
-            childResults.emplace_back(childValue);
-            operandTypes.emplace_back(childValue.getType());
-          }
+    // NextValue is a special case
+    auto handleNextValueSymbol = [&]() {
+      auto complexExpr = std::get<boss::ComplexExpression>(e);
+      std::vector<mlir::Value> childResults;
+      std::vector<mlir::Type> operandTypes;
 
-          if (symbolName == "NextValue") {
-            childResults.push_back(globalSymbolOffset);
-            operandTypes.push_back(rewriter.getIndexType());
-          }
+      // Evaluate the first argument (offset)
+      auto firstArgEval = expressionToValue(complexExpr.getArguments()[0], context);
+      childResults.emplace_back(firstArgEval);
+      operandTypes.emplace_back(firstArgEval.getType());
 
-          TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
-          auto newType = boss::mlir::inference::inferSymbolType(symbolName, operandTypes, typeContext);
+      // Insert the global offset
+      childResults.emplace_back(globalSymbolOffset);
+      operandTypes.emplace_back(rewriter.getIndexType());
 
-          newType.dump();
-          for (auto& result : childResults) {
-            result.dump();
-          }
+      // Insert the return type of NextValue
+      auto returnTypeName = std::get<boss::Symbol>(complexExpr.getArguments()[1]).getName();
+      operandTypes.emplace_back(boss::mlir::conversion::stringToMLIRType(context, returnTypeName));
 
-          auto symbolOp = rewriter.create<sexpr::SymbolOp>(
-              loc, newType, StringAttr::get(symbolName, rewriter.getContext()), childResults);
+      TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
+      auto newType =
+          boss::mlir::inference::inferSymbolType("NextValue", operandTypes, typeContext);
 
-          returnValue = symbolOp.getResult();
-        }), e);
+      auto symbolOp = rewriter.create<sexpr::SymbolOp>(
+          loc, newType, StringAttr::get("NextValue", rewriter.getContext()), childResults);
+      symbolOp.setAttr("relationName", rewriter.getStringAttr(relationName));
+      symbolOp.setAttr("fieldName", rewriter.getStringAttr(fieldName));
+
+      returnValue = symbolOp.getResult();
+    };
+
+    std::visit(
+        boss::utilities::overload(
+            [&](int a) {
+              auto intOp = rewriter.create<ConstantIntOp>(loc, a, 32);
+              returnValue = intOp.getResult();
+            },
+            [&](float a) {
+              auto floatOp =
+                  rewriter.create<ConstantFloatOp>(loc, APFloat(a), FloatType::getF32(context));
+              returnValue = floatOp.getResult();
+            },
+            [&](bool) { throw std::runtime_error("Not implemented: Type bool"); },
+            [&](size_t) { throw std::runtime_error("Not implemented: Type size_t"); },
+            [&](char const*) { throw std::runtime_error("Not implemented: Type string"); },
+            [&](std::string) { throw std::runtime_error("Not implemented: Type string"); },
+            [&](boss::Symbol) { throw std::runtime_error("Not implemented: Type symbol"); },
+            [&](boss::ComplexExpression ce) {
+              auto symbolName = ce.getHead().getName();
+
+              if (symbolName == "NextValue") {
+                handleNextValueSymbol();
+                return;
+              }
+
+              std::vector<mlir::Value> childResults;
+              std::vector<mlir::Type> operandTypes;
+              for(auto const& arg : ce.getArguments()) {
+                auto childValue = expressionToValue(arg, context);
+                childResults.emplace_back(childValue);
+                operandTypes.emplace_back(childValue.getType());
+              }
+
+              TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
+              auto newType =
+                  boss::mlir::inference::inferSymbolType(symbolName, operandTypes, typeContext);
+
+              auto symbolOp = rewriter.create<sexpr::SymbolOp>(
+                  loc, newType, StringAttr::get(symbolName, rewriter.getContext()), childResults);
+
+              returnValue = symbolOp.getResult();
+            }),
+        e);
     return returnValue;
   }
 
@@ -296,13 +366,14 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
     // Load the symbol offset
     auto globalOffsetArray = std::dynamic_pointer_cast<arrow::Int64Array>(structArray->field(1));
     auto rawOffsetArray = reinterpret_cast<size_t>(globalOffsetArray->raw_values());
-    auto globalOffset = rewriter.create<memory::LoadConstantAddressOp>(loc, rawOffsetArray, rewriter.getIndexType(), offset);
+    auto globalOffset = rewriter.create<memory::LoadConstantAddressOp>(
+        loc, rawOffsetArray, rewriter.getIndexType(), offset);
     globalSymbolOffset = globalOffset.getResult();
 
     // Generate code for symbol
     try {
       result = expressionToValue(it->second, context);
-    } catch (std::runtime_error const& e) {
+    } catch(std::runtime_error const& e) {
       return arrow::Status::NotImplemented(e.what());
     }
     return arrow::Status::OK();
@@ -334,10 +405,10 @@ struct NextValueOpLowering : public OpConversionPattern<database::NextValueOp> {
         op.getLoc(), reinterpret_cast<size_t>(rawValueOffsets),
         IntegerType::get(32, rewriter.getContext()), nextValueIndex.getResult());
 
-    auto typeIdIndex =
-        rewriter.create<mlir::IndexCastOp>(op.getLoc(), typeId.getResult(), rewriter.getIndexType());
-    auto valueOffsetIndex =
-        rewriter.create<mlir::IndexCastOp>(op.getLoc(), valueOffset.getResult(), rewriter.getIndexType());
+    auto typeIdIndex = rewriter.create<mlir::IndexCastOp>(op.getLoc(), typeId.getResult(),
+                                                          rewriter.getIndexType());
+    auto valueOffsetIndex = rewriter.create<mlir::IndexCastOp>(op.getLoc(), valueOffset.getResult(),
+                                                               rewriter.getIndexType());
 
     auto columnId = 0;
     auto relationFields = std::dynamic_pointer_cast<arrow::StructArray>(relation.get()->field(0))
@@ -352,9 +423,9 @@ struct NextValueOpLowering : public OpConversionPattern<database::NextValueOp> {
     auto relationAttr = rewriter.getIndexAttr(reinterpret_cast<size_t>(relation.get().get()));
     auto columnIdAttr = rewriter.getIndexAttr(columnId);
 
-    auto loadOp = rewriter.create<database::LoadArrayIndirectOp>(op.getLoc(), op.getType(), relationAttr,
-                                                   columnIdAttr, typeIdIndex.getResult(),
-                                                   valueOffsetIndex.getResult());
+    auto loadOp = rewriter.create<database::LoadArrayIndirectOp>(
+        op.getLoc(), op.getType(), relationAttr, columnIdAttr, typeIdIndex.getResult(),
+        valueOffsetIndex.getResult());
 
     rewriter.replaceOp(op, loadOp.getResult());
     return success();
@@ -379,6 +450,7 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
         database.getRelation(op.relationName().str()).get()->field(op.unionChildIndex());
     auto relationLength = unionChildArray->length();
     auto relation = std::dynamic_pointer_cast<arrow::StructArray>(unionChildArray);
+    auto relationType = relation->struct_type();
 
     // Create loop
     auto lowerBound = rewriter.create<ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
@@ -389,10 +461,12 @@ struct GetRelationOpLowering : public OpConversionPattern<database::GetRelationO
     rewriter.setInsertionPointToStart(loop.getBody());
 
     std::vector<::mlir::Value> loadedValues;
-    for(auto const& field : relation->fields()) {
+    for(auto i = 0; i < relation->num_fields(); i++) {
+      auto field = relation->field(i);
+      auto fieldName = relationType->field(i)->name();
       // Different loading code based on type
       ArrayLoaderTypeVisitor visitor(field, loop.getInductionVar(), rewriter, loc, database,
-                                     symbolTable);
+                                     symbolTable, op.relationName().str(), fieldName);
       auto status = field->type()->Accept(&visitor);
       if(!status.ok()) {
         throw std::runtime_error(status.message());
@@ -500,7 +574,7 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
       auto rightArray = structArray->field(rightFieldPosition);
 
       ArrayLoaderTypeVisitor visitor(rightArray, hashTableResult.getResult(), rewriter, op.getLoc(),
-                                     database, {});
+                                     database, {}, "", "");
       rightArray->type()->Accept(&visitor);
       auto rightValue = visitor.result;
 
@@ -537,7 +611,7 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
     // Load right values
     for(auto const& field : structArray->fields()) {
       ArrayLoaderTypeVisitor visitor(field, hashTableResult.getResult(), rewriter, op.getLoc(),
-                                     database, {});
+                                     database, {}, "", "");
       field->type()->Accept(&visitor);
       loadedTupleValues.emplace_back(visitor.result);
     }
@@ -773,12 +847,12 @@ void DatabaseLoweringPass::runOnOperation() {
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
 
   target.addIllegalDialect<mlir::database::DatabaseDialect>();
-  target
-      .addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
-                  database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
-                  database::FinalizeBuilderOp, database::AppendToRelationOp, database::HashValuesOp,
-                  database::InsertIntoHashTableOp, database::AdvanceBuilderOp,
-                  database::FindInHashTableOp, database::GroupByInsert, database::GroupByGet, database::LoadArrayIndirectOp>();
+  target.addLegalOp<database::ExtractFieldFromTupleOp, database::PackFieldsIntoTupleOp,
+                    database::CreateUnionTupleStream, database::GetTupleStreamFromUnion,
+                    database::FinalizeBuilderOp, database::AppendToRelationOp,
+                    database::HashValuesOp, database::InsertIntoHashTableOp,
+                    database::AdvanceBuilderOp, database::FindInHashTableOp,
+                    database::GroupByInsert, database::GroupByGet, database::LoadArrayIndirectOp>();
 
   target.addLegalDialect<::mlir::scf::SCFDialect>();
   target.addLegalDialect<::mlir::StandardOpsDialect>();

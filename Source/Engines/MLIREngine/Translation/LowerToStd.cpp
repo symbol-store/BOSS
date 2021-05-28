@@ -196,7 +196,8 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
   LogicalResult replaceBooleanCompareOp(sexpr::SymbolOp s, ArrayRef<Value> operands,
                                         ConversionPatternRewriter& rewriter) const {
 
-    if (s.getResult().getType().dyn_cast<SymbolOrValueType>().isSymbolic() == sexprtype::SymbolOrValue::SYMBOL) {
+    if(s.getResult().getType().dyn_cast<SymbolOrValueType>().isSymbolic() ==
+       sexprtype::SymbolOrValue::SYMBOL) {
       return replaceOpWithSymbol(s, rewriter);
     }
 
@@ -238,15 +239,19 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
            return success();
          }},
-        {"NextValue", [&]() {
-           s.dump();
+        {"NextValue",
+         [&]() {
            auto returnType = converter.convertType(s.getType());
 
-           // TODO don't hardcode things :(
-           auto nextVal = rewriter.create<database::NextValueOp>(s.getLoc(), returnType, "Foo", "A", s.getOperand(0), s.getOperand(1));
+           auto relationName = s.getAttrOfType<StringAttr>("relationName");
+           auto fieldName = s.getAttrOfType<StringAttr>("fieldName");
+
+           auto nextVal = rewriter.create<database::NextValueOp>(
+               s.getLoc(), returnType, relationName.getValue(), fieldName.getValue(),
+               s.getOperand(0), s.getOperand(1));
 
            rewriter.replaceOp(s, nextVal.getResult());
-            return success();
+           return success();
          }},
         {"GetRelation",
          [&]() {
@@ -324,8 +329,11 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
              auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
                  s.getLoc(), tupleStreamTy, operands[1], i);
 
-             auto func = ::mlir::dyn_cast<FuncOp>(module.lookupSymbol(filterFunctions[i].dyn_cast<StringAttr>().getValue()));
-             if (func.getType().getResult(0).isa<SymbolOrValueType>() && func.getType().getResult(0).dyn_cast<SymbolOrValueType>().isSymbolic() == sexprtype::SymbolOrValue::SYMBOL) {
+             auto func = ::mlir::dyn_cast<FuncOp>(
+                 module.lookupSymbol(filterFunctions[i].dyn_cast<StringAttr>().getValue()));
+             if(func.getType().getResult(0).isa<SymbolOrValueType>() &&
+                func.getType().getResult(0).dyn_cast<SymbolOrValueType>().isSymbolic() ==
+                    sexprtype::SymbolOrValue::SYMBOL) {
                // TODO conditional tuple, or something else?
                continue;
              }
@@ -501,8 +509,9 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
                  auto rightField = rightJoinFields[k].dyn_cast_or_null<StringAttr>().getValue();
 
                  auto leftType = leftStreamTy.getFields().find(leftField.str())->second;
+                 boss::mlir::inference::TypeInferenceContext typeContext{s.getContext(), nullptr, {}, &s};
                  auto rightType = boss::mlir::conversion::arrowTypeToMLIRType(
-                     s.getContext(), hashTableFields.find(rightField.str())->second);
+                     typeContext, hashTableFields.find(rightField.str())->second);
 
                  if(leftType != rightType) {
                    typesMatch = false;

@@ -8,47 +8,76 @@
 
 namespace boss::mlir::conversion {
 using namespace boss::mlir::types;
+using namespace mlir::inference;
+
+std::string symbolNameFromSymbolArray(std::shared_ptr<arrow::Array> array) {
+  auto typeNameSymbol = std::dynamic_pointer_cast<arrow::StructArray>(array);
+  auto typeNameStringDict = std::dynamic_pointer_cast<arrow::DictionaryArray>(typeNameSymbol->field(0));
+  auto typeNameStringArray = std::dynamic_pointer_cast<arrow::StringArray>(typeNameStringDict->dictionary());
+  auto typeName = typeNameStringArray->GetString(0);
+  return typeName;
+}
 
 struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
-  explicit ArrowToMlirTypeVisitor(::mlir::Type& resultType, ::mlir::MLIRContext* context)
+  explicit ArrowToMlirTypeVisitor(::mlir::Type& resultType, TypeInferenceContext& context)
       : resultType(resultType), context(context) {}
 
   arrow::Status Visit(const arrow::NullType& type) override {
-    resultType = ::mlir::NoneType::get(context);
+    resultType = ::mlir::NoneType::get(context.mlirContext);
     return arrow::Status::OK();
   }
   arrow::Status Visit(const arrow::BooleanType& type) override {
-    resultType = ::mlir::IntegerType::get(1, context);
+    resultType = ::mlir::IntegerType::get(1, context.mlirContext);
     return arrow::Status::OK();
   }
   arrow::Status Visit(const arrow::Int8Type& type) override {
-    resultType = ::mlir::IntegerType::get(8, context);
+    resultType = ::mlir::IntegerType::get(8, context.mlirContext);
     return arrow::Status::OK();
   }
   arrow::Status Visit(const arrow::FloatType& type) override {
-    resultType = ::mlir::Float32Type::get(context);
+    resultType = ::mlir::Float32Type::get(context.mlirContext);
     return arrow::Status::OK();
   }
   arrow::Status Visit(const arrow::Int32Type& type) override {
-    resultType = ::mlir::IntegerType::get(32, context);
+    resultType = ::mlir::IntegerType::get(32, context.mlirContext);
     return arrow::Status::OK();
   }
   arrow::Status Visit(const arrow::Int64Type& type) override {
-    resultType = ::mlir::IndexType::get(context);
+    resultType = ::mlir::IndexType::get(context.mlirContext);
     return arrow::Status::OK();
   }
   arrow::Status Visit(const arrow::StringType& type) override {
-    resultType = StringType::get(context, -1);
+    resultType = StringType::get(context.mlirContext, -1);
     return arrow::Status::OK();
   }
   arrow::Status Visit(const arrow::BinaryType& type) override {
-    resultType = SymbolOrValueType::get(context, sexprtype::SymbolOrValue::SYMBOL,
+    resultType = SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL,
                                         llvm::Optional<::mlir::Type>());
     return arrow::Status::OK();
   }
 
   arrow::Status Visit(const arrow::DictionaryType& type) override {
-    resultType = SymbolOrValueType::get(context, sexprtype::SymbolOrValue::SYMBOL, {});
+    resultType = SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
+    return arrow::Status::OK();
+  }
+
+  arrow::Status handleNextValueSymbol() {
+    std::vector<::mlir::Type> argumentTypes;
+    auto parentArray = std::dynamic_pointer_cast<arrow::StructArray>(context.currentArray);
+
+    // Convert the first argument (local offset)
+    ::mlir::Type convertedArgument;
+    context.currentArray = parentArray->field(1);
+    ArrowToMlirTypeVisitor childVisitor(convertedArgument, context);
+    argumentTypes.emplace_back(convertedArgument);
+    // Insert the global symbol offset argument
+    argumentTypes.emplace_back(::mlir::IndexType::get(context.mlirContext));
+
+    // Load the return type symbol and convert from string to type
+    auto symbolTypeName = symbolNameFromSymbolArray(parentArray->field(2));
+    auto type = stringToMLIRType(context.mlirContext, symbolTypeName);
+
+    resultType = type;
     return arrow::Status::OK();
   }
 
@@ -59,13 +88,17 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
 
     if (operationName == "Symbol") {
       // This expression represents a symbol with no arguments
-      resultType = SymbolOrValueType::get(context, sexprtype::SymbolOrValue::SYMBOL, {});
+      resultType = SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
       return arrow::Status::OK();
     }
+    if (operationName == "NextValue") {
+      return handleNextValueSymbol();
+    }
 
-    std::cout << type << std::endl;
+    auto parentArray = std::dynamic_pointer_cast<arrow::StructArray>(context.currentArray);
 
     for(auto i = 1; i < type.num_fields(); i++) {
+      context.currentArray = parentArray->field(i);
       ::mlir::Type convertedArgument;
       ArrowToMlirTypeVisitor childVisitor(convertedArgument, context);
       auto status = type.field(i)->type()->Accept(&childVisitor);
@@ -74,9 +107,9 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
       }
       argumentTypes.emplace_back(convertedArgument);
     }
+    context.currentArray = parentArray;
 
-    inference::TypeInferenceContext typeContext(context, nullptr, {}, nullptr);
-    resultType = inference::inferSymbolType(operationName, argumentTypes, typeContext);
+    resultType = inference::inferSymbolType(operationName, argumentTypes, context);
     if(resultType.isa<SymbolOrValueType>() &&
        resultType.dyn_cast<SymbolOrValueType>().isSymbolic() == sexprtype::SymbolOrValue::VALUE) {
       resultType = resultType.dyn_cast<SymbolOrValueType>().getBaseType();
@@ -85,10 +118,10 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
   }
 
   ::mlir::Type& resultType;
-  ::mlir::MLIRContext* context;
+  TypeInferenceContext& context;
 };
 
-::mlir::Type arrowTypeToMLIRType(::mlir::MLIRContext* context, arrow::DataType* arrowType) {
+::mlir::Type arrowTypeToMLIRType(inference::TypeInferenceContext& context, arrow::DataType* arrowType) {
   ::mlir::Type mlirType;
   ArrowToMlirTypeVisitor visitor{mlirType, context};
   auto status = arrowType->Accept(&visitor);

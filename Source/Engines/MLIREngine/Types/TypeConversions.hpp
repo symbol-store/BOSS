@@ -1,6 +1,7 @@
 #pragma once
-#include "Engines/MLIREngine/Types/Types.hpp"
 #include "Engines/MLIREngine/Dialect/DatabaseDialect/DatabaseTypes.h"
+#include "Engines/MLIREngine/Types/Types.hpp"
+#include "TypeInference.hpp"
 #include <arrow/api.h>
 #include <mlir/IR/Types.h>
 #include <vector>
@@ -12,7 +13,7 @@ arrow::Schema* tupleStreamTypeToArrowSchema(TupleStreamUnionType& t);
 
 std::shared_ptr<arrow::DataType> mlirTypeToArrowType(::mlir::Type const& type);
 
-::mlir::Type arrowTypeToMLIRType(::mlir::MLIRContext* context, arrow::DataType* type);
+::mlir::Type arrowTypeToMLIRType(boss::mlir::inference::TypeInferenceContext& context, arrow::DataType* type);
 
 boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type, bool extractSymbol);
 
@@ -23,5 +24,7 @@ size_t mlirTypeToArrowRawBuffer(arrow::ChunkedArray* array, ::mlir::Type type, i
 ::mlir::Type stringToMLIRType(::mlir::MLIRContext* context, std::string typeName);
 
 ::mlir::Type runtimeTypeToMLIRType(boss::mlir::types::RuntimeTypes type, ::mlir::MLIRContext* context);
+
+std::string symbolNameFromSymbolArray(std::shared_ptr<arrow::Array> array);
 
 } // namespace boss

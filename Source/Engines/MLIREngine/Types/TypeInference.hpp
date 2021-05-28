@@ -51,6 +51,8 @@ struct TypeInferenceContext {
   ::mlir::MLIRContext* mlirContext;
   // The global database
   new_runtime::Database const* database;
+  // Relation and Field Name
+  std::shared_ptr<arrow::Array> currentArray;
   // The current fields that may exist from relations
   std::vector<std::map<std::string, ::mlir::Type>> activePartitions;
   // The current symbols that may otherwise be defined

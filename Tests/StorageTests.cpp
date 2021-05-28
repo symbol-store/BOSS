@@ -277,7 +277,7 @@ TEST_CASE("STORAGE_TEST") {
 
     relation.bulk_load({
                            {{"A", 1}, {"B", 5}},
-                           {{"A", "NextValue"_(1)}, {"B", 6}},
+                           {{"A", "NextValue"_(1, "Int"_)}, {"B", 6}},
                            {{"A", 2}, {"B", 7}}
                        });
 
@@ -313,7 +313,7 @@ TEST_CASE("STORAGE_TEST") {
     boss::engines::mlir::Engine engine(database);
 
     auto result = engine.evaluate(
-        "Assuming"_("x"_, "NextValue"_(1), "GroupBy"_("Fields"_("A"),
+        "Assuming"_("x"_, "NextValue"_(1, "Int"_), "GroupBy"_("Fields"_("A"),
                                         "Lambda"_("Args"_("Pair"_("currentValue", "Int")),
                                                   "Plus"_("Symbol"_("currentValue"), "Symbol"_("B"))),
                                         "GetRelation"_("Foo"))));
