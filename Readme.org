@@ -83,13 +83,13 @@
                     COMMENT
                     )
        (InsertInto Lineitem 1 1552 93 1 17 2471035 004 002 "N" "O"
-                   (UnixTime "1996-03-13") (UnixTime "1996-02-12") (UnixTime "1996-03-22")
+                   (UnixTime "1996-03-13" (Rule TimeZone 1)) (UnixTime "1996-02-12" (Rule TimeZone 1)) (UnixTime "1996-03-22" (Rule TimeZone 1))
                    "DELIVER IN PERSON" "TRUCK"   "egular courts above the")
        (InsertInto Lineitem 1 674  75 2 36 5668812 009 006 "N" "O"
-                   (UnixTime "1996-04-12") (UnixTime "1996-02-28") (UnixTime "1996-04-20")
+                   (UnixTime "1996-04-12" (Rule TimeZone 1)) (UnixTime "1996-02-28" (Rule TimeZone 1)) (UnixTime "1996-04-20" (Rule TimeZone 1))
                    "TAKE BACK RETURN"  "MAIL"    "ly final dependencies: slyly bold")
        (InsertInto Lineitem 1 637  38 3 8  1230104 010 002 "N" "O"
-                   (UnixTime "1996-01-29") (UnixTime "1996-03-05") (UnixTime "1996-01-31")
+                   (UnixTime "1996-01-29" (Rule TimeZone 1)) (UnixTime "1996-03-05" (Rule TimeZone 1)) (UnixTime "1996-01-31" (Rule TimeZone 1))
                    "TAKE BACK RETURN"  "REG AIR" "riously. regular, express dep")
        )))
 
@@ -137,7 +137,7 @@
               (Select Lineitem
                       (Where
                        (And
-                        (Greater SHIPDATE (UnixTime "1996-03-28"))
+                        (Greater SHIPDATE (UnixTime "1996-03-28" (Rule TimeZone 1)))
                         )
                        ))
               (Function 0)
@@ -164,8 +164,8 @@
                        (Where (And (Greater QUANTITY 25)
                                    (Greater DISCOUNT 3)
                                    (Greater 10 DISCOUNT)
-                                   (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                   (Greater SHIPDATE (UnixTime "1996-03-08"))
+                                   (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                   (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
                                    )))
                (As revenue (Times EXTENDEDPRICE DISCOUNT)))
               (Function 0)
@@ -178,8 +178,8 @@
                        (Where (And (Greater QUANTITY 25)
                                    (Greater DISCOUNT 3)
                                    (Greater 10 DISCOUNT)
-                                   (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                   (Greater SHIPDATE (UnixTime "1996-03-08"))
+                                   (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                   (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
                                    )))
                (As revenue (Times EXTENDEDPRICE DISCOUNT)))
               (Function 0) ;; everything goes in one group
@@ -192,8 +192,8 @@
                        (Where (And (Greater QUANTITY 25)
                                    (Greater DISCOUNT 3)
                                    (Greater 10 DISCOUNT)
-                                   (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                   (Greater SHIPDATE (UnixTime "1996-03-08"))
+                                   (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                   (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
                                    )))
                (As revenue (Times EXTENDEDPRICE DISCOUNT)))
               (Sum revenue)
@@ -205,8 +205,8 @@
                       (Where (And (Greater QUANTITY 25)
                                   (Greater DISCOUNT 3)
                                   (Greater 10 DISCOUNT)
-                                  (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                  (Greater SHIPDATE (UnixTime "1996-03-08"))
+                                  (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                  (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
                                   )))
               (As COMMENT COMMENT))  '(("ly final dependencies: slyly bold")) "projection")
 
@@ -215,8 +215,8 @@
                      (Where (And (Greater QUANTITY 25)
                                  (Greater DISCOUNT 3)
                                  (Greater 10 DISCOUNT)
-                                 (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                 (Greater SHIPDATE (UnixTime "1996-03-08"))
+                                 (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                 (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
                                  ))
                      ) '((1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000 829954800 "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold")) "TPC-H Q6")
 
