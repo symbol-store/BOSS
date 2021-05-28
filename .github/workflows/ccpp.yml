@@ -13,8 +13,8 @@ jobs:
     container:
       image: docker.pkg.github.com/little-big-h/buildenvironment/image:latest
       credentials:
-         username: little-big-h
-         password: 71589973e27e38bae496e2f4b49be18d2c4fc9f0
+         username: ${{ github.actor }}
+         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v2
     - name: check
@@ -31,8 +31,8 @@ jobs:
     container:
       image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
       credentials:
-         username: little-big-h
-         password: 71589973e27e38bae496e2f4b49be18d2c4fc9f0
+         username: ${{ github.actor }}
+         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v2
       with:
@@ -66,8 +66,8 @@ jobs:
     container:
       image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
       credentials:
-         username: little-big-h
-         password: 71589973e27e38bae496e2f4b49be18d2c4fc9f0
+         username: ${{ github.actor }}
+         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - name: Download artifact
       uses: actions/download-artifact@v2
@@ -85,8 +85,8 @@ jobs:
     container:
       image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
       credentials:
-         username: little-big-h
-         password: 71589973e27e38bae496e2f4b49be18d2c4fc9f0
+         username: ${{ github.actor }}
+         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v2
     - name: Download artifact

@@ -1,0 +1,12 @@
+  |--Sort(TOP 20, ORDER BY:([Expr1012] DESC))
+       |--Hash Match(Aggregate, HASH:([master].[dbo].[CUSTOMER].[C_CUSTKEY], [master].[dbo].[CUSTOMER].[C_NAME], [master].[dbo].[CUSTOMER].[C_ACCTBAL],
+                [master].[dbo].[CUSTOMER].[C_PHONE], [master].[dbo].[NATION].[N_NAME], [master].[dbo].[CUSTOMER].[C_ADDRESS], [master].[dbo].[CUSTOMER].[C_COMMENT]),
+                RESIDUAL:([master].[dbo].[CUSTOMER].[C_CUSTKEY] = [master].[dbo].[CUSTOMER].[C_CUSTKEY] AND [master].[dbo].[CUSTOMER].[C_NAME] = [master].[dbo].[CUSTOMER].[C_NAME] AND [master].[dbo].[CUSTOMER].[C_ACCTBAL] = [master].[dbo].[CUSTOMER].[C_ACCTBAL] AND [master].[dbo].[CUSTOMER].[C_PHONE] = [master].[dbo].[CUSTOMER].[C_PHONE] AND [master].[dbo].[NATION].[N_NAME] = [master].[dbo].[NATION].[N_NAME] AND [master].[dbo].[CUSTOMER].[C_ADDRESS] = [master].[dbo].[CUSTOMER].[C_ADDRESS] AND [master].[dbo].[CUSTOMER].[C_COMMENT] = [master].[dbo].[CUSTOMER].[C_COMMENT]) DEFINE:([Expr1012]=SUM([Expr1013])))
+            |--Hash Match(Inner Join, HASH:([master].[dbo].[LINEITEM].[L_ORDERKEY])=([master].[dbo].[ORDERS].[O_ORDERKEY]))
+                 |--Compute Scalar(DEFINE:([Expr1013]=[master].[dbo].[LINEITEM].[L_EXTENDEDPRICE]*((1.)-[master].[dbo].[LINEITEM].[L_DISCOUNT])))
+                 |    |--Table Scan(OBJECT:([master].[dbo].[LINEITEM]), WHERE:([master].[dbo].[LINEITEM].[L_RETURNFLAG]='R'))
+                 |--Hash Match(Inner Join, HASH:([master].[dbo].[ORDERS].[O_CUSTKEY])=([master].[dbo].[CUSTOMER].[C_CUSTKEY]))
+                      |--Table Scan(OBJECT:([master].[dbo].[ORDERS]), WHERE:([master].[dbo].[ORDERS].[O_ORDERDATE]>='1993-10-01' AND [master].[dbo].[ORDERS].[O_ORDERDATE]<'1994-01-01'))
+                      |--Hash Match(Inner Join, HASH:([master].[dbo].[NATION].[N_NATIONKEY])=([master].[dbo].[CUSTOMER].[C_NATIONKEY]))
+                           |--Table Scan(OBJECT:([master].[dbo].[NATION]))
+                           |--Table Scan(OBJECT:([master].[dbo].[CUSTOMER]))

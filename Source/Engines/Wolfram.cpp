@@ -3,6 +3,8 @@
 #include "../Utilities.hpp"
 #include "Wolfram.hpp"
 #include <iostream>
+#include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -13,6 +15,7 @@
 #define STRING(x) STRINGIFY(x) // NOLINT
 
 namespace boss::engines::wolfram {
+using std::set;
 using std::string;
 using std::to_string;
 using std::vector;
@@ -37,49 +40,66 @@ struct EngineImplementation {
     return symbolName;
   }
 
+  static auto mangle(std::string normalizedName) {
+    normalizedName = std::regex_replace(normalizedName, std::regex("_"), "$$0");
+    normalizedName = std::regex_replace(normalizedName, std::regex("\\."), "$$1");
+    return normalizedName;
+  }
+
+  static auto demangle(std::string normalizedName) {
+    normalizedName = std::regex_replace(normalizedName, std::regex("$0"), "_");
+    normalizedName = std::regex_replace(normalizedName, std::regex("$1"), ".");
+    return normalizedName;
+  }
+
   void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier,
                            std::ostream& console) {
-    std::visit(boss::utilities::overload(
-                   [&](bool a) {
-                     console << (a ? "True" : "False");
-                     WSPutSymbol(link, (a ? "True" : "False"));
-                   },
-                   [&](int a) {
-                     console << a;
-                     WSPutInteger(link, a);
-                   },
-                   [&](char const* a) {
-                     console << a;
-                     WSPutString(link, a);
-                   },
-                   [&](float a) {
-                     console << a;
-                     WSPutFloat(link, a);
-                   },
-                   [&](Symbol const& a) {
-                     console << (namespaceIdentifier + a.getName());
-                     WSPutSymbol(link, (namespaceIdentifier + a.getName()).c_str());
-                   },
-                   [&](std::string const& a) {
-                     console << "\"" << a << "\"";
-                     WSPutString(link, a.c_str());
-                   },
-                   [&](ComplexExpression const& expression) {
-                     console << (namespaceIdentifier + expression.getHead().getName()) << "[";
-                     WSPutFunction(link,
-                                   (namespaceIdentifier + expression.getHead().getName()).c_str(),
-                                   expression.getArguments().size());
-                     for(auto it = expression.getArguments().begin();
-                         it != expression.getArguments().end(); ++it) {
-                       auto const& argument = *it;
-                       if(it != expression.getArguments().begin()) {
-                         console << ", ";
-                       }
-                       putExpressionOnLink(argument, namespaceIdentifier, console);
-                     }
-                     console << "]";
-                   }),
-               expression);
+    std::visit(
+        boss::utilities::overload(
+            [&](bool a) {
+              console << (a ? "True" : "False");
+              WSPutSymbol(link, (a ? "True" : "False"));
+            },
+            [&](int a) {
+              console << a;
+              WSPutInteger(link, a);
+            },
+            [&](char const* a) {
+              console << a;
+              WSPutString(link, a);
+            },
+            [&](float a) {
+              console << a;
+              WSPutFloat(link, a);
+            },
+            [&](Symbol const& a) {
+              auto normalizedName = mangle(a.getName());
+              auto unnamespacedSymbols = set<string>{"TimeZone"};
+              auto namespaced =
+                  (unnamespacedSymbols.count(normalizedName) > 0 ? "" : namespaceIdentifier) +
+                  normalizedName;
+              console << namespaced;
+              WSPutSymbol(link, namespaced.c_str());
+            },
+            [&](std::string const& a) {
+              console << "\"" << a << "\"";
+              WSPutString(link, a.c_str());
+            },
+            [&](ComplexExpression const& expression) {
+              console << (namespaceIdentifier + expression.getHead().getName()) << "[";
+              WSPutFunction(link, (namespaceIdentifier + expression.getHead().getName()).c_str(),
+                            expression.getArguments().size());
+              for(auto it = expression.getArguments().begin();
+                  it != expression.getArguments().end(); ++it) {
+                auto const& argument = *it;
+                if(it != expression.getArguments().begin()) {
+                  console << ", ";
+                }
+                putExpressionOnLink(argument, namespaceIdentifier, console);
+              }
+              console << "]";
+            }),
+        expression);
   }
 
   Expression readExpressionFromLink() {
@@ -89,7 +109,6 @@ struct EngineImplementation {
       WSGetString(link, &resultAsCString);
       auto result = std::string(resultAsCString);
       WSReleaseString(link, resultAsCString);
-
       return result;
     }
     if(resultType == WSTKINT) {
@@ -115,7 +134,7 @@ struct EngineImplementation {
     if(resultType == WSTKSYM) {
       auto const* result = "";
       WSGetSymbol(link, &result);
-      auto resultingSymbol = Symbol(removeNamespace(result));
+      auto resultingSymbol = Symbol(demangle(removeNamespace(result)));
       WSReleaseSymbol(link, result);
       if(std::string("True") == resultingSymbol.getName()) {
         return true;
@@ -181,29 +200,60 @@ struct EngineImplementation {
     DefineFunction(
         "Project"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("projection"_, "Blank"_())},
         "Map"_("projection"_, namespaced("GetPersistentTableIfSymbol"_)("input"_)), {"HoldAll"_});
+
+    DefineFunction(
+        "ProjectAll"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("projection"_, "Blank"_())},
+        "Map"_("KeyMap"_("Function"_("oldname"_, "Symbol"_("StringJoin"_(
+                                                     DefaultNamespace, "SymbolName"_("projection"_),
+                                                     "$1", "SymbolName"_("oldname"_))))),
+               namespaced("GetPersistentTableIfSymbol"_)("input"_)),
+        {"HoldAll"_});
+
     DefineFunction(
         "Select"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("predicate"_, "Blank"_())},
         "Select"_(namespaced("GetPersistentTableIfSymbol"_)("input"_), "predicate"_), {"HoldAll"_});
 
     DefineFunction(
-        "GroupBy"_,
-        {"Pattern"_("input"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
-         "Pattern"_("aggregateFunction"_, "Blank"_())},
-        "Switch"_(
-            "aggregateFunction"_, //
-            namespaced("Count"_),
-            "Map"_("List"_,
-                   "Values"_("CountsBy"_(namespaced("GetPersistentTableIfSymbol"_)("input"_),
-                                         "groupFunction"_))),
-            "Blank"_(),
-            "Values"_("GroupBy"_(
-                namespaced("GetPersistentTableIfSymbol"_)("input"_), "groupFunction"_,
-                "Composition"_("Fold"_("Plus"_), "Apply"_("KeyTake"_, "aggregateFunction"_))))));
+        "Group"_,
+        {"Pattern"_("inputName"_, "Blank"_()), "Pattern"_("groupFunction"_, "Blank"_()),
+         "Pattern"_("aggregateFunctions"_, "BlankSequence"_())},
+        "With"_(
+            "List"_("Set"_("input"_, namespaced("GetPersistentTableIfSymbol"_)("inputName"_))),
 
-    DefineFunction("GroupBy"_,
-                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
-                   namespaced("GroupBy"_)("input"_, "Function"_(0), "aggregateFunction"_),
-                   {"HoldAll"_});
+            "Values"_("GroupBy"_(
+                "input"_, "groupFunction"_,
+                "Function"_(
+                    "groupedInput"_,
+                    "Merge"_(
+                        "Map"_(
+                            "Function"_(
+                                "aggregateFunction"_,
+                                "Construct"_(
+                                    "Switch"_(
+                                        "aggregateFunction"_, namespaced("Count"_),
+                                        "Composition"_(
+                                            "Association"_,
+                                            "Construct"_("CurryApplied"_("Rule"_, 2), "Count"_),
+                                            "Length"_),
+                                        "Blank"_(),
+                                        "Composition"_("Fold"_("Plus"_),
+                                                       "Apply"_("KeyTake"_, "aggregateFunction"_))),
+                                    "groupedInput"_)),
+                            "List"_("aggregateFunctions"_)),
+                        "First"_))))));
+
+    DefineFunction(
+        "Group"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
+        namespaced("Group"_)("input"_, "Function"_(0), "aggregateFunction"_), {"HoldAll"_});
+
+    DefineFunction("Order"_,
+                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("orderFunction"_, "Blank"_())},
+                   "SortBy"_("input"_, "orderFunction"_), {"HoldAll"_});
+
+    DefineFunction("Top"_,
+                   {"Pattern"_("input"_, "Blank"_()), "Pattern"_("orderFunction"_, "Blank"_()),
+                    "Pattern"_("number"_, "Blank"_("Integer"_))},
+                   "TakeSmallestBy"_("input"_, "orderFunction"_, "number"_), {"HoldAll"_});
 
     DefineFunction(
         "Join"_,
@@ -227,8 +277,10 @@ struct EngineImplementation {
     DefineFunction(
         "InsertInto"_,
         {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("tuple"_, "BlankSequence"_())},
-        "AppendTo"_("Database"_("relation"_),
-                    "Association"_("Thread"_("Rule"_("Schema"_("relation"_), "List"_("tuple"_))))),
+        "CompoundExpression"_("AppendTo"_("Database"_("relation"_),
+                                          "Association"_("Thread"_(
+                                              "Rule"_("Schema"_("relation"_), "List"_("tuple"_))))),
+                              "Null"_),
         {"HoldFirst"_});
   }
 
@@ -236,9 +288,9 @@ struct EngineImplementation {
     evalWithoutNamespace("Set"_("BOSSVersion"_, 1));
 
     for(std::string const& it :
-        vector{"Plus", "Length", "Times", "And", "UnixTime", "StringJoin", "Greater", "Symbol",
-               "UndefinedFunction", "Evaluate", "Set", "SortBy", "Values", "List", "Equal",
-               "Extract", "StringContainsQ"}) {
+        vector{"Plus", "Minus", "Length", "Times", "And", "UnixTime", "StringJoin", "Greater",
+               "Symbol", "UndefinedFunction", "Evaluate", "Set", "SortBy", "Values", "List", "Rule",
+               "Equal", "Extract", "StringContainsQ"}) {
       evalWithoutNamespace("Set"_(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
 

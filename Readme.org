@@ -1,5 +1,3 @@
-
-
 * BOSS
 ** Configuring
 *** Dependencies
@@ -7,11 +5,11 @@
 - Swig 4
 - Python3 libs
 - NumPy
-- Racket
+- Racket 7.9 (CS racket has a different C API and is the default from 8.0 onward). I used [[https://cmichel.io/how-to-install-an-old-package-version-with-brew/][these instructions]] to install 7.9 
 
 *** MacOS
 : brew install python3-numpy
-: brew install --cask racket
+: see instructions
 
 : cmake -DCMAKE_BUILD_TYPE=Debug -BDebug && cd Debug
 : OR
@@ -42,13 +40,15 @@
   ;; utilities
   (load-extension "RacketBOSS.so")
   (require rackunit)
+  (require rackunit/text-ui)
 
   (define-syntax-rule (expect producer expected message)
-    (check-equal?
+    (test-equal?
+     message
      (eval
       '((lambda ()
           producer
-          ))) expected message)
+          ))) expected)
     )
 
 
@@ -58,7 +58,7 @@
        (CreateTable Customer FirstName LastName)
        (InsertInto  Customer "Holger" "Pirk")
 
-       (CreateTable Part PPARTKEY Name)
+       (CreateTable Part P_PARTKEY Name)
        (InsertInto  Part 637 "Blobfish")
        (InsertInto  Part 674 "Banana Bread")
        (InsertInto  Part 891 "Horse")
@@ -83,154 +83,178 @@
                     COMMENT
                     )
        (InsertInto Lineitem 1 1552 93 1 17 2471035 004 002 "N" "O"
-                   (UnixTime "1996-03-13") (UnixTime "1996-02-12") (UnixTime "1996-03-22")
+                   (UnixTime "1996-03-13" (Rule TimeZone 1)) (UnixTime "1996-02-12" (Rule TimeZone 1)) (UnixTime "1996-03-22" (Rule TimeZone 1))
                    "DELIVER IN PERSON" "TRUCK"   "egular courts above the")
        (InsertInto Lineitem 1 674  75 2 36 5668812 009 006 "N" "O"
-                   (UnixTime "1996-04-12") (UnixTime "1996-02-28") (UnixTime "1996-04-20")
+                   (UnixTime "1996-04-12" (Rule TimeZone 1)) (UnixTime "1996-02-28" (Rule TimeZone 1)) (UnixTime "1996-04-20" (Rule TimeZone 1))
                    "TAKE BACK RETURN"  "MAIL"    "ly final dependencies: slyly bold")
        (InsertInto Lineitem 1 637  38 3 8  1230104 010 002 "N" "O"
-                   (UnixTime "1996-01-29") (UnixTime "1996-03-05") (UnixTime "1996-01-31")
+                   (UnixTime "1996-01-29" (Rule TimeZone 1)) (UnixTime "1996-03-05" (Rule TimeZone 1)) (UnixTime "1996-01-31" (Rule TimeZone 1))
                    "TAKE BACK RETURN"  "REG AIR" "riously. regular, express dep")
        )))
 
-  (expect (GroupBy Customer (Function tuple 0) Count) '((1)) "Grouping")
-  (expect (Plus 1 2 3) 6 "Arithmetic")
-  (expect (Greater 1 0) #t "Logic")
-  (expect (GroupBy
-                   (Select Customer
-                           (Function t (Greater 1 0)))
-                   (Function 0) Count) '((1)) "Select + Aggregate")
-  (expect (GroupBy
-                   (Select
-                    (Select Customer
-                            (Function t (Greater 1 0)))
-                    (Function t (Greater 1 0)))
-                   (Function 0) Count) '((1)) "Select + Select + Aggregate")
+  (exit
+   (run-tests
+    (test-suite
+     "All Tests"
 
-  (expect (GroupBy
-                   (Select
-                    (Select Lineitem
-                            (Where (Greater QUANTITY 15)))
-                    (Where (Greater DISCOUNT 5)))
-                   (Function 0)
-                   Count
-                   ) '((1)) "TPC-H Q6 simplified")
+     (expect (Group Customer (Function tuple 0) Count) '((1)) "Grouping")
+     (expect (Plus 1 2 3) 6 "Arithmetic")
+     (expect (Greater 1 0) #t "Logic")
+     (expect (Group
+              (Select Customer
+                      (Function t (Greater 1 0)))
+              (Function 0) Count) '((1)) "Select + Aggregate")
+     (expect (Group
+              (Select
+               (Select Customer
+                       (Function t (Greater 1 0)))
+               (Function t (Greater 1 0)))
+              (Function 0) Count) '((1)) "Select + Select + Aggregate")
 
-  (expect (GroupBy
-                   (Select Lineitem
-                           (Where
-                            (And
-                             (Greater DISCOUNT 5)
-                             (Greater QUANTITY 15)
-                             )
-                            ))
-                   (Function 0)
-                   Count
-                   ) '((1)) "TPC-H Q6 simplified")
+     (expect (Group
+              (Select
+               (Select Lineitem
+                       (Where (Greater QUANTITY 15)))
+               (Where (Greater DISCOUNT 5)))
+              (Function 0)
+              Count
+              ) '((1)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
-                   (Select Lineitem
-                           (Where
-                            (And
-                             (Greater SHIPDATE (UnixTime "1996-03-28"))
-                             )
-                            ))
-                   (Function 0)
-                   Count
-                   ) '((1)) "TPC-H Q6 simplified")
+     (expect (Group
+              (Select Lineitem
+                      (Where
+                       (And
+                        (Greater DISCOUNT 5)
+                        (Greater QUANTITY 15)
+                        )
+                       ))
+              (Function 0)
+              Count
+              ) '((1)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
-                   Lineitem
-                   (Function 0)
-                   (Sum QUANTITY)
-                   ) `((,(+ 17 36 8))) "TPC-H Q6 simplified")
+     (expect (Group
+              (Select Lineitem
+                      (Where
+                       (And
+                        (Greater SHIPDATE (UnixTime "1996-03-28" (Rule TimeZone 1)))
+                        )
+                       ))
+              (Function 0)
+              Count
+              ) '((1)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
-                   (Project
-                    Lineitem
-                    (As revenue (Times EXTENDEDPRICE DISCOUNT)))
-                   (Function 0)
-                   (Sum revenue)
-                   ) '((73204488)) "TPC-H Q6 simplified")
+     (expect (Group
+              Lineitem
+              (Function 0)
+              (Sum QUANTITY)
+              ) `((,(+ 17 36 8))) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
-                   (Project
-                    (Select Lineitem
-                            (Where (And (Greater QUANTITY 25)
-                                        (Greater DISCOUNT 3)
-                                        (Greater 10 DISCOUNT)
-                                        (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                        (Greater SHIPDATE (UnixTime "1996-03-08"))
-                                        )))
-                    (As revenue (Times EXTENDEDPRICE DISCOUNT)))
-                   (Function 0)
-                   Count
-                   ) '((1)) "TPC-H Q6 simplified")
+     (expect (Group
+              (Project
+               Lineitem
+               (As revenue (Times EXTENDEDPRICE DISCOUNT)))
+              (Function 0)
+              (Sum revenue)
+              ) '((73204488)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
-                   (Project
-                    (Select Lineitem
-                            (Where (And (Greater QUANTITY 25)
-                                        (Greater DISCOUNT 3)
-                                        (Greater 10 DISCOUNT)
-                                        (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                        (Greater SHIPDATE (UnixTime "1996-03-08"))
-                                        )))
-                    (As revenue (Times EXTENDEDPRICE DISCOUNT)))
-                   (Function 0) ;; everything goes in one group
-                   (Sum revenue)
-                   ) '((51019308)) "TPC-H Q6")
+     (expect (Group
+              (Project
+               (Select Lineitem
+                       (Where (And (Greater QUANTITY 25)
+                                   (Greater DISCOUNT 3)
+                                   (Greater 10 DISCOUNT)
+                                   (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                   (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
+                                   )))
+               (As revenue (Times EXTENDEDPRICE DISCOUNT)))
+              (Function 0)
+              Count
+              ) '((1)) "TPC-H Q6 simplified")
 
-  (expect (GroupBy
-                   (Project
-                    (Select Lineitem
-                            (Where (And (Greater QUANTITY 25)
-                                        (Greater DISCOUNT 3)
-                                        (Greater 10 DISCOUNT)
-                                        (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                        (Greater SHIPDATE (UnixTime "1996-03-08"))
-                                        )))
-                    (As revenue (Times EXTENDEDPRICE DISCOUNT)))
-                   (Sum revenue)
-                   ) '( (51019308)) "TPC-H Q6")
+     (expect (Group
+              (Project
+               (Select Lineitem
+                       (Where (And (Greater QUANTITY 25)
+                                   (Greater DISCOUNT 3)
+                                   (Greater 10 DISCOUNT)
+                                   (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                   (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
+                                   )))
+               (As revenue (Times EXTENDEDPRICE DISCOUNT)))
+              (Function 0) ;; everything goes in one group
+              (Sum revenue)
+              ) '((51019308)) "TPC-H Q6")
 
-
-  (expect (Project
-                   (Select Lineitem
-                           (Where (And (Greater QUANTITY 25)
-                                       (Greater DISCOUNT 3)
-                                       (Greater 10 DISCOUNT)
-                                       (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                       (Greater SHIPDATE (UnixTime "1996-03-08"))
-                                       )))
-                   (As COMMENT COMMENT))  '(("ly final dependencies: slyly bold")) "projection")
+     (expect (Group
+              (Project
+               (Select Lineitem
+                       (Where (And (Greater QUANTITY 25)
+                                   (Greater DISCOUNT 3)
+                                   (Greater 10 DISCOUNT)
+                                   (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                   (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
+                                   )))
+               (As revenue (Times EXTENDEDPRICE DISCOUNT)))
+              (Sum revenue)
+              ) '( (51019308)) "TPC-H Q6")
 
 
-  (expect (Select Lineitem
-                               (Where (And (Greater QUANTITY 25)
-                                           (Greater DISCOUNT 3)
-                                           (Greater 10 DISCOUNT)
-                                           (Greater (UnixTime "1998-01-01") SHIPDATE)
-                                           (Greater SHIPDATE (UnixTime "1996-03-08"))
-                                           ))
-                               ) '((1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000 829954800 "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold")) "TPC-H Q6")
+     (expect (Project
+              (Select Lineitem
+                      (Where (And (Greater QUANTITY 25)
+                                  (Greater DISCOUNT 3)
+                                  (Greater 10 DISCOUNT)
+                                  (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                  (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
+                                  )))
+              (As COMMENT COMMENT))  '(("ly final dependencies: slyly bold")) "projection")
 
-  (expect (length
-           (GroupBy Lineitem (By TAX) (Sum QUANTITY) ))
-          2 "Grouping Result Size")
 
-  (expect
-           (GroupBy Lineitem (By TAX) (Sum QUANTITY) )
-           '((25) (36)) "Grouping + Sum Results")
+     (expect (Select Lineitem
+                     (Where (And (Greater QUANTITY 25)
+                                 (Greater DISCOUNT 3)
+                                 (Greater 10 DISCOUNT)
+                                 (Greater (UnixTime "1998-01-01" (Rule TimeZone 1)) SHIPDATE)
+                                 (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
+                                 ))
+                     ) '((1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000 829954800 "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold")) "TPC-H Q6")
 
-  (expect
-           (GroupBy Lineitem (By TAX) Count )
-           '((2) (1)) "Grouping + Count Results")
+     (expect (length
+              (Group Lineitem (By TAX) (Sum QUANTITY) ))
+             2 "Grouping Result Size")
 
-  (expect (Join Lineitem Part (Where (Equal PARTKEY PPARTKEY)))
-          '((1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000 829954800
-               "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold" 674 "Banana Bread")
-            (1 637 38 3 8 1230104 10 2 "N" "O" 822870000 825980400 823042800
-               "TAKE BACK RETURN" "REG AIR" "riously. regular, express dep" 637 "Blobfish")
-            ) "Join")
+     (expect
+      (Group Lineitem (By TAX) (Sum QUANTITY) )
+      '((25) (36)) "Grouping + Sum Results")
+
+     (expect
+      (Group Lineitem (By ORDERKEY) Count )
+      '((3)) "Grouping + Count Results")
+
+     (expect
+      (Group Lineitem (By TAX) Count )
+      '((2) (1)) "Grouping + Count Results")
+
+     (expect (Join Lineitem Part (Where (Equal PARTKEY P_PARTKEY)))
+             '((1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000 829954800
+                  "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold" 674 "Banana Bread")
+               (1 637 38 3 8 1230104 10 2 "N" "O" 822870000 825980400 823042800
+                  "TAKE BACK RETURN" "REG AIR" "riously. regular, express dep" 637 "Blobfish")
+               ) "Join")
+
+     (expect
+      (Group
+       (ProjectAll
+        Lineitem
+        li)
+       (Sum li.QUANTITY))
+      '((61)) "ProjectAll simplified")
+
+     (expect
+      (Group Lineitem (By TAX) (Sum QUANTITY) (Sum EXTENDEDPRICE) )
+      '((25 3701139) (36 5668812)) "Grouping + Sum Results")
+     )
+    )
+   )
 #+end_src

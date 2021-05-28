@@ -86,16 +86,16 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLIN
     }
 
     SECTION("Aggregation") {
-      INFO(eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_)))
-      CHECK(eval("Extract"_("Extract"_("GroupBy"_("Customer"_, "Function"_(0), "Count"_), 1), 1)) ==
+      INFO(eval("Group"_("Customer"_, "Function"_(0), "Count"_)))
+      CHECK(eval("Extract"_("Extract"_("Group"_("Customer"_, "Function"_(0), "Count"_), 1), 1)) ==
             Expression(3));
-      INFO(eval("GroupBy"_(
+      INFO(eval("Group"_(
           ("Select"_("Customer"_,
                      "Function"_("tuple"_, "StringContainsQ"_("Madden", "Column"_("tuple"_, 2))))),
           "Function"_(0), "Count"_)))
       CHECK(
           eval("Extract"_(
-              "Extract"_("GroupBy"_(("Select"_("Customer"_,
+              "Extract"_("Group"_(("Select"_("Customer"_,
                                                "Function"_("tuple"_,
                                                            "StringContainsQ"_(
                                                                "Madden", "Column"_("tuple"_, 2))))),
@@ -195,10 +195,10 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLIN
     }
 
     SECTION("Aggregation") {
-      auto const& countRows = eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_));
+      auto const& countRows = eval("Group"_("Customer"_, "Function"_(0), "Count"_));
       INFO("countRows=" << countRows << "\n" << eval("Extract"_("Extract"_(countRows, 1))));
       CHECK(get<int>(eval("Extract"_("Extract"_(countRows, 1), 1))) == 3);
-      auto const& countMadden = eval("GroupBy"_(
+      auto const& countMadden = eval("Group"_(
           ("Select"_("Customer"_,
                      "Function"_("tuple"_, "StringContainsQ"_("Madden", "Column"_("tuple"_, 3))))),
           "Function"_(0), "Count"_));
