@@ -4,6 +4,7 @@
 #include "Wolfram.hpp"
 #include <iostream>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -14,6 +15,7 @@
 #define STRING(x) STRINGIFY(x) // NOLINT
 
 namespace boss::engines::wolfram {
+using std::set;
 using std::string;
 using std::to_string;
 using std::vector;
@@ -71,8 +73,12 @@ struct EngineImplementation {
                    },
                    [&](Symbol const& a) {
                      auto normalizedName = mangle(a.getName());
-                     console << (namespaceIdentifier + normalizedName);
-                     WSPutSymbol(link, (namespaceIdentifier + normalizedName).c_str());
+                     auto unnamespacedSymbols = set<string>{"TimeZone"};
+                     auto namespaced =
+                         (unnamespacedSymbols.count(normalizedName) ? "" : namespaceIdentifier) +
+                         normalizedName;
+                     console << namespaced;
+                     WSPutSymbol(link, namespaced.c_str());
                    },
                    [&](std::string const& a) {
                      console << "\"" << a << "\"";
