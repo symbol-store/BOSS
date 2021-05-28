@@ -66,12 +66,12 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
     }
 
     SECTION("Aggregation") {
-      REQUIRE(eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_)) == "List"_("List"_(3)));
+      REQUIRE(eval("Group"_("Customer"_, "Function"_(0), "Count"_)) == "List"_("List"_(3)));
       REQUIRE(
-          eval("GroupBy"_(("Select"_("Customer"_,
-                                     "Function"_("tuple"_, "StringContainsQ"_(
-                                                               "Madden", "Column"_("tuple"_, 2))))),
-                          "Function"_(0), "Count"_)) == "List"_("List"_(1)));
+          eval("Group"_(("Select"_("Customer"_,
+                                   "Function"_("tuple"_, "StringContainsQ"_(
+                                                             "Madden", "Column"_("tuple"_, 2))))),
+                        "Function"_(0), "Count"_)) == "List"_("List"_(1)));
     }
 
     SECTION("Join") {
@@ -154,13 +154,13 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
     }
 
     SECTION("Aggregation") {
-      auto const& countRows = eval("GroupBy"_("Customer"_, "Function"_(0), "Count"_));
+      auto const& countRows = eval("Group"_("Customer"_, "Function"_(0), "Count"_));
       INFO("countRows=" << countRows << "\n" << eval("Extract"_("Extract"_(countRows, 1))));
       CHECK(get<int>(eval("Extract"_("Extract"_(countRows, 1), 1))) == 3);
       CHECK(get<int>(eval("Extract"_(
-                "Extract"_("GroupBy"_(("Select"_("Customer"_, "Where"_("StringContainsQ"_(
-                                                                  "Madden", "LastName"_)))),
-                                      "Function"_(0), "Count"_),
+                "Extract"_("Group"_(("Select"_("Customer"_, "Where"_("StringContainsQ"_(
+                                                                "Madden", "LastName"_)))),
+                                    "Function"_(0), "Count"_),
                            1),
                 1))) == 1);
     }
