@@ -5,7 +5,7 @@
 #include <wstp.h>
 
 namespace boss::engines::wolfram {
-using WolframExpressionSystem =  ExtensibleExpressionSystem<std::vector<int>>;
+using WolframExpressionSystem = ExtensibleExpressionSystem<std::vector<int>>;
 using AtomicExpression = WolframExpressionSystem::AtomicExpression;
 using ComplexExpression = WolframExpressionSystem::ComplexExpression;
 using Expression = WolframExpressionSystem::Expression;

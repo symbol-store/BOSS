@@ -28,12 +28,14 @@ public:
     return typename ExpressionSystem::Expression(v);
   }
 
-  template <typename... Ts> typename ExpressionSystem::ComplexExpression operator()(Ts... args /*a*/) const {
+  template <typename... Ts>
+  typename ExpressionSystem::ComplexExpression operator()(Ts... args /*a*/) const {
     return typename ExpressionSystem::ComplexExpression{
         s, {convertConstCharToStringAndOnToExpression<decltype(args)>(args)...}};
   };
-  friend typename ExpressionSystem::Expression operator|(typename ExpressionSystem::Expression const& expression,
-                                                ExtensibleExpressionBuilder const& builder) {
+  friend typename ExpressionSystem::Expression
+  operator|(typename ExpressionSystem::Expression const& expression,
+            ExtensibleExpressionBuilder const& builder) {
     return builder(expression);
   };
   operator Symbol() const { return Symbol(s); } // NOLINT
