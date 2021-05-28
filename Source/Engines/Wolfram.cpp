@@ -75,7 +75,7 @@ struct EngineImplementation {
                      auto normalizedName = mangle(a.getName());
                      auto unnamespacedSymbols = set<string>{"TimeZone"};
                      auto namespaced =
-                         (unnamespacedSymbols.count(normalizedName) ? "" : namespaceIdentifier) +
+                         (unnamespacedSymbols.count(normalizedName) > 0 ? "" : namespaceIdentifier) +
                          normalizedName;
                      console << namespaced;
                      WSPutSymbol(link, namespaced.c_str());
