@@ -155,6 +155,7 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
   mlir::Location loc;
   new_runtime::Database& database;
   std::unordered_map<std::string, boss::Expression> const& symbolTable;
+  ::mlir::Value globalSymbolOffset;
 
   // TODO remaining types
   arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
@@ -213,9 +214,69 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
 
     auto symbolOp = rewriter.create<sexpr::SymbolOp>(
         loc, newType, StringAttr::get(symbolName, rewriter.getContext()), childResults);
+    globalSymbolOffset = symbolOp.getResult();
 
     result = symbolOp.getResult();
     return arrow::Status::OK();
+  }
+
+  mlir::Value expressionToValue(boss::Expression const& e, MLIRContext* context) {
+    mlir::Value returnValue;
+    std::visit(boss::utilities::overload(
+        [&](int a) {
+          auto intOp = rewriter.create<ConstantIntOp>(loc, a, 32);
+          returnValue = intOp.getResult();
+        },
+        [&](float a) {
+          auto floatOp = rewriter.create<ConstantFloatOp>(loc, APFloat(a),
+                                                          FloatType::getF32(context));
+          returnValue = floatOp.getResult();
+        },
+        [&](bool) {
+          throw std::runtime_error("Not implemented: Type bool");
+        },
+        [&](size_t) {
+          throw std::runtime_error("Not implemented: Type size_t");
+        },
+        [&](char const*) {
+          throw std::runtime_error("Not implemented: Type string");
+        },
+        [&](std::string) {
+          throw std::runtime_error("Not implemented: Type string");
+        },
+        [&](boss::Symbol) {
+          throw std::runtime_error("Not implemented: Type symbol");
+        },
+        [&](boss::ComplexExpression ce) {
+          auto symbolName = ce.getHead().getName();
+
+          std::vector<mlir::Value> childResults;
+          std::vector<mlir::Type> operandTypes;
+          for (auto const& arg : ce.getArguments()) {
+            auto childValue = expressionToValue(arg, context);
+            childResults.emplace_back(childValue);
+            operandTypes.emplace_back(childValue.getType());
+          }
+
+          if (symbolName == "NextValue") {
+            childResults.push_back(globalSymbolOffset);
+            operandTypes.push_back(rewriter.getIndexType());
+          }
+
+          TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
+          auto newType = boss::mlir::inference::inferSymbolType(symbolName, operandTypes, typeContext);
+
+          newType.dump();
+          for (auto& result : childResults) {
+            result.dump();
+          }
+
+          auto symbolOp = rewriter.create<sexpr::SymbolOp>(
+              loc, newType, StringAttr::get(symbolName, rewriter.getContext()), childResults);
+
+          returnValue = symbolOp.getResult();
+        }), e);
+    return returnValue;
   }
 
   arrow::Status handleSymbol() {
@@ -226,46 +287,25 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
     auto symbolArray = std::dynamic_pointer_cast<arrow::StringArray>(dictArray->dictionary());
     auto symbol = symbolArray->GetString(0);
 
+    // Look up the symbol in the symbol table
     auto it = symbolTable.find(symbol);
     if(it == symbolTable.end()) {
       return arrow::Status::NotImplemented("Not implemented: Undefined symbol " + symbol);
     }
 
-    arrow::Status resultStatus;
-    std::visit(boss::utilities::overload(
-                   [&](int a) {
-                     auto intOp = rewriter.create<ConstantIntOp>(loc, a, 32);
-                     result = intOp.getResult();
-                     resultStatus = arrow::Status::OK();
-                   },
-                   [&](float a) {
-                     auto floatOp = rewriter.create<ConstantFloatOp>(loc, APFloat(a),
-                                                                     FloatType::getF32(context));
-                     result = floatOp.getResult();
-                     resultStatus = arrow::Status::OK();
-                   },
-                   [&](bool) {
-                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type bool");
-                   },
-                   [&](size_t) {
-                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type size_t");
-                   },
-                   [&](char const*) {
-                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type string");
-                   },
-                   [&](std::string) {
-                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type string");
-                   },
-                   [&](boss::Symbol) {
-                     resultStatus = arrow::Status::NotImplemented("Not implemented: Type symbol");
-                   },
-                   [&](boss::ComplexExpression) {
-                     resultStatus =
-                         arrow::Status::NotImplemented("Not implemented: Type complex expression");
-                   }),
-               it->second);
+    // Load the symbol offset
+    auto globalOffsetArray = std::dynamic_pointer_cast<arrow::Int64Array>(structArray->field(1));
+    auto rawOffsetArray = reinterpret_cast<size_t>(globalOffsetArray->raw_values());
+    auto globalOffset = rewriter.create<memory::LoadConstantAddressOp>(loc, rawOffsetArray, rewriter.getIndexType(), offset);
+    globalSymbolOffset = globalOffset.getResult();
 
-    return resultStatus;
+    // Generate code for symbol
+    try {
+      result = expressionToValue(it->second, context);
+    } catch (std::runtime_error const& e) {
+      return arrow::Status::NotImplemented(e.what());
+    }
+    return arrow::Status::OK();
   }
 };
 

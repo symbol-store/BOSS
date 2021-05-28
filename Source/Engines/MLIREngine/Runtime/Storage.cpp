@@ -195,7 +195,8 @@ public:
     auto parentStatus = Append();
     ARROW_RETURN_NOT_OK(parentStatus);
     for(auto const& field : tuple) {
-      auto childStatus = appendToChildBuilder(field.second, this->child_builder(i++), globalUnionIndex);
+      auto childStatus =
+          appendToChildBuilder(field.second, this->child_builder(i++), globalUnionIndex);
       ARROW_RETURN_NOT_OK(childStatus);
     }
     return arrow::Status::OK();
@@ -256,7 +257,7 @@ private:
                     std::make_shared<arrow::Field>("arg" + std::to_string(fields.size()), nullptr));
               }
 
-              if (e.getHead().getName() == "NextValue") {
+              if(e.getHead().getName() == "NextValue") {
                 // If the symbol is next value, also add an index for this value
                 argBuilders.push_back(std::make_shared<arrow::Int64Builder>());
                 fields.push_back(std::make_shared<arrow::Field>("GlobalOffset", nullptr));
@@ -269,7 +270,8 @@ private:
   }
 
   arrow::Status appendToChildBuilder(Expression const& expr,
-                                     std::shared_ptr<arrow::ArrayBuilder> const& childBuilder, size_t globalIdx) {
+                                     std::shared_ptr<arrow::ArrayBuilder> const& childBuilder,
+                                     size_t globalIdx) {
     return std::visit(
         boss::utilities::overload(
             [&](bool v) {
@@ -313,7 +315,7 @@ private:
               }
 
               // If the symbol needs to refer to other database values, add index
-              if (e.getHead().getName() == "NextValue") {
+              if(e.getHead().getName() == "NextValue") {
                 auto idxBdr = exprBuilder->child_builder(e.getArguments().size() + 1);
                 auto s = std::dynamic_pointer_cast<arrow::Int64Builder>(idxBdr)->Append(globalIdx);
                 ARROW_RETURN_NOT_OK(s);
@@ -352,9 +354,10 @@ public:
 
 private:
   arrow::Status appendToChildBuilder(Tuple const& tuple,
-                                            std::shared_ptr<ArrayBuilder> const& childBuilder) {
+                                     std::shared_ptr<ArrayBuilder> const& childBuilder) {
     auto globalUnionIndex = length() - 1;
-    return std::dynamic_pointer_cast<TypedDatabaseBuilder>(childBuilder)->AppendTuple(tuple, globalUnionIndex);
+    return std::dynamic_pointer_cast<TypedDatabaseBuilder>(childBuilder)
+        ->AppendTuple(tuple, globalUnionIndex);
   }
 
   static std::shared_ptr<TypedDatabaseBuilder> makeTypedDatabaseBuilder(Tuple const& tuple) {
@@ -461,14 +464,13 @@ int8_t new_runtime::RelationBuilder::getOrCreateTypedStructBuilderIndex(
   return childBuilderIndex->second;
 }
 
-extern "C" int loadIndirect_Int(arrow::DenseUnionArray* array, size_t columnIndex, size_t typeId, size_t valueOffset) {
+extern "C" int loadIndirect_Int(arrow::DenseUnionArray* array, size_t columnIndex, size_t typeId,
+                                size_t valueOffset) {
   auto childArray = array->field(typeId);
   auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(childArray);
   auto column = structArray->field(columnIndex);
   auto intColumn = std::dynamic_pointer_cast<arrow::Int32Array>(column);
-  std::cout << intColumn->ToString() << std::endl;
-  auto result = intColumn->Value(valueOffset);
-  return result;
+  return intColumn->Value(valueOffset);
 }
 
 extern "C" new_runtime::Relation* finalizeRelationBuilder(new_runtime::RelationBuilder& builder) {
