@@ -186,10 +186,46 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
     return arrow::Status::OK();
   }
 
+  arrow::Status Visit(const arrow::StringType& type) override {
+    auto typedArray = std::dynamic_pointer_cast<arrow::StringArray>(baseArray);
+
+    auto intType = rewriter.getIntegerType(32);
+
+    // Load the starting offset of the string
+    auto stringOffset = rewriter.create<memory::LoadConstantAddressOp>(
+        loc, reinterpret_cast<size_t>(typedArray->raw_value_offsets()), intType,
+        offset);
+
+    // Calculate the next offset, to load the ending offset of the string
+    auto one = rewriter.create<ConstantIndexOp>(loc, 1);
+    auto nextOffset = rewriter.create<AddIOp>(loc, one, offset);
+    auto endOffset = rewriter.create<memory::LoadConstantAddressOp>(
+        loc, reinterpret_cast<size_t>(typedArray->raw_value_offsets()), intType,
+        nextOffset);
+
+    // Calculate string length
+    auto length = rewriter.create<SubIOp>(loc, endOffset, stringOffset);
+    auto length64 = rewriter.create<IndexCastOp>(loc, length, rewriter.getIndexType());
+
+    auto stringOffset64 = rewriter.create<IndexCastOp>(loc, stringOffset, rewriter.getIndexType());
+
+    auto basePtr =
+        rewriter.create<ConstantIndexOp>(loc, reinterpret_cast<size_t>(typedArray->raw_data()));
+    auto actualAddress = rewriter.create<AddIOp>(loc, basePtr, stringOffset64);
+
+    // TODO find a way to reuse this memory
+    auto stringRef = rewriter.create<memory::StringReferenceOp>(
+        loc, StringType::get(rewriter.getContext()), actualAddress, length64);
+    result = stringRef.getResult();
+    return arrow::Status::OK();
+  }
+
   static std::string symbolNameFromSymbolArray(std::shared_ptr<arrow::Array> array) {
     auto typeNameSymbol = std::dynamic_pointer_cast<arrow::StructArray>(array);
-    auto typeNameStringDict = std::dynamic_pointer_cast<arrow::DictionaryArray>(typeNameSymbol->field(0));
-    auto typeNameStringArray = std::dynamic_pointer_cast<arrow::StringArray>(typeNameStringDict->dictionary());
+    auto typeNameStringDict =
+        std::dynamic_pointer_cast<arrow::DictionaryArray>(typeNameSymbol->field(0));
+    auto typeNameStringArray =
+        std::dynamic_pointer_cast<arrow::StringArray>(typeNameStringDict->dictionary());
     auto typeName = typeNameStringArray->GetString(0);
     return typeName;
   }
@@ -239,7 +275,7 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
       // This complex expression is just a single symbol
       return handleSymbol();
     }
-    if (symbolName == "NextValue") {
+    if(symbolName == "NextValue") {
       // This complex expression refers to some other database value - special case
       return handleNextValueSymbol(type);
     }
@@ -293,8 +329,7 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
       operandTypes.emplace_back(boss::mlir::conversion::stringToMLIRType(context, returnTypeName));
 
       TypeInferenceContext typeContext(rewriter.getContext(), &database, {}, nullptr);
-      auto newType =
-          boss::mlir::inference::inferSymbolType("NextValue", operandTypes, typeContext);
+      auto newType = boss::mlir::inference::inferSymbolType("NextValue", operandTypes, typeContext);
 
       auto symbolOp = rewriter.create<sexpr::SymbolOp>(
           loc, newType, StringAttr::get("NextValue", rewriter.getContext()), childResults);
@@ -323,7 +358,7 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
             [&](boss::ComplexExpression ce) {
               auto symbolName = ce.getHead().getName();
 
-              if (symbolName == "NextValue") {
+              if(symbolName == "NextValue") {
                 handleNextValueSymbol();
                 return;
               }

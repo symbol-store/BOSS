@@ -15,4 +15,6 @@ TEST_CASE("CompilerTest") {
           "howdie world");
   }
 
+  // TODO check unevaluated symbols
+
 }

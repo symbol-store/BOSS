@@ -25,7 +25,7 @@ static const StringRef symbolArgStructName{"SymbolArgStruct"};
 static const StringRef stringStructName{"RuntimeStringStruct"};
 static const StringRef voidStructName{"VoidStruct"};
 
-LLVM::LLVMType getRuntimeStructType(MLIRContext* context) {
+LLVM::LLVMType getRuntimeStringStructType(MLIRContext* context) {
   auto type = LLVM::LLVMStructType::getIdentified(context, stringStructName);
   type.setBody({LLVM::LLVMPointerType::get(LLVM::LLVMIntegerType::get(context, 8)),
                 LLVM::LLVMIntegerType::get(context, 64)},
@@ -335,6 +335,34 @@ struct AppendToRelationOpLowering : public OpConversionPattern<database::AppendT
     return rewriter.create<LLVM::CallOp>(loc, funcOp, funcOperands);
   }
 
+  template <>
+  mlir::Operation* createAppendCall<boss::mlir::types::RuntimeTypes::STRING>(
+      ConversionPatternRewriter& rewriter, ModuleOp module, Value operand, Location loc,
+      size_t relationBuilderPtr) const {
+
+    auto voidType = LLVM::LLVMVoidType::get(rewriter.getContext());
+    auto intType = LLVM::LLVMIntegerType::get(rewriter.getContext(), 64);
+    auto stringPtrType = LLVM::LLVMPointerType::get(getRuntimeStringStructType(rewriter.getContext()));
+    auto funcType = LLVM::LLVMFunctionType::get(
+        voidType, {intType, stringPtrType});
+
+    auto insertFunction = getOrInsertFunction("addToRelation_String", funcType, rewriter, module);
+
+    auto relationPtrConstant = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVM::LLVMType::getInt64Ty(rewriter.getContext()),
+        rewriter.getIntegerAttr(rewriter.getIndexType(), relationBuilderPtr));
+
+    ::mlir::ValueRange funcOperands{relationPtrConstant.getResult(), operand};
+
+    auto funcOp = dyn_cast_or_null<LLVM::LLVMFuncOp>(module.lookupSymbol(insertFunction));
+
+    if(!funcOp) {
+      return nullptr;
+    }
+
+    return rewriter.create<LLVM::CallOp>(loc, funcOp, funcOperands);
+  }
+
   LogicalResult matchAndRewrite(database::AppendToRelationOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
     auto parentModule = op.getParentOfType<ModuleOp>();
@@ -352,6 +380,10 @@ struct AppendToRelationOpLowering : public OpConversionPattern<database::AppendT
       break;
     case boss::mlir::types::RuntimeTypes::FLOAT:
       callOp = createAppendCall<boss::mlir::types::RuntimeTypes::FLOAT>(
+          rewriter, parentModule, operands.front(), op.getLoc(), op.relationBuilderPtr());
+      break;
+    case boss::mlir::types::RuntimeTypes::STRING:
+      callOp = createAppendCall<boss::mlir::types::RuntimeTypes::STRING>(
           rewriter, parentModule, operands.front(), op.getLoc(), op.relationBuilderPtr());
       break;
     default:
@@ -531,7 +563,7 @@ struct AllocateStringOpLowering : public OpConversionPattern<memory::AllocateStr
                                 ConversionPatternRewriter& rewriter) const override {
     auto parentModule = op.getParentOfType<ModuleOp>();
     auto* context = op.getContext();
-    auto stringPtr = LLVM::LLVMPointerType::get(getRuntimeStructType(context));
+    auto stringPtr = LLVM::LLVMPointerType::get(getRuntimeStringStructType(context));
     auto indexType = LLVM::LLVMIntegerType::get(context, 64);
 
     auto funcType = LLVM::LLVMFunctionType::get(stringPtr, {indexType});
@@ -554,7 +586,7 @@ struct StringLengthOpLowering : public OpConversionPattern<memory::StringLengthO
                                 ConversionPatternRewriter& rewriter) const override {
     auto loc = op.getLoc();
     auto context = op.getContext();
-    auto stringStructType = getRuntimeStructType(context);
+    auto stringStructType = getRuntimeStringStructType(context);
 
     auto stringStruct = rewriter.create<LLVM::LoadOp>(loc, stringStructType, operands[0]);
     auto stringLen = rewriter.create<LLVM::ExtractValueOp>(
@@ -575,7 +607,7 @@ struct StringCopyOpLowering : public OpConversionPattern<memory::StringCopyOp> {
     auto parentModule = op.getParentOfType<ModuleOp>();
 
     // Get all types
-    auto stringStructType = getRuntimeStructType(context);
+    auto stringStructType = getRuntimeStringStructType(context);
     auto charPtrType = LLVM::LLVMPointerType::get(LLVM::LLVMIntegerType::get(context, 8));
     auto sizeType = LLVM::LLVMIntegerType::get(context, 64);
     auto voidType = LLVM::LLVMVoidType::get(context);
@@ -620,7 +652,7 @@ struct StringReferenceOpLowering : public OpConversionPattern<memory::StringRefe
     auto parentModule = op.getParentOfType<ModuleOp>();
 
     // Get types
-    auto stringStructType = getRuntimeStructType(context);
+    auto stringStructType = getRuntimeStringStructType(context);
     auto stringStructPtrType = LLVM::LLVMPointerType::get(stringStructType);
     auto bytePointer = LLVM::LLVMPointerType::get(LLVM::LLVMIntegerType::get(context, 8));
     auto sizeType = LLVM::LLVMIntegerType::get(context, 64);
@@ -814,7 +846,7 @@ void SexprToLLVMLoweringPass::runOnOperation() {
       LLVM::LLVMStructType::createStructTy(&getContext(), symbolArgStructName);
 
   // Insert RuntimeString struct type
-  auto runtimeStringStruct = getRuntimeStructType(&getContext());
+  auto runtimeStringStruct = getRuntimeStringStructType(&getContext());
 
   // clang-format off
   // LLVM representation of struct ::Symbol

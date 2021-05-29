@@ -336,6 +336,12 @@ TEST_CASE("STORAGE_TEST") {
                            {{"A", 3}, {"B", "world"}}
                        });
 
+    auto stru = std::dynamic_pointer_cast<arrow::StructArray>(relation.get()->field(0));
+    auto stri = std::dynamic_pointer_cast<arrow::StringArray>(stru->field(1));
+
+//    std::cout << stri->value_offsets()->ToString() << std::endl;
+//    std::cout << stri->value_data()->ToString() << std::endl;
+
     new_runtime::Database database;
 
     database.addRelation("Foo", std::move(relation));

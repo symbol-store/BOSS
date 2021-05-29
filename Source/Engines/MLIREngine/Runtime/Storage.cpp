@@ -1,6 +1,7 @@
 #include "Storage.hpp"
 
 #include "Utilities.hpp"
+#include "Strings.hpp"
 #include <functional>
 #include <iostream>
 #include <map>
@@ -10,6 +11,7 @@ using boss::Expression;
 using boss::ExpressionArguments;
 using boss::Symbol;
 using boss::utilities::operator""_;
+using boss::mlir::runtime::string::RuntimeString;
 
 using std::string;
 using namespace std::string_literals;
@@ -487,6 +489,11 @@ extern "C" void addToRelation_Float(arrow::ArrayBuilder* builder, float value) {
 
 extern "C" void addToRelation_Bool(arrow::ArrayBuilder* builder, bool value) {
   auto status = dynamic_cast<arrow::BooleanBuilder*>(builder)->Append(value);
+}
+
+extern "C" void addToRelation_String(arrow::ArrayBuilder* builder, RuntimeString* value) {
+  auto stringArray = dynamic_cast<arrow::StringBuilder*>(builder);
+  auto status = stringArray->Append(value->data, value->length);
 }
 
 extern "C" size_t advanceBuilder(arrow::StructBuilder* structBuilder,
