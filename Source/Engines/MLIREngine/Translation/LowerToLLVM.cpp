@@ -22,7 +22,17 @@ std::mutex printMutex;
 
 static const StringRef symbolStructName{"SymbolStruct"};
 static const StringRef symbolArgStructName{"SymbolArgStruct"};
+static const StringRef stringStructName{"RuntimeStringStruct"};
 static const StringRef voidStructName{"VoidStruct"};
+
+LLVM::LLVMType getRuntimeStructType(MLIRContext* context) {
+  auto type = LLVM::LLVMStructType::getIdentified(context, stringStructName);
+  type.setBody({LLVM::LLVMPointerType::get(LLVM::LLVMIntegerType::get(context, 8)),
+                LLVM::LLVMIntegerType::get(context, 64)},
+               false);
+
+  return type;
+}
 
 /// Insert or get a function into the llvm namespace
 static FlatSymbolRefAttr getOrInsertFunction(std::string name, LLVM::LLVMType functionType,
@@ -514,6 +524,136 @@ struct GroupByInsertLowering : public OpConversionPattern<database::GroupByInser
   }
 };
 
+struct AllocateStringOpLowering : public OpConversionPattern<memory::AllocateStringOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(memory::AllocateStringOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto parentModule = op.getParentOfType<ModuleOp>();
+    auto* context = op.getContext();
+    auto stringPtr = LLVM::LLVMPointerType::get(getRuntimeStructType(context));
+    auto indexType = LLVM::LLVMIntegerType::get(context, 64);
+
+    auto funcType = LLVM::LLVMFunctionType::get(stringPtr, {indexType});
+    auto allocString =
+        getOrInsertFunction("allocateRuntimeString", funcType, rewriter, parentModule);
+
+    auto allocCall = rewriter.create<CallOp>(op.getLoc(), allocString, funcType.getReturnType(),
+                                             ValueRange{operands[0]});
+
+    rewriter.replaceOp(op, allocCall.getResult(0));
+    op.replaceAllUsesWith(allocCall.getResult(0));
+    return success();
+  }
+};
+
+struct StringLengthOpLowering : public OpConversionPattern<memory::StringLengthOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(memory::StringLengthOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto loc = op.getLoc();
+    auto context = op.getContext();
+    auto stringStructType = getRuntimeStructType(context);
+
+    auto stringStruct = rewriter.create<LLVM::LoadOp>(loc, stringStructType, operands[0]);
+    auto stringLen = rewriter.create<LLVM::ExtractValueOp>(
+        loc, LLVM::LLVMIntegerType::get(context, 64), stringStruct.getResult(),
+        rewriter.getArrayAttr({rewriter.getIndexAttr(1)}));
+    rewriter.replaceOp(op, stringLen.getResult());
+    return success();
+  }
+};
+
+struct StringCopyOpLowering : public OpConversionPattern<memory::StringCopyOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(memory::StringCopyOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto loc = op.getLoc();
+    auto context = op.getContext();
+    auto parentModule = op.getParentOfType<ModuleOp>();
+
+    // Get all types
+    auto stringStructType = getRuntimeStructType(context);
+    auto charPtrType = LLVM::LLVMPointerType::get(LLVM::LLVMIntegerType::get(context, 8));
+    auto sizeType = LLVM::LLVMIntegerType::get(context, 64);
+    auto voidType = LLVM::LLVMVoidType::get(context);
+    auto memcpyType = LLVM::LLVMFunctionType::get(voidType, {charPtrType, charPtrType, sizeType});
+    auto memcpyFunc = getOrInsertFunction("memcpy", memcpyType, rewriter, parentModule);
+
+    // Load src and dest raw pointers
+    auto firstStructField = rewriter.getArrayAttr({rewriter.getIndexAttr(0)});
+    auto secondStructField = rewriter.getArrayAttr({rewriter.getIndexAttr(1)});
+    auto sourceStruct = rewriter.create<LLVM::LoadOp>(loc, stringStructType, op.source());
+    auto sourcePtr = rewriter.create<LLVM::ExtractValueOp>(
+        loc, charPtrType, sourceStruct.getResult(), firstStructField);
+    auto sourceLen = rewriter.create<LLVM::ExtractValueOp>(loc, sizeType, sourceStruct.getResult(),
+                                                           secondStructField);
+    auto destStruct = rewriter.create<LLVM::LoadOp>(loc, stringStructType, op.dest());
+    auto destPtr = rewriter.create<LLVM::ExtractValueOp>(loc, charPtrType, destStruct.getResult(),
+                                                         firstStructField);
+
+    // Compute destination pointer with offset
+    auto destPtrAsInt = rewriter.create<LLVM::PtrToIntOp>(loc, sizeType, destPtr.getResult());
+    auto destWithOffsetInt = rewriter.create<LLVM::AddOp>(loc, destPtrAsInt, op.offset());
+    auto destPtrWithOffset = rewriter.create<LLVM::IntToPtrOp>(loc, charPtrType, destWithOffsetInt);
+
+    // Call copy function
+    rewriter.create<CallOp>(loc, memcpyFunc, voidType,
+                            ValueRange{destPtrWithOffset, sourcePtr, sourceLen});
+    rewriter.eraseOp(op);
+
+    parentModule.dump();
+
+    return success();
+  }
+};
+
+struct StringReferenceOpLowering : public OpConversionPattern<memory::StringReferenceOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(memory::StringReferenceOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto loc = op.getLoc();
+    auto context = op.getContext();
+    auto parentModule = op.getParentOfType<ModuleOp>();
+
+    // Get types
+    auto stringStructType = getRuntimeStructType(context);
+    auto stringStructPtrType = LLVM::LLVMPointerType::get(stringStructType);
+    auto bytePointer = LLVM::LLVMPointerType::get(LLVM::LLVMIntegerType::get(context, 8));
+    auto sizeType = LLVM::LLVMIntegerType::get(context, 64);
+    auto allocStringRefType =
+        LLVM::LLVMFunctionType::get(stringStructPtrType, {bytePointer, sizeType});
+    auto allocStringRefFunc = getOrInsertFunction("allocateRuntimeStringReference",
+                                                  allocStringRefType, rewriter, parentModule);
+
+    // Create the memory for the struct holding the string pointer and length
+    auto stringDataPtr = rewriter.create<LLVM::IntToPtrOp>(loc, bytePointer, op.pointer());
+    auto stringStructMem =
+        rewriter.create<CallOp>(loc, allocStringRefFunc, stringStructPtrType,
+                                ValueRange{stringDataPtr.getResult(), op.length()});
+    // TODO create a way to re-use references
+    //    auto stringStructPtr =
+    //        rewriter.create<LLVM::IntToPtrOp>(loc, stringStructPtrType,
+    //        stringStructMem.getResults());
+
+    //    // Copy over the pointer and length
+    //    rewriter.create<LLVM::StoreOp>(loc, stringStructPtr.getResult(), op.pointer());
+    //    // Calculate address of length field
+    //    auto sizeOffset = rewriter.create<mlir::ConstantIndexOp>(loc, 8);
+    //    auto firstFieldAddr = rewriter.create<LLVM::AddOp>(
+    //        loc, LLVM::LLVMIntegerType::get(context, 64),
+    //        ValueRange{stringStructMem.getResult(0), sizeOffset.getResult()});
+
+    //    rewriter.create<LLVM::StoreOp>(loc, firstFieldAddr.getResult(), op.length());
+
+    rewriter.replaceOp(op, stringStructMem.getResults());
+    return success();
+  }
+};
+
 struct HashValuesOpLowering : public OpConversionPattern<database::HashValuesOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -623,7 +763,8 @@ struct AdvanceBuilderOpLowering : public OpConversionPattern<database::AdvanceBu
 };
 
 struct LoadArrayIndirectOpLowering : public OpConversionPattern<database::LoadArrayIndirectOp> {
-  LoadArrayIndirectOpLowering(MLIRContext* context, LLVMTypeConverter& converter): OpConversionPattern(context), converter(converter) {}
+  LoadArrayIndirectOpLowering(MLIRContext* context, LLVMTypeConverter& converter)
+      : OpConversionPattern(context), converter(converter) {}
 
   LogicalResult matchAndRewrite(database::LoadArrayIndirectOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
@@ -672,6 +813,9 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   auto symbolArgumentStruct =
       LLVM::LLVMStructType::createStructTy(&getContext(), symbolArgStructName);
 
+  // Insert RuntimeString struct type
+  auto runtimeStringStruct = getRuntimeStructType(&getContext());
+
   // clang-format off
   // LLVM representation of struct ::Symbol
   symbolStruct.cast<LLVM::LLVMStructType>().setBody({
@@ -690,6 +834,10 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   }, false);
   // clang-format on
 
+  // clang-format off
+//  runtimeStringStruct.cast<LLVM::LLVMStructType>().setBody(, false);
+  // clang-format on
+
   typeConverter.addConversion([](SymbolOrValueType t) -> llvm::Optional<Type> {
     if(t.isSymbolic() == sexprtype::SymbolOrValue::SYMBOL)
       return LLVM::LLVMPointerType::get(
@@ -702,17 +850,22 @@ void SexprToLLVMLoweringPass::runOnOperation() {
     return LLVM::LLVMIntegerType::get(t.getContext(), 32);
   });
 
+  typeConverter.addConversion(
+      [&](StringType t) { return LLVM::LLVMPointerType::get(runtimeStringStruct); });
+
   OwningRewritePatternList patterns;
   populateLoopToStdConversionPatterns(patterns, &getContext());
   populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
   patterns
       .insert<PrintMemrefOpLowering, AllocateSymbolOpLowering, AllocateSymbolicFunctionOpLowering,
-              LoadConstantAddressOpLowering, GroupByGetLowering, LoadArrayIndirectOpLowering>(&getContext(), typeConverter);
+              LoadConstantAddressOpLowering, GroupByGetLowering, LoadArrayIndirectOpLowering>(
+          &getContext(), typeConverter);
 
   patterns.insert<FinalizeBuilderOpLowering, AppendToRelationOpLowering, AdvanceBuilderOpLowering,
                   HashValuesOpLowering, InsertHashtableOpLowering, HashFindOpLowering,
-                  GroupByInsertLowering>(&getContext());
+                  GroupByInsertLowering, AllocateStringOpLowering, StringReferenceOpLowering,
+                  StringCopyOpLowering, StringLengthOpLowering>(&getContext());
 
   auto module = getOperation();
 

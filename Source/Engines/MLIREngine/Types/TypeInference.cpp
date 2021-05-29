@@ -213,23 +213,12 @@ static const auto inferGetRelationType = [](std::vector<::mlir::Type> const& /*a
 };
 
 static const auto inferStringJoin = [](std::vector<::mlir::Type> const& arguments,
-                                       TypeInferenceContext& context) {
-  int totalLength = 0;
-  for(auto const& arg : arguments) {
-    ::mlir::Type extractedType;
-    if(arg.isa<SymbolOrValueType>()) {
-      extractedType = arg.dyn_cast<SymbolOrValueType>().getBaseType();
-    } else {
-      extractedType = arg;
-    }
-    auto str = extractedType.dyn_cast_or_null<StringType>();
-    if(!str) {
-      throw std::runtime_error("Expected all arguments to be strings");
-    }
-    totalLength += str.getLength();
+                                       TypeInferenceContext& context) -> ::mlir::Type {
+  if (hasSymbolicArguments(arguments)) {
+    return SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
   }
 
-  return StringType::get(context.mlirContext, totalLength);
+  return StringType::get(context.mlirContext);
 };
 
 static const auto inferSelectType = [](std::vector<::mlir::Type> const& arguments,

@@ -9,33 +9,9 @@ namespace sexprtype {
 enum class SymbolOrValue { SYMBOL, VALUE, UNKNOWN };
 }; // namespace sexprtype
 
-struct StringTypeStorage : public ::mlir::TypeStorage {
-  StringTypeStorage(size_t length) : length(length) {}
-
-  using KeyTy = size_t;
-
-  bool operator==(const KeyTy& key) const { return key == length; }
-
-  static llvm::hash_code hashKey(const KeyTy& key) { return key; }
-
-  static KeyTy getKey(size_t length) { return length; }
-
-  static StringTypeStorage* construct(::mlir::TypeStorageAllocator& allocator, const KeyTy& key) {
-    return new(allocator.allocate<StringTypeStorage>()) StringTypeStorage(key);
-  }
-
-  size_t length;
-};
-
-class StringType : public ::mlir::Type::TypeBase<StringType, ::mlir::Type, StringTypeStorage> {
+class StringType : public mlir::Type::TypeBase<StringType, mlir::Type, mlir::TypeStorage> {
 public:
   using Base::Base;
-
-  static StringType get(::mlir::MLIRContext* context, size_t length) {
-    return Base::get<size_t>(context, length);
-  }
-
-  size_t getLength() { return getImpl()->length; }
 };
 
 struct SymbolOrValueTypeStorage : public ::mlir::TypeStorage {

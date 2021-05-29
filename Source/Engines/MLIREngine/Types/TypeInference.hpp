@@ -32,8 +32,8 @@ struct TypeInferenceContext {
                 this->symbolTable[name] = ::mlir::IntegerType::get(64, mlirContext);
               },
               [&](bool e) { this->symbolTable[name] = ::mlir::IntegerType::get(1, mlirContext); },
-              [&](char const* e) { this->symbolTable[name] = StringType::get(mlirContext, -1); },
-              [&](std::string e) { this->symbolTable[name] = StringType::get(mlirContext, -1); },
+              [&](char const* e) { this->symbolTable[name] = StringType::get(mlirContext); },
+              [&](std::string e) { this->symbolTable[name] = StringType::get(mlirContext); },
               [&](float e) { this->symbolTable[name] = ::mlir::Float32Type::get(mlirContext); },
               [&](Symbol e) {
                 this->symbolTable[name] =

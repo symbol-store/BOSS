@@ -8,6 +8,7 @@
 #include "Engines/MLIREngine/Runtime/HashTable.hpp"
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 #include "Engines/MLIREngine/Types/TypeConversions.hpp"
+#include "Engines/MLIREngine/Runtime/Strings.hpp"
 #include "SexprToStd.hpp"
 #include "Utilities.hpp"
 #include <array>
@@ -29,6 +30,8 @@
 
 namespace {
 using namespace mlir;
+
+using boss::mlir::runtime::string::RuntimeString;
 
 std::atomic<int> stringCounter{0};
 
@@ -153,42 +156,25 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
 
   LogicalResult rewriteStringJoin(sexpr::SymbolOp& s, ArrayRef<Value> operands,
                                   ConversionPatternRewriter& rewriter) const {
-    // Find lenght of total joined string
-    // Just nullbyte
-    int64_t stringLength = 1;
-    for(auto const& operand : operands) {
-      if(operand.getType().dyn_cast<MemRefType>()) {
-        // Don't add nullbyte of each string
-        stringLength += operand.getType().dyn_cast<MemRefType>().getDimSize(0) - 1;
-      } else {
-        return failure();
-      }
+
+    std::vector<::mlir::Value> lengths;
+    auto totalLen = rewriter.create<ConstantIndexOp>(s.getLoc(), 0).getResult();
+    for (auto operand : operands) {
+      auto length = rewriter.create<memory::StringLengthOp>(s.getLoc(), operand);
+      totalLen = rewriter.create<AddIOp>(s.getLoc(), totalLen, length.getResult()).getResult();
+      lengths.emplace_back(length.getResult());
     }
 
-    // Create new buffer
-    auto memRefType = MemRefType::get({stringLength}, rewriter.getIntegerType(8));
-    auto allocatedMemory =
-        rewriter.create<AllocOp, MemRefType&>(rewriter.getUnknownLoc(), memRefType);
+    auto newString = rewriter.create<memory::AllocateStringOp>(s.getLoc(), totalLen);
 
-    int64_t offset = 0;
-    for(auto const& operand : operands) {
-      auto currentLength = operand.getType().cast<MemRefType>().getDimSize(0) - 1;
-
-      auto offsetVal = rewriter.create<ConstantIndexOp, int64_t&>(rewriter.getUnknownLoc(), offset);
-      createStringCopyLoop(operand, allocatedMemory.getResult(), currentLength, rewriter,
-                           offsetVal);
-
-      offset += currentLength;
+    auto offset = rewriter.create<ConstantIndexOp>(s.getLoc(), 0).getResult();
+    for (auto i = 0U; i < operands.size(); i++) {
+      rewriter.create<memory::StringCopyOp>(s.getLoc(), operands[i], newString.getResult(), offset);
+      offset = rewriter.create<AddIOp>(s.getLoc(), offset, lengths[i]).getResult();
     }
-    auto zeroTerminator =
-        rewriter.create<mlir::ConstantIntOp, int64_t, unsigned>(rewriter.getUnknownLoc(), 0, 8);
-    auto endIndex =
-        rewriter.create<mlir::ConstantIndexOp, int64_t>(rewriter.getUnknownLoc(), stringLength - 1);
-    rewriter.create<StoreOp, Value, Value, ValueRange>(
-        rewriter.getUnknownLoc(), zeroTerminator.getResult(), allocatedMemory.getResult(),
-        endIndex.getResult());
 
-    rewriter.replaceOp(s.getOperation(), allocatedMemory.getResult());
+    rewriter.replaceOp(s, newString.getResult());
+
     return success();
   }
 
@@ -591,44 +577,15 @@ struct ConstantStringOpLowering : public OpConversionPattern<sexpr::StringConsta
 
   LogicalResult matchAndRewrite(sexpr::StringConstantOp op, ArrayRef<Value> /*operands*/,
                                 ConversionPatternRewriter& rewriter) const override {
+    auto loc = op.getLoc();
 
-    // Length of the string with null terminator
-    auto stringLength = op.value().size() + 1;
-    auto memRefType =
-        MemRefType::get({static_cast<int64_t>(stringLength)}, rewriter.getIntegerType(8));
+    auto* string = static_cast<char*>(malloc(op.value().size()));
+    memcpy(string, op.value().str().c_str(), op.value().size());
 
-    // Set insertino point to main module body to insert global string
-    auto currentLocation = rewriter.saveInsertionPoint();
-    rewriter.setInsertionPointToStart(op.getParentOfType<ModuleOp>().getBody());
+    auto stringRef = rewriter.create<ConstantIndexOp>(loc, reinterpret_cast<size_t>(string));
+    auto stringLen = rewriter.create<ConstantIndexOp>(loc, reinterpret_cast<size_t>(op.value().size()));
 
-    llvm::SmallVector<int8_t, 30> stringWithNullTerminator{op.value().bytes()};
-    stringWithNullTerminator.push_back(0);
-
-    int currentString = stringCounter++;
-
-    // Create a global memory reference to our string
-    rewriter.create<mlir::GlobalMemrefOp, ::llvm::StringRef, mlir::StringAttr, ::mlir::TypeAttr,
-                    mlir::Attribute, bool>(
-        rewriter.getUnknownLoc(), std::to_string(currentString), nullptr, TypeAttr::get(memRefType),
-        DenseElementsAttr::get(
-            RankedTensorType::get({static_cast<int64_t>(stringLength)}, rewriter.getIntegerType(8)),
-            ArrayRef<int8_t>(stringWithNullTerminator)),
-        false);
-
-    // Restore insertion point to current function
-    rewriter.restoreInsertionPoint(currentLocation);
-
-    // Get memory for a) global string just created and b) local copy
-    auto memref = rewriter.create<mlir::GetGlobalMemrefOp, Type&, StringRef>(
-        rewriter.getUnknownLoc(), memRefType, std::to_string(currentString));
-    auto allocatedMemory =
-        rewriter.create<AllocOp, MemRefType&>(rewriter.getUnknownLoc(), memRefType);
-    auto offset = rewriter.create<ConstantIndexOp, int64_t>(op.getLoc(), 0);
-    createStringCopyLoop(memref.getResult(), allocatedMemory.getResult(), stringLength, rewriter,
-                         offset.getResult());
-
-    rewriter.replaceOp(op.getOperation(), allocatedMemory.getResult());
-
+    rewriter.replaceOpWithNewOp<memory::StringReferenceOp>(op, StringType::get(op.getContext()), stringRef, stringLen);
     return success();
   }
 
@@ -730,11 +687,6 @@ void populateSymbolToStdPatterns(OwningRewritePatternList& patterns, TypeConvert
     c.convertTypes(inputTypes, convertedInputs);
 
     return FunctionType::get(convertedInputs, convertedOutputs, t.getContext());
-  });
-  c.addConversion([](StringType t) -> llvm::Optional<Type> {
-    // Return memory buffer of length + 1 to account for null byte
-    return MemRefType::get({static_cast<int64_t>(t.getLength() + 1)},
-                           IntegerType::get(8, t.getContext()));
   });
 
   patterns.insert<SymbolOpLowering, EndOpLowering, ConstantOpLowering, ConstantStringOpLowering>(

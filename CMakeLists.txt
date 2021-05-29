@@ -110,6 +110,7 @@ set(MLIREngineImplFiles
   Source/Engines/MLIREngine/Runtime/BuiltinOps.cpp
   Source/Engines/MLIREngine/Runtime/HashTable.cpp
   Source/Engines/MLIREngine/Runtime/HashAggregate.cpp
+  Source/Engines/MLIREngine/Runtime/Strings.cpp
   Source/Engines/MLIREngine/Executors/Interpreter.cpp
   Source/Engines/MLIREngine/Executors/Compiler.cpp
 )
@@ -125,7 +126,7 @@ get_property(interface_libs GLOBAL PROPERTY MLIR_INTERFACES)
 
 set(ImplementationFiles Source/BOSS.cpp Source/Engines/Wolfram.cpp ${MLIREngineImplFiles})
 set(ExecutableFiles Source/main.cpp)
-set(TestFiles Tests/BOSSTests.cpp Tests/StorageTests.cpp Tests/InterpreterTests.cpp)
+set(TestFiles Tests/BOSSTests.cpp Tests/StorageTests.cpp Tests/InterpreterTests.cpp Tests/CompilerTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 set(SwigFiles Source/BOSS.i)
 

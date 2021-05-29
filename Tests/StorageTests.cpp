@@ -324,6 +324,29 @@ TEST_CASE("STORAGE_TEST") {
     for (auto it = group->begin(); it != group->end(); it++) {
       std::cout << it->second << std::endl;
     }
+    CHECK(std::get<int>(group->begin()->second) == 13);
+  }
+
+  SECTION("Strings") {
+    new_runtime::Relation relation;
+
+    relation.bulk_load({
+                           {{"A", 1}, {"B", "hello"}},
+                           {{"A", 2}, {"B", "wonderful"}},
+                           {{"A", 3}, {"B", "world"}}
+                       });
+
+    new_runtime::Database database;
+
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto result = engine.evaluate("CollectTuples"_("GetRelation"_("Foo")));
+
+    auto ptr = std::get<size_t>(result);
+    auto* resultRel = reinterpret_cast<new_runtime::Relation*>(ptr);
+    auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(resultRel->get()->field(0));
+    auto firstCol = std::dynamic_pointer_cast<arrow::Int32Array>(structArray->field(0));
   }
 
 }

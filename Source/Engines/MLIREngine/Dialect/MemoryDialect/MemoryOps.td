@@ -16,8 +16,50 @@ def PrintMemrefOp : Memory_Op<"printMemref", []> {
   let arguments = (ins AnyMemRef:$ref);
 }
 
+def AllocateStringOp : Memory_Op<"allocateStringOp", [NoSideEffect]> {
+  let arguments = (ins Index:$length);
+
+  let results = (outs StringType:$allocatedString);
+
+  let builders = [
+    OpBuilder<"Value length", [{
+      $_state.addOperands(length);
+      $_state.addTypes(StringType::get($_builder.getContext()));
+    }]>
+  ];
+}
+
+def StringLengthOp : Memory_Op<"stringLength", [NoSideEffect]> {
+  let arguments = (ins StringType:$string);
+
+  let results = (outs Index:$length);
+
+  let builders = [
+    OpBuilder<"Value string", [{
+      $_state.addOperands(string);
+      $_state.addTypes($_builder.getIndexType());
+    }]>
+  ];
+}
+
+def StringCopyOp : Memory_Op<"stringCopy", []> {
+  let arguments = (ins StringType:$source, StringType:$dest, Index:$offset);
+}
+
+def PointerCast : Memory_Op<"pointerCast", [NoSideEffect]> {
+  let arguments = (ins Index:$value);
+
+  let results = (outs AnyType:$result);
+}
+
+def StringReferenceOp : Memory_Op<"stringReference", [NoSideEffect]> {
+  let arguments = (ins Index:$pointer, Index:$length);
+
+  let results = (outs StringType:$result);
+}
+
 def AllocateSymbolOp : Memory_Op<"allocateSymbolOp", [NoSideEffect]> {
-  let arguments = (ins I8MemRef:$name);
+  let arguments = (ins StringType:$name);
 
   let results = (outs SymbolOrValueType:$symbolPointer);
 
@@ -32,7 +74,7 @@ def AllocateSymbolOp : Memory_Op<"allocateSymbolOp", [NoSideEffect]> {
 }
 
 def AllocateSymbolicFunctionOp : Memory_Op<"allocateSymbolicFuncOp", [NoSideEffect]> {
-  let arguments = (ins I8MemRef:$name, Variadic<AnyType>:$args);
+  let arguments = (ins StringType:$name, Variadic<AnyType>:$args);
 
   let results = (outs SymbolOrValueType:$expressionPointer);
 

@@ -47,7 +47,7 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
     return arrow::Status::OK();
   }
   arrow::Status Visit(const arrow::StringType& type) override {
-    resultType = StringType::get(context.mlirContext, -1);
+    resultType = StringType::get(context.mlirContext);
     return arrow::Status::OK();
   }
   arrow::Status Visit(const arrow::BinaryType& type) override {
@@ -229,7 +229,7 @@ mlirFieldsToRuntimeFields(const std::map<std::string, ::mlir::Type>& fields) {
     return ::mlir::IntegerType::get(1, context);
   }
   if (typeName == "String") {
-    return StringType::get(context, -1);
+    return StringType::get(context);
   }
   if (typeName == "Index") {
     return ::mlir::IndexType::get(context);

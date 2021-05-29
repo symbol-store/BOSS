@@ -4,6 +4,7 @@
 #include "Engines/MLIREngine/Dialect/SExprDialect/SExprTypes.h"
 #include "Engines/MLIREngine/IR/MLIRGenerator.hpp"
 #include "Engines/MLIREngine/Runtime/Runtime.hpp"
+#include "Engines/MLIREngine/Runtime/Strings.hpp"
 #include "Engines/MLIREngine/Types/Types.hpp"
 #include "Engines/MLIREngine/Types/ValueConversion.hpp"
 #include "Engines/MLIREngine/Translation/SexprToFunctions.hpp"
@@ -90,8 +91,10 @@ Expression Compiler::evaluate(Expression const& e) {
     return static_cast<int>(jitResult);
   case RuntimeTypes::INT64:
     return static_cast<size_t>(jitResult);
-  case RuntimeTypes::STRING:
-    return std::string{reinterpret_cast<const char*>(jitResult)};
+  case RuntimeTypes::STRING: {
+    auto* stringPtr = reinterpret_cast<boss::mlir::runtime::string::RuntimeString*>(jitResult);
+    return std::string(stringPtr->data, 0, stringPtr->length);
+  }
   case RuntimeTypes::BOOLEAN:
     return static_cast<bool>(jitResult);
   case RuntimeTypes::SYMBOL:

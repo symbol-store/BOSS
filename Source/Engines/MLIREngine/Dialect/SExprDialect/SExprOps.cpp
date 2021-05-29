@@ -72,10 +72,8 @@ void mlir::sexpr::SymbolOp::inferType(TypeInferenceContext* context) {
 void mlir::sexpr::StringConstantOp::inferType(TypeInferenceContext* context) {
   auto currentType = getResult().getType().cast<SymbolOrValueType>();
 
-  auto length = value().size();
-
   auto newType = SymbolOrValueType::get(currentType.getContext(), sexprtype::SymbolOrValue::VALUE,
-                                        StringType::get(currentType.getContext(), length));
+                                        StringType::get(currentType.getContext()));
 
   this->getResult().setType(newType);
 }

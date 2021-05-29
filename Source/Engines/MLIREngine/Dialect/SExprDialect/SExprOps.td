@@ -45,7 +45,7 @@ def StringConstantOp : SExpr_Op<"stringConstant", [DeclareOpInterfaceMethods<Typ
     OpBuilder<"std::string value", [{
       $_state.addAttribute("value", $_builder.getStringAttr(value));
       $_state.addTypes($_builder.getType<SymbolOrValueType, sexprtype::SymbolOrValue, Type>(
-          sexprtype::SymbolOrValue::UNKNOWN, $_builder.getType<StringType, size_t>(0)));
+          sexprtype::SymbolOrValue::UNKNOWN, $_builder.getType<StringType>()));
     }]>
   ];
 }
