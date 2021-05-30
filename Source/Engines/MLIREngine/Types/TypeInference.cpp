@@ -400,12 +400,27 @@ static const auto inferJoinType = [](std::vector<::mlir::Type> const& arguments,
 
   auto hashTablePtr =
       context.symbolOp->getOperand(2).getDefiningOp<::mlir::sexpr::IntegerConstantOp>().value();
-  auto hashTable = reinterpret_cast<runtime::hash::HashTable*>(hashTablePtr);
-
-  // todo handle context open relations... Actually maybe not, handled by interpreter
+  auto hashTable = reinterpret_cast<::runtime::hash::HashTable*>(hashTablePtr);
 
   if(!leftTupleStreamUnion || (hashTable == nullptr)) {
     throw std::runtime_error("Error: Expecting tuple stream union and hash table");
+  }
+
+  // Get the fields to join on
+  std::vector<std::string> leftJoinFields;
+  std::vector<std::string> rightJoinFields;
+  // TODO create some general constant propagation mechanism
+  auto joinFieldList = context.symbolOp->getOperand(0).getDefiningOp<::mlir::sexpr::CombineOp>();
+  for(auto const& stringPair : joinFieldList.getHead().getOperands()) {
+    auto pair = ::mlir::dyn_cast_or_null<::mlir::sexpr::CombineOp>(stringPair.getDefiningOp());
+
+    auto leftStr = ::mlir::dyn_cast_or_null<::mlir::sexpr::StringConstantOp>(
+        pair.getHead().getOperand(0).getDefiningOp());
+    auto rightStr = ::mlir::dyn_cast_or_null<::mlir::sexpr::StringConstantOp>(
+        pair.getHead().getOperand(1).getDefiningOp());
+
+    leftJoinFields.emplace_back(leftStr.value());
+    rightJoinFields.emplace_back(rightStr.value());
   }
 
   std::vector<TupleStreamType> outputTupleStreams;
@@ -424,9 +439,24 @@ static const auto inferJoinType = [](std::vector<::mlir::Type> const& arguments,
             boss::mlir::conversion::arrowTypeToMLIRType(context, rightField.second);
       }
 
-      // TODO only if the types match on the joining fields
-      auto combinedTupleStream = TupleStreamType::get(context.mlirContext, newFields);
-      outputTupleStreams.emplace_back(combinedTupleStream);
+      auto typesMatch = true;
+      for(auto k = 0U; k < leftJoinFields.size(); k++) {
+        auto leftField = leftJoinFields[k];
+        auto rightField = rightJoinFields[k];
+
+        auto leftType = newFields.find(leftField)->second;
+        auto rightType = newFields.find(rightField)->second;
+
+        if(leftType != rightType) {
+          typesMatch = false;
+          break;
+        }
+      }
+
+      if (typesMatch) {
+        auto combinedTupleStream = TupleStreamType::get(context.mlirContext, newFields);
+        outputTupleStreams.emplace_back(combinedTupleStream);
+      }
     }
   }
 
@@ -450,7 +480,6 @@ static const auto inferBooleanType = [](std::vector<::mlir::Type> const& argumen
 static const auto inferNextValueType = [](std::vector<::mlir::Type> const& arguments,
                                           TypeInferenceContext& context) -> ::mlir::Type {
   // The return type is passed in as argument 2
-  const_cast<::mlir::Type*>(&arguments[2])->dump();
   return arguments[2];
 };
 

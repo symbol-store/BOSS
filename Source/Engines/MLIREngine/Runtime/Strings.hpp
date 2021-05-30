@@ -9,5 +9,6 @@ struct RuntimeString {
 
 extern "C" RuntimeString* allocateRuntimeString(size_t length);
 extern "C" RuntimeString* allocateRuntimeStringReference(char* data, size_t length);
+extern "C" bool runtimeStringCompare(RuntimeString* lhs, RuntimeString* rhs);
 
 }

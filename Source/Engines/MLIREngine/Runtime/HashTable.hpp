@@ -5,6 +5,7 @@
 #include <arrow/api.h>
 #include <mlir/IR/Types.h>
 #include "Storage.hpp"
+#include "Strings.hpp"
 
 namespace runtime::hash {
 
@@ -36,11 +37,11 @@ private:
   new_runtime::RelationBuilder relationBuilder;
   // Which fields are in the relation
 //  std::vector<std::map<std::string, ::mlir::Type>> fields;
-  int sentry = 420;
 };
 
 extern "C" size_t hash_Int(int);
 extern "C" size_t hash_Bool(bool);
+extern "C" size_t hash_String(boss::mlir::runtime::string::RuntimeString*);
 
 extern "C" void hashTableInsert(runtime::hash::HashTable* table, size_t rightIndex, size_t hash,
                                   size_t value);

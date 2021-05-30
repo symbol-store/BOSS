@@ -37,6 +37,16 @@ std::atomic<int> stringCounter{0};
 
 std::mutex printMutex;
 
+bool allTypesEqual(std::vector<Value> args) {
+  ::mlir::Type type = args[0].getType();
+  for (auto i = 1; i < args.size(); i++) {
+    if (args[i].getType() != type) {
+      return false;
+    }
+  }
+  return true;
+}
+
 struct FuncOpSignatureConversion : public OpConversionPattern<mlir::FuncOp> {
   FuncOpSignatureConversion(MLIRContext* ctx, TypeConverter& converter)
       : OpConversionPattern(ctx), converter(converter) {}
@@ -194,6 +204,12 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
     return success();
   }
 
+  LogicalResult replaceStringCompareOp(sexpr::SymbolOp s, ArrayRef<Value> operands,
+                                       ConversionPatternRewriter& rewriter) const {
+    rewriter.replaceOpWithNewOp<memory::StringCompareOp>(s, rewriter.getIntegerType(1), operands[0], operands[1]);
+    return success();
+  }
+
   LogicalResult matchAndRewrite(sexpr::SymbolOp s, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
 
@@ -216,7 +232,15 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
          [&]() { return replaceBooleanCompareOp<CmpIPredicate::sgt>(s, operands, rewriter); }},
         {"Less",
          [&]() { return replaceBooleanCompareOp<CmpIPredicate::slt>(s, operands, rewriter); }},
-        {"Eq", [&]() { return replaceBooleanCompareOp<CmpIPredicate::eq>(s, operands, rewriter); }},
+        {"Eq", [&]() {
+           if (!allTypesEqual(operands)) {
+             return replaceOpWithSymbol(s, rewriter);
+           }
+           if (operands[0].getType().isa<StringType>()) {
+              return replaceStringCompareOp(s, operands, rewriter);
+           }
+           return replaceBooleanCompareOp<CmpIPredicate::eq>(s, operands, rewriter);
+         }},
         {"Symbol",
          [&]() {
            auto allocOp =
@@ -480,6 +504,7 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
            std::vector<Value> resultTupleStreams;
 
            // Create lookup phase for each partition
+           auto outputCounter = 0;
            for(auto i = 0U; i < leftInputStreamUnion.getNumChildStreams(); i++) {
              auto leftStreamTy = leftInputStreamUnion.getTupleStreams()[i];
              auto extractionOp = rewriter.create<database::GetTupleStreamFromUnion>(
@@ -509,7 +534,7 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
                if(typesMatch) {
                  auto type =
                      outputStreamUnion
-                         .getTupleStreams()[i * leftInputStreamUnion.getNumChildStreams() + j];
+                         .getTupleStreams()[outputCounter++];
                  auto lookupOp = rewriter.create<database::LookupJoinOp>(
                      s.getLoc(), extractionOp.getResult(), hashTablePtr, j, type, leftFields,
                      rightFields);
@@ -663,6 +688,7 @@ void SexprToStdLoweringPass::runOnFunction() {
   if(failed(res)) {
     signalPassFailure();
   }
+  getOperation().getParentOfType<ModuleOp>().dump();
 }
 
 std::unique_ptr<mlir::Pass> createLowerToStdPass() {

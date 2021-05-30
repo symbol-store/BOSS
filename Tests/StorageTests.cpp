@@ -247,7 +247,6 @@ TEST_CASE("STORAGE_TEST") {
     relation.bulk_load({
                            {{"A", 1}, {"B", 5}},
                            {{"A", "x"_}, {"B", 6}},
-//                           {{"A", "y"_}, {"B", 7}},
                            {{"A", "x"_}, {"B", 7}}
                        });
 
@@ -336,12 +335,6 @@ TEST_CASE("STORAGE_TEST") {
                            {{"A", 3}, {"B", "world"}}
                        });
 
-    auto stru = std::dynamic_pointer_cast<arrow::StructArray>(relation.get()->field(0));
-    auto stri = std::dynamic_pointer_cast<arrow::StringArray>(stru->field(1));
-
-//    std::cout << stri->value_offsets()->ToString() << std::endl;
-//    std::cout << stri->value_data()->ToString() << std::endl;
-
     new_runtime::Database database;
 
     database.addRelation("Foo", std::move(relation));
@@ -353,6 +346,131 @@ TEST_CASE("STORAGE_TEST") {
     auto* resultRel = reinterpret_cast<new_runtime::Relation*>(ptr);
     auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(resultRel->get()->field(0));
     auto firstCol = std::dynamic_pointer_cast<arrow::Int32Array>(structArray->field(0));
+  }
+
+  SECTION("StringsSelection") {
+    new_runtime::Relation relation;
+
+    relation.bulk_load({
+                           {{"A", 42}, {"B", "hello"}},
+                           {{"A", 2}, {"B", "wonderful"}},
+                           {{"A", 3}, {"B", "world"}}
+                       });
+
+    new_runtime::Database database;
+
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto result = engine.evaluate(
+        "CollectTuples"_(
+            "Select"_(
+                "Where"_("Eq"_("B"_, "hello")),
+                "GetRelation"_(std::string("Foo")))
+        ));
+
+    auto pointer = std::get<size_t>(result);
+    auto* resultRelation = reinterpret_cast<new_runtime::Relation*>(pointer);
+
+    auto firstStruct =
+        std::dynamic_pointer_cast<arrow::StructArray>(resultRelation->get()->field(0));
+    auto intColumn = std::dynamic_pointer_cast<arrow::Int32Array>(firstStruct->field(0));
+
+    std::cout << resultRelation->get()->ToString() << std::endl;
+
+    CHECK(intColumn->length() == 1);
+    CHECK(intColumn->Value(0) == 42);
+  }
+
+  SECTION("StringsGroup") {
+    new_runtime::Relation relation;
+
+    relation.bulk_load({
+                           {{"A", 1}, {"B", "hello"}},
+                           {{"A", 2}, {"B", "hello"}},
+                           {{"A", 3}, {"B", "hello"}}
+                       });
+
+    new_runtime::Database database;
+
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto query = "GroupBy"_("Fields"_("B"),
+                            "Lambda"_("Args"_("Pair"_("currentValue", "Int")),
+                                      "Plus"_("Symbol"_("currentValue"), "Symbol"_("A"))),
+                            "GetRelation"_("Foo"));
+
+    auto ptr = std::get<size_t>(engine.evaluate(query));
+    auto aggregate = reinterpret_cast<runtime::aggregate::HashAggregate*>(ptr);
+
+    CHECK(std::distance(aggregate->begin(), aggregate->end()) == 1);
+    CHECK(std::get<int>(aggregate->begin()->second) == 6);
+  }
+
+  SECTION("StringsJoin") {
+    new_runtime::Relation relationFoo;
+    new_runtime::Relation relationBar;
+
+    relationFoo.bulk_load({
+                           {{"A", 1}, {"B", "one"}},
+                           {{"A", 2}, {"B", "two"}},
+                           {{"A", 3}, {"B", "three"}}
+                       });
+
+    relationBar.bulk_load({
+                              {{"C", 42}, {"D", "three"}},
+                              {{"C", 43}, {"D", "four"}},
+                              {{"C", 44}, {"D", "five"}}
+                          });
+
+    new_runtime::Database database;
+
+    database.addRelation("Foo", std::move(relationFoo));
+    database.addRelation("Bar", std::move(relationBar));
+    boss::engines::mlir::Engine engine(database);
+
+    auto query = "CollectTuples"_(
+        "Join"_("On"_("Pair"_("B", "D")), "GetRelation"_("Foo"), "GetRelation"_("Bar")));
+
+    auto ptr = std::get<size_t>(engine.evaluate(query));
+    auto relation = reinterpret_cast<new_runtime::Relation*>(ptr);
+
+    std::cout << relation->get()->ToString() << std::endl;
+
+    CHECK(relation->get()->length() == 1);
+  }
+
+  SECTION("MultiTypeJoin") {
+    new_runtime::Relation relationFoo;
+    new_runtime::Relation relationBar;
+
+    relationFoo.bulk_load({
+                              {{"A", 1}, {"B", "hello"}},
+                              {{"A", 2}, {"B", "two"}},
+                              {{"A", 3}, {"B", 420}}
+                          });
+
+    relationBar.bulk_load({
+                              {{"C", 42}, {"D", "hello"}},
+                              {{"C", 43}, {"D", "four"}},
+                              {{"C", 44}, {"D", 420}}
+                          });
+
+    new_runtime::Database database;
+
+    database.addRelation("Foo", std::move(relationFoo));
+    database.addRelation("Bar", std::move(relationBar));
+    boss::engines::mlir::Engine engine(database);
+
+    auto query = "CollectTuples"_(
+        "Join"_("On"_("Pair"_("B", "D")), "GetRelation"_("Foo"), "GetRelation"_("Bar")));
+
+    auto ptr = std::get<size_t>(engine.evaluate(query));
+    auto relation = reinterpret_cast<new_runtime::Relation*>(ptr);
+
+    std::cout << relation->get()->ToString() << std::endl;
+
   }
 
 }

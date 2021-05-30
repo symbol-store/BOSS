@@ -58,6 +58,12 @@ def StringReferenceOp : Memory_Op<"stringReference", [NoSideEffect]> {
   let results = (outs StringType:$result);
 }
 
+def StringCompareOp : Memory_Op<"stringCompare", [NoSideEffect]> {
+  let arguments = (ins StringType:$lhs, StringType:$rhs);
+
+  let results = (outs I1:$result);
+}
+
 def AllocateSymbolOp : Memory_Op<"allocateSymbolOp", [NoSideEffect]> {
   let arguments = (ins StringType:$name);
 

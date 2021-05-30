@@ -31,5 +31,13 @@ TEST_CASE("CompilerTest") {
                                   .getArguments()[0]) == "Hello World!");
   }
 
+  SECTION("StringEquality") {
+    boss::engines::mlir::compiler::Compiler compiler(nullptr);
+
+    CHECK(!std::get<bool>(compiler.evaluate("Eq"_((string)"foo", (string)"bar"))));
+    CHECK(std::get<bool>(compiler.evaluate("Eq"_((string)"world", (string)"world"))));
+
+  }
+
   // TODO check unevaluated symbols
 }

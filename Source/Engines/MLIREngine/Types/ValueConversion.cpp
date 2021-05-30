@@ -14,9 +14,7 @@ const std::map<RuntimeTypes, std::function<boss::Expression(SymbolArgumentValue)
     {RuntimeTypes::STRING,
         [](SymbolArgumentValue value) {
        auto runtimeString = value.stringValue;
-
        return std::string(runtimeString->data, 0, runtimeString->length);
-
      }}};
 
 boss::Expression mExpressionFromSExpression(SymbolExpression* expr) {

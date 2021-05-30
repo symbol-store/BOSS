@@ -4,6 +4,7 @@
 #include <iostream>
 
 using boss::utilities::operator""_;
+using std::string;
 
 TEST_CASE("InterpreterTest") {
 

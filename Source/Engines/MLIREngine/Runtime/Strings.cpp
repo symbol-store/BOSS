@@ -14,3 +14,12 @@ boss::mlir::runtime::string::allocateRuntimeStringReference(char* data, size_t l
   result->length = length;
   return result;
 }
+
+bool boss::mlir::runtime::string::runtimeStringCompare(
+    boss::mlir::runtime::string::RuntimeString* lhs,
+    boss::mlir::runtime::string::RuntimeString* rhs) {
+  if (lhs->length != rhs->length) {
+    return false;
+  }
+  return memcmp(lhs->data, rhs->data, lhs->length) == 0;
+}

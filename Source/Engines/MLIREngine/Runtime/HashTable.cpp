@@ -28,11 +28,16 @@ void runtime::hash::HashTable::build() {
 
 // TODO more efficient implementation
 size_t runtime::hash::hash_Int(int value) {
-  return llvm::hash_value(value);
+  auto hash = llvm::hash_value(value);
+  return hash;
 }
 
 size_t runtime::hash::hash_Bool(bool value) {
   return llvm::hash_value(value);
+}
+
+size_t runtime::hash::hash_String(boss::mlir::runtime::string::RuntimeString* s) {
+  return llvm::hash_value(std::string(s->data, 0, s->length));
 }
 
 void runtime::hash::hashTableInsert(runtime::hash::HashTable* table, size_t rightIndex, size_t hash,

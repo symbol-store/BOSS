@@ -568,7 +568,7 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
       auto fieldName = fieldAttr.dyn_cast_or_null<StringAttr>().getValue().str();
       auto fieldType = inputFields.find(fieldName)->second;
       auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
-          op.getLoc(), op.getOperand(), fieldName, fieldType);
+          op.getLoc(), operands[0], fieldName, fieldType);
       valuesToHash.emplace_back(extractedVal.getResult());
     }
     auto hashedValues =
@@ -690,7 +690,7 @@ struct BuildJoinOpLowering : public OpConversionPattern<database::BuildJoinTable
         auto field = fields.find(fieldName.getValue().str());
 
         auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
-            op.getLoc(), operands[0], field->first, field->second);
+            op.getLoc(), tupleStreamOp, field->first, field->second);
         hashInputs.emplace_back(extractedVal.getResult());
       }
       auto hashResult =
@@ -702,6 +702,7 @@ struct BuildJoinOpLowering : public OpConversionPattern<database::BuildJoinTable
           rewriter.getI64IntegerAttr(op.table()), rewriter.getI64IntegerAttr(tupleStreamIndex));
 
       rewriter.restoreInsertionPoint(savedInsertionPoint);
+      tupleStreamIndex++;
     }
 
     rewriter.create<database::FinalizeBuilderOp>(op.getLoc(), op.table(), "finalizeHashBuilder");
@@ -929,6 +930,7 @@ void DatabaseLoweringPass::runOnOperation() {
   if(failed(applyPartialConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
+  module.dump();
 }
 
 // namespace

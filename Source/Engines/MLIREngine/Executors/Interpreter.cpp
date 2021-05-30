@@ -138,6 +138,10 @@ boss::Expression Interpreter::evaluate(boss::Expression e) {
          boss::engines::mlir::compiler::Compiler compiler(database, symbolTable);
          auto hashTable = compiler.evaluate(hashTableBuild);
 
+         auto table = reinterpret_cast<runtime::hash::HashTable*>(std::get<size_t>(hashTable));
+
+         std::cout << table->getRelation()->ToString() << std::endl;
+
          return ComplexExpression(e.getHead(),
                                   {newArgs[0], newArgs[1], std::get<size_t>(hashTable)});
        }}};

@@ -10,6 +10,7 @@
 #include <mlir/Conversion/SCFToStandard/SCFToStandard.h>
 #include <mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/SCF/SCF.h>
 #include <mlir/Dialect/StandardOps/IR/Ops.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
@@ -177,6 +178,29 @@ struct LoadConstantAddressOpLowering : public OpConversionPattern<memory::LoadCo
   TypeConverter& converter;
 };
 
+struct StringCompareOpLowering : public OpConversionPattern<memory::StringCompareOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(memory::StringCompareOp op, ArrayRef<Value> operands,
+                                ConversionPatternRewriter& rewriter) const override {
+    auto loc = op.getLoc();
+    auto context = op.getContext();
+    ModuleOp parentModule = op.getParentOfType<ModuleOp>();
+
+    auto stringStructType = getRuntimeStringStructType(context);
+    auto stringStructPtr = LLVM::LLVMPointerType::get(stringStructType);
+    auto boolType = LLVM::LLVMIntegerType::get(op.getContext(), 1);
+
+    auto compareFuncType = LLVM::LLVMFunctionType::get(boolType, {stringStructPtr, stringStructPtr});
+    auto compareFunc = getOrInsertFunction("runtimeStringCompare", compareFuncType, rewriter, parentModule);
+
+    auto compareResult = rewriter.create<CallOp>(op.getLoc(), compareFunc, boolType, ValueRange{operands[0], operands[1]});
+
+    rewriter.replaceOp(op, compareResult.getResults());
+    return success();
+  }
+};
+
 struct AllocateSymbolOpLowering : public OpConversionPattern<memory::AllocateSymbolOp> {
   AllocateSymbolOpLowering(MLIRContext* ctx, TypeConverter& converter)
       : OpConversionPattern(ctx), converter(converter) {}
@@ -244,15 +268,6 @@ struct AllocateSymbolicFunctionOpLowering
           rewriter.getIntegerAttr(
               rewriter.getIndexType(),
               (int64_t)boss::mlir::conversion::mlirTypeToRuntimeType(argument.getType(), false)));
-
-//      // Extract memref
-//      if(argument.getType().isa<mlir::MemRefType>()) {
-//        auto basePointer = rewriter.create<LLVM::ExtractValueOp, Type, Value const&, ArrayAttr>(
-//            loc, LLVM::LLVMType::getInt8PtrTy(context), argument, rewriter.getI64ArrayAttr(0));
-//        args.push_back(basePointer);
-//      } else {
-//        args.push_back(argument);
-//      }
       args.push_back(argument);
       args.push_back(runtimeType.getResult());
     }
@@ -630,8 +645,6 @@ struct StringCopyOpLowering : public OpConversionPattern<memory::StringCopyOp> {
                             ValueRange{destPtrWithOffset, sourcePtr, sourceLen});
     rewriter.eraseOp(op);
 
-    parentModule.dump();
-
     return success();
   }
 };
@@ -690,7 +703,7 @@ struct HashValuesOpLowering : public OpConversionPattern<database::HashValuesOp>
       switch(runtimeType) {
       case boss::mlir::types::RuntimeTypes::STRING:
         hashFuncName = "hash_String";
-        argumentType = LLVM::LLVMPointerType::get(LLVM::LLVMIntegerType::get(context, 8));
+        argumentType = LLVM::LLVMPointerType::get(getRuntimeStringStructType(context));
         break;
       case boss::mlir::types::RuntimeTypes::INT:
         hashFuncName = "hash_Int";
@@ -878,7 +891,7 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   patterns.insert<FinalizeBuilderOpLowering, AppendToRelationOpLowering, AdvanceBuilderOpLowering,
                   HashValuesOpLowering, InsertHashtableOpLowering, HashFindOpLowering,
                   GroupByInsertLowering, AllocateStringOpLowering, StringReferenceOpLowering,
-                  StringCopyOpLowering, StringLengthOpLowering>(&getContext());
+                  StringCopyOpLowering, StringLengthOpLowering, StringCompareOpLowering>(&getContext());
 
   auto module = getOperation();
 
