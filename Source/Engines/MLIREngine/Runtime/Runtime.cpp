@@ -11,13 +11,19 @@
 #include "Runtime.hpp"
 
 using namespace boss::mlir::types;
+using boss::mlir::runtime::string::RuntimeString;
 
-extern "C" SymbolExpression* allocateSymbol(char* name) {
+extern "C" SymbolExpression* allocateSymbol(RuntimeString* name) {
   SymbolExpression* newMemory = (SymbolExpression*)malloc(sizeof(SymbolExpression));
 
-  newMemory->head = name;
+  auto string = static_cast<char*>(malloc(name->length + 1));
+
+  newMemory->head = string;
   newMemory->argc = 0;
   newMemory->arguments = nullptr;
+
+  newMemory->head[name->length] = '\0';
+  memcpy(newMemory->head, name->data, name->length);
 
   // TODO Reference counting/garbage collection
   return newMemory;

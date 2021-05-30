@@ -2,6 +2,7 @@
 
 #include <mlir/IR/Types.h>
 #include "Engines/MLIREngine/Types/Types.hpp"
+#include "Strings.hpp"
 
 struct SymbolExpression;
 
@@ -9,7 +10,7 @@ union SymbolArgumentValue {
   int integerValue;
   bool booleanValue;
   float floatValue;
-  char* stringValue;
+  boss::mlir::runtime::string::RuntimeString* stringValue;
   SymbolExpression* symbolValue;
 };
 
@@ -26,4 +27,4 @@ struct SymbolExpression {
   SymbolArgument* arguments;
 };
 
-extern "C" SymbolExpression* allocateSymbol(char* name);
+extern "C" SymbolExpression* allocateSymbol(boss::mlir::runtime::string::RuntimeString* name);

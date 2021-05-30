@@ -159,7 +159,7 @@ boss::mlir::types::RuntimeTypes mlirTypeToRuntimeType(::mlir::Type const& type,
     return RuntimeTypes::INT;
   } else if(type.isIntOrFloat()) {
     return RuntimeTypes::FLOAT;
-  } else if(type.isa<::mlir::MemRefType>() || type.isa<StringType>()) {
+  } else if(type.isa<StringType>()) {
     return RuntimeTypes::STRING;
   } else if(type.isa<TupleStreamUnionType>()) {
     return RuntimeTypes::TUPLE_STREAM;

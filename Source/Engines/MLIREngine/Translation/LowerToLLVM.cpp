@@ -65,7 +65,7 @@ static FlatSymbolRefAttr getOrInsertPrintf(PatternRewriter& rewriter, ModuleOp m
 static FlatSymbolRefAttr getOrInsertAllocSymbol(PatternRewriter& rewriter, ModuleOp module) {
   auto* context = module.getContext();
   // Create signature
-  auto argType = LLVM::LLVMType::getInt8PtrTy(context);
+  auto argType = LLVM::LLVMPointerType::get(getRuntimeStringStructType(rewriter.getContext()));
   auto returnType =
       LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, symbolStructName));
   auto funcType = LLVM::LLVMType::getFunctionTy(returnType, argType,
@@ -190,13 +190,10 @@ struct AllocateSymbolOpLowering : public OpConversionPattern<memory::AllocateSym
 
     auto allocExprRef = getOrInsertAllocSymbol(rewriter, parentModule);
 
-    auto barePtr = rewriter.create<LLVM::ExtractValueOp, Type, Value const&, ArrayAttr>(
-        loc, LLVM::LLVMType::getInt8PtrTy(context), operands[0], rewriter.getI64ArrayAttr(0));
-
     auto allocExprCall = rewriter.create<LLVM::CallOp>(
         loc,
         LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, symbolStructName)),
-        allocExprRef, barePtr.getResult());
+        allocExprRef, allocOp.name());
 
     rewriter.replaceOp(allocOp.getOperation(), allocExprCall.getResults());
 
@@ -222,13 +219,10 @@ struct AllocateSymbolicFunctionOpLowering
     // Create a symbol for the name
     auto allocExprRef = getOrInsertAllocSymbol(rewriter, parentModule);
 
-    auto barePtr = rewriter.create<LLVM::ExtractValueOp, Type, Value const&, ArrayAttr>(
-        loc, LLVM::LLVMType::getInt8PtrTy(context), operands[0], rewriter.getI64ArrayAttr(0));
-
     auto allocExprCall = rewriter.create<LLVM::CallOp>(
         loc,
         LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getIdentified(context, symbolStructName)),
-        allocExprRef, barePtr.getResult());
+        allocExprRef, allocOp.name());
 
     // Insert arguments into the symbols
     auto insertArgExprRef = getOrInsertAllocArgsSymbol(rewriter, parentModule);
@@ -251,15 +245,15 @@ struct AllocateSymbolicFunctionOpLowering
               rewriter.getIndexType(),
               (int64_t)boss::mlir::conversion::mlirTypeToRuntimeType(argument.getType(), false)));
 
-      // Extract memref
-      if(argument.getType().isa<mlir::MemRefType>()) {
-        auto basePointer = rewriter.create<LLVM::ExtractValueOp, Type, Value const&, ArrayAttr>(
-            loc, LLVM::LLVMType::getInt8PtrTy(context), argument, rewriter.getI64ArrayAttr(0));
-        args.push_back(basePointer);
-      } else {
-        args.push_back(argument);
-      }
-
+//      // Extract memref
+//      if(argument.getType().isa<mlir::MemRefType>()) {
+//        auto basePointer = rewriter.create<LLVM::ExtractValueOp, Type, Value const&, ArrayAttr>(
+//            loc, LLVM::LLVMType::getInt8PtrTy(context), argument, rewriter.getI64ArrayAttr(0));
+//        args.push_back(basePointer);
+//      } else {
+//        args.push_back(argument);
+//      }
+      args.push_back(argument);
       args.push_back(runtimeType.getResult());
     }
 
@@ -667,19 +661,6 @@ struct StringReferenceOpLowering : public OpConversionPattern<memory::StringRefe
         rewriter.create<CallOp>(loc, allocStringRefFunc, stringStructPtrType,
                                 ValueRange{stringDataPtr.getResult(), op.length()});
     // TODO create a way to re-use references
-    //    auto stringStructPtr =
-    //        rewriter.create<LLVM::IntToPtrOp>(loc, stringStructPtrType,
-    //        stringStructMem.getResults());
-
-    //    // Copy over the pointer and length
-    //    rewriter.create<LLVM::StoreOp>(loc, stringStructPtr.getResult(), op.pointer());
-    //    // Calculate address of length field
-    //    auto sizeOffset = rewriter.create<mlir::ConstantIndexOp>(loc, 8);
-    //    auto firstFieldAddr = rewriter.create<LLVM::AddOp>(
-    //        loc, LLVM::LLVMIntegerType::get(context, 64),
-    //        ValueRange{stringStructMem.getResult(0), sizeOffset.getResult()});
-
-    //    rewriter.create<LLVM::StoreOp>(loc, firstFieldAddr.getResult(), op.length());
 
     rewriter.replaceOp(op, stringStructMem.getResults());
     return success();

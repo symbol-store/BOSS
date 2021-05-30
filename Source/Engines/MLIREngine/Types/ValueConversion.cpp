@@ -12,7 +12,12 @@ const std::map<RuntimeTypes, std::function<boss::Expression(SymbolArgumentValue)
     {RuntimeTypes::SYMBOL,
         [](SymbolArgumentValue value) { return mExpressionFromSExpression(value.symbolValue); }},
     {RuntimeTypes::STRING,
-        [](SymbolArgumentValue value) { return std::string(value.stringValue); }}};
+        [](SymbolArgumentValue value) {
+       auto runtimeString = value.stringValue;
+
+       return std::string(runtimeString->data, 0, runtimeString->length);
+
+     }}};
 
 boss::Expression mExpressionFromSExpression(SymbolExpression* expr) {
   if(expr->arguments == nullptr) {
