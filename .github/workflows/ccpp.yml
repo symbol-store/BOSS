@@ -17,6 +17,8 @@ jobs:
          password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: true
     - name: check
       run: |
         find . \( -name '*.cpp' -or -name '*.hpp' \) -exec clang-format -i -style=file '{}' ';'
