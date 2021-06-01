@@ -5,6 +5,7 @@
 
 %{
   #include "Source/Expression.hpp"
+  #include "Source/ExpressionUtilities.hpp"
   #include "Source/SwigHelpers.hpp"
   #include "Source/Utilities.hpp"
 
