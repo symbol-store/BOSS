@@ -39,7 +39,7 @@ public:
   using SuperType::SuperType;
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
-                                      ExpressionWithAdditionalCustomAtoms<> const& o) noexcept
+      ExpressionWithAdditionalCustomAtoms<> const& o) noexcept
       : SuperType(std::visit(utilities::overload([](auto const& unpacked) {
                                return ExpressionWithAdditionalCustomAtoms(unpacked);
                              }),
@@ -84,9 +84,10 @@ public:
   };
   Symbol const& getHead() const { return head; };
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
-  ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
-  ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) noexcept =
-      default;
+  ComplexExpressionWithAdditionalCustomAtoms(
+      ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
+  ComplexExpressionWithAdditionalCustomAtoms(
+      ComplexExpressionWithAdditionalCustomAtoms const&) noexcept = default;
   ComplexExpressionWithAdditionalCustomAtoms&
   operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = default;
   ComplexExpressionWithAdditionalCustomAtoms&
