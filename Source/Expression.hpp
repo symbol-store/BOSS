@@ -37,11 +37,21 @@ class ExpressionWithAdditionalCustomAtoms
 
 public:
   using SuperType::SuperType;
-  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms<> const& o)
+  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>>
+  ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
+                                      ExpressionWithAdditionalCustomAtoms<> const& o) noexcept
       : SuperType(std::visit(utilities::overload([](auto const& unpacked) {
                                return ExpressionWithAdditionalCustomAtoms(unpacked);
                              }),
                              o)) {}
+  ~ExpressionWithAdditionalCustomAtoms() = default;
+  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
+  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) noexcept =
+      default;
+  ExpressionWithAdditionalCustomAtoms&
+  operator=(ExpressionWithAdditionalCustomAtoms const&) = default;
+  ExpressionWithAdditionalCustomAtoms&
+  operator=(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 };
 
 template <typename... AdditionalCustomAtoms>
@@ -58,11 +68,12 @@ public:
       Symbol const& head,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& arguments)
       : head(head), arguments(arguments){};
-  ComplexExpressionWithAdditionalCustomAtoms(
+  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>>
+  explicit ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms<> const& other)
       : head(other.getHead()), arguments([&other] {
           ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments;
-          for(auto& it : other.getArguments()) {
+          for(auto const& it : other.getArguments()) {
             arguments.push_back(it);
           }
           return arguments;
@@ -72,6 +83,14 @@ public:
     return arguments;
   };
   Symbol const& getHead() const { return head; };
+  ~ComplexExpressionWithAdditionalCustomAtoms() = default;
+  ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
+  ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) noexcept =
+      default;
+  ComplexExpressionWithAdditionalCustomAtoms&
+  operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = default;
+  ComplexExpressionWithAdditionalCustomAtoms&
+  operator=(ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 };
 
 template <typename... AdditionalCustomAtoms> class ExtensibleExpressionSystem {
