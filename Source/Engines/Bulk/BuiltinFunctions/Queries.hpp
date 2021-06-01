@@ -2,6 +2,7 @@
 
 #include "../Batch/CompoundBatch.hpp"
 #include "../Executor.hpp"
+#include "../Operator.hpp"
 
 #include <map>
 #include <vector>
@@ -12,17 +13,19 @@ template <typename OperatorUtils, typename OperatorRegistry> class Queries {
 
 public:
   static void registerAll() {
-    selection();
-    projection();
-    sorting();
-    grouping();
+    auto& operatorRegistry = OperatorRegistry::instance();
+    operatorRegistry.template registerOperator<SelectOperator>("Select");
+    operatorRegistry.template registerOperator<ProjectOperator>("Project");
+    operatorRegistry.template registerOperator<SortByOperator>("SortBy");
+    operatorRegistry.template registerOperator<GroupOperator>("Group");
   }
 
 private:
-  static void selection() {
-    auto& operatorRegistry = OperatorRegistry::instance();
-
-    auto select = [](auto&& tableBatchPtr, auto&& predicatePtr) -> Batch::WritablePtr {
+  class SelectOperator
+      : public Operator<2, AllowedBatches<CompoundBatch>, AllowedBatches<CompoundBatch>> {
+  public:
+    template <typename TableType, typename PredicateType>
+    auto evaluate(TableType&& tableBatchPtr, PredicateType&& predicatePtr) const {
       auto& tableOut = *tableBatchPtr->cloneAsCompoundBatch(true);
 
       auto forEachBatchOfRows = [&tableOut](CompoundBatch const& batch, auto const& toKeep) {
@@ -81,19 +84,14 @@ private:
       });
 
       return Batch::WritablePtr(&tableOut);
-    };
+    }
+  };
 
-    operatorRegistry.template argBatchTypes<CompoundBatch, CompoundBatch>()
-        .template registerFunction<2>(
-            "Select", [select](auto&& tableBatchPtr, auto&& predicatePtr) -> Batch::ReadablePtr {
-              return select(tableBatchPtr, predicatePtr);
-            });
-  }
-
-  static void projection() {
-    auto& operatorRegistry = OperatorRegistry::instance();
-
-    auto project = [](auto&& tableBatchPtr, auto&& projectorPtr) -> Batch::WritablePtr {
+  class ProjectOperator
+      : public Operator<2, AllowedBatches<CompoundBatch>, AllowedBatches<CompoundBatch>> {
+  public:
+    template <typename TableType, typename ProjectorType>
+    auto evaluate(TableType&& tableBatchPtr, ProjectorType&& projectorPtr) const {
       auto& tableOut = *(new CompoundBatch(true)); // not a clone so we clear columns too
 
       // evaluate the projection
@@ -116,19 +114,16 @@ private:
       }
 
       return Batch::WritablePtr(&tableOut);
-    };
+    }
+  };
 
-    operatorRegistry.template argBatchTypes<CompoundBatch, CompoundBatch>()
-        .template registerFunction<2>("Project",
-                                      [project](auto&& tableBatchPtr, auto&& projectorPtr) {
-                                        return project(tableBatchPtr, projectorPtr);
-                                      });
-  }
-
-  static void sorting() {
-    auto& operatorRegistry = OperatorRegistry::instance();
-
-    auto sortBy = [](auto&& tableBatchPtr, auto&& sortFunctionPtr) -> Batch::WritablePtr {
+  // sortFunction: Function(tuple) return the key used for sorting
+  // e.g to sort by first column: "Function"_(List_("tuple"_), "Column"_("tuple"_, 1))
+  class SortByOperator
+      : public Operator<2, AllowedBatches<CompoundBatch>, AllowedBatches<CompoundBatch>> {
+  public:
+    template <typename TableType, typename SortFunctionType>
+    auto evaluate(TableType&& tableBatchPtr, SortFunctionType&& sortFunctionPtr) const {
       auto& tableOut = *tableBatchPtr->cloneAsCompoundBatch(true);
 
       auto forEachBatchOfRows = [&tableOut](CompoundBatch const& batch, auto& keys) {
@@ -196,22 +191,57 @@ private:
       });
 
       return Batch::WritablePtr(&tableOut);
-    };
+    }
+  };
 
-    // sortFunction: Function(tuple) return the key used for sorting
-    // e.g to sort by first column: "Function"_(List_("tuple"_), "Column"_("tuple"_, 1))
-    operatorRegistry.template argBatchTypes<CompoundBatch, CompoundBatch>()
-        .template registerFunction<2>(
-            "SortBy", [sortBy](auto&& tableBatchPtr, auto&& sortFunctionPtr) -> Batch::ReadablePtr {
-              return sortBy(tableBatchPtr, sortFunctionPtr);
-            });
-  }
+  // groupFunction: Function(tuple) return a key
+  // e.g to group by first column: "Function"_("tuple"_, "Extract"_("tuple"_, 1))
+  // aggregator: Function("tuple", "aggregateResult") return the aggregate result
+  // e.g to count: "Function"_("tuple"_, "Count"_("Column"_("tuple"_, 1)))
+  // e.g to sum: "Function"_("tuple"_, "Sum_("Column"_("tuple"_, 1)))
+  // e.g to return the key: "Function"_("tuple"_, "Column"_("tuple"_, 1))
+  class GroupOperator
+      : public Operator<3, AllowedBatches<CompoundBatch>, AllowedBatches<CompoundBatch>,
+                        AllowedBatches<CompoundBatch, SymbolBatch>> {
+  public:
+    template <typename TableType, typename GroupFunctionType, typename AggregatorType>
+    auto evaluate(TableType&& tableBatchPtr, GroupFunctionType&& groupFunctionPtr,
+                  AggregatorType&& aggregatorPtr) const {
+      Batch::WritablePtr resultPtr;
+      BatchVisitDispatcher<CompoundBatch, SymbolBatch>::visit(
+          [&tableBatchPtr, &groupFunctionPtr, &resultPtr](auto const& aggregatorBatch) {
+            using BatchType = std::decay_t<decltype(aggregatorBatch)>;
+            if constexpr(std::is_same_v<BatchType, CompoundBatch>) {
+              resultPtr = group(tableBatchPtr, groupFunctionPtr, aggregatorBatch);
+            } else {
+              // special case when providing aggregator as just a symbol head
 
-  static void grouping() {
-    auto& operatorRegistry = OperatorRegistry::instance();
+              // construct an expression batch from the head (assuming single symbol
+              // value) also assuming a function with 1 argument only
+              Symbol const& head = *aggregatorBatch.begin();
+              auto* bodyBatch = new CompoundBatch(head);
+              // we pass a symbol as unique argument
+              Symbol parameter("tuple");
+              bodyBatch->append(ComplexExpression(head, {parameter}));
 
-    auto group = [](auto&& tableBatchPtr, auto&& groupFunctionPtr,
-                    auto const& aggregator) -> Batch::WritablePtr {
+              // construct the parameters batch
+              auto* paramsBatch = new SymbolBatch(1, parameter);
+
+              // and now we create a function batch using the parameters + body
+              CompoundBatch functionBatch(Symbol("Function"));
+              functionBatch.append({Batch::ReadablePtr((Batch const*)(paramsBatch)),
+                                    Batch::ReadablePtr((Batch const*)(bodyBatch))});
+              resultPtr = group(tableBatchPtr, groupFunctionPtr, functionBatch);
+            }
+          },
+          *aggregatorPtr);
+      return resultPtr;
+    }
+
+  private:
+    template <typename TableType, typename GroupFunctionType, typename AggregatorType>
+    static auto group(TableType&& tableBatchPtr, GroupFunctionType&& groupFunctionPtr,
+                      AggregatorType&& aggregator) {
       auto& tableOut = *(new CompoundBatch(true)); // not a clone so we clear columns too
 
       // to be called for each group of (sorted) table rows
@@ -286,53 +316,8 @@ private:
       });
 
       return Batch::WritablePtr(&tableOut);
-    };
-
-    // groupFunction: Function(tuple) return a key
-    // e.g to group by first column: "Function"_("tuple"_, "Extract"_("tuple"_, 1))
-    // aggregator: Function("tuple", "aggregateResult") return the aggregate result
-    // e.g to count: "Function"_("tuple"_, "Count"_("Column"_("tuple"_, 1)))
-    // e.g to sum: "Function"_("tuple"_, "Sum_("Column"_("tuple"_, 1)))
-    // e.g to return the key: "Function"_("tuple"_, "Column"_("tuple"_, 1))
-    operatorRegistry
-        .template argBatchTypes<CompoundBatch, CompoundBatch,
-                                AllowedBatches<CompoundBatch, SymbolBatch>>()
-        .template registerFunction<3>(
-            "Group",
-            [group](auto&& tableBatchPtr, auto&& groupFunctionPtr,
-                    auto&& aggregatorPtr) -> Batch::ReadablePtr {
-              Batch::WritablePtr resultPtr;
-              BatchVisitDispatcher<CompoundBatch, SymbolBatch>::visit(
-                  [&group, &tableBatchPtr, &groupFunctionPtr,
-                   &resultPtr](auto const& aggregatorBatch) {
-                    using BatchType = std::decay_t<decltype(aggregatorBatch)>;
-                    if constexpr(std::is_same_v<BatchType, CompoundBatch>) {
-                      resultPtr = group(tableBatchPtr, groupFunctionPtr, aggregatorBatch);
-                    } else {
-                      // special case when providing aggregator as just a symbol head
-
-                      // construct an expression batch from the head (assuming single symbol
-                      // value) also assuming a function with 1 argument only
-                      Symbol const& head = *aggregatorBatch.begin();
-                      auto* bodyBatch = new CompoundBatch(head);
-                      // we pass a symbol as unique argument
-                      Symbol parameter("tuple");
-                      bodyBatch->append(ComplexExpression(head, {parameter}));
-
-                      // construct the parameters batch
-                      auto* paramsBatch = new SymbolBatch(1, parameter);
-
-                      // and now we create a function batch using the parameters + body
-                      CompoundBatch functionBatch(Symbol("Function"));
-                      functionBatch.append({Batch::ReadablePtr((Batch const*)(paramsBatch)),
-                                            Batch::ReadablePtr((Batch const*)(bodyBatch))});
-                      resultPtr = group(tableBatchPtr, groupFunctionPtr, functionBatch);
-                    }
-                  },
-                  *aggregatorPtr);
-              return resultPtr;
-            });
-  }
+    }
+  };
 };
 
 } // namespace boss::engines::bulk

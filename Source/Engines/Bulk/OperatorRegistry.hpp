@@ -13,17 +13,6 @@
 
 namespace boss::engines::bulk {
 
-/// Helper to define a set of batch types allowed on one of the argument
-/// (when allowing more than one type).
-/// Used for calling to registerFunction
-template <typename... BatchTypes> class AllowedBatches {
-public:
-  using BatchVisitDispatcher = BatchVisitDispatcher<BatchTypes...>;
-  static bool isAllowed(Batch const& batch) {
-    return (... || (batch.typeId() == UniqueId::forType<BatchTypes>()));
-  }
-};
-
 /** This class is keeping a map of operators to be called for evaluating a complex expression.
  * They are stored by expression head and the number of arguments.
  * It needs to take the Executor as template parameter to be able to call back the execute()
@@ -73,44 +62,13 @@ public:
     return evaluated;
   }
 
-  /** Wrapper for registerFunction
-   * so we can set pass along some properties/flags for the operator
-   * using template parameters.
-   * At the moment, it is used to define the type of the arguments.*/
-  friend class AllowedTypes;
-  template <typename... Types> class AllowedTypes {
-  public:
-    explicit AllowedTypes(OperatorRegistry& registry_) : registry(registry_) {}
-
-    /** This is the function to call to define a new operator
-     * by passing a lambda function taking generic parameters.
-     * The AllowedTypes wrapper is used to define types of the arguments,
-     * and it will be resolve at compile-time to pass typed batch to the lambda function.*/
-    template <size_t N, typename Func>
-    void registerFunction(std::string const& symbol, Func&& func) {
-      std::vector<size_t> argumentTypes(N, 0);
-      OperatorKey key(symbol, argumentTypes);
-      using OperatorType = RegisteredOperator<Func, N, Types...>;
-      using ContainerType = OperatorContainer<OperatorType>;
-      auto* container = new ContainerType(OperatorType(std::forward<Func>(func)));
-      registry.operators.try_emplace(key, container);
-    }
-
-  private:
-    OperatorRegistry& registry;
-  };
-
-  template <typename... Types> auto allowedTypes() {
-    return FromElementTypesToAllowedTypes<false, Types...>(*this);
-  }
-  template <typename... Types> auto argTypes() {
-    return FromElementTypesToAllowedTypes<true, Types...>(*this);
-  }
-  template <typename... Types> auto allowedBatchTypes() {
-    return AllowedTypes<AllowedBatches<Types...>>(*this);
-  }
-  template <typename... Types> auto argBatchTypes() {
-    return AllowedTypes<AsAllowedBatches<Types>...>(*this);
+  template <typename OperatorType> void registerOperator(std::string const& symbol) {
+    using Properties = typename OperatorType::Properties;
+    using ContainerType = OperatorContainer<OperatorType>;
+    std::vector<size_t> argumentTypes(Properties::ArgumentCount, 0);
+    OperatorKey key(symbol, argumentTypes);
+    auto* container = new ContainerType(OperatorType());
+    operators.try_emplace(key, container);
   }
 
 private:
@@ -147,47 +105,6 @@ private:
     outputPtr = WritableBatchPtr(newCompoundBatch);
     return true;
   }
-
-  template <typename> struct IsAllowedBatches : std::false_type {};
-  template <typename... T> struct IsAllowedBatches<AllowedBatches<T...>> : std::true_type {};
-  template <typename T>
-  using AsAllowedBatches = std::conditional_t<IsAllowedBatches<T>::value, T, AllowedBatches<T>>;
-  template <typename, typename> struct MergeTwoFixedTypes;
-  template <typename... Args0, typename... Args1>
-  struct MergeTwoFixedTypes<AllowedTypes<AllowedBatches<Args0...>>,
-                            AllowedTypes<AllowedBatches<Args1...>>> {
-    using type = AllowedTypes<AllowedBatches<Args0...>, AllowedBatches<Args1...>>;
-  };
-  template <typename, typename> struct MergeTwoAllowedTypes;
-  template <typename... Args0, typename... Args1>
-  struct MergeTwoAllowedTypes<AllowedTypes<AllowedBatches<Args0...>>,
-                              AllowedTypes<AllowedBatches<Args1...>>> {
-    using type = AllowedTypes<AllowedBatches<Args0..., Args1...>>;
-  };
-  template <bool, typename...> struct MergeAllowedTypes;
-  template <bool UsingFixedTypes, typename FirstAllowedType>
-  struct MergeAllowedTypes<UsingFixedTypes, FirstAllowedType> {
-    using type = FirstAllowedType;
-  };
-  template <bool UsingFixedTypes, typename FirstAllowedType, typename... OtherAllowedTypes>
-  struct MergeAllowedTypes<UsingFixedTypes, FirstAllowedType, OtherAllowedTypes...> {
-    using type = std::conditional_t<
-        UsingFixedTypes,
-        typename MergeTwoFixedTypes<
-            FirstAllowedType,
-            typename MergeAllowedTypes<UsingFixedTypes, OtherAllowedTypes...>::type>::type,
-        typename MergeTwoAllowedTypes<
-            FirstAllowedType,
-            typename MergeAllowedTypes<UsingFixedTypes, OtherAllowedTypes...>::type>::type>;
-  };
-  template <bool UsingFixedTypes, typename... Types>
-  using FromElementTypesToAllowedTypes = typename MergeAllowedTypes<
-      UsingFixedTypes,
-      std::conditional_t<std::is_same_v<Types, Symbol>, AllowedTypes<AllowedBatches<SymbolBatch>>,
-                         std::conditional_t<std::is_same_v<Types, ComplexExpression>,
-                                            AllowedTypes<AllowedBatches<CompoundBatch>>,
-                                            AllowedTypes<AllowedBatches<ValueBatch<Types>>>>>...>::
-      type;
 
   class OperatorKey {
   public:

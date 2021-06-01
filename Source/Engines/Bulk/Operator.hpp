@@ -1,31 +1,15 @@
 #pragma once
+
 #include "Batch/Batch.hpp"
+#include "BatchVisitDispatcher.hpp"
+
 namespace boss::engines::bulk {
 
-/** Not used so far. We can get rid of the base class if we don't need any virtual function
- * or common code. */
-class Operator {};
-
-template <typename Func, size_t FuncArgCount, typename... AllowedBatches>
-class RegisteredOperator : public Operator {
+template <size_t N, typename... AllowedBatches> class Operator {
 public:
-  explicit RegisteredOperator(Func&& func) : func(func) {}
-  ~RegisteredOperator() = default;
-  RegisteredOperator(RegisteredOperator const&) = default;
-  RegisteredOperator(RegisteredOperator&&) noexcept = default;
-  RegisteredOperator& operator=(RegisteredOperator const&) = delete;
-  RegisteredOperator& operator=(RegisteredOperator&&) = delete;
-
-  /// calls the evaluation function with specific Batch types as arguments (not just generic Batch)
-  template <typename InputBatchTuple, size_t... Indices>
-  Batch::ReadablePtr evaluate(InputBatchTuple&& in,
-                              std::index_sequence<Indices...> /*unused*/) const {
-    return func(std::get<Indices>(std::forward<InputBatchTuple>(in))...);
-  }
-
   class Properties {
   public:
-    static size_t constexpr ArgumentCount = FuncArgCount;
+    static size_t constexpr ArgumentCount = N;
 
     /// Check if the batch type matches one of the expected types for the operator's nth argument.
     static bool isSupportedType(size_t argumentIndex, Batch const& batch) {
@@ -80,8 +64,70 @@ public:
       return funcIsSupportedType(batch);
     }
   }; // class Properties
-
-private:
-  Func func;
 };
+
+/// Helper to define a set of batch types allowed on one of the argument
+/// (when allowing more than one type).
+template <typename... BatchTypes> class AllowedBatches {
+public:
+  using BatchVisitDispatcher = BatchVisitDispatcher<BatchTypes...>;
+  static bool isAllowed(Batch const& batch) {
+    return (... || (batch.typeId() == UniqueId::forType<BatchTypes>()));
+  }
+};
+
+/// helper to create operator based a list of allowed data types
+template <size_t N> class OperatorBuilder {
+private:
+  template <typename, typename> struct MergeTwoFixedTypes;
+  template <typename... Args0, typename... Args1>
+  struct MergeTwoFixedTypes<Operator<N, AllowedBatches<Args0...>>,
+                            Operator<N, AllowedBatches<Args1...>>> {
+    using type = Operator<N, AllowedBatches<Args0...>, AllowedBatches<Args1...>>;
+  };
+  template <typename, typename> struct MergeTwoAllowedTypes;
+  template <typename... Args0, typename... Args1>
+  struct MergeTwoAllowedTypes<Operator<N, AllowedBatches<Args0...>>,
+                              Operator<N, AllowedBatches<Args1...>>> {
+    using type = Operator<N, AllowedBatches<Args0..., Args1...>>;
+  };
+  template <bool, typename...> struct MergeAllowedTypes;
+  template <bool UsingFixedTypes, typename FirstAllowedType>
+  struct MergeAllowedTypes<UsingFixedTypes, FirstAllowedType> {
+    using type = FirstAllowedType;
+  };
+  template <bool UsingFixedTypes, typename FirstAllowedType, typename... OtherAllowedTypes>
+  struct MergeAllowedTypes<UsingFixedTypes, FirstAllowedType, OtherAllowedTypes...> {
+    using type = std::conditional_t<
+        UsingFixedTypes,
+        typename MergeTwoFixedTypes<
+            FirstAllowedType,
+            typename MergeAllowedTypes<UsingFixedTypes, OtherAllowedTypes...>::type>::type,
+        typename MergeTwoAllowedTypes<
+            FirstAllowedType,
+            typename MergeAllowedTypes<UsingFixedTypes, OtherAllowedTypes...>::type>::type>;
+  };
+  template <bool UsingFixedTypes, typename... Types>
+  using FromElementTypesToAllowedTypes = typename MergeAllowedTypes<
+      UsingFixedTypes,
+      std::conditional_t<std::is_same_v<Types, Symbol>, Operator<N, AllowedBatches<SymbolBatch>>,
+                         std::conditional_t<std::is_same_v<Types, ComplexExpression>,
+                                            Operator<N, AllowedBatches<CompoundBatch>>,
+                                            Operator<N, AllowedBatches<ValueBatch<Types>>>>>...>::
+      type;
+
+  template <typename... Types> struct ForTypes {
+    using type = FromElementTypesToAllowedTypes<false, Types...>;
+  };
+
+  template <typename... Types> struct ForTypesInOrder {
+    using type = FromElementTypesToAllowedTypes<true, Types...>;
+  };
+
+public:
+  template <typename... Types> using OperatorForTypes = typename ForTypes<Types...>::type;
+  template <typename... Types>
+  using OperatorForTypesInOrder = typename ForTypesInOrder<Types...>::type;
+};
+
 } // namespace boss::engines::bulk

@@ -101,6 +101,13 @@ public:
   }
 
 private:
+  /// calls the evaluation function with specific Batch types as arguments (not just generic Batch)
+  template <typename OperatorType, typename InputBatchTuple, size_t... Indices>
+  static Batch::ReadablePtr evaluateWithTypedArguments(OperatorType const& op, InputBatchTuple&& in,
+                                                       std::index_sequence<Indices...> /*unused*/) {
+    return op.evaluate(std::get<Indices>(std::forward<InputBatchTuple>(in))...);
+  }
+
   /// build a tuple of specific Batch argument types
   /// from dynamic information extracted from generic Batch list
   template <typename OperatorType, typename... ArgumentBatchTypes>
@@ -117,8 +124,8 @@ private:
       if constexpr(std::is_same_v<ArgumentsTuple, std::tuple<>>) {
         outputPtr = op.evaluate();
       } else {
-        outputPtr =
-            op.evaluate(std::move(argumentsTuple), std::make_index_sequence<FuncArgCount>{});
+        outputPtr = evaluateWithTypedArguments(op, std::move(argumentsTuple),
+                                               std::make_index_sequence<FuncArgCount>{});
       }
 
       if constexpr(FuncArgCount == 2) {

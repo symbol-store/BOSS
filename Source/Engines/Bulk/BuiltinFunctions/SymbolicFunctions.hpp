@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../../Expression.hpp"
+#include "../Operator.hpp"
 
 namespace boss::engines::bulk {
 
@@ -9,13 +10,17 @@ template <typename OperatorUtils, typename OperatorRegistry> class SymbolicFunct
 public:
   static void registerAll() {
     auto& operatorRegistry = OperatorRegistry::instance();
-
-    operatorRegistry.template allowedTypes<std::string>().template registerFunction<1>(
-        "Symbol", [](auto&& batchPtr) {
-          return OperatorUtils::evaluateElements(
-              [](auto const& name) -> Symbol { return Symbol(name); }, batchPtr);
-        });
+    operatorRegistry.template registerOperator<SymbolOperator>("Symbol");
   }
+
+private:
+  class SymbolOperator : public OperatorBuilder<1>::OperatorForTypes<std::string> {
+  public:
+    template <typename BatchType> auto evaluate(BatchType&& batchPtr) const {
+      return OperatorUtils::evaluateElements(
+          [](auto const& name) -> Symbol { return Symbol(name); }, batchPtr);
+    }
+  };
 };
 
 } // namespace boss::engines::bulk
