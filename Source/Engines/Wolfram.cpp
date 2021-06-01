@@ -97,7 +97,7 @@ struct EngineImplementation {
             [&](ComplexExpression const& expression) {
               console << (namespaceIdentifier + expression.getHead().getName()) << "[";
               WSPutFunction(link, (namespaceIdentifier + expression.getHead().getName()).c_str(),
-                            expression.getArguments().size());
+                            (int)expression.getArguments().size());
               for(auto it = expression.getArguments().begin();
                   it != expression.getArguments().end(); ++it) {
                 auto const& argument = *it;
@@ -108,7 +108,7 @@ struct EngineImplementation {
               }
               console << "]";
             }),
-        expression);
+        (Expression::SuperType const&)expression);
   }
 
   boss::Expression readExpressionFromLink() {

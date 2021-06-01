@@ -31,19 +31,23 @@ class ExpressionWithAdditionalCustomAtoms
     : public variant_amend<
           AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
           ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type {
+public:
   using SuperType = typename variant_amend<
       AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
       ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type;
 
-public:
   using SuperType::SuperType;
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
       ExpressionWithAdditionalCustomAtoms<> const& o) noexcept
-      : SuperType(std::visit(utilities::overload([](auto const& unpacked) {
-                               return ExpressionWithAdditionalCustomAtoms(unpacked);
-                             }),
-                             o)) {}
+      : SuperType(std::visit(
+            utilities::overload([](auto const& unpacked) {
+              return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(unpacked);
+            }),
+            (typename variant_amend<
+                AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
+                ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type const&)
+                o)) {}
   ~ExpressionWithAdditionalCustomAtoms() = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) noexcept =
