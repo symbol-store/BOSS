@@ -84,10 +84,11 @@ jobs:
     - name: Upload core dumps
       uses: actions/upload-artifact@v2
       with:
-        name: core
+        name: ${{ matrix.build-type }}-core
         retention-days: 1
         path: |
           core
+          /var/crash
     needs: [build]
 
   racket-test:
@@ -120,5 +121,6 @@ jobs:
         retention-days: 1
         path: |
           core
+          /var/crash
     needs: [build]
 
