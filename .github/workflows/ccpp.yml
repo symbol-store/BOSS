@@ -77,6 +77,8 @@ jobs:
         path: ${{ matrix.build-type }}
     - name: test
       run: |
+        sudo systemctl disable apport
+        cat /proc/sys/kernel/core_pattern
         ulimit -c unlimited
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
         chmod +x ./${{ matrix.build-type }}/Tests && ./${{ matrix.build-type }}/Tests
@@ -106,7 +108,8 @@ jobs:
         path: Debug
     - name: test
       run: |
-        ulimit -c unlimited
+        sudo systemctl disable apport
+        cat /proc/sys/kernel/core_pattern
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
         find Debug
         cp Debug/RacketBOSS.so .
