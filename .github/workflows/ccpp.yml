@@ -79,7 +79,6 @@ jobs:
         path: ${{ matrix.build-type }}
     - name: test
       run: |
-        systemctl disable apport
         cat /proc/sys/kernel/core_pattern
         ulimit -c unlimited
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
@@ -110,7 +109,6 @@ jobs:
         path: Debug
     - name: test
       run: |
-        systemctl disable apport
         cat /proc/sys/kernel/core_pattern
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
         find Debug
