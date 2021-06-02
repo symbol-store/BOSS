@@ -247,7 +247,7 @@ private:
     return AppendChild(newBuilder);
   }
 
-  std::shared_ptr<arrow::ArrayBuilder> makeChildBuilder(Expression const& expr) {
+  std::shared_ptr<arrow::ArrayBuilder> makeChildBuilder(Expression::SuperType const& expr) {
     return std::visit(boss::utilities::overload(
                           [&](bool /*v*/) -> std::shared_ptr<arrow::ArrayBuilder> {
                             return std::make_shared<IterableBooleanBuilder>(pool_);
@@ -311,7 +311,7 @@ private:
     return nullptr;
   }
 
-  static std::string createFieldName(Expression const& expr) {
+  static std::string createFieldName(Expression::SuperType const& expr) {
     return std::visit(boss::utilities::overload(
                           [&](bool /*v*/) -> std::string { return "Bool"; },
                           [&](int /*v*/) -> std::string { return "Int"; },
@@ -323,7 +323,7 @@ private:
   }
 
   static arrow::Status
-  appendToChildBuilder(Expression const& expr,
+  appendToChildBuilder(Expression::SuperType const& expr,
                        std::shared_ptr<arrow::ArrayBuilder> const& childBuilder) {
     return std::visit(
         boss::utilities::overload(

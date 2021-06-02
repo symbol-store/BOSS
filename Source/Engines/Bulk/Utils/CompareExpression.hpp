@@ -11,7 +11,7 @@ template <bool DispatchArgumentTypes, bool DispatchSymbolNames> struct CompareEx
   }
 
 private:
-  int compare(Expression const& lhs, Expression const& rhs) const {
+  int compare(Expression::SuperType const& lhs, Expression::SuperType const& rhs) const {
     if(lhs.index() != rhs.index()) {
       return lhs.index() < rhs.index() ? -1 : 1;
     }

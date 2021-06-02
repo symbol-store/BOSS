@@ -44,7 +44,8 @@ Engine::Engine() {
 }
 
 Batch* createBatch(Expression const& expression) {
-  return std::visit([](auto&& value) { return createBatch(value); }, expression);
+  return std::visit([](auto&& value) { return createBatch(value); },
+                    (Expression::SuperType const&)expression);
 }
 
 Batch* createBatch(ComplexExpression const& expression) {
@@ -53,7 +54,9 @@ Batch* createBatch(ComplexExpression const& expression) {
   return newBatch;
 }
 
-template <typename T> Batch* createBatch(T const& value) { return new ValueBatch<T>(1, value); }
+template <typename T> Batch* createBatch(T const& value) {
+  return new ValueBatch<T>(1, value);
+}
 
 /// convert the batch back to an expression
 Expression revertToExpression(Batch::ReadablePtr&& batchPtr) {
@@ -61,7 +64,7 @@ Expression revertToExpression(Batch::ReadablePtr&& batchPtr) {
   std::string symbolName;
   boss::engines::bulk::BatchVisitDispatcher<CompoundBatch>::visit(
       [&handledAsSymbol, &symbolName, &batchPtr](auto& tableBatch) {
-        if(tableBatch.isDecomposed() == false) {
+        if(!tableBatch.isDecomposed()) {
           return;
         }
         // save the query result into a temporary symbol
@@ -117,7 +120,7 @@ Expression Engine::evaluate(Expression const& e) { // NOLINT
   Batch::WritablePtr batchPtr;
   auto const* expr = std::get_if<ComplexExpression>(&e);
   bool done = false;
-  if(expr != nullptr && expr->getHead() == Symbol("List") && !expr->getArguments().empty()) {
+  if(expr != nullptr && expr->getHead().getName() == "List" && !expr->getArguments().empty()) {
     // special case if the root head is a list
     // can just put all arguments in a single batch
     auto argsIt = expr->getArguments().begin();
@@ -141,7 +144,7 @@ Expression Engine::evaluate(Expression const& e) { // NOLINT
     // default case, create just a single element batch for the root expression
     batchPtr = Batch::WritablePtr(createBatch(e));
   }
-
+  
   Batch::ReadablePtr outputPtr;
   if(!Executor::evaluate(*batchPtr, outputPtr)) {
     return e;

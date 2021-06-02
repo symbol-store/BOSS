@@ -16,7 +16,7 @@ public:
   Engine();
   ~Engine() = default;
 
-  Expression evaluate(Expression const& e);
+  static Expression evaluate(Expression const& e);
 };
 
 } // namespace boss::engines::bulk

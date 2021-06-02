@@ -57,7 +57,8 @@ public:
       if(other_ext.extension_name() != this->extension_name()) {
         return false;
       }
-      return this->getHead() == dynamic_cast<ComplexExpressionArrayType const&>(other).getHead();
+      return this->getHead().getName() ==
+             dynamic_cast<ComplexExpressionArrayType const&>(other).getHead().getName();
     }
     arrow::Result<std::shared_ptr<DataType>>
     Deserialize(std::shared_ptr<DataType> storage_type,

@@ -129,8 +129,15 @@ private:
         bool equals = false;
         BatchVisitDispatcher<ValueBatchType>::visit(
             [&equals, &value](auto& argBatchTyped) {
-              if(*argBatchTyped.begin() == value) {
-                equals = true;
+              auto const& batchValue = *argBatchTyped.begin();
+              if constexpr(std::is_same_v<std::decay_t<decltype(value)>, Symbol>) {
+                if(batchValue.getName() == value.getName()) {
+                  equals = true;
+                }
+              } else {
+                if(batchValue == value) {
+                  equals = true;
+                }
               }
             },
             *argBatchPtr);
