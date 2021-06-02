@@ -29,7 +29,8 @@ jobs:
     runs-on: self-hosted
     strategy:
       matrix:
-        build-type: [Release, Debug, Sanitize]
+        build-type: [Debug]
+        # build-type: [Release, Debug, Sanitize]
     container:
       image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
       credentials:
@@ -66,7 +67,8 @@ jobs:
     runs-on: self-hosted
     strategy:
       matrix:
-        build-type: [Release, Debug, Sanitize]
+        build-type: [Debug]
+        # build-type: [Release, Debug, Sanitize]
     container:
       image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
       credentials:
@@ -83,6 +85,7 @@ jobs:
         cat /proc/sys/kernel/core_pattern
         ulimit -c unlimited
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
+        ls /tmp/cores*
         chmod +x ./${{ matrix.build-type }}/Tests && ./${{ matrix.build-type }}/Tests
     - name: Upload core dumps
       uses: actions/upload-artifact@v2
@@ -93,34 +96,34 @@ jobs:
           /tmp/cores*
     needs: [build]
 
-  racket-test:
-    runs-on: self-hosted
-    container:
-      image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
-      credentials:
-         username: ${{ github.actor }}
-         password: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-    - uses: actions/checkout@v2
-    - name: Download artifact
-      uses: actions/download-artifact@v2
-      with:
-        name: Debug
-        path: Debug
-    - name: test
-      run: |
-        cat /proc/sys/kernel/core_pattern
-        expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
-        find Debug
-        cp Debug/RacketBOSS.so .
-        emacs --batch --eval "(require 'org)" --eval '(add-to-list (quote org-babel-tangle-lang-exts) (quote ("racket" . "rkt")))' --eval '(org-babel-tangle-file "Readme.org")'
-        racket -e '(load "Readme.rkt")' -e "(require 'Readme)"
-    - name: Upload core dumps
-      uses: actions/upload-artifact@v2
-      with:
-        name: core
-        retention-days: 1
-        path: |
-          /tmp/cores*
-    needs: [build]
+  # racket-test:
+  #   runs-on: self-hosted
+  #   container:
+  #     image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
+  #     credentials:
+  #        username: ${{ github.actor }}
+  #        password: ${{ secrets.GITHUB_TOKEN }}
+  #   steps:
+  #   - uses: actions/checkout@v2
+  #   - name: Download artifact
+  #     uses: actions/download-artifact@v2
+  #     with:
+  #       name: Debug
+  #       path: Debug
+  #   - name: test
+  #     run: |
+  #       cat /proc/sys/kernel/core_pattern
+  #       expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
+  #       find Debug
+  #       cp Debug/RacketBOSS.so .
+  #       emacs --batch --eval "(require 'org)" --eval '(add-to-list (quote org-babel-tangle-lang-exts) (quote ("racket" . "rkt")))' --eval '(org-babel-tangle-file "Readme.org")'
+  #       racket -e '(load "Readme.rkt")' -e "(require 'Readme)"
+  #   - name: Upload core dumps
+  #     uses: actions/upload-artifact@v2
+  #     with:
+  #       name: core
+  #       retention-days: 1
+  #       path: |
+  #         /tmp/cores*
+  #   needs: [build]
 
