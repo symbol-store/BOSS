@@ -92,7 +92,7 @@ jobs:
       with:
         name: ${{ matrix.build-type }}-core
         retention-days: 1
-        path: core*
+        path: .
     needs: [build]
 
   # racket-test:
