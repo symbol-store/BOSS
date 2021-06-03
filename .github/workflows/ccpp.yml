@@ -88,6 +88,7 @@ jobs:
         ls -lah core*
         chmod +x ./${{ matrix.build-type }}/Tests && ./${{ matrix.build-type }}/Tests
     - name: Upload core dumps
+      if: ${{ always() }}
       uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.build-type }}-core
