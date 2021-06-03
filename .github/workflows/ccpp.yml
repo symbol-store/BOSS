@@ -82,6 +82,7 @@ jobs:
         path: ${{ matrix.build-type }}
     - name: test
       run: |
+        export TERM=xterm
         export
         cat /proc/sys/kernel/core_pattern
         ulimit -c unlimited
