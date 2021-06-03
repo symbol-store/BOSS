@@ -250,7 +250,7 @@ TEST_CASE("STORAGE_TEST") {
                            {{"A", "x"_}, {"B", 7}}
                        });
 
-    std::cout << relation.get()->ToString() << std::endl;
+//    std::cout << relation.get()->ToString() << std::endl;
 
     new_runtime::Database database;
 
@@ -471,6 +471,56 @@ TEST_CASE("STORAGE_TEST") {
 
     std::cout << relation->get()->ToString() << std::endl;
 
+  }
+
+  SECTION("FileLoad") {
+    new_runtime::Relation relation;
+
+    relation.loadFromFile("../DataSets/TestFile.csv");
+
+    std::cout << relation.get()->ToString() << std::endl;
+  }
+
+  SECTION("FileLoad2") {
+    new_runtime::Relation relation;
+
+    relation.loadFromFile("../DataSets/IntegerDataset5-0.95UnknownSymbol.csv");
+
+    new_runtime::Database database;
+
+    std::cout << relation.get()->ToString() << std::endl;
+
+
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto result = engine.evaluate("Assuming"_("unknown"_, 0, "CollectTuples"_("GetRelation"_(std::string("Foo")))));
+  }
+
+  SECTION("FileLoad3") {
+    new_runtime::Relation relation;
+
+    relation.loadFromFile("../DataSets/IntegerDataset5-0.95NextValue.csv");
+
+    new_runtime::Database database;
+
+    std::cout << relation.get()->ToString() << std::endl;
+
+
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto result = engine.evaluate("CollectTuples"_("GetRelation"_(std::string("Foo"))));
+  }
+
+  SECTION("FileLoad4") {
+    new_runtime::Relation relation;
+    relation.loadFromFile("../DataSets/IntegerDataset5-0.95UnknownSymbol.csv");
+    new_runtime::Database database;
+    database.addRelation("Integers", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto result = engine.evaluate("Assuming"_("unknown"_, "NextValue"_(1, "Int"_), "CollectTuples"_("GetRelation"_(std::string("Integers")))));
   }
 
 }

@@ -688,7 +688,6 @@ void SexprToStdLoweringPass::runOnFunction() {
   if(failed(res)) {
     signalPassFailure();
   }
-  getOperation().getParentOfType<ModuleOp>().dump();
 }
 
 std::unique_ptr<mlir::Pass> createLowerToStdPass() {

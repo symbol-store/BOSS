@@ -9,9 +9,19 @@
 #include <string>
 #include <utility>
 
+namespace boss::mlir::conversion {
+::mlir::Type stringToMLIRType(::mlir::MLIRContext* context, std::string typeName);
+}
+
 namespace boss::mlir::inference {
 bool isRegisteredSymbol(std::string const& symbol);
 bool hasSymbolicArguments(std::vector<::mlir::Type> const& arguments);
+
+struct TypeInferenceContext;
+
+::mlir::Type inferSymbolType(std::string const& symbolName,
+                             const std::vector<::mlir::Type>& argTypes,
+                             TypeInferenceContext& context);
 
 struct TypeInferenceContext {
   TypeInferenceContext(::mlir::MLIRContext* mlirContext, const new_runtime::Database* database,
@@ -40,8 +50,14 @@ struct TypeInferenceContext {
                     SymbolOrValueType::get(mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
               },
               [&](ComplexExpression e) {
-                this->symbolTable[name] =
-                    SymbolOrValueType::get(mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
+                // TODO generalise hardcoded value
+                if (e.getHead().getName() == "NextValue") {
+                  this->symbolTable[name] = boss::mlir::conversion::stringToMLIRType(mlirContext, std::get<boss::Symbol>(e.getArguments()[1]).getName());
+                } else {
+                  this->symbolTable[name] =
+                      SymbolOrValueType::get(mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
+                }
+
               }),
           symbol.second);
     }
@@ -62,10 +78,6 @@ struct TypeInferenceContext {
   // The symbols that are arguments to the current function
   std::vector<std::string> argumentSymbols;
 };
-
-::mlir::Type inferSymbolType(std::string const& symbolName,
-                             const std::vector<::mlir::Type>& argTypes,
-                             TypeInferenceContext& context);
 
 void updateContext(::mlir::sexpr::SymbolOp* symbolOp, TypeInferenceContext& context);
 } // namespace boss::mlir::inference

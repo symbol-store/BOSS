@@ -114,8 +114,9 @@ Value collectTuplesToRelation(ConversionPatternRewriter& rewriter, Value streamV
 }
 
 struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTuplesOp> {
-  CollectTuplesOpLowering(MLIRContext* ctx, TypeConverter& converter)
-      : OpConversionPattern(ctx), converter(converter) {}
+  CollectTuplesOpLowering(MLIRContext* ctx, new_runtime::Database& database,
+                          std::unordered_map<std::string, boss::Expression> const& symbolTable)
+      : OpConversionPattern(ctx), database(database), symbolTable(symbolTable) {}
 
   LogicalResult matchAndRewrite(database::CollectTuplesOp op, ArrayRef<Value> operands,
                                 ConversionPatternRewriter& rewriter) const override {
@@ -135,7 +136,8 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
     return success();
   }
 
-  TypeConverter& converter;
+  new_runtime::Database& database;
+  std::unordered_map<std::string, boss::Expression> const& symbolTable;
 };
 
 // Generates code to load the type
@@ -233,8 +235,6 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
   arrow::Status handleNextValueSymbol(const arrow::StructType& type) {
     auto symbolName = type.field(0)->name();
     auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(baseArray);
-
-    std::cout << type.ToString() << std::endl;
 
     std::vector<Value> childResults;
     std::vector<::mlir::Type> operandTypes;
@@ -568,7 +568,7 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
       auto fieldName = fieldAttr.dyn_cast_or_null<StringAttr>().getValue().str();
       auto fieldType = inputFields.find(fieldName)->second;
       auto extractedVal = rewriter.create<database::ExtractFieldFromTupleOp>(
-          op.getLoc(), operands[0], fieldName, fieldType);
+          op.getLoc(), op.getOperand(), fieldName, fieldType);
       valuesToHash.emplace_back(extractedVal.getResult());
     }
     auto hashedValues =
@@ -919,8 +919,8 @@ void DatabaseLoweringPass::runOnOperation() {
   patterns
       .insert<ProjectionOpLowering, SelectionOpLowering, BuildJoinOpLowering, GroupByOpLowering>(
           &getContext());
-  patterns.insert<FuncOpSignatureConversion, CollectTuplesOpLowering>(&getContext(), typeConverter);
-  patterns.insert<GetRelationOpLowering>(&getContext(), database, symbolTable);
+  patterns.insert<FuncOpSignatureConversion>(&getContext(), typeConverter);
+  patterns.insert<GetRelationOpLowering, CollectTuplesOpLowering>(&getContext(), database, symbolTable);
 
   // Transitively lower symbol operations
   populateSymbolToStdPatterns(patterns, typeConverter, &getContext());
@@ -930,7 +930,6 @@ void DatabaseLoweringPass::runOnOperation() {
   if(failed(applyPartialConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
-  module.dump();
 }
 
 // namespace

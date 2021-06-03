@@ -4,3 +4,9 @@ build
 Debug
 cmake-build-debug
 .idea
+Release
+RelWithDebug
+DataSets
+cmake-build-release
+BuildDefault
+cmake-build-*

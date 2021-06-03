@@ -24,7 +24,13 @@ void mlir::database::DatabaseDialect::printType(Type type, DialectAsmPrinter& pr
   } else if(auto result = type.dyn_cast_or_null<RelationType>()) {
     printer << "Relation";
   } else if(auto result = type.dyn_cast_or_null<TupleStreamType>()) {
-    printer << "TupleStream";
+    printer << "TupleStream<";
+    for (auto child : result.getFields()) {
+      printer << child.first << ":";
+      printer.printType(child.second);
+      printer << ",";
+    }
+    printer << ">";
   } else if(auto result = type.dyn_cast_or_null<GenericTupleStreamUnionType>()) {
     printer << "GenericTupleStreamUnion<";
 

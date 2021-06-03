@@ -376,9 +376,11 @@ struct AppendToRelationOpLowering : public OpConversionPattern<database::AppendT
                                 ConversionPatternRewriter& rewriter) const override {
     auto parentModule = op.getParentOfType<ModuleOp>();
 
+    auto runtimeType = (boss::mlir::types::RuntimeTypes)op.runtimeType();
+
     // get reference to correct function call
     mlir::Operation* callOp = nullptr;
-    switch((boss::mlir::types::RuntimeTypes)op.runtimeType()) {
+    switch(runtimeType) {
     case boss::mlir::types::RuntimeTypes::INT:
       callOp = createAppendCall<boss::mlir::types::RuntimeTypes::INT>(
           rewriter, parentModule, operands.front(), op.getLoc(), op.relationBuilderPtr());
@@ -396,7 +398,7 @@ struct AppendToRelationOpLowering : public OpConversionPattern<database::AppendT
           rewriter, parentModule, operands.front(), op.getLoc(), op.relationBuilderPtr());
       break;
     default:
-      throw std::runtime_error("Type not currently implemented");
+      throw std::runtime_error("Type not currently implemented: " + std::to_string(op.runtimeType()));
     }
 
     if(callOp == nullptr) {

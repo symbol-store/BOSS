@@ -88,6 +88,16 @@ struct ArrowToMlirTypeVisitor : public arrow::TypeVisitor {
 
     if (operationName == "Symbol") {
       // This expression represents a symbol with no arguments
+      // Check if its in the symbol table
+      auto parentArray = std::dynamic_pointer_cast<arrow::StructArray>(context.currentArray);
+      auto dictField = std::dynamic_pointer_cast<arrow::DictionaryArray>(parentArray->field(0));
+      auto symName = std::dynamic_pointer_cast<arrow::StringArray>(dictField->dictionary())->GetString(0);
+
+      if (context.symbolTable.find(symName) != context.symbolTable.end()) {
+        resultType = context.symbolTable.find(symName)->second;
+        return arrow::Status::OK();
+      }
+
       resultType = SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
       return arrow::Status::OK();
     }

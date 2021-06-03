@@ -61,7 +61,7 @@ Expression Compiler::evaluate(Expression const& e) {
 
   ::mlir::PassManager passManager(module->getContext());
 
-  boss::mlir::inference::TypeInferenceContext context(module->getContext(), database, {}, nullptr);
+  boss::mlir::inference::TypeInferenceContext context(module->getContext(), database, symbolTable);
 
   passManager.addPass(createTypeInferencePass(&context));
   passManager.addPass(createLowerToFunctionsPass(returnType));

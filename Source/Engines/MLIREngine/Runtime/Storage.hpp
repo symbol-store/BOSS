@@ -57,6 +57,8 @@ public:
 
   [[nodiscard]] std::shared_ptr<arrow::DenseUnionArray> const& get() const { return relation; }
 
+  void loadFromFile(std::string const& fileName);
+
 private:
   std::shared_ptr<arrow::DenseUnionArray> relation;
 };

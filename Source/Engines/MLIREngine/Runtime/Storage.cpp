@@ -5,6 +5,8 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <fstream>
+#include <sstream>
 
 using boss::ComplexExpression;
 using boss::Expression;
@@ -377,6 +379,105 @@ void new_runtime::Relation::bulk_load(
     auto result = databaseBuilder.AppendTuple(tuple);
     if(!result.ok()) {
       throw std::runtime_error("Error adding tuple");
+    }
+  }
+
+  auto finishResult = databaseBuilder.Finish();
+  if(!finishResult.ok()) {
+    throw std::runtime_error("Error finishing array construction");
+  }
+
+  relation = std::dynamic_pointer_cast<arrow::DenseUnionArray>(finishResult.ValueUnsafe());
+}
+
+std::vector<std::string> split(const std::string& s, char delimiter)
+{
+  std::vector<std::string> splits;
+  std::string split;
+  std::istringstream ss(s);
+  while (std::getline(ss, split, delimiter))
+  {
+    splits.push_back(split);
+  }
+  return splits;
+}
+
+bool isInteger(std::string const& expr) {
+  char* p;
+  strtol(expr.c_str(), &p, 10);
+  return *p == 0;
+}
+
+bool isFloat(std::string const& expr) {
+  char* p;
+  strtof(expr.c_str(), &p);
+  return *p == 0;
+}
+
+boss::Expression fileStringToExpression(std::string const& s) {
+  if (isInteger(s)) {
+    return Expression(std::stoi(s));
+  }
+  if (isFloat(s)) {
+    return Expression(std::stof(s));
+  }
+  if (s == "true") {
+    return Expression(true);
+  }
+  if (s == "false") {
+    return Expression(false);
+  }
+  if (s.at(0) == 's') {
+    return Expression(s.substr(1));
+  }
+  if (s.at(0) == 'S') {
+    return Expression(Symbol(s.substr(1)));
+  }
+  if (s.at(0) == 'e') {
+    // This is an expression, split arguments by space
+    auto splitExpression = split(s, ' ');
+    auto head = splitExpression[0].substr(1);
+    std::vector<Expression> arguments;
+    for (auto i = 1U; i < splitExpression.size(); i++) {
+      arguments.emplace_back(fileStringToExpression(splitExpression[i]));
+    }
+    return ComplexExpression(Symbol(head), arguments);
+  }
+  throw std::runtime_error("Error parsing file: No valid expression found");
+}
+
+void new_runtime::Relation::loadFromFile(const string& fileName) {
+  DatabaseBuilder databaseBuilder(arrow::default_memory_pool());
+
+  std::ifstream file;
+  file.open(fileName);
+  if (!file.is_open()) {
+    throw std::runtime_error("Error opening file " + fileName);
+  }
+
+  // Get header
+  std::string line;
+  if (!std::getline(file, line)) {
+    throw std::runtime_error("Failed to read CSV header");
+  }
+
+  auto columnNames = split(line, ',');
+
+  while (std::getline(file, line)) {
+    std::map<std::string, boss::Expression> tuple;
+    auto columnData = split(line, ',');
+    if (columnData.size() != columnNames.size()) {
+      throw std::runtime_error("Unexpected number of data points in row");
+    }
+
+    for (auto i = 0U; i < columnNames.size(); i++) {
+      auto const& name = columnNames[i];
+      auto const& rawData = columnData[i];
+      tuple[name] = fileStringToExpression(rawData);
+    }
+    auto status = databaseBuilder.AppendTuple(tuple);
+    if (!status.ok()) {
+      throw std::runtime_error(status.message());
     }
   }
 
