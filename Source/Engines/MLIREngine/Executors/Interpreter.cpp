@@ -121,13 +121,13 @@ boss::Expression Interpreter::evaluate(boss::Expression e) {
        [&](ComplexExpression e) {
          auto newArgs = evaluateArguments(e);
          boss::engines::mlir::compiler::Compiler compiler(database, symbolTable);
-         return compiler.evaluate(ComplexExpression(e.getHead(), newArgs));
+         return compiler.evaluate(ComplexExpression(e.getHead(), newArgs), false);
        }},
       {"GroupBy",
        [&](ComplexExpression e) {
          auto newArgs = evaluateArguments(e);
          boss::engines::mlir::compiler::Compiler compiler(database, symbolTable);
-         return compiler.evaluate(ComplexExpression(e.getHead(), newArgs));
+         return compiler.evaluate(ComplexExpression(e.getHead(), newArgs), false);
        }},
       {"Join", [&](ComplexExpression e) {
          auto newArgs = evaluateArguments(e);
@@ -136,7 +136,7 @@ boss::Expression Interpreter::evaluate(boss::Expression e) {
 
          // Compile and execute the right side of the join
          boss::engines::mlir::compiler::Compiler compiler(database, symbolTable);
-         auto hashTable = compiler.evaluate(hashTableBuild);
+         auto hashTable = compiler.evaluate(hashTableBuild, false);
 
          auto table = reinterpret_cast<runtime::hash::HashTable*>(std::get<size_t>(hashTable));
 

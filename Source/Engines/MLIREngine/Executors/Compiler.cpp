@@ -12,6 +12,7 @@
 #include "Engines/MLIREngine/Translation/SexprToStd.hpp"
 #include "Engines/MLIREngine/Translation/LowerDatabase.hpp"
 #include "Engines/MLIREngine/Types/TypeInference.hpp"
+#include "Utilities.hpp"
 
 #include <llvm/IR/Module.h>
 #include <mlir/ExecutionEngine/ExecutionEngine.h>
@@ -24,9 +25,10 @@
 namespace boss::engines::mlir::compiler {
 
 using namespace boss::mlir::types;
+using utilities::operator""_;
 
 // Run the module in the LLVM JIT
-int64_t runJit(::mlir::ModuleOp module) {
+int64_t Compiler::runJit(::mlir::ModuleOp module) {
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   auto maybeEngine = ::mlir::ExecutionEngine::create(module);
@@ -50,8 +52,7 @@ int64_t runJit(::mlir::ModuleOp module) {
   return output;
 }
 
-Expression Compiler::evaluate(Expression const& e) {
-
+Expression Compiler::evaluate(Expression const& e, bool compileOnly = false) {
   MLIRGenerator generator{};
 
   auto module = generator.generateModule(e);
@@ -76,12 +77,16 @@ Expression Compiler::evaluate(Expression const& e) {
     throw std::runtime_error("Compilation failed");
   }
 
-  module->dump();
+//  module->dump();
 
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);
   if(!llvmModule) {
     throw std::runtime_error("Compilation failed");
+  }
+
+  if (compileOnly) {
+    return "CompiledModule"_();
   }
 
   auto jitResult = runJit(module.get());
@@ -105,6 +110,7 @@ Expression Compiler::evaluate(Expression const& e) {
     throw std::runtime_error("Return Type is Unknown");
   }
 }
+
 
 
 }

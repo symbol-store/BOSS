@@ -29,7 +29,7 @@ MLIRGenerator::MLIRGenerator() : builder(&context) {
 mlir::OwningModuleRef MLIRGenerator::generateModule(boss::Expression const& e) {
   visitExpression(e);
 
-  return theModule;
+  return std::move(theModule);
 }
 
 void MLIRGenerator::visitComplexExpression(boss::ComplexExpression const& e) {

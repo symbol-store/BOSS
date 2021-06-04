@@ -13,6 +13,9 @@ public:
   MLIRGenerator();
   mlir::OwningModuleRef generateModule(boss::Expression const& e);
 
+  MLIRGenerator(MLIRGenerator&& other) = default;
+  MLIRGenerator(MLIRGenerator& other) = default;
+
 private:
   mlir::MLIRContext context;
   mlir::OpBuilder builder;
