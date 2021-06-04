@@ -37,16 +37,21 @@ public:
       ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type;
 
   using SuperType::SuperType;
-  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>>
+  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<> const& o) noexcept
+      ExpressionWithAdditionalCustomAtoms<T...> const& o) noexcept
       : SuperType(std::visit(
-            utilities::overload([](auto const& unpacked) {
-              return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(unpacked);
-            }),
-            (typename variant_amend<
-                AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
-                ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type const&)
+            utilities::overload(
+                [](ComplexExpressionWithAdditionalCustomAtoms<T...> const& unpacked)
+                    -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+                  return ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
+                      unpacked);
+                },
+                [](auto const& unpacked) {
+                  return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(unpacked);
+                }),
+            (typename variant_amend<AtomicExpressionWithAdditionalCustomAtoms<T...>,
+                                    ComplexExpressionWithAdditionalCustomAtoms<T...>>::type const&)
                 o)) {}
   ~ExpressionWithAdditionalCustomAtoms() = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
@@ -72,9 +77,9 @@ public:
       Symbol const& head,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& arguments)
       : head(head), arguments(arguments){};
-  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>>
+  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
-      ComplexExpressionWithAdditionalCustomAtoms<> const& other)
+      ComplexExpressionWithAdditionalCustomAtoms<T...> const& other)
       : head(other.getHead()), arguments([&other] {
           ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments;
           for(auto const& it : other.getArguments()) {
