@@ -72,7 +72,7 @@ public:
       return false;
     }
 
-    outputPtr = batchPtr;
+    //outputPtr = batchPtr;
 
     return true;
   }

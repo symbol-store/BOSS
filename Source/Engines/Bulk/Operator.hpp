@@ -5,74 +5,77 @@
 
 namespace boss::engines::bulk {
 
-template <size_t N, typename... AllowedBatches> class Operator {
+template <size_t N, typename... AllowedArguments> class Operator {
 public:
   class Properties {
   public:
     static size_t constexpr ArgumentCount = N;
 
     /// Check if the batch type matches one of the expected types for the operator's nth argument.
-    static bool isSupportedType(size_t argumentIndex, Batch const& batch) {
-      return isSupportedTypeInternal(argumentIndex, batch,
-                                     std::make_index_sequence<sizeof...(AllowedBatches)>{});
+    static bool isSupportedType(size_t argumentIndex, BulkExpression const& expression) {
+      return isSupportedTypeInternal(argumentIndex, expression,
+                                     std::make_index_sequence<sizeof...(AllowedArguments)>{});
     }
 
     /// Check if the batch type matches one of the expected types for the operator's nth argument.
     /// This is a compile-time check alternative.
-    template <size_t ArgumentIndex, typename BatchType> static constexpr bool isSupportedType() {
-      if constexpr(ArgumentIndex < sizeof...(AllowedBatches)) {
-        using AllowedBatchTypes =
-            std::tuple_element_t<ArgumentIndex, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::template includes<BatchType>;
+    template <size_t ArgumentIndex, typename ArgumentType> static constexpr bool isSupportedType() {
+      if constexpr(ArgumentIndex < sizeof...(AllowedArguments)) {
+        using AllowedArgumentTypes =
+            std::tuple_element_t<ArgumentIndex, std::tuple<AllowedArguments...>>;
+        return AllowedArgumentTypes::template includes<ArgumentType>;
       } else {
-        using AllowedBatchTypes =
-            std::tuple_element_t<sizeof...(AllowedBatches) - 1, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::template includes<BatchType>;
+        using AllowedArgumentTypes =
+            std::tuple_element_t<sizeof...(AllowedArguments) - 1, std::tuple<AllowedArguments...>>;
+        return AllowedArgumentTypes::template includes<ArgumentType>;
       }
     }
 
     /// This function allows to call back the visitor with the batch (casted to the supported type).
     /// If the provided batch isn't supported for the nth argument, the visitor won't be called.
     template <size_t ArgumentIndex, typename Vis>
-    static bool visitSupportedType(Vis&& visitor, Batch const& batch) {
-      if constexpr(ArgumentIndex < sizeof...(AllowedBatches)) {
-        using AllowedBatchTypes =
-            std::tuple_element_t<ArgumentIndex, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::BatchVisitDispatcher::visit(visitor, batch);
+    static bool visitSupportedType(Vis&& visitor, BulkExpression const& expression) {
+      if constexpr(ArgumentIndex < sizeof...(AllowedArguments)) {
+        using AllowedArgumentTypes =
+            std::tuple_element_t<ArgumentIndex, std::tuple<AllowedArguments...>>;
+        return AllowedArgumentTypes::BatchVisitDispatcher::visit(visitor, expression);
       } else {
-        using AllowedBatchTypes =
-            std::tuple_element_t<sizeof...(AllowedBatches) - 1, std::tuple<AllowedBatches...>>;
-        return AllowedBatchTypes::BatchVisitDispatcher::visit(visitor, batch);
+        using AllowedArgumentTypes =
+            std::tuple_element_t<sizeof...(AllowedArguments) - 1, std::tuple<AllowedArguments...>>;
+        return AllowedArgumentTypes::BatchVisitDispatcher::visit(visitor, expression);
       }
     };
 
   private:
-    template <size_t ArgumentIndex> static constexpr bool isSupportedType(Batch const& batch) {
-      return std::tuple_element_t<ArgumentIndex, std::tuple<AllowedBatches...>>::isAllowed(batch);
+    template <size_t ArgumentIndex>
+    static constexpr bool isSupportedType(BulkExpression const& expression) {
+      return std::tuple_element_t<ArgumentIndex, std::tuple<AllowedArguments...>>::isAllowed(
+          expression);
     }
 
     template <size_t... Indices>
-    static constexpr bool isSupportedTypeInternal(size_t argumentIndex, Batch const& batch,
+    static constexpr bool isSupportedTypeInternal(size_t argumentIndex,
+                                                  BulkExpression const& expression,
                                                   std::index_sequence<Indices...> /*unused*/) {
-      using CheckFuncPtr = bool (*)(Batch const&);
-      constexpr std::array<CheckFuncPtr, sizeof...(AllowedBatches)> table = {
+      using CheckFuncPtr = bool (*)(BulkExpression const&);
+      constexpr std::array<CheckFuncPtr, sizeof...(AllowedArguments)> table = {
           &isSupportedType<Indices>...};
-      if(argumentIndex >= sizeof...(AllowedBatches)) {
-        return table[sizeof...(AllowedBatches) - 1](batch);
+      if(argumentIndex >= sizeof...(AllowedArguments)) {
+        return table[sizeof...(AllowedArguments) - 1](expression);
       }
       auto& funcIsSupportedType = table[argumentIndex]; // NOLINT, bounds are checked just above
-      return funcIsSupportedType(batch);
+      return funcIsSupportedType(expression);
     }
   }; // class Properties
 };
 
 /// Helper to define a set of batch types allowed on one of the argument
 /// (when allowing more than one type).
-template <typename... BatchTypes> class AllowedBatches {
+template <typename... ArgumentTypes> class AllowedArguments {
 public:
-  using BatchVisitDispatcher = BatchVisitDispatcher<BatchTypes...>;
-  static bool isAllowed(Batch const& batch) {
-    return (... || (batch.typeId() == UniqueId::forType<BatchTypes>()));
+  using BatchVisitDispatcher = BatchVisitDispatcher<ArgumentTypes...>;
+  static bool isAllowed(BulkExpression const& expression) {
+    return (... || (std::holds_alternative<ArgumentTypes>(expression)));
   }
 };
 
@@ -81,15 +84,15 @@ template <size_t N> class OperatorBuilder {
 private:
   template <typename, typename> struct MergeTwoFixedTypes;
   template <typename... Args0, typename... Args1>
-  struct MergeTwoFixedTypes<Operator<N, AllowedBatches<Args0...>>,
-                            Operator<N, AllowedBatches<Args1...>>> {
-    using type = Operator<N, AllowedBatches<Args0...>, AllowedBatches<Args1...>>;
+  struct MergeTwoFixedTypes<Operator<N, AllowedArguments<Args0...>>,
+                            Operator<N, AllowedArguments<Args1...>>> {
+    using type = Operator<N, AllowedArguments<Args0...>, AllowedArguments<Args1...>>;
   };
   template <typename, typename> struct MergeTwoAllowedTypes;
   template <typename... Args0, typename... Args1>
-  struct MergeTwoAllowedTypes<Operator<N, AllowedBatches<Args0...>>,
-                              Operator<N, AllowedBatches<Args1...>>> {
-    using type = Operator<N, AllowedBatches<Args0..., Args1...>>;
+  struct MergeTwoAllowedTypes<Operator<N, AllowedArguments<Args0...>>,
+                              Operator<N, AllowedArguments<Args1...>>> {
+    using type = Operator<N, AllowedArguments<Args0..., Args1...>>;
   };
   template <bool, typename...> struct MergeAllowedTypes;
   template <bool UsingFixedTypes, typename FirstAllowedType>
@@ -109,11 +112,11 @@ private:
   };
   template <bool UsingFixedTypes, typename... Types>
   using FromElementTypesToAllowedTypes = typename MergeAllowedTypes<
-      UsingFixedTypes,
-      std::conditional_t<std::is_same_v<Types, Symbol>, Operator<N, AllowedBatches<SymbolBatch>>,
-                         std::conditional_t<std::is_same_v<Types, ComplexExpression>,
-                                            Operator<N, AllowedBatches<CompoundBatch>>,
-                                            Operator<N, AllowedBatches<ValueBatch<Types>>>>>...>::
+      UsingFixedTypes, Operator<N, AllowedArguments<Types...>>,
+      std::conditional_t<std::disjunction_v<std::is_same<Types, ComplexExpression>,
+                                            std::is_same<Types, BulkComplexExpression>>,
+                         Operator<N, AllowedArguments<std::shared_ptr<CompoundArray>>>,
+                         Operator<N, AllowedArguments<std::shared_ptr<ValueArray<Types>>>>>...>::
       type;
 
   template <typename... Types> struct ForTypes {

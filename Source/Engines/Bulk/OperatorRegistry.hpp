@@ -3,6 +3,7 @@
 #include "Batch/SymbolBatch.hpp"
 #include "BatchVisitDispatcher.hpp"
 #include "Operator.hpp"
+#include "SymbolRegistry.hpp"
 
 #include "../../Expression.hpp"
 
@@ -37,27 +38,37 @@ public:
 
   void clear() { operators.clear(); }
 
-  bool findAndExecuteOperator(Batch const& batch, Batch::ReadablePtr& outputPtr) const {
-    bool handled = false;
+  bool findAndExecuteOperator(BulkExpression const& expression, BulkExpression& output) const {
     bool evaluated = false;
-    BatchVisitDispatcher<CompoundBatch>::visit(
-        [this, &handled, &evaluated, &batch, &outputPtr](auto const& compoundBatch) {
-          handled = true;
-          if(compoundBatch.getHead().getName() == "List") {
-            // still need a special case here, until we handled it as an operator
-            evaluated = executeCompoundBatchList(compoundBatch, outputPtr);
-            return;
+    if(std::holds_alternative<BulkComplexExpression>(expression)) {
+      auto const& complexExpression = std::get<BulkComplexExpression>(expression);
+      auto const& head = complexExpression.getHead();
+      auto numArgs = complexExpression.getArguments().size();
+      auto* container = findOperatorContainer(head, numArgs);
+      if(container != nullptr) {
+        evaluated = container->execute(complexExpression, output);
+      } else {
+        // at least evaluate arguments and return as is
+        BulkExpressionArguments evaluatedArgs;
+        evaluatedArgs.reserve(numArgs);
+        BulkExpression evaluatedArg;
+        for(auto const& arg : complexExpression.getArguments()) {
+          if(findAndExecuteOperator(arg, evaluatedArg)) {
+            evaluated = true;
+            evaluatedArgs.emplace_back(std::move(evaluatedArg));
+          } else {
+            evaluatedArgs.emplace_back(arg);
           }
-          auto* container =
-              findOperatorContainer(compoundBatch.getHead(), compoundBatch.numArguments());
-          if(container != nullptr) {
-            evaluated = container->execute(compoundBatch, outputPtr);
-          }
-        },
-        batch);
-    if(!handled) {
-      // fallback to legacy method (for ValueBatch and SymbolBatch)
-      return batch.evaluate(outputPtr);
+        }
+        output = BulkComplexExpression(head, std::move(evaluatedArgs));
+      }
+    } else if(std::holds_alternative<Symbol>(expression)) {
+      auto const& symbol = std::get<Symbol>(expression);
+      auto const& batchPtr = DefaultSymbolRegistry::instance().findSymbol(symbol);
+      if(batchPtr) {
+        output = *batchPtr;
+        evaluated = true;
+      }
     }
     return evaluated;
   }
@@ -72,40 +83,6 @@ public:
   }
 
 private:
-  bool executeCompoundBatchList(CompoundBatch const& batch, Batch::ReadablePtr& outputPtr) const {
-    // set the local tuple to be accessible by the row values
-    auto& symbolPtr = DefaultSymbolRegistry::instance().findSymbol(Symbol("$tuple"));
-    auto backupSymbol = std::move(symbolPtr);
-    symbolPtr = Batch::ReadablePtr(batch.shared_from_this());
-
-    bool anyEvaluated = false;
-
-    std::vector<Batch::ReadablePtr> argBatches;
-    argBatches.reserve(batch.numArguments());
-    for(auto const& argBatchPtr : batch) {
-      Batch::ReadablePtr evaluatedPtr;
-      if(!findAndExecuteOperator(*argBatchPtr, evaluatedPtr)) {
-        argBatches.emplace_back(argBatchPtr);
-      } else {
-        argBatches.emplace_back(evaluatedPtr);
-        anyEvaluated = true;
-      }
-    }
-
-    // reset to any previous local tuple symbol
-    symbolPtr = std::move(backupSymbol);
-
-    if(!anyEvaluated) {
-      outputPtr.reset();
-      return false;
-    }
-
-    auto* newCompoundBatch = batch.cloneAsCompoundBatch(true);
-    newCompoundBatch->append(argBatches);
-    outputPtr = WritableBatchPtr(newCompoundBatch);
-    return true;
-  }
-
   class OperatorKey {
   public:
     OperatorKey(std::string const& symbol, std::vector<size_t> const& argumentTypes)
@@ -148,7 +125,7 @@ private:
     OperatorContainerBase& operator=(OperatorContainerBase const& other) = default;
     OperatorContainerBase& operator=(OperatorContainerBase&& other) noexcept = default;
 
-    virtual bool execute(CompoundBatch const& batch, Batch::ReadablePtr& outputPtr) const = 0;
+    virtual bool execute(BulkComplexExpression const& expression, BulkExpression& output) const = 0;
   };
 
   template <typename OperatorType> class OperatorContainer : public OperatorContainerBase {
@@ -156,8 +133,8 @@ private:
     explicit OperatorContainer(OperatorType const& op_) : op(op_) {}
     explicit OperatorContainer(OperatorType&& op_) : op(std::move(op_)) {}
 
-    bool execute(CompoundBatch const& batch, Batch::ReadablePtr& outputPtr) const override {
-      return Executor::execute(outputPtr, op, batch);
+    bool execute(BulkComplexExpression const& expression, BulkExpression& output) const override {
+      return Executor::execute(output, op, expression);
     }
 
   private:

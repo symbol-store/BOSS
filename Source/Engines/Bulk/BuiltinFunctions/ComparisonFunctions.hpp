@@ -21,81 +21,240 @@ private:
   class EqualOperator : public OperatorBuilder<2>::OperatorForTypes<bool, int, float, std::string> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      using BatchTypeA = typename std::decay_t<decltype(lhsBatchPtr)>::BatchType;
-      using BatchTypeB = typename std::decay_t<decltype(rhsBatchPtr)>::BatchType;
-      using ValueTypeA = typename BatchTypeA::ValueType;
-      using ValueTypeB = typename BatchTypeB::ValueType;
-      if constexpr(std::is_convertible_v<ValueTypeB, ValueTypeA>) {
-        return OperatorUtils::evaluateElements(
-            [](auto const& a, auto const& b) -> bool {
-              return static_cast<ValueTypeA>(a) == static_cast<ValueTypeB>(b);
-            },
-            lhsBatchPtr, rhsBatchPtr);
-      } else {
-        return OperatorUtils::evaluateElements(
-            [](auto const& /*a*/, auto const& /*b*/) -> bool { return false; }, lhsBatchPtr,
-            rhsBatchPtr);
-      }
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) {
+        if constexpr(std::is_convertible_v<std::decay_t<decltype(lhs)>,
+                                           std::decay_t<decltype(rhs)>>) {
+          return lhs == rhs;
+        } else {
+          return false;
+        }
+      };
     }
   };
-
-  class NotEqualOperator
-      : public OperatorBuilder<2>::OperatorForTypes<bool, int, float, std::string> {
+  
+  class NotEqualOperator : public OperatorBuilder<2>::OperatorForTypes<bool, int, float, std::string> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      using BatchTypeA = typename std::decay_t<decltype(lhsBatchPtr)>::BatchType;
-      using BatchTypeB = typename std::decay_t<decltype(rhsBatchPtr)>::BatchType;
-      using ValueTypeA = typename BatchTypeA::ValueType;
-      using ValueTypeB = typename BatchTypeB::ValueType;
-      if constexpr(std::is_convertible_v<ValueTypeB, ValueTypeA>) {
-        return OperatorUtils::evaluateElements(
-            [](auto const& a, auto const& b) -> bool {
-              return static_cast<ValueTypeA>(a) != static_cast<ValueTypeB>(b);
-            },
-            lhsBatchPtr, rhsBatchPtr);
-      } else {
-        return OperatorUtils::evaluateElements(
-            [](auto const& /*a*/, auto const& /*b*/) -> bool { return true; }, lhsBatchPtr,
-            rhsBatchPtr);
-      }
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) {
+        if constexpr(std::is_convertible_v<std::decay_t<decltype(lhs)>,
+                                           std::decay_t<decltype(rhs)>>) {
+          return lhs != rhs;
+        } else {
+          return false;
+        }
+      };
     }
   };
-
+  
   class LessOperator : public OperatorBuilder<2>::OperatorForTypes<int, float> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a, auto const& b) -> bool { return a < b; }, lhsBatchPtr, rhsBatchPtr);
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) {
+        if constexpr(std::is_convertible_v<std::decay_t<decltype(lhs)>,
+                                           std::decay_t<decltype(rhs)>>) {
+          return lhs < rhs;
+        } else {
+          return false;
+        }
+      };
     }
   };
-
+  
   class LessEqualOperator : public OperatorBuilder<2>::OperatorForTypes<int, float> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a, auto const& b) -> bool { return a <= b; }, lhsBatchPtr, rhsBatchPtr);
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) {
+        if constexpr(std::is_convertible_v<std::decay_t<decltype(lhs)>,
+                                           std::decay_t<decltype(rhs)>>) {
+          return lhs <= rhs;
+        } else {
+          return false;
+        }
+      };
     }
   };
-
+  
   class GreaterOperator : public OperatorBuilder<2>::OperatorForTypes<int, float> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a, auto const& b) -> bool { return a > b; }, lhsBatchPtr, rhsBatchPtr);
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) {
+        if constexpr(std::is_convertible_v<std::decay_t<decltype(lhs)>,
+                                           std::decay_t<decltype(rhs)>>) {
+          return lhs > rhs;
+        } else {
+          return false;
+        }
+      };
     }
   };
 
   class GreaterEqualOperator : public OperatorBuilder<2>::OperatorForTypes<int, float> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a, auto const& b) -> bool { return a >= b; }, lhsBatchPtr, rhsBatchPtr);
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) {
+        if constexpr(std::is_convertible_v<std::decay_t<decltype(lhs)>,
+                                           std::decay_t<decltype(rhs)>>) {
+          return lhs >= rhs;
+        } else {
+          return false;
+        }
+      };
     }
   };
 };

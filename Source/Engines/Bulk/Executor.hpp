@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BatchVisitDispatcher.hpp"
+#include "ExtendedExpression.hpp"
 #include "OperatorRegistry.hpp"
 
 namespace boss::engines::bulk {
@@ -14,97 +15,117 @@ namespace boss::engines::bulk {
 class Executor {
 public:
   /// evaluate without parameters
-  static bool evaluate(Batch const& batch, Batch::ReadablePtr& outputPtr) {
-    outputPtr.reset();
-    return OperatorRegistry<Executor>::instance().findAndExecuteOperator(batch, outputPtr);
+  static bool evaluate(BulkExpression const& expression, BulkExpression& output) {
+    return OperatorRegistry<Executor>::instance().findAndExecuteOperator(expression, output);
   }
 
   /// evaluate with parameters
-  /// assume the batch to be composed of an optional parameter list and a body
-  static bool evaluate(CompoundBatch const& functionBatch,
-                       std::vector<Batch::ReadablePtr> const& args, Batch::ReadablePtr& outputPtr) {
-    if(functionBatch.numArguments() == 0) {
-      // the function is the body?
-      // we can just do a normal evaluation, but it should probably not happen...
-      return evaluate(functionBatch, outputPtr);
-    }
+  /// function is a symbol or "Function"_(body) or "Function"_(parameters, body)
+  template <typename FunctionType>
+  static bool evaluate(FunctionType const& function, BulkExpressionArguments const& args,
+                       BulkExpression& output) {
+    auto processAsHeadOnly = [&args, &output](Symbol const& head) {
+      // special case when providing function as just a symbol head
+      // construct an expression batch from the head (with single argument)
+      Symbol parameter("tuple");
+      BulkComplexExpression body(head, {parameter});
+      Symbol functionHead("Function");
+      return evaluate(BulkComplexExpression(functionHead, {parameter, body}), args, output);
+    };
 
-    if(functionBatch.numArguments() < 2) {
+    auto processAsBodyOnly = [&output](BulkExpression const& body) {
       // the predicate has only a body (not dependent on tuple)
       // we can just ignore the parameters and evaluate the body
-      auto bodyPtr = *functionBatch.begin();
-      if(!evaluate(*bodyPtr, outputPtr)) {
+      if(!evaluate(body, output)) {
         // if it fails to evaluate, return the body itself
-        outputPtr = std::move(bodyPtr);
+        // (e.g. when the body is just an atom)
+        output = body;
       }
       return true;
-    }
+    };
 
-    auto functionBatchIt = functionBatch.begin();
-    auto parametersPtr = *functionBatchIt;
-    auto bodyPtr = *(functionBatchIt + 1);
+    auto processAsParametersAndBody = [&args, &output](BulkExpression const& parameters,
+                                                       BulkExpression const& body) {
+      // general case:
+      // assume the batch to be composed of a parameter list and a body
 
-    auto const& parametersBatch = *parametersPtr;
-    auto const& bodyBatch = *bodyPtr;
-
-    using SymbolPtr = DefaultSymbolRegistry::SymbolPtr;
-    std::vector<std::pair<SymbolPtr&, SymbolPtr>> oldSymbols;
-    oldSymbols.reserve(args.size());
-    auto registerArgument = [&oldSymbols](Symbol const& parameter, auto const& valuePtr) {
       // store existing symbols
       // to retrieve later in case of name collision
       // (and make sure they are not destroyed while dereferenced...)
-      auto& batchPtr = DefaultSymbolRegistry::instance().findSymbol(parameter);
-      oldSymbols.emplace_back(batchPtr, std::move(batchPtr));
+      using SymbolPtr = DefaultSymbolRegistry::SymbolPtr;
+      std::vector<std::pair<SymbolPtr&, SymbolPtr>> oldSymbols;
+      oldSymbols.reserve(args.size());
+      auto registerArgument = [&oldSymbols](Symbol const& parameter, auto const& value) {
+        auto& symbolPtr = DefaultSymbolRegistry::instance().findSymbol(parameter);
+        oldSymbols.emplace_back(symbolPtr, std::move(symbolPtr));
 
-      // set symbol at the function scope
-      batchPtr = valuePtr;
+        // set symbol at the function scope
+        symbolPtr = std::make_unique<DefaultSymbolRegistry::StoredType>(value);
+      };
+
+      // replace parameter symbols with arguments
+      // by iterating on both the parameter batch and arg list
+      auto argIt = args.begin();
+      if(std::holds_alternative<Symbol>(parameters)) {
+        // only a single parameter
+        registerArgument(std::get<Symbol>(parameters), *argIt);
+      } else if(std::holds_alternative<BulkComplexExpression>(parameters)) {
+        auto parameterList = std::get<BulkComplexExpression>(parameters).getArguments();
+        auto parameterIt = parameterList.begin();
+        for(; argIt != args.end() && parameterIt != parameterList.end(); ++argIt, ++parameterIt) {
+          registerArgument(std::get<Symbol>(*parameterIt), *argIt);
+        }
+      }
+
+      if(!evaluate(body, output)) {
+        // if it fails to evaluate, return the body itself
+        // (e.g. when the body is just an atom)
+        output = body;
+      }
+
+      // before finishing, set back any colliding symbol (or clear them)
+      for(auto& oldSymbol : oldSymbols) {
+        oldSymbol.first = std::move(oldSymbol.second);
+      }
+      
+      return true;
     };
 
-    // replace parameter symbols with arguments
-    // by iterating on both the parameter batch and arg list
-    BatchVisitDispatcher<CompoundBatch, SymbolBatch>::visit(
-        [&args, &registerArgument](auto const& typedBatch) {
-          using BatchType = std::decay_t<decltype(typedBatch)>;
-          auto argIt = args.begin();
-          auto parameterIt = typedBatch.begin();
-          for(; argIt != args.end() && parameterIt != typedBatch.end(); ++argIt, ++parameterIt) {
-            if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-              auto symbolBatchPtr = *parameterIt;
-              if(symbolBatchPtr->typeId() == UniqueId::forType<SymbolBatch>()) {
-                auto const& symbolBatch = static_cast<SymbolBatch const&>(*symbolBatchPtr);
-                registerArgument(*symbolBatch.begin(), *argIt);
-              }
-            } else { // as SymbolBatch
-              registerArgument(*parameterIt, *argIt);
-            }
-          }
-        },
-        parametersBatch);
+    if constexpr(std::is_same_v<FunctionType, Symbol>) {
+      return processAsHeadOnly(function);
+    } else {
+      auto const& functionElements = function.getArguments();
 
-    bool evaluated = evaluate(bodyBatch, outputPtr);
+      if(functionElements.size() == 0) {
+        return processAsHeadOnly(function.getHead());
+      }
 
-    // before finishing, set back any colliding symbol (or clear them)
-    for(auto& oldSymbol : oldSymbols) {
-      oldSymbol.first = std::move(oldSymbol.second);
+      if(functionElements.size() == 1) {
+        auto const& body = functionElements.front();
+        return processAsBodyOnly(body);
+      }
+
+      auto functionElementIt = functionElements.begin();
+      auto const& parameters = *functionElementIt;
+      auto const& body = *(functionElementIt + 1);
+      return processAsParametersAndBody(parameters, body);
     }
-
-    return evaluated;
   }
 
   /// This is the function called back from the operator registry,
   /// receiving the specific operator type to call evaluate()
   template <typename OperatorType>
-  static auto execute(Batch::ReadablePtr& outputPtr, OperatorType const& op,
-                      CompoundBatch const& batch) {
-    return buildArgumentsTupleAndEvaluate(outputPtr, op, batch);
+  static auto execute(BulkExpression& output, OperatorType const& op,
+                      BulkComplexExpression const& expression) {
+    return buildArgumentsTupleAndEvaluate(output, op, expression);
   }
 
 private:
-  /// calls the evaluation function with specific Batch types as arguments (not just generic Batch)
+  /// calls the evaluation function with specific Batch types as arguments
+  /// (not just generic Batch)
   template <typename OperatorType, typename InputBatchTuple, size_t... Indices>
-  static Batch::ReadablePtr evaluateWithTypedArguments(OperatorType const& op, InputBatchTuple&& in,
-                                                       std::index_sequence<Indices...> /*unused*/) {
+  static BulkExpression evaluateWithTypedArguments(OperatorType const& op, InputBatchTuple&& in,
+                                                   std::index_sequence<Indices...> /*unused*/) {
     return op.evaluate(std::get<Indices>(std::forward<InputBatchTuple>(in))...);
   }
 
@@ -112,7 +133,7 @@ private:
   /// from dynamic information extracted from generic Batch list
   template <typename OperatorType, typename... ArgumentBatchTypes>
   static bool buildArgumentsTupleAndEvaluate(
-      Batch::ReadablePtr& outputPtr, OperatorType const& op, CompoundBatch const& batch,
+      BulkExpression& output, OperatorType const& op, BulkComplexExpression const& expression,
       size_t batchIndex = 0, std::tuple<ArgumentBatchTypes...>&& argumentsTuple = std::tuple<>()) {
     using ArgumentsTuple = std::tuple<ArgumentBatchTypes...>;
     using OperatorProperties = typename OperatorType::Properties;
@@ -122,10 +143,10 @@ private:
       // We finish to build the argument batches
       // Now, we can pass it to the operator
       if constexpr(std::is_same_v<ArgumentsTuple, std::tuple<>>) {
-        outputPtr = op.evaluate();
+        output = op.evaluate();
       } else {
-        outputPtr = evaluateWithTypedArguments(op, std::move(argumentsTuple),
-                                               std::make_index_sequence<FuncArgCount>{});
+        output = evaluateWithTypedArguments(op, std::move(argumentsTuple),
+                                            std::make_index_sequence<FuncArgCount>{});
       }
 
       if constexpr(FuncArgCount == 2) {
@@ -134,22 +155,17 @@ private:
         // This is needed because the arguments of the evaluation cannot be variadic
         // if we want them to be defined by the Operator at compile time.
         // We can get rid of it once the evaluation is not a lambda function anymore
-        if(batchIndex < batch.numArguments()) {
-          auto firstArgPtr = outputPtr;
-          outputPtr.reset();
+        if(batchIndex < expression.getArguments().size()) {
+          auto firstArg = output;
           bool visited = false;
           bool evaluated = false;
           OperatorProperties::template visitSupportedType<0>(
-              [&firstArgPtr, &outputPtr, &visited, &evaluated, &op, batch,
-               &batchIndex](auto const& typedBatch) {
-                using BatchType = std::decay_t<decltype(typedBatch)>;
-                ReadableBatchPtr<BatchType> typedBatchPtr(std::move(firstArgPtr));
+              [&output, &visited, &evaluated, &op, expression, &batchIndex](auto const& typedArg) {
                 visited = true;
-                evaluated =
-                    buildArgumentsTupleAndEvaluate(outputPtr, op, batch, batchIndex,
-                                                   std::forward_as_tuple(std::move(typedBatchPtr)));
+                evaluated = buildArgumentsTupleAndEvaluate(output, op, expression, batchIndex,
+                                                           std::forward_as_tuple(typedArg));
               },
-              *firstArgPtr);
+              firstArg);
           if(visited) {
             return evaluated;
           }
@@ -158,37 +174,34 @@ private:
           // it will just ignore the remaining arguments
           // [https://github.com/symbol-store/BOSS/issues/87] probably related with it
           // better returning full arguments but unevaluated expression
-          outputPtr = std::move(firstArgPtr);
+          output = firstArg;
         }
       }
       return true;
     } else {
       // Here is the main part of the function
       // Build the next argument batch...
-      auto evaluatedPtr =
-          evaluateArgumentFromBatch<OperatorProperties>(batch, batchIndex, ArgIndex);
+      auto const& unevaluatedArg = expression.getArguments()[batchIndex];
+      auto evaluatedArg = evaluateExpressionArgument<OperatorProperties>(unevaluatedArg, ArgIndex);
 
       bool visited = false;
       bool evaluated = false;
-      outputPtr.reset();
       // ... get the specific type, add it to the tuple
       // and pass the new tuple to the same function recursively (compile-time recursion)
       OperatorProperties::template visitSupportedType<ArgIndex>(
-          [&argumentsTuple, &evaluatedPtr, &outputPtr, &visited, &evaluated, &op, &batch,
-           &batchIndex](auto const& typedBatch) {
-            using BatchType = std::decay_t<decltype(typedBatch)>;
-            ReadableBatchPtr<BatchType> typedBatchPtr(std::move(evaluatedPtr));
+          [&argumentsTuple, &output, &visited, &evaluated, &op, &expression,
+           &batchIndex](auto const& typedArgument) {
             visited = true;
             evaluated = std::apply(
-                [&typedBatchPtr, &outputPtr, &op, &batch, &batchIndex](auto... arg) {
+                [&typedArgument, &output, &op, &expression, &batchIndex](auto... arg) {
                   // move evaluated ptr to the derived type
                   return buildArgumentsTupleAndEvaluate(
-                      outputPtr, op, batch, batchIndex + 1,
-                      std::forward_as_tuple((std::move(arg))..., std::move(typedBatchPtr)));
+                      output, op, expression, batchIndex + 1,
+                      std::forward_as_tuple((std::move(arg))..., typedArgument));
                 },
                 std::move(argumentsTuple));
           },
-          *evaluatedPtr);
+          std::move(evaluatedArg));
 
       if(visited) {
         // If we reached here, it means that all the remaining args (from the recursion)
@@ -203,7 +216,7 @@ private:
       // The argument tuple we built until here hasn't been consumed yet
       // so we can use it for constructing our output.
 
-      std::vector<Batch::ReadablePtr> argList;
+      BulkExpressionArguments argList;
       argList.reserve(FuncArgCount);
 
       // add previous evaluated arguments
@@ -211,36 +224,34 @@ private:
                  argumentsTuple);
 
       // add this current batch (at the state we were evaluating it)
-      argList.emplace_back(std::move(evaluatedPtr));
+      argList.emplace_back(std::move(evaluatedArg));
 
       // check if they anything has been evaluated with the previous arguments
       bool anyEvaluated = false;
       for(size_t i = 0; i < batchIndex; ++i) {
-        auto beforePtr = *(batch.begin() + i);
-        if(argList[i].get() != beforePtr.get()) {
+        auto const& beforeArg = expression.getArguments()[i];
+        if(argList[i] != beforeArg) {
           anyEvaluated = true;
           break;
         }
       }
 
       // still evaluate remaining args as much as possible
-      for(size_t i = batchIndex + 1; i < batch.numArguments(); ++i) {
+      for(size_t i = batchIndex + 1; i < expression.getArguments().size(); ++i) {
         auto argIndex = i < FuncArgCount ? i : FuncArgCount - 1;
-        auto unevaluatedArgPtr = *(batch.begin() + i);
-        auto evaluatedArgPtr = evaluateArgumentFromBatch<OperatorProperties>(batch, i, argIndex);
-        if(evaluatedArgPtr.get() != unevaluatedArgPtr.get()) {
+        auto const& unevaluatedArg = expression.getArguments()[i];
+        auto evaluatedArg =
+            evaluateExpressionArgument<OperatorProperties>(unevaluatedArg, argIndex);
+        if(evaluatedArg != unevaluatedArg) {
           anyEvaluated = true;
         }
-        argList.emplace_back(std::move(evaluatedArgPtr));
+        argList.emplace_back(std::move(evaluatedArg));
       }
 
       if(anyEvaluated) {
         // Because some of the arguments have changed (they have been evaluated)
-        // We create a new batch as a semi-evaluated one, and insert all the new arguments
-        auto* partlyEvaluatedBatch = batch.cloneAsCompoundBatch(true);
-        partlyEvaluatedBatch->clear(); // clear empty builder too
-        partlyEvaluatedBatch->append(argList);
-        outputPtr = WritableBatchPtr(partlyEvaluatedBatch);
+        // We create a new expression as a semi-evaluated one, and insert all the new arguments
+        output = BulkComplexExpression(expression.getHead(), argList);
       }
 
       // still returning false, we did only a semi-evaluation
@@ -253,10 +264,10 @@ private:
   /// Usually batchIndex == argIndex
   /// except in the case that we re-arrange a binary operator with 3+ arguments
   template <typename OperatorProperties>
-  static Batch::ReadablePtr evaluateArgumentFromBatch(CompoundBatch const& batch, size_t batchIndex,
-                                                      size_t argIndex) {
-    Batch::ReadablePtr previousBatchPtr;
-    Batch::ReadablePtr evaluatedPtr = *(batch.begin() + batchIndex);
+  static BulkExpression evaluateExpressionArgument(BulkExpression const& expressionArgument,
+                                                   size_t argIndex) {
+    BulkExpression previousExpression;
+    BulkExpression evaluatedExpression = expressionArgument;
 
     bool evaluated = true;
     bool hadTypeExpectedByTheOperator = false;
@@ -264,12 +275,12 @@ private:
     while(evaluated) {
       // or if the batch type isn't compatible with the operator's argument type anymore
       bool hasTypeExpectedByTheOperator =
-          OperatorProperties::isSupportedType(argIndex, *evaluatedPtr);
+          OperatorProperties::isSupportedType(argIndex, evaluatedExpression);
       if(hadTypeExpectedByTheOperator && !hasTypeExpectedByTheOperator) {
         break;
       }
 
-      previousBatchPtr = evaluatedPtr;
+      previousExpression = evaluatedExpression;
 
       // little trick here until we can support overloading:
       // return as soon as we have compatible type
@@ -280,23 +291,20 @@ private:
       }
 
       hadTypeExpectedByTheOperator = hasTypeExpectedByTheOperator;
-      evaluated = Executor::evaluate(*previousBatchPtr, evaluatedPtr);
+      evaluated = Executor::evaluate(previousExpression, evaluatedExpression);
     }
 
     if(!evaluated) {
       // reached here if we stopped because it wasn't evaluating further
-      if(evaluatedPtr) {
-        // we have a partial evaluation at least...
-        if(!hadTypeExpectedByTheOperator) {
-          // ...and the previous evaluation wasn't compatible with the operator's argument type
-          // so return the latest since we haven't anything better
-          return evaluatedPtr;
-        }
+      if(!hadTypeExpectedByTheOperator) {
+        // if the previous evaluation wasn't compatible with the operator's argument type
+        // return the latest since we haven't anything better
+        return evaluatedExpression;
       }
     }
 
     // in any other case, we return the latest evaluated batch
-    return previousBatchPtr;
+    return previousExpression;
   }
 };
 } // namespace boss::engines::bulk

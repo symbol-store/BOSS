@@ -13,12 +13,21 @@ public:
     operatorRegistry.template registerOperator<SymbolOperator>("Symbol");
   }
 
-private:
+private:  
   class SymbolOperator : public OperatorBuilder<1>::OperatorForTypes<std::string> {
   public:
-    template <typename BatchType> auto evaluate(BatchType&& batchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& name) -> Symbol { return Symbol(name); }, batchPtr);
+    template <typename ValueType> BulkExpression evaluate(ValueType const& value) const {
+      return function()(value);
+    }
+
+    template <typename ValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<ValueType>> const& arrayPtr) const {
+      return OperatorUtils::evaluateElements(function(), arrayPtr);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& name) { return Symbol(name); };
     }
   };
 };

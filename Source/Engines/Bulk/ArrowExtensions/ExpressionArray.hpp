@@ -52,17 +52,17 @@ public:
   // [https://github.com/symbol-store/BOSS/issues/92]
   /// Check if the expression type is already handled by this union array builder
   /// or if it will require to create a new array type
-  bool IsSupported(Expression const& expr) {
+  bool IsSupported(BulkExpression const& expr) {
     return m_expressionToType.find(expr) != m_expressionToType.end();
   }
 
   // [https://github.com/symbol-store/BOSS/issues/92]
   /// Check if the expression type is already handled by this union array builder
   /// or if it will require to create a new array type
-  bool IsSupported(arrow::DataType const& type) {
+  bool IsSupported(arrow::DataType const& type) const {
     for(int i = 0; i < num_children(); ++i) {
       auto builder = child_builder(i);
-      auto supportedType = child_builder(i)->type();
+      auto supportedType = builder->type();
       if(type.id() != supportedType->id()) {
         continue;
       }
@@ -84,9 +84,35 @@ public:
     return false;
   }
 
+  /// assuming we always append to the first child
+  /// resize union and its first child
+  arrow::Status deepResize(size_t size) {
+    auto curLength = types_builder_.length();
+    // resizing the first child (assuming there is only one)
+    auto typeStatus = types_builder_.Append(size, 0);
+    if(!typeStatus.ok()) {
+      return typeStatus;
+    }
+
+    for(int i = curLength; i < size; ++i) {
+      auto offsetStatus = offsets_builder().Append(i);
+      if(!offsetStatus.ok()) {
+        return offsetStatus;
+      }
+    }
+
+    auto& destBuilder = *child_builder(0);
+    auto childStatus = resizeChildBuilder(destBuilder, size);
+    if(!childStatus.ok()) {
+      return childStatus;
+    }
+
+    return arrow::Status::OK();
+  }
+
   /// dispatch the expression to the corresponding child builder
   /// and append to both the union builder and the child builder
-  arrow::Status AppendExpression(Expression const& expr) {
+  arrow::Status AppendExpression(BulkExpression const& expr) {
     auto it = m_expressionToType.find(expr);
     std::shared_ptr<ArrayBuilder> childBuilder;
     bool foundInCache = (it != m_expressionToType.end());
@@ -105,7 +131,7 @@ public:
     if(!status.ok()) {
       return status;
     }
-    return appendToChildBuilder(expr, childBuilder);
+    return appendToChildBuilder(expr, *childBuilder);
   }
 
   /// append a full array at once
@@ -118,8 +144,8 @@ public:
       auto const& srcArray = *exprArrayPtr;
       auto const& srcType = srcArray.type();
       auto destType = findOrCreateBuilder(*srcType);
-      auto const& destBuilder = child_builder(destType);
-      auto curLength = destBuilder->length();
+      auto& destBuilder = *child_builder(destType);
+      auto curLength = destBuilder.length();
 
       // append type/offsets to the union array
       auto typeStatus = types_builder_.Append(srcArray.length(), destType);
@@ -168,8 +194,8 @@ public:
       auto const& srcBuilder = *exprArrayBuilderPtr;
       auto const& srcType = srcBuilder.type();
       auto destType = findOrCreateBuilder(*srcType);
-      auto const& destBuilder = child_builder(destType);
-      auto curLength = destBuilder->length();
+      auto& destBuilder = *child_builder(destType);
+      auto curLength = destBuilder.length();
 
       auto typeStatus = types_builder_.Append(logicalSize, destType);
       if(!typeStatus.ok()) {
@@ -230,7 +256,7 @@ private:
 
   using ComplexExpressionArrayBuilder = ComplexExpressionArrayBuilder<ExpressionArrayBuilder>;
 
-  std::map<Expression, int8_t, CompareExpression<true, false>> m_expressionToType;
+  std::map<BulkExpression, int8_t, CompareExpression<true, false>> m_expressionToType;
 
   int8_t findOrCreateBuilder(arrow::DataType const& srcType) {
     for(int i = 0; i < children_.size(); ++i) {
@@ -247,7 +273,7 @@ private:
     return AppendChild(newBuilder);
   }
 
-  std::shared_ptr<arrow::ArrayBuilder> makeChildBuilder(Expression::SuperType const& expr) {
+  std::shared_ptr<arrow::ArrayBuilder> makeChildBuilder(BulkExpression::SuperType const& expr) {
     return std::visit(boss::utilities::overload(
                           [&](bool /*v*/) -> std::shared_ptr<arrow::ArrayBuilder> {
                             return std::make_shared<IterableBooleanBuilder>(pool_);
@@ -267,6 +293,11 @@ private:
                           [&](ComplexExpression const& e) -> std::shared_ptr<arrow::ArrayBuilder> {
                             return std::make_shared<ComplexExpressionArrayBuilder>(
                                 e.getHead(), e.getArguments().size(), pool_);
+                          },
+                          [&](auto const& other) -> std::shared_ptr<arrow::ArrayBuilder> {
+                            // we should not try to store any other type
+                            // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
+                            return nullptr;
                           }),
                       expr);
   }
@@ -308,66 +339,76 @@ private:
     default:
       break;
     }
+
+    // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
     return nullptr;
   }
 
-  static std::string createFieldName(Expression::SuperType const& expr) {
-    return std::visit(boss::utilities::overload(
-                          [&](bool /*v*/) -> std::string { return "Bool"; },
-                          [&](int /*v*/) -> std::string { return "Int"; },
-                          [&](float /*v*/) -> std::string { return "Float"; },
-                          [&](std::string const& /*v*/) -> std::string { return "String"; },
-                          [&](Symbol const& /*s*/) -> std::string { return "Symbol"; },
-                          [&](ComplexExpression const& e) { return e.getHead().getName(); }),
-                      expr);
+  static std::string createFieldName(BulkExpression::SuperType const& expr) {
+    return std::visit(
+        boss::utilities::overload([&](bool /*v*/) -> std::string { return "Bool"; },
+                                  [&](int /*v*/) -> std::string { return "Int"; },
+                                  [&](float /*v*/) -> std::string { return "Float"; },
+                                  [&](std::string const& /*v*/) -> std::string { return "String"; },
+                                  [&](Symbol const& /*s*/) -> std::string { return "Symbol"; },
+                                  [&](ComplexExpression const& e) { return e.getHead().getName(); },
+                                  [&](auto const& other) -> std::string {
+                                    // we should not try to store any other type
+                                    // [https://github.com/symbol-store/BOSS/issues/97]
+                                    return "";
+                                  }),
+        expr);
   }
 
-  static arrow::Status
-  appendToChildBuilder(Expression::SuperType const& expr,
-                       std::shared_ptr<arrow::ArrayBuilder> const& childBuilder) {
+  static arrow::Status appendToChildBuilder(BulkExpression::SuperType const& expr,
+                                            arrow::ArrayBuilder& childBuilder) {
     return std::visit(
         boss::utilities::overload(
-            [&](bool v) { return dynamic_cast<IterableBooleanBuilder&>(*childBuilder).Append(v); },
-            [&](int v) { return dynamic_cast<IterableInt32Builder&>(*childBuilder).Append(v); },
-            [&](float v) { return dynamic_cast<IterableFloatBuilder&>(*childBuilder).Append(v); },
+            [&](bool v) { return dynamic_cast<IterableBooleanBuilder&>(childBuilder).Append(v); },
+            [&](int v) { return dynamic_cast<IterableInt32Builder&>(childBuilder).Append(v); },
+            [&](float v) { return dynamic_cast<IterableFloatBuilder&>(childBuilder).Append(v); },
             [&](std::string const& v) {
-              return dynamic_cast<IterableStringBuilder<>&>(*childBuilder).Append(v);
+              return dynamic_cast<IterableStringBuilder<>&>(childBuilder).Append(v);
             },
             [&](Symbol const& s) {
-              return dynamic_cast<SymbolArrayBuilder&>(*childBuilder).Append(s);
+              return dynamic_cast<SymbolArrayBuilder&>(childBuilder).Append(s);
             },
             [&](ComplexExpression const& e) {
-              return dynamic_cast<ComplexExpressionArrayBuilder&>(*childBuilder)
-                  .AppendExpression(e);
+              return dynamic_cast<ComplexExpressionArrayBuilder&>(childBuilder).AppendExpression(e);
+            },
+            [&](auto const& other) {
+              // we should not try to store any other type
+              // [https://github.com/symbol-store/BOSS/issues/97]
+              return arrow::Status::TypeError("type to store not supported (are you trying to "
+                                              "store arrow data as an expression?");
             }),
         expr);
   }
 
-  static arrow::Status
-  appendToChildBuilder(arrow::Array const& srcArray,
-                       std::shared_ptr<arrow::ArrayBuilder> const& destBuilder) {
+  static arrow::Status appendToChildBuilder(arrow::Array const& srcArray,
+                                            arrow::ArrayBuilder& destBuilder) {
     auto const& type = srcArray.type();
     switch(type->id()) {
     case arrow::Type::BOOL: {
       auto const& typedSrcArray = dynamic_cast<arrow::BooleanArray const&>(srcArray);
       auto const& srcValues = *typedSrcArray.values();
-      return dynamic_cast<IterableBooleanBuilder&>(*destBuilder)
+      return dynamic_cast<IterableBooleanBuilder&>(destBuilder)
           .AppendValues(srcValues.data() + typedSrcArray.data()->offset, typedSrcArray.length());
     }
     case arrow::Type::INT32: {
       auto const& typedSrcArray = dynamic_cast<arrow::Int32Array const&>(srcArray);
-      return dynamic_cast<IterableInt32Builder&>(*destBuilder)
+      return dynamic_cast<IterableInt32Builder&>(destBuilder)
           .AppendValues(typedSrcArray.raw_values(), typedSrcArray.length());
     }
     case arrow::Type::FLOAT: {
       auto const& typedSrcArray = dynamic_cast<arrow::FloatArray const&>(srcArray);
-      return dynamic_cast<IterableFloatBuilder&>(*destBuilder)
+      return dynamic_cast<IterableFloatBuilder&>(destBuilder)
           .AppendValues(typedSrcArray.raw_values(), typedSrcArray.length());
     }
     case arrow::Type::STRING: {
       auto const& typedSrcArray = dynamic_cast<arrow::StringArray const&>(srcArray);
       auto const& valueData = *typedSrcArray.value_data();
-      auto& typedDestBuilder = dynamic_cast<IterableStringBuilder<>&>(*destBuilder);
+      auto& typedDestBuilder = dynamic_cast<IterableStringBuilder<>&>(destBuilder);
       auto reserveStatus = typedDestBuilder.Reserve(typedSrcArray.length());
       if(!reserveStatus.ok()) {
         return reserveStatus;
@@ -388,7 +429,7 @@ private:
         auto const& typedSrcArray = dynamic_cast<SymbolArray const&>(srcArray);
         // handle same as for a string
         auto const& valueData = *typedSrcArray.value_data();
-        auto& typedDestBuilder = dynamic_cast<SymbolArrayBuilder&>(*destBuilder);
+        auto& typedDestBuilder = dynamic_cast<SymbolArrayBuilder&>(destBuilder);
         auto reserveStatus = typedDestBuilder.Reserve(typedSrcArray.length());
         if(!reserveStatus.ok()) {
           return reserveStatus;
@@ -404,7 +445,7 @@ private:
       }
       // EXPRESSION
       auto const& typedSrcArray = dynamic_cast<ComplexExpressionArray const&>(srcArray);
-      return dynamic_cast<ComplexExpressionArrayBuilder&>(*destBuilder)
+      return dynamic_cast<ComplexExpressionArrayBuilder&>(destBuilder)
           .AppendExpressions(typedSrcArray);
     }
 
@@ -412,36 +453,36 @@ private:
       break;
     }
 
-    return arrow::Status::TypeError("source array type not supported");
+    return arrow::Status::TypeError("source array type not supported by destination array");
   }
 
-  static arrow::Status
-  appendToChildBuilder(arrow::ArrayBuilder const& srcBuilder, size_t srcLogicalSize,
-                       std::shared_ptr<arrow::ArrayBuilder> const& destBuilder) {
+  static arrow::Status appendToChildBuilder(arrow::ArrayBuilder const& srcBuilder,
+                                            size_t srcLogicalSize,
+                                            arrow::ArrayBuilder& destBuilder) {
     auto const& type = srcBuilder.type();
     switch(type->id()) {
     case arrow::Type::BOOL: {
       auto const& typedSrcBuilder = dynamic_cast<IterableBooleanBuilder const&>(srcBuilder);
       auto const& srcValues = typedSrcBuilder.raw_values();
-      return dynamic_cast<IterableBooleanBuilder&>(*destBuilder)
+      return dynamic_cast<IterableBooleanBuilder&>(destBuilder)
           .AppendValues(srcValues, srcLogicalSize);
     }
     case arrow::Type::INT32: {
       auto const& typedSrcBuilder = dynamic_cast<IterableInt32Builder const&>(srcBuilder);
       auto const& srcValues = typedSrcBuilder.raw_values();
-      return dynamic_cast<IterableInt32Builder&>(*destBuilder)
+      return dynamic_cast<IterableInt32Builder&>(destBuilder)
           .AppendValues(srcValues, srcLogicalSize);
     }
     case arrow::Type::FLOAT: {
       auto const& typedSrcBuilder = dynamic_cast<IterableFloatBuilder const&>(srcBuilder);
       auto const& srcValues = typedSrcBuilder.raw_values();
-      return dynamic_cast<IterableFloatBuilder&>(*destBuilder)
+      return dynamic_cast<IterableFloatBuilder&>(destBuilder)
           .AppendValues(srcValues, srcLogicalSize);
     }
     case arrow::Type::STRING: {
       auto const& typedSrcBuilder = dynamic_cast<IterableStringBuilder<> const&>(srcBuilder);
       auto const& valueDataLength = typedSrcBuilder.value_data_length();
-      auto& typedDestBuilder = dynamic_cast<IterableStringBuilder<>&>(*destBuilder);
+      auto& typedDestBuilder = dynamic_cast<IterableStringBuilder<>&>(destBuilder);
       auto reserveStatus = typedDestBuilder.Reserve(srcLogicalSize);
       if(!reserveStatus.ok()) {
         return reserveStatus;
@@ -462,7 +503,7 @@ private:
         auto const& typedSrcBuilder = dynamic_cast<SymbolArrayBuilder const&>(srcBuilder);
         // handle same as for a string
         auto const& valueDataLength = typedSrcBuilder.value_data_length();
-        auto& typedDestBuilder = dynamic_cast<SymbolArrayBuilder&>(*destBuilder);
+        auto& typedDestBuilder = dynamic_cast<SymbolArrayBuilder&>(destBuilder);
         auto reserveStatus = typedDestBuilder.Reserve(srcLogicalSize);
         if(!reserveStatus.ok()) {
           return reserveStatus;
@@ -478,7 +519,7 @@ private:
       }
       // EXPRESSION
       auto const& typedSrcBuilder = dynamic_cast<ComplexExpressionArrayBuilder const&>(srcBuilder);
-      return dynamic_cast<ComplexExpressionArrayBuilder&>(*destBuilder)
+      return dynamic_cast<ComplexExpressionArrayBuilder&>(destBuilder)
           .AppendExpressions(typedSrcBuilder, srcLogicalSize);
     }
 
@@ -486,7 +527,47 @@ private:
       break;
     }
 
-    return arrow::Status::TypeError("source array type not supported");
+    return arrow::Status::TypeError("source array type not supported by destination array");
+  }
+
+  static arrow::Status resizeChildBuilder(arrow::ArrayBuilder& destBuilder, size_t size) {
+    auto const& type = destBuilder.type();
+    switch(type->id()) {
+    case arrow::Type::BOOL: {
+      return dynamic_cast<IterableBooleanBuilder&>(destBuilder).AppendEmptyValues(size);
+    }
+    case arrow::Type::INT32: {
+      return dynamic_cast<IterableInt32Builder&>(destBuilder).AppendEmptyValues(size);
+    }
+    case arrow::Type::FLOAT: {
+      return dynamic_cast<IterableFloatBuilder&>(destBuilder).AppendEmptyValues(size);
+    }
+    case arrow::Type::STRING: {
+      // [https://github.com/symbol-store/BOSS/issues/88] need cleaner implementation
+      // don't resize the internal data in advance when using string proxy
+      // since it cannot revisit previous empty values
+      // since append will take care of that
+      return arrow::Status::OK();
+    }
+    case arrow::Type::EXTENSION: {
+      auto const& extensionType = dynamic_cast<arrow::ExtensionType const&>(*type);
+      if(extensionType.extension_name()[0] == 's') {
+        // SYMBOL
+        // [https://github.com/symbol-store/BOSS/issues/88] need cleaner implementation
+        // don't resize the internal data in advance when using string proxy
+        // since it cannot revisit previous empty values
+        // since append will take care of that
+        return arrow::Status::OK();
+      }
+      // EXPRESSION
+      return dynamic_cast<ComplexExpressionArrayBuilder&>(destBuilder).deepResize(size);
+    }
+
+    default:
+      break;
+    }
+
+    return arrow::Status::TypeError("array type not supported for resize");
   }
 };
 

@@ -3,6 +3,7 @@
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_primitive.h>
 #include <arrow/util/bit_util.h>
+#include <arrow/util/bitmap_ops.h>
 
 namespace boss::engines::bulk {
 
@@ -14,6 +15,10 @@ class IterableBooleanBuilder : public arrow::BooleanBuilder {
 public:
   explicit IterableBooleanBuilder(arrow::MemoryPool* pool = arrow::default_memory_pool())
       : arrow::BooleanBuilder(pool) {}
+
+  int64_t calculateBitCount() const {
+    return arrow::internal::CountSetBits(data_builder_.data(), 0, data_builder_.length());
+  }
 
   bool GetValue(int64_t index) const { return arrow::BitUtil::GetBit(data_builder_.data(), index); }
 

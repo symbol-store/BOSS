@@ -1,6 +1,7 @@
 #include "Bulk.hpp"
 
-#include "Bulk/Batch/CompoundBatch.hpp"
+#include "Bulk/ArrowExtensions/CompoundArray.hpp"
+#include "Bulk/ArrowExtensions/ValueArray.hpp"
 #include "Bulk/BuiltinFunctions/Aggregates.hpp"
 #include "Bulk/BuiltinFunctions/ArithmeticFunctions.hpp"
 #include "Bulk/BuiltinFunctions/Collections.hpp"
@@ -12,6 +13,7 @@
 #include "Bulk/BuiltinFunctions/StringFunctions.hpp"
 #include "Bulk/BuiltinFunctions/SymbolicFunctions.hpp"
 #include "Bulk/Executor.hpp"
+#include "Bulk/ExtendedExpression.hpp"
 #include "Bulk/OperatorRegistry.hpp"
 #include "Bulk/OperatorUtils.hpp"
 #include "Bulk/SymbolRegistry.hpp"
@@ -43,28 +45,94 @@ Engine::Engine() {
   }
 }
 
-Batch* createBatch(Expression const& expression) {
-  return std::visit([](auto&& value) { return createBatch(value); },
-                    (Expression::SuperType const&)expression);
-}
+BulkExpression Engine::createArray(arrow::ArrayVector&& arrays,
+                                   std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder,
+                                   CompoundArray const* parent, size_t childIndex) {
+  // create a batch of the right type from these arrays/builder
+  auto type = arrayBuilder ? arrayBuilder->type() : arrays[0]->type();
+  // assuming all arrays and builder share the same type!
+  // if not, keep only the latest type
+  auto arrayIt = arrays.rbegin();
+  for(; arrayIt != arrays.rend(); ++arrayIt) {
+    if((*arrayIt)->type_id() != type->id()) {
+      break;
+    }
+  }
+  if(arrayIt != arrays.rend()) {
+    // shrinked without the arrays having a different type
+    arrow::ArrayVector shrinkedArrays(arrayIt.base(), arrays.end());
+    arrays.swap(shrinkedArrays);
+  }
 
-Batch* createBatch(ComplexExpression const& expression) {
-  auto* newBatch = new CompoundBatch(expression.getHead());
-  newBatch->append(expression);
-  return newBatch;
-}
+  switch(type->id()) {
+  case arrow::Type::BOOL: {
+    auto arrayPtr = std::make_shared<ValueArray<bool>>(std::move(arrays), std::move(arrayBuilder));
+    arrayPtr->setOwner(parent, childIndex);
+    return arrayPtr;
+  }
+  case arrow::Type::INT32: {
+    auto arrayPtr = std::make_shared<ValueArray<int>>(std::move(arrays), std::move(arrayBuilder));
+    arrayPtr->setOwner(parent, childIndex);
+    return arrayPtr;
+  }
+  case arrow::Type::FLOAT: {
+    auto arrayPtr = std::make_shared<ValueArray<float>>(std::move(arrays), std::move(arrayBuilder));
+    arrayPtr->setOwner(parent, childIndex);
+    return arrayPtr;
+  }
+  case arrow::Type::STRING: {
+    auto arrayPtr =
+        std::make_shared<ValueArray<std::string>>(std::move(arrays), std::move(arrayBuilder));
+    arrayPtr->setOwner(parent, childIndex);
+    return arrayPtr;
+  }
+  case arrow::Type::EXTENSION: {
+    auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
+    if(extensionType.extension_name()[0] == 's') {
+      // SYMBOL
+      auto arrayPtr =
+          std::make_shared<ValueArray<Symbol>>(std::move(arrays), std::move(arrayBuilder));
+      arrayPtr->setOwner(parent, childIndex);
+      return arrayPtr;
+    }
+    // COMPLEX EXPRESSION
+    auto arrayPtr =
+        std::make_shared<CompoundArray>(std::move(arrays), std::move(arrayBuilder), false);
+    arrayPtr->setOwner(parent, childIndex);
+    return arrayPtr;
+  }
+  default:
+    break;
+  }
 
-template <typename T> Batch* createBatch(T const& value) {
-  return new ValueBatch<T>(1, value);
+  // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
+  return 0; // should not happen!
 }
 
 /// convert the batch back to an expression
-Expression revertToExpression(Batch::ReadablePtr&& batchPtr) {
+Expression toBossExpression(BulkExpression const& bulkExpression) {
+  bool done = false;
+  Expression output;
+  std::visit(
+      [&done, &output](auto const& unpacked) {
+        using Type = std::decay_t<decltype(unpacked)>;
+        if constexpr(std::is_constructible_v<Expression, Type>) {
+          output = unpacked;
+          done = true;
+        }
+      },
+      (BulkExpression::SuperType const&)bulkExpression);
+
+  if(done) {
+    return output;
+  }
+
   bool handledAsSymbol = false;
   std::string symbolName;
-  boss::engines::bulk::BatchVisitDispatcher<CompoundBatch>::visit(
-      [&handledAsSymbol, &symbolName, &batchPtr](auto& tableBatch) {
-        if(!tableBatch.isDecomposed()) {
+  BatchVisitDispatcher<std::shared_ptr<CompoundArray>>::visit(
+      [&handledAsSymbol, &symbolName](auto& tableArrayPtr) {
+        auto& tableArray = *tableArrayPtr;
+        if(!tableArray.isDecomposed()) {
           return;
         }
         // save the query result into a temporary symbol
@@ -73,40 +141,38 @@ Expression revertToExpression(Batch::ReadablePtr&& batchPtr) {
         // [https://github.com/symbol-store/BOSS/issues/91] find a way to garbage-collect them
         static int i = 0;
         symbolName = "_table" + std::to_string(i++);
-        auto numRows = tableBatch.size();
-        auto numCols = tableBatch.numColumns();
+        auto numRows = tableArray.length();
+        auto numCols = tableArray.numArguments();
         symbolName += "_cols" + std::to_string(numCols) + "rows" + std::to_string(numRows);
         Symbol savedSymbol(symbolName);
-        auto& savedSymbolPtr = DefaultSymbolRegistry::instance().findSymbol(savedSymbol);
-        savedSymbolPtr = std::move(batchPtr);
+        DefaultSymbolRegistry::instance().registerSymbol(savedSymbol, tableArrayPtr);
         handledAsSymbol = true;
       },
-      *batchPtr);
+      bulkExpression);
   if(handledAsSymbol) {
     return Symbol(symbolName);
   }
 
-  auto const& batch = *batchPtr;
   std::optional<Symbol> rootHead;
   ExpressionArguments arguments;
-  arguments.reserve(batch.size());
-  OperatorUtilsImpl::AnyBatchVisitDispatcher::visit(
-      [&arguments, &rootHead, batchPtr{std::move(batchPtr)}](auto const& batch) {
-        using BatchType = std::decay_t<decltype(batch)>;
-        if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-          rootHead = batch.getHead();
-          size_t batchSize = batch.size();
-          for(size_t index = 0; index < batchSize; ++index) {
-            auto extractedPtr = batch.extract(index);
-            arguments.emplace_back(revertToExpression(std::move(extractedPtr)));
+  OperatorUtilsImpl::CollectionVisitDispatcher::visit(
+      [&arguments, &rootHead](auto const& argArrayPtr) {
+        auto const& argArray = *argArrayPtr;
+        arguments.reserve(argArray.length());
+        using ArrayType = std::decay_t<decltype(argArray)>;
+        if constexpr(std::is_same_v<CompoundArray, ArrayType>) {
+          rootHead = argArray.getHead();
+          for(size_t index = 0; index < argArray.length(); ++index) {
+            auto extractedExpr = argArray.extract(index);
+            arguments.emplace_back(toBossExpression(extractedExpr));
           }
         } else {
-          for(auto const& value : batch) {
-            arguments.emplace_back(static_cast<typename BatchType::ValueType>(value));
+          for(auto const& value : argArray) {
+            arguments.emplace_back(static_cast<typename ArrayType::ValueType>(value));
           }
         }
       },
-      batch);
+      bulkExpression);
 
   if(arguments.size() == 1 && !rootHead) {
     return arguments[0];
@@ -116,42 +182,14 @@ Expression revertToExpression(Batch::ReadablePtr&& batchPtr) {
   return ComplexExpression(head, arguments);
 }
 
-Expression Engine::evaluate(Expression const& e) { // NOLINT
-  Batch::WritablePtr batchPtr;
-  auto const* expr = std::get_if<ComplexExpression>(&e);
-  bool done = false;
-  if(expr != nullptr && expr->getHead().getName() == "List" && !expr->getArguments().empty()) {
-    // special case if the root head is a list
-    // can just put all arguments in a single batch
-    auto argsIt = expr->getArguments().begin();
-    batchPtr = Batch::WritablePtr(createBatch(*argsIt));
-    auto& batch = *batchPtr;
-
-    // still check if all arguments are compatible
-    // if not need to fallback to normal method
-    done = true;
-    for(++argsIt; argsIt != expr->getArguments().end(); ++argsIt) {
-      auto const& exprArg = *argsIt;
-      if(!batch.canContain(exprArg)) {
-        done = false;
-        break;
-      }
-      batch.append(exprArg);
-    }
-  }
-
-  if(!done) {
-    // default case, create just a single element batch for the root expression
-    batchPtr = Batch::WritablePtr(createBatch(e));
-  }
-  
-  Batch::ReadablePtr outputPtr;
-  if(!Executor::evaluate(*batchPtr, outputPtr)) {
+Expression evaluate(Expression const& e) { // NOLINT
+  BulkExpression output;
+  if(!Executor::evaluate(e, output)) {
     return e;
   }
 
   // transform the batch back to an expression
-  return revertToExpression(std::move(outputPtr));
+  return toBossExpression(output);
 }
 
 } // namespace boss::engines::bulk

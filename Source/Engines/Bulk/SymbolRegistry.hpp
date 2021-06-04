@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Batch/Batch.hpp"
+#include "ExtendedExpression.hpp"
 
 #include "../../Expression.hpp"
 
@@ -12,7 +13,7 @@
 namespace boss::engines::bulk {
 
 /** Keep any type of batch stored and map to a symbol. */
-template <typename BatchType> class SymbolRegistry {
+template <typename T> class SymbolRegistry {
 private:
   SymbolRegistry() = default;
 
@@ -27,12 +28,18 @@ public:
     static SymbolRegistry instance;
     return instance;
   }
+  
+  using StoredType = T;
+  using SymbolPtr = std::unique_ptr<StoredType>;
 
-  using SymbolPtr = ReadableBatchPtr<BatchType>;
   SymbolPtr& findSymbol(Symbol const& symbol) { return m_symbolMap[symbol.getName()]; }
 
-  void registerSymbol(Symbol const& symbol, BatchType& value) {
-    m_symbolMap[symbol.getName()] = SymbolPtr(&value);
+  void registerSymbol(Symbol const& symbol, StoredType const& value) {
+    m_symbolMap[symbol.getName()] = std::make_unique<StoredType>(value);
+  }
+  
+  void registerSymbol(Symbol const& symbol, SymbolPtr&& symbolPtr) {
+    m_symbolMap[symbol.getName()] = std::move(symbolPtr);
   }
 
   void clear() { m_symbolMap.clear(); }
@@ -43,6 +50,6 @@ private:
   SymbolMapping m_symbolMap;
 };
 
-using DefaultSymbolRegistry = SymbolRegistry<Batch>;
+using DefaultSymbolRegistry = SymbolRegistry<BulkExpression>;
 
 } // namespace boss::engines::bulk

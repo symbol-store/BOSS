@@ -1,17 +1,17 @@
 #pragma once
 
-#include "../../../Expression.hpp"
+#include "../ExtendedExpression.hpp"
 
 namespace boss::engines::bulk {
 
 template <bool DispatchArgumentTypes, bool DispatchSymbolNames> struct CompareExpression {
   // more expression semantics in the engine
-  bool operator()(Expression const& lhs, Expression const& rhs) const {
+  bool operator()(BulkExpression const& lhs, BulkExpression const& rhs) const {
     return compare(lhs, rhs) < 0;
   }
 
 private:
-  int compare(Expression::SuperType const& lhs, Expression::SuperType const& rhs) const {
+  int compare(BulkExpression::SuperType const& lhs, BulkExpression::SuperType const& rhs) const {
     if(lhs.index() != rhs.index()) {
       return lhs.index() < rhs.index() ? -1 : 1;
     }
@@ -23,8 +23,8 @@ private:
       }
     }
 
-    if(auto const* lhsExpr = std::get_if<ComplexExpression>(&lhs)) {
-      auto const& rhsExpr = std::get<ComplexExpression>(rhs);
+    if(auto const* lhsExpr = std::get_if<BulkComplexExpression>(&lhs)) {
+      auto const& rhsExpr = std::get<BulkComplexExpression>(rhs);
       if(lhsExpr->getHead().getName() != rhsExpr.getHead().getName()) {
         return lhsExpr->getHead().getName() < rhsExpr.getHead().getName() ? -1 : 1;
       }

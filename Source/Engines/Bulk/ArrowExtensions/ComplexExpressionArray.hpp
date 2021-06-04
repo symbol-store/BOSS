@@ -160,26 +160,39 @@ public:
         m_head, arrow::StructBuilder::type()->fields());
   }
 
-  // Usually when resizing a struct array, we need to resize both the struct array itself
-  // and the children arrays. This function only resize the struct array itself..
-  // For now, the children array have to be extracted as Batch and resized manually afterwards.
+  // we resize both the struct array itself and the children arrays.
+  // This function assumes we always append to the first union type (for the expression children)
   // [https://github.com/symbol-store/BOSS/issues/88]
   // We need to do that until we have a more robust arrow array API.
-  // This is because we don't have yet a consistent method to resize the children,
-  // so it has to be done through each of the children's batch resize() call.
-  arrow::Status resizeStructArray(size_t size) {
+  arrow::Status deepResize(size_t size) {
     if(size < length()) {
       // TODO: do we need to support that case?
       return arrow::Status::OK();
     }
-    return AppendToBitmap(size - length(), true);
+
+    auto structStatus = AppendToBitmap(size - length(), true);
+    if(!structStatus.ok()) {
+      return structStatus;
+    }
+
+    // resize the children array as well
+    // assuming we are using the first child only!
+    for(int idx = 0; idx < num_children(); ++idx) {
+      auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
+      auto childStatus = argBuilder.deepResize(size);
+      if(!childStatus.ok()) {
+        return childStatus;
+      }
+    }
+
+    return arrow::Status::OK();
   }
 
   // [https://github.com/symbol-store/BOSS/issues/92]
   /// Check if the expression type of each argument
   /// is already supported by the child union array builder
   /// or if it will require to create a new array type
-  bool IsSupported(ComplexExpression const& expr) {
+  bool IsSupported(BulkComplexExpression const& expr) {
     for(int idx = 0; idx < expr.getArguments().size(); ++idx) {
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
       if(!argBuilder.IsSupported(expr.getArguments()[idx])) {
@@ -206,7 +219,7 @@ public:
 
   // [https://github.com/symbol-store/BOSS/issues/88]
   // refactor all the AppendExpression once we have a better array API
-  arrow::Status AppendExpression(ComplexExpression const& expr) {
+  arrow::Status AppendExpression(BulkComplexExpression const& expr) {
     // append to the args structure
     auto structStatus = Append();
     if(!structStatus.ok()) {
@@ -322,11 +335,6 @@ public:
 
   /// prepare the array to receive the argument types, but not appending anything yet
   arrow::Status initArguments(std::vector<std::shared_ptr<arrow::DataType>> const& types) {
-    if(types.empty()) {
-      // no arguments?
-      return arrow::Status::OK();
-    }
-
     // append each argument
     for(int idx = 0; idx < types.size(); ++idx) {
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));

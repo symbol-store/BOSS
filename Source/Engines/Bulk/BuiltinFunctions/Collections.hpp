@@ -7,146 +7,147 @@
 namespace boss::engines::bulk {
 
 template <typename OperatorUtils, typename OperatorRegistry> class Collections {
-  using AnySimpleBatch = typename OperatorUtils::AnySimpleBatch;
-  using NonSymbolicBatch = typename OperatorUtils::NonSymbolicBatch;
+  using AnyTypeArgument = typename OperatorUtils::AnyTypeArgument;
+  using AnySimpleTypeArgument = typename OperatorUtils::AnySimpleTypeArgument;
+  using AnyCollectionArgument = typename OperatorUtils::AnyCollectionArgument;
+  using AnySimpleTypeCollectionArgument = typename OperatorUtils::AnySimpleTypeCollectionArgument;
 
 public:
   static void registerAll() {
     auto& operatorRegistry = OperatorRegistry::instance();
+    operatorRegistry.template registerOperator<CountOperator>("Count");
+    operatorRegistry.template registerOperator<CountOperator>("Length");
     operatorRegistry.template registerOperator<ExtractOperator>("Extract");
     operatorRegistry.template registerOperator<FirstOperator>("First");
     operatorRegistry.template registerOperator<LastOperator>("Last");
     operatorRegistry.template registerOperator<ColumnOperator>("Column");
-    operatorRegistry.template registerOperator<LengthOperator>("Length");
     operatorRegistry.template registerOperator<IndexOfOperator>("IndexOf");
   }
 
 private:
-  class ExtractOperator : public Operator<2, NonSymbolicBatch, AllowedBatches<ValueBatch<int>>> {
+  class CountOperator : public Operator<1, AnyCollectionArgument> {
   public:
-    template <typename ExprType, typename IndexType>
-    auto evaluate(ExprType&& exprBatchesPtr, IndexType&& indexBatchPtr) const {
-      auto extraction = [](auto const& exprBatch, size_t index) {
-        using BatchType = std::decay_t<decltype(exprBatch)>;
-        using ValueType = typename BatchType::ValueType;
-        if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-          return exprBatch.extract(index);
-        } else {
-          auto const& value = static_cast<ValueType>(*(exprBatch.begin() + index));
-          return Batch::WritablePtr(new ValueBatch(1, value));
-        }
-      };
+    template <typename ArrayType>
+    BulkExpression evaluate(std::shared_ptr<ArrayType> const& arrayPtr) const {
+      return static_cast<int>(arrayPtr->length());
+    }
 
-      auto const& exprBatches = *exprBatchesPtr;
-      auto const& indexBatch = *indexBatchPtr;
-      if(indexBatch.size() == 1) {
-        // special case for single batch extraction
-        size_t index = *indexBatch.begin() - 1U;
-        return Batch::ReadablePtr(extraction(exprBatches, index));
-      }
-      // general case for multiple extraction
-      // exprBatchesPtr should be a compound
-      using BatchType = std::decay_t<decltype(exprBatches)>;
-      auto compoundBatchPtr = WritableBatchPtr(exprBatches.template cloneAs<BatchType>(true));
-      if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-        auto& compoundBatch = *compoundBatchPtr;
-        auto indexIt = indexBatch.begin();
-        auto exprIt = exprBatches.begin();
-        std::vector<Batch::ReadablePtr> argBatches;
-        argBatches.reserve(indexBatch.size());
-        for(; indexIt != indexBatch.end() && exprIt != exprBatches.end(); ++indexIt, ++exprIt) {
-          size_t index = *indexIt - 1U;
-          auto exprBatchPtr = *exprIt;
-          OperatorUtils::AnyBatchVisitDispatcher::visit(
-              [&index, &argBatches, &extraction](auto const& exprBatch) {
-                argBatches.emplace_back(extraction(exprBatch, index));
-              },
-              *exprBatchPtr);
-        }
-        compoundBatch.append(argBatches);
-      }
-      return Batch::ReadablePtr(std::move(compoundBatchPtr));
+    BulkExpression evaluate(BulkComplexExpression const& list) const {
+      return static_cast<int>(list.getArguments().size());
     }
   };
 
-  class FirstOperator : public Operator<1, NonSymbolicBatch> {
+  class ExtractOperator : public Operator<2, AnyCollectionArgument, AllowedArguments<int>> {
   public:
-    template <typename BatchPtrType> auto evaluate(BatchPtrType&& batchPtrExpr) const {
-      using BatchType = typename BatchPtrType::BatchType;
-      using ValueType = typename BatchType::ValueType;
-      if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-        return batchPtrExpr->extract(0);
+    template <typename ArrayPtrType>
+    BulkExpression evaluate(ArrayPtrType const& arrayPtr, int index) const {
+      using ArrayType = typename ArrayPtrType::element_type;
+      if constexpr(std::is_same_v<ArrayType, CompoundArray>) {
+        return arrayPtr->extract(index - 1);
       } else {
-        auto const& value = static_cast<ValueType>(*batchPtrExpr->begin());
-        return Batch::WritablePtr(new ValueBatch(1, value));
+        using ValueType = typename ArrayType::ValueType;
+        return (ValueType)(*(arrayPtr->begin() + (index - 1)));
       }
+    }
+
+    BulkExpression evaluate(BulkComplexExpression const& list, int index) const {
+      return list.getArguments()[index - 1];
     }
   };
 
-  class LastOperator : public Operator<1, NonSymbolicBatch> {
+  class FirstOperator : public Operator<1, AnyCollectionArgument> {
   public:
-    template <typename BatchPtrType> auto evaluate(BatchPtrType&& batchPtrExpr) const {
-      using BatchType = typename BatchPtrType::BatchType;
-      using ValueType = typename BatchType::ValueType;
-      size_t index = batchPtrExpr->size() - 1;
-      if constexpr(std::is_base_of_v<CompoundBatch, BatchType>) {
-        return batchPtrExpr->extract(index);
+    template <typename ArrayPtrType> BulkExpression evaluate(ArrayPtrType const& arrayPtr) const {
+      using ArrayType = typename ArrayPtrType::element_type;
+      if constexpr(std::is_same_v<ArrayType, CompoundArray>) {
+        return arrayPtr->extract(0);
       } else {
-        auto const& value = static_cast<ValueType>(*(batchPtrExpr->begin() + index));
-        return Batch::WritablePtr(new ValueBatch(1, value));
+        using ValueType = typename ArrayType::ValueType;
+        return (ValueType)(*(arrayPtr->begin()));
       }
     }
-  };
 
-  class ColumnOperator
-      : public Operator<2, AllowedBatches<CompoundBatch>, AllowedBatches<ValueBatch<int>>> {
-  public:
-    template <typename ExprType, typename IndexType>
-    auto evaluate(ExprType&& exprBatchesPtr, IndexType&& indexBatchPtr) const {
-      size_t index = *indexBatchPtr->begin() - 1;
-      return exprBatchesPtr->column(index);
+    BulkExpression evaluate(BulkComplexExpression const& list) const {
+      return list.getArguments().front();
     }
   };
 
-  class LengthOperator : public Operator<1, NonSymbolicBatch> {
+  class LastOperator : public Operator<1, AnyCollectionArgument> {
   public:
-    template <typename BatchType> auto evaluate(BatchType&& batchPtr) const {
-      int value = batchPtr->size();
-      return Batch::WritablePtr(new ValueBatch(1, value));
+    template <typename ArrayPtrType> BulkExpression evaluate(ArrayPtrType const& arrayPtr) const {
+      using ArrayType = typename ArrayPtrType::element_type;
+      size_t index = arrayPtr->length() - 1;
+      if constexpr(std::is_same_v<ArrayType, CompoundArray>) {
+        return arrayPtr->extract(index);
+      } else {
+        using ValueType = typename ArrayType::ValueType;
+        return (ValueType)(*(arrayPtr->begin() + index));
+      }
+    }
+
+    BulkExpression evaluate(BulkComplexExpression const& list) const {
+      return list.getArguments().back();
     }
   };
 
-  class IndexOfOperator : public Operator<2, AllowedBatches<CompoundBatch>, AnySimpleBatch> {
+  class ColumnOperator : public Operator<2, AllowedArguments<std::shared_ptr<CompoundArray>>,
+                                         AllowedArguments<int>> {
   public:
-    template <typename ListType, typename ValueType>
-    auto evaluate(ListType&& listBatchPtr, ValueType&& valueBatchPtr) const {
-      auto const& valueBatch = *valueBatchPtr;
-      using ValueBatchType = std::decay_t<decltype(valueBatch)>;
+    BulkExpression evaluate(std::shared_ptr<CompoundArray> const& arrayPtr, int index) const {
+      return arrayPtr->column(index - 1);
+    }
+  };
+
+  class IndexOfOperator
+      : public Operator<2, AnySimpleTypeCollectionArgument, AnySimpleTypeArgument> {
+  public:
+    template <typename ArrayPtrType, typename ValueType>
+    auto evaluate(ArrayPtrType const& arrayPtr, ValueType const& value) const {
+      using ArrayType = typename ArrayPtrType::element_type;
+      using ArrayValueType = typename ArrayType::ValueType;
+      if constexpr(std::is_convertible_v<ValueType, ArrayValueType>) {
+        int index = 1;
+        for(auto const& arrayValue : *arrayPtr) {
+          if constexpr(std::is_same_v<Symbol, ValueType>) {
+            if(value.getName() == ((ArrayValueType)arrayValue).getName()) {
+              return index;
+            }
+          } else {
+            if((ArrayValueType)arrayValue == value) {
+              return index;
+            }
+          }
+          ++index;
+        }
+      }
+      // is there anything better to return?
+      return 0;
+    }
+
+    template <typename ValueType>
+    BulkExpression evaluate(BulkComplexExpression const& list, ValueType const& value) const {
       int index = 1;
-      auto const& value = *valueBatchPtr->begin();
-      for(auto argBatchPtr : *listBatchPtr) {
-        // check for equality on the same type only
-        bool equals = false;
-        BatchVisitDispatcher<ValueBatchType>::visit(
-            [&equals, &value](auto& argBatchTyped) {
-              auto const& batchValue = *argBatchTyped.begin();
-              if constexpr(std::is_same_v<std::decay_t<decltype(value)>, Symbol>) {
-                if(batchValue.getName() == value.getName()) {
-                  equals = true;
-                }
-              } else {
-                if(batchValue == value) {
-                  equals = true;
+      for(auto const& arg : list.getArguments()) {
+        bool found = std::visit(
+            [&value](auto const& typedArg) {
+              using ArgValueType = std::decay_t<decltype(typedArg)>;
+              if constexpr(std::is_convertible_v<ValueType, ArgValueType>) {
+                if constexpr(std::is_same_v<Symbol, ValueType>) {
+                  return typedArg.getName() == value.getName();
+                } else {
+                  return typedArg == value;
                 }
               }
+              return false;
             },
-            *argBatchPtr);
-        if(equals) {
-          return Batch::WritablePtr(new ValueBatch(1, index));
+            arg);
+        if(found) {
+          return index;
         }
         ++index;
       }
-      return Batch::WritablePtr(new ValueBatch(1, 0));
+      // is there anything better to return?
+      return 0;
     }
   };
 };

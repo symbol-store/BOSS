@@ -14,61 +14,155 @@ public:
     operatorRegistry.template registerOperator<TimesOperator>("Times");
     operatorRegistry.template registerOperator<DivOperator>("Divide");
     operatorRegistry.template registerOperator<NegOperator>("Negation");
-    operatorRegistry.template registerOperator<LerpOperator>("Lerp");
   }
 
 private:
   class PlusOperator : public OperatorBuilder<2>::OperatorForTypes<int, float> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a, auto const& b) -> auto { return a + b; }, lhsBatchPtr, rhsBatchPtr);
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) { return lhs + rhs; };
     }
   };
 
   class MinusOperator : public OperatorBuilder<2>::OperatorForTypes<int, float> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a, auto const& b) -> auto { return a - b; }, lhsBatchPtr, rhsBatchPtr);
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) { return lhs - rhs; };
     }
   };
 
   class TimesOperator : public OperatorBuilder<2>::OperatorForTypes<int, float> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a, auto const& b) -> auto { return a * b; }, lhsBatchPtr, rhsBatchPtr);
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) { return lhs * rhs; };
     }
   };
 
   class DivOperator : public OperatorBuilder<2>::OperatorForTypes<int, float> {
   public:
     template <typename LhsType, typename RhsType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a, auto const& b) -> auto { return a / b; }, lhsBatchPtr, rhsBatchPtr);
+    BulkExpression evaluate(LhsType const& lhs, RhsType const& rhs) const {
+      return function()(lhs, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            RhsType const& rhs) const {
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
+      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+    }
+
+    template <typename LhsType, typename RhsValueType>
+    BulkExpression evaluate(LhsType const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
+      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+    }
+
+    template <typename LhsValueType, typename RhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
+                            std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs, auto const& rhs) { return lhs / rhs; };
     }
   };
 
   class NegOperator : public OperatorBuilder<1>::OperatorForTypes<int, float> {
   public:
-    template <typename LhsType> auto evaluate(LhsType&& lhsBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a) -> auto { return -a; }, lhsBatchPtr);
+    template <typename LhsType> BulkExpression evaluate(LhsType const& lhs) const {
+      return function()(lhs);
     }
-  };
 
-  class LerpOperator : public OperatorBuilder<3>::OperatorForTypes<int, float> {
-  public:
-    template <typename LhsType, typename RhsType, typename RatioType>
-    auto evaluate(LhsType&& lhsBatchPtr, RhsType&& rhsBatchPtr, RatioType&& ratioBatchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& a, auto const& b, auto const& t) -> auto { return a + (b - a) * t; },
-          lhsBatchPtr, rhsBatchPtr, ratioBatchPtr);
+    template <typename LhsValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs) const {
+      return OperatorUtils::evaluateElements(function(), lhs);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& lhs) { return -lhs; };
     }
   };
 };

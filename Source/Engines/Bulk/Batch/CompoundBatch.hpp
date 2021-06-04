@@ -44,24 +44,22 @@ public:
 
   /// decomposed: see class description for the meaning
   /// defaulting to create a "List" as head for the expressions we insert
-  explicit CompoundBatch(bool decomposed = false)
-      : m_array(std::make_shared<CompoundArray>()), m_symbol("List"_), m_decomposed(decomposed) {}
+  //explicit CompoundBatch(bool decomposed = false)
+  //    : m_array(std::make_shared<CompoundArray>("List"_, 0, decomposed)), m_symbol("List"_) {}
 
   /// symbol: head for the expressions we insert
   /// decomposed: see class description for the meaning
   explicit CompoundBatch(Symbol const& symbol, bool decomposed = false)
-      : m_array(std::make_shared<CompoundArray>()), m_symbol(symbol), m_decomposed(decomposed) {}
+      : m_array(std::make_shared<CompoundArray>(decomposed)), m_symbol(symbol) {}
 
   // [https://github.com/symbol-store/BOSS/issues/88] to clean up
   // Internally, we do just a shallow copy for now (see in CompoundArray copy
   // constructor) but it really should be a deep copy or it can cause some issues at some point
   CompoundBatch(CompoundBatch const& other, bool clear = false)
-      : m_array(std::make_shared<CompoundArray>(*other.m_array, clear)), m_symbol(other.m_symbol),
-        m_decomposed(other.m_decomposed) {}
+      : m_array(std::make_shared<CompoundArray>(*other.m_array, clear)), m_symbol(other.m_symbol) {}
 
-  CompoundBatch(Symbol const& symbol, CompoundArray&& compoundArray, bool decomposed = false)
-      : m_array(std::make_shared<CompoundArray>(std::move(compoundArray))), m_symbol(symbol),
-        m_decomposed(decomposed) {}
+  CompoundBatch(Symbol const& symbol, CompoundArray&& compoundArray)
+      : m_array(std::make_shared<CompoundArray>(std::move(compoundArray))), m_symbol(symbol) {}
 
   ~CompoundBatch() override = default;
   CompoundBatch(CompoundBatch&& other) = delete;
@@ -70,7 +68,7 @@ public:
 
   Symbol const& getHead() const { return m_symbol; }
 
-  bool isDecomposed() const { return m_decomposed; }
+  bool isDecomposed() const { return m_array->isDecomposed(); }
 
   /// create a full copy of the batch (without knowing the derived batch type)
   Batch* clone(bool clear = false) const override { return cloneAsCompoundBatch(clear); }
@@ -91,7 +89,7 @@ public:
 
   void resize(size_t size) override { m_array->resize(size); }
 
-  size_t size() const override { return m_decomposed ? m_array->length() : numArguments(); }
+  size_t size() const override { return m_array->length(); }
 
   size_t numArguments() const { return m_array->numArguments(); }
 
@@ -145,7 +143,7 @@ public:
     }
   }
 
-  template <typename Func> void visitChunks(Func&& visitor) {
+  template <typename Func> void visitPartitions(Func&& visitor) {
     auto chunks = m_array->getChunkedArray().chunks();
     for(auto chunk : chunks) {
       CompoundArray compoundChunk(*m_array, std::move(chunk));
@@ -161,7 +159,7 @@ public:
     }
   }
 
-  template <typename Func> void visitChunks(Func&& visitor) const {
+  template <typename Func> void visitPartitions(Func&& visitor) const {
     auto chunks = m_array->getChunkedArray().chunks();
     for(auto chunk : chunks) {
       CompoundArray compoundChunk(*m_array, std::move(chunk));
@@ -181,7 +179,7 @@ public:
 
   /// extract a "row" (which has a different meaning for decomposed or not decomposed batch)
   virtual Batch::ReadablePtr extract(size_t index) const {
-    if(!m_decomposed) {
+    if(!m_array->isDecomposed()) {
       // extract row value as single value array instead
       return column(index);
     }
@@ -271,7 +269,7 @@ public:
     // set the local tuple to be accessible by the row values
     auto& symbolPtr = DefaultSymbolRegistry::instance().findSymbol(Symbol("$tuple"));
     auto backupSymbol = std::move(symbolPtr);
-    symbolPtr = Batch::ReadablePtr(shared_from_this());
+    *symbolPtr = BulkExpression(m_array);
 
     bool anyEvaluated = false;
 
@@ -313,10 +311,10 @@ public:
     // used to set the owner (parent batch) after creating a child batch in CompoundBatch::column()
     // so the parent can freezeData() when the child need to freezeData()
     // since it should always be done together
-    m_array->setOwner(std::move(parentArray), childIndex);
+    m_array->setOwner(parentArray.get(), childIndex);
   }
 
-  void addColumn(Symbol const& column) { m_array->addArgument(m_symbol, column.getName()); }
+  void addColumn(Symbol const& column) { m_array->addArgument(column.getName()); }
 
   Batch::WritablePtr columns() const {
     // create a temporary column batch (compound) from the array fields
@@ -335,17 +333,6 @@ public:
     auto columnBatch = Batch::WritablePtr(new CompoundBatch(columnList.getHead()));
     columnBatch->append(columnList);
     return columnBatch;
-  }
-
-  size_t numColumns() const {
-    auto const& data = CompoundBatch::data();
-    if(data.builder) {
-      return data.builder->num_children();
-    }
-    if(!data.arrays.chunks().empty()) {
-      return data.arrays.chunk(0)->num_fields();
-    }
-    return 0;
   }
 
 private:
@@ -405,7 +392,7 @@ private:
       auto const& complexType =
           dynamic_cast<ComplexExpressionArray::ComplexExpressionArrayType const&>(extensionType);
       auto* batch = new CompoundBatch(complexType.getHead());
-      batch->append(CompoundArray(std::move(arrays), std::move(arrayBuilder)));
+      batch->append(CompoundArray(std::move(arrays), std::move(arrayBuilder), false));
       return batch;
     }
     default:
@@ -417,7 +404,6 @@ private:
   }
 
   Symbol m_symbol;
-  bool m_decomposed;
 
   std::shared_ptr<CompoundArray> m_array;
 };

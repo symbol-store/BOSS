@@ -6,71 +6,68 @@
 namespace boss::engines::bulk {
 
 template <typename OperatorUtils, typename OperatorRegistry> class Aggregates {
-  using NonSymbolicBatch = typename OperatorUtils::NonSymbolicBatch;
+  using AnyAgregableCollectionArgument =
+      AllowedArguments<std::shared_ptr<ValueArray<bool>>, std::shared_ptr<ValueArray<int>>,
+                       std::shared_ptr<ValueArray<float>>,
+                       std::shared_ptr<ValueArray<std::string>>>;
 
 public:
   static void registerAll() {
     auto& operatorRegistry = OperatorRegistry::instance();
-    operatorRegistry.template registerOperator<CountOperator>("Count");
     operatorRegistry.template registerOperator<SumOperator>("Sum");
     operatorRegistry.template registerOperator<MinOperator>("Min");
     operatorRegistry.template registerOperator<MaxOperator>("Max");
   }
 
 private:
-  class CountOperator : public Operator<1, NonSymbolicBatch> {
+  class SumOperator : public Operator<1, AnyAgregableCollectionArgument> {
   public:
-    template <typename BatchType> auto evaluate(BatchType&& batchPtr) const {
-      int value = batchPtr->size();
-      return Batch::WritablePtr(new ValueBatch(1, value));
-    }
-  };
-
-  class SumOperator : public OperatorBuilder<1>::OperatorForTypes<int, float> {
-  public:
-    template <typename BatchType> auto evaluate(BatchType&& batchPtr) const {
-      auto it = batchPtr->begin();
-      auto sum = *it;
+    template <typename ArrayType>
+    BulkExpression evaluate(std::shared_ptr<ArrayType> const& arrayPtr) const {
+      using ValueType = typename ArrayType::ValueType;
+      auto it = arrayPtr->begin();
+      auto sum = (ValueType)*it;
       ++it;
-      while(it != batchPtr->end()) {
-        sum += *it;
-        ++it;
+      for(; it != arrayPtr->end(); ++it) {
+        sum += (ValueType)*it;
       }
-      return Batch::WritablePtr(new ValueBatch(1, sum));
+      return sum;
     }
   };
 
-  class MinOperator : public OperatorBuilder<1>::OperatorForTypes<int, float> {
+  class MinOperator : public Operator<1, AnyAgregableCollectionArgument> {
   public:
-    template <typename BatchType> auto evaluate(BatchType&& batchPtr) const {
-      auto it = batchPtr->begin();
-      auto min = *it;
+    template <typename ArrayType>
+    BulkExpression evaluate(std::shared_ptr<ArrayType> const& arrayPtr) const {
+      using ValueType = typename ArrayType::ValueType;
+      auto it = arrayPtr->begin();
+      auto min = (ValueType)*it;
       ++it;
-      while(it != batchPtr->end()) {
-        auto value = *it;
+      for(; it != arrayPtr->end(); ++it) {
+        auto value = (ValueType)*it;
         if(value < min) {
           min = value;
         }
-        ++it;
       }
-      return Batch::WritablePtr(new ValueBatch(1, min));
+      return min;
     }
   };
 
-  class MaxOperator : public OperatorBuilder<1>::OperatorForTypes<int, float> {
+  class MaxOperator : public Operator<1, AnyAgregableCollectionArgument> {
   public:
-    template <typename BatchType> auto evaluate(BatchType&& batchPtr) const {
-      auto it = batchPtr->begin();
-      auto max = *it;
+    template <typename ArrayType>
+    BulkExpression evaluate(std::shared_ptr<ArrayType> const& arrayPtr) const {
+      using ValueType = typename ArrayType::ValueType;
+      auto it = arrayPtr->begin();
+      auto max = (ValueType)*it;
       ++it;
-      while(it != batchPtr->end()) {
-        auto value = *it;
+      for(; it != arrayPtr->end(); ++it) {
+        auto value = (ValueType)*it;
         if(value > max) {
           max = value;
         }
-        ++it;
       }
-      return Batch::WritablePtr(new ValueBatch(1, max));
+      return max;
     }
   };
 };

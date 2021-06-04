@@ -19,17 +19,25 @@ public:
 private:
   class UnixTimeOperator : public OperatorBuilder<1>::OperatorForTypes<std::string> {
   public:
-    template <typename BatchType> auto evaluate(BatchType&& batchPtr) const {
-      return OperatorUtils::evaluateElements(
-          [](auto const& str) -> int {
-            std::istringstream iss;
-            iss.str(str);
-            struct std::tm tm = {};
-            iss >> std::get_time(&tm, "%Y-%m-%d");
-            int value = std::mktime(&tm);
-            return value;
-          },
-          batchPtr);
+    template <typename ValueType> BulkExpression evaluate(ValueType const& value) const {
+      return function()(value);
+    }
+
+    template <typename ValueType>
+    BulkExpression evaluate(std::shared_ptr<ValueArray<ValueType>> const& arrayPtr) const {
+      return OperatorUtils::evaluateElements(function(), arrayPtr);
+    }
+
+  private:
+    static auto function() {
+      return [](auto const& str) {
+        std::istringstream iss;
+        iss.str(str);
+        struct std::tm tm = {};
+        iss >> std::get_time(&tm, "%Y-%m-%d");
+        int value = std::mktime(&tm);
+        return value;
+      };
     }
   };
 };

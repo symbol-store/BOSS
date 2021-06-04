@@ -8,26 +8,53 @@ namespace boss::engines::bulk {
 /** A set of util functions which can be called by the operators to avoid repeating common code.*/
 template <typename... SupportedTypes> class OperatorUtils {
 public:
-  using AnyBatchVisitDispatcher =
-      BatchVisitDispatcher<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch,
-                           CompoundBatch>;
+  // common argument types
 
-  using AnyBatch =
-      AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch, CompoundBatch>;
+  using AnyTypeArgument =
+      AllowedArguments<SupportedTypes..., Symbol, BulkComplexExpression,
+                       std::shared_ptr<ValueArray<SupportedTypes>>...,
+                       std::shared_ptr<ValueArray<Symbol>>, std::shared_ptr<CompoundArray>>;
 
-  using NonSymbolicBatch =
-      AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, CompoundBatch>;
+  using AnySimpleTypeArgument = AllowedArguments<SupportedTypes..., Symbol>;
 
-  using AnySimpleBatch =
-      AllowedBatches<ValueBatch<SupportedTypes>..., ValueBatch<Symbol>, SymbolBatch>;
+  using AnySimpleTypeCollectionArgument =
+      AllowedArguments<std::shared_ptr<ValueArray<SupportedTypes>>...,
+                       std::shared_ptr<ValueArray<Symbol>>, BulkComplexExpression>;
+
+  template <typename T>
+  using SimpleTypeOrCollection = AllowedArguments<T, std::shared_ptr<ValueArray<T>>>;
+
+  using AnyCollectionArgument =
+      AllowedArguments<BulkComplexExpression, std::shared_ptr<ValueArray<SupportedTypes>>...,
+                       std::shared_ptr<ValueArray<Symbol>>, std::shared_ptr<CompoundArray>>;
+
+  using AnySymbolicArgument =
+      AllowedArguments<Symbol, BulkComplexExpression, std::shared_ptr<ValueArray<Symbol>>,
+                       std::shared_ptr<CompoundArray>>;
+
+  using TableArgument = AllowedArguments<std::shared_ptr<CompoundArray>>;
+
+  // common visit dispatcher types
+
+  using AnyTypeVisitDispatcher =
+      BatchVisitDispatcher<SupportedTypes..., Symbol, BulkComplexExpression,
+                           std::shared_ptr<ValueArray<SupportedTypes>>...,
+                           std::shared_ptr<ValueArray<Symbol>>, std::shared_ptr<CompoundArray>>;
+
+  using CollectionVisitDispatcher =
+      BatchVisitDispatcher<std::shared_ptr<ValueArray<SupportedTypes>>...,
+                           std::shared_ptr<ValueArray<Symbol>>, std::shared_ptr<CompoundArray>>;
+
+  using SimpleTypeVisitDispatcher = BatchVisitDispatcher<SupportedTypes..., Symbol>;
 
   /// to iterate and evaluate on each element of a batch
-  template <typename Func, typename... BatchPtrIn>
-  static Batch::WritablePtr evaluateElements(Func&& func, BatchPtrIn&&... in) {
+  template <typename Func, typename... ArrayPtrIn>
+  static BulkExpression evaluateElements(Func&& func, ArrayPtrIn&&... in) {
     auto apply = [&](auto& out, auto&&... inIt) {
       auto outIt = out.begin();
       for(; outIt != out.end(); ++outIt, ((++inIt), ...)) {
-        *outIt = func((*inIt)...);
+        *outIt = func((FromArrayTypeToElementType<
+                       typename std::remove_reference_t<ArrayPtrIn>::element_type>)(*inIt)...);
       }
     };
 
@@ -35,138 +62,190 @@ public:
     if constexpr(std::is_same_v<ReturnType, Symbol>) {
       // assuming symbol to be always a single output
       // (different symbols must be dispatched to different batches!)
-      auto* outputBatch = new SymbolBatch(1);
-      apply(*outputBatch, in->begin()...);
-      return Batch::WritablePtr(outputBatch);
+      auto output = std::make_shared<ValueArray<Symbol>>(1);
+      apply(*output, in->begin()...);
+      return output;
     } else if constexpr(std::is_same_v<ReturnType, ComplexExpression>) {
-      auto* outputBatch = new CompoundBatch();
-      apply(*outputBatch, in->begin()...);
-      return Batch::WritablePtr(outputBatch);
+      auto output = std::make_shared<CompoundArray>();
+      apply(*output, in->begin()...);
+      return output;
     } else {
+      auto output = std::make_shared<ValueArray<ReturnType>>();
       size_t outputSize = 1;
-      (..., [&outputSize, &in]() { outputSize = std::max(outputSize, in->size()); }());
-      auto* outputBatch = new ValueBatch<ReturnType>();
-      outputBatch->resize(outputSize);
-      apply(*outputBatch, in->begin()...);
-      return Batch::WritablePtr(outputBatch);
+      (..., [&outputSize, &in]() { outputSize = std::max(outputSize, in->length()); }());
+      output->resize(outputSize);
+      apply(*output,
+            const_cast<typename std::remove_reference_t<ArrayPtrIn>::element_type const*>(in.get())
+                ->begin()...);
+      return output;
     }
   }
 
+  template <typename ArrayType> static BulkExpression getColumnNames(ArrayType const& srcArray) {
+    // create a temporary Symbol array from the field names
+    auto columnsPtr = std::make_shared<ValueArray<Symbol>>();
+    auto& columns = *columnsPtr;
+    auto const& batchData = srcArray.data();
+    if(batchData.builder || !batchData.arrays.chunks().empty()) {
+      auto type = batchData.builder ? batchData.builder->type() : batchData.arrays.chunk(0)->type();
+      auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
+      auto structType = extensionType.storage_type();
+      columns.resize(structType->num_fields());
+      auto columnIt = columns.begin();
+      for(auto const& field : structType->fields()) {
+        *columnIt = Symbol(field->name());
+        ++columnIt;
+      }
+    }
+    return columnsPtr;
+  }
+
+  template <typename DestArrayType, typename SrcArrayType>
+  static void insertAllRows(DestArrayType& destArray, SrcArrayType const& srcArray) {
+    std::vector<BatchData> argData;
+    argData.reserve(srcArray.numArguments());
+    for(auto srcArg : srcArray) {
+      CollectionVisitDispatcher::visit(
+          [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
+          srcArg);
+    }
+    destArray.append(srcArray.getHead(), argData);
+  }
+
   /// copy row values in sorted order (based on indices), column per column
-  template <typename DestBatchType, typename SrcBatchType>
-  static void insertRowValuesInOrder(DestBatchType& destBatch, SrcBatchType const& srcBatch,
-                                     std::vector<size_t> const& rowIndices) {
-    static_assert(std::is_base_of_v<std::remove_const_t<SrcBatchType>, DestBatchType>);
+  template <typename DestArrayType, typename SrcArrayType>
+  static void insertRowValuesInOrder(DestArrayType& destArray, SrcArrayType const& srcArray,
+                                     std::vector<size_t> const& rowIndices, bool needResize = true,
+                                     size_t offset = 0) {
+    static_assert(std::is_same_v<std::remove_const_t<SrcArrayType>, DestArrayType>);
     // special case for columns of complex expressions
-    if constexpr(std::is_base_of_v<CompoundBatch, SrcBatchType>) {
+    if constexpr(std::is_base_of_v<CompoundArray, SrcArrayType>) {
       // check if the columns already exist in the destination
       // if not initialise the right arg batch types (but empty so far)
-      if(destBatch.numArguments() == 0) {
-        std::vector<Batch::ReadablePtr> srcArgBatches;
-        srcArgBatches.reserve(srcBatch.numArguments());
-        for(auto const& srcArgBatchPtr : srcBatch) {
-          srcArgBatches.emplace_back(srcArgBatchPtr);
+      if(destArray.numArguments() == 0) {
+        std::vector<BatchData> argData;
+        argData.reserve(srcArray.numArguments());
+        for(auto srcArg : srcArray) {
+          CollectionVisitDispatcher::visit(
+              [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
+              srcArg);
         }
-        destBatch.initArguments(srcArgBatches);
+        destArray.initArguments(srcArray.getHead(), argData);
       }
       // then recursive call for every argument
-      size_t childrenSize = 0;
-      auto destArgBatchIt = destBatch.begin();
-      srcBatch.template visitBatches<AnyBatchVisitDispatcher>(
-          [&childrenSize, &destArgBatchIt, &rowIndices](auto const& srcColumn) {
-            using ColumnBatchType = std::decay_t<decltype(srcColumn)>;
-            // insert to existing arg column
-            auto destArgBatchPtr = *destArgBatchIt;
-            BatchVisitDispatcher<ColumnBatchType>::visit(
-                [&childrenSize, &srcColumn, &rowIndices](auto& destColumn) {
-                  insertRowValuesInOrder(destColumn, srcColumn, rowIndices);
-                  childrenSize = destColumn.size();
-                },
-                *Batch::WritablePtr::asWritable(std::move(destArgBatchPtr)));
-            ++destArgBatchIt;
-          });
-      // and make sure to adjust the size of the parent array
-      destBatch.resize(childrenSize);
-    } else {
-      size_t previousnumRows = destBatch.size();
-      destBatch.resize(previousnumRows + rowIndices.size());
-      auto destBatchIt = destBatch.begin() + previousnumRows;
-      for(auto rowIndexIt = rowIndices.begin(); rowIndexIt != rowIndices.end();
-          ++rowIndexIt, ++destBatchIt) {
-        auto srcBatchIt = srcBatch.begin() + *rowIndexIt;
-        *destBatchIt = *srcBatchIt;
+      size_t prevSize = destArray.length();
+      if(needResize) {
+        size_t numRowsToInsert = rowIndices.size();
+        destArray.resize(prevSize + numRowsToInsert);
       }
+      auto destArgIt = destArray.begin();
+      for(auto srcArg : srcArray) {
+        CollectionVisitDispatcher::visit(
+            [&destArgIt, &rowIndices, &prevSize](auto const& srcColumnPtr) {
+              using ColumnType = std::decay_t<decltype(srcColumnPtr)>;
+              // insert to existing arg column
+              // assuming destination column is same type
+              auto destArg = *destArgIt;
+              BatchVisitDispatcher<ColumnType>::visit(
+                  [&srcColumnPtr, &rowIndices, &prevSize](auto& destColumnPtr) {
+                    auto& destColumn = *destColumnPtr;
+                    insertRowValuesInOrder(destColumn, *srcColumnPtr, rowIndices, false, prevSize);
+                  },
+                  destArg);
+              ++destArgIt;
+              return;
+            },
+            srcArg);
+      }
+      return;
+    }
+    // general case
+    if(needResize) {
+      auto prevSize = destArray.length();
+      offset += prevSize;
+      size_t numRowsToInsert = rowIndices.size();
+      destArray.resize(prevSize + numRowsToInsert);
+    }
+    auto destValueIt = destArray.begin() + offset;
+    for(auto rowIndexIt = rowIndices.begin(); rowIndexIt != rowIndices.end();
+        ++rowIndexIt, ++destValueIt) {
+      auto srcValueIt = srcArray.begin() + *rowIndexIt;
+      *destValueIt = *srcValueIt;
     }
   }
 
   /// copy row values if matches a condition, column per column
-  template <typename DestBatchType, typename SrcBatchType, typename ConditionBatchType>
-  static void insertRowValuesWithCondition(DestBatchType& destBatch, SrcBatchType const& srcBatch,
-                                           ConditionBatchType const& conditionBatch) {
-    static_assert(std::is_base_of_v<std::remove_const_t<SrcBatchType>, DestBatchType>);
-    if constexpr(std::is_base_of_v<CompoundBatch, SrcBatchType>) {
-      // special case for columns of complex expressions
-      std::vector<Batch::WritablePtr> argBatches;
-      argBatches.reserve(srcBatch.numArguments());
+  template <typename DestArrayType, typename SrcArrayType, typename ConditionArrayType>
+  static void insertRowValuesWithCondition(DestArrayType& destArray, SrcArrayType const& srcArray,
+                                           ConditionArrayType const& conditionArray,
+                                           bool needResize = true, size_t offset = 0) {
+    static_assert(std::is_same_v<std::remove_const_t<SrcArrayType>, DestArrayType>);
+    // special case for columns of complex expressions
+    if constexpr(std::is_base_of_v<CompoundArray, SrcArrayType>) {
       // check if the columns already exist in the destination
-      // assuming the destination has always the same number of args!
-      for(auto destArgBatchPtr : destBatch) {
-        argBatches.emplace_back(std::move(destArgBatchPtr));
+      // if not initialise the right arg batch types (but empty so far)
+      if(destArray.numArguments() == 0) {
+        std::vector<BatchData> argData;
+        argData.reserve(srcArray.numArguments());
+        for(auto srcArg : srcArray) {
+          CollectionVisitDispatcher::visit(
+              [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
+              srcArg);
+        }
+        destArray.initArguments(srcArray.getHead(), argData);
       }
       // then recursive call for every argument
-      auto destArgBatchIt = argBatches.begin();
-      auto destArgBatchEnd = argBatches.end();
-      srcBatch.template visitBatches<AnyBatchVisitDispatcher>(
-          [&destArgBatchIt, &destArgBatchEnd, &conditionBatch, &argBatches](auto const& srcColumn) {
-            using ColumnBatchType = std::decay_t<decltype(srcColumn)>;
-            if(destArgBatchIt != destArgBatchEnd) {
+      size_t prevSize = destArray.length();
+      if(needResize) {
+        size_t numRowsToInsert = conditionArray.calculateBitCount();
+        destArray.resize(numRowsToInsert);
+      }
+      auto destArgIt = destArray.begin();
+      for(auto srcArg : srcArray) {
+        CollectionVisitDispatcher::visit(
+            [&destArgIt, &conditionArray, &prevSize](auto const& srcColumnPtr) {
+              using ColumnType = std::decay_t<decltype(srcColumnPtr)>;
               // insert to existing arg column
-              auto& destArgBatchPtr = *destArgBatchIt;
-              BatchVisitDispatcher<ColumnBatchType>::visit(
-                  [&srcColumn, &conditionBatch](auto& destColumn) {
-                    insertRowValuesWithCondition(destColumn, srcColumn, conditionBatch);
+              // assuming destination column is same type
+              auto destArg = *destArgIt;
+              BatchVisitDispatcher<ColumnType>::visit(
+                  [&srcColumnPtr, &conditionArray, &prevSize](auto& destColumnPtr) {
+                    auto& destColumn = *destColumnPtr;
+                    insertRowValuesWithCondition(destColumn, *srcColumnPtr, conditionArray, false,
+                                                 prevSize);
                   },
-                  *destArgBatchPtr);
-              ++destArgBatchIt;
+                  destArg);
+              ++destArgIt;
               return;
-            }
-            // create new arg column
-            auto newColumnBatchPtr =
-                WritableBatchPtr(srcColumn.template cloneAs<ColumnBatchType>(true));
-            insertRowValuesWithCondition(*newColumnBatchPtr, srcColumn, conditionBatch);
-            Batch::ReadablePtr toInsertPtr(std::move(newColumnBatchPtr));
-            argBatches.emplace_back(std::move(toInsertPtr));
-          });
-      // if they are new arg columns, insert them now
-      if(destBatch.numArguments() == 0) {
-        if(!argBatches.empty() && argBatches[0]->size() > 0) {
-          destBatch.append(std::vector<Batch::ReadablePtr>(argBatches.begin(), argBatches.end()));
-        }
+            },
+            srcArg);
       }
-    } else {
-      size_t numRows = destBatch.size();
-      destBatch.resize(numRows + srcBatch.size()); // pessimistic
-      auto srcBatchIt = srcBatch.begin();
-      auto conditionIt = conditionBatch.begin();
-      auto destBatchIt = destBatch.begin() + numRows;
-      for(; srcBatchIt != srcBatch.end(); ++srcBatchIt, ++conditionIt) {
-        if(!*conditionIt) {
-          continue;
-        }
-        *destBatchIt = *srcBatchIt;
-        ++destBatchIt;
-        ++numRows;
+      return;
+    }
+    // general case (for value arrays)
+    if(needResize) {
+      auto prevSize = destArray.length();
+      offset += prevSize;
+      size_t numRowsToInsert = conditionArray.calculateBitCount();
+      destArray.resize(prevSize + numRowsToInsert);
+    }
+    auto destValueIt = destArray.begin() + offset;
+    auto srcValueIt = srcArray.begin();
+    auto conditionIt = conditionArray.begin();
+    for(; srcValueIt != srcArray.end(); ++srcValueIt, ++conditionIt) {
+      if(*conditionIt) {
+        *destValueIt = *srcValueIt;
+        ++destValueIt;
       }
-      destBatch.resize(numRows); // shrink it back
     }
   }
 
 private:
   // to retrieve return type for a specific set of Batch argument types
-  template <typename T> using FromBatchTypeToElementType = typename T::ValueType;
-  template <typename Func, typename... BatchPtrTypes>
+  template <typename T> using FromArrayTypeToElementType = typename T::ValueType;
+  template <typename Func, typename... ArrayPtrTypes>
   using ReturnType = typename std::invoke_result_t<
-      Func, FromBatchTypeToElementType<typename BatchPtrTypes::BatchType>...>;
+      Func, FromArrayTypeToElementType<typename ArrayPtrTypes::element_type>...>;
 };
 
 } // namespace boss::engines::bulk
