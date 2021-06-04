@@ -17,6 +17,8 @@ jobs:
          password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: true
     - name: check
       run: |
         find . \( -name '*.cpp' -or -name '*.hpp' \) -exec clang-format -i -style=file '{}' ';'
@@ -76,8 +78,17 @@ jobs:
         path: ${{ matrix.build-type }}
     - name: test
       run: |
-        expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Exit\[\]\r"'
+        export TERM=xterm
+        ulimit -c unlimited
+        expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
         chmod +x ./${{ matrix.build-type }}/Tests && ./${{ matrix.build-type }}/Tests
+    - name: Upload core dumps
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.build-type }}-core
+        retention-days: 1
+        path: core*
     needs: [build]
 
   racket-test:
@@ -96,10 +107,17 @@ jobs:
         path: Debug
     - name: test
       run: |
-        expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Exit\[\]\r"'
-        find Debug
+        export TERM=xterm
+        expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
         cp Debug/RacketBOSS.so .
         emacs --batch --eval "(require 'org)" --eval '(add-to-list (quote org-babel-tangle-lang-exts) (quote ("racket" . "rkt")))' --eval '(org-babel-tangle-file "Readme.org")'
         racket -e '(load "Readme.rkt")' -e "(require 'Readme)"
+    - name: Upload core dumps
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.build-type }}-core
+        retention-days: 1
+        path: core*
     needs: [build]
 

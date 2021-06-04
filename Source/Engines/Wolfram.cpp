@@ -1,6 +1,6 @@
 #include <cstring>
 #ifdef WSINTERFACE
-#include "../Utilities.hpp"
+#include "../ExpressionUtilities.hpp"
 #include "Wolfram.hpp"
 #include <iostream>
 #include <regex>
@@ -15,13 +15,18 @@
 #define STRING(x) STRINGIFY(x) // NOLINT
 
 namespace boss::engines::wolfram {
+using ExpressionBuilder = boss::utilities::ExtensibleExpressionBuilder<WolframExpressionSystem>;
+static ExpressionBuilder operator""_(const char* name, size_t /*unused*/) {
+  return ExpressionBuilder(name);
+};
+
 using std::set;
 using std::string;
 using std::to_string;
 using std::vector;
-using boss::utilities::operator""_;
 using std::string_literals::operator""s;
 using std::endl;
+
 struct NOOPConsole : public std::ostringstream {
   template <typename T> std::ostream& operator<<(T /*unused*/) { return *this; }
   std::ostream& operator<<(std::ostream& (*/*pf*/)(std::ostream&)) { return *this; };
@@ -64,6 +69,10 @@ struct EngineImplementation {
               console << a;
               WSPutInteger(link, a);
             },
+            [&](std::vector<int> values) {
+              putExpressionOnLink(ComplexExpression("List"_, {values.begin(), values.end()}),
+                                  namespaceIdentifier, console);
+            },
             [&](char const* a) {
               console << a;
               WSPutString(link, a);
@@ -88,7 +97,7 @@ struct EngineImplementation {
             [&](ComplexExpression const& expression) {
               console << (namespaceIdentifier + expression.getHead().getName()) << "[";
               WSPutFunction(link, (namespaceIdentifier + expression.getHead().getName()).c_str(),
-                            expression.getArguments().size());
+                            (int)expression.getArguments().size());
               for(auto it = expression.getArguments().begin();
                   it != expression.getArguments().end(); ++it) {
                 auto const& argument = *it;
@@ -99,10 +108,10 @@ struct EngineImplementation {
               }
               console << "]";
             }),
-        expression);
+        (Expression::SuperType const&)expression);
   }
 
-  Expression readExpressionFromLink() {
+  boss::Expression readExpressionFromLink() {
     auto resultType = WSGetType(link);
     if(resultType == WSTKSTR) {
       char const* resultAsCString = nullptr;
@@ -116,6 +125,11 @@ struct EngineImplementation {
       WSGetInteger(link, &result);
       return result;
     }
+    if(resultType == WSTKREAL) {
+      float result = 0;
+      WSGetFloat(link, &result);
+      return result;
+    }
     if(resultType == WSTKFUNC) {
       auto const* resultHead = "";
       auto numberOfArguments = 0;
@@ -123,11 +137,12 @@ struct EngineImplementation {
       if(success == 0) {
         throw std::runtime_error("error when getting function "s + WSErrorMessage(link));
       }
-      auto resultArguments = vector<Expression>();
+      auto resultArguments = vector<boss::Expression>();
       for(auto i = 0U; i < numberOfArguments; i++) {
         resultArguments.push_back(readExpressionFromLink());
       }
-      auto result = ComplexExpression(Symbol(removeNamespace(resultHead)), resultArguments);
+      auto result =
+          boss::ComplexExpression(boss::Symbol(removeNamespace(resultHead)), resultArguments);
       WSReleaseSymbol(link, resultHead);
       return result;
     }
@@ -153,10 +168,12 @@ struct EngineImplementation {
     throw std::logic_error("unsupported return type: " + std::to_string(resultType));
   }
 
-  static utilities::ExpressionBuilder namespaced(utilities::ExpressionBuilder const& builder) {
-    return utilities::ExpressionBuilder(Symbol(DefaultNamespace + Symbol(builder).getName()));
+  static ExpressionBuilder namespaced(ExpressionBuilder const& builder) {
+    return ExpressionBuilder(Symbol(DefaultNamespace + Symbol(builder).getName()));
   }
-  static Symbol namespaced(Symbol const& name) { return Symbol(DefaultNamespace + name.getName()); }
+  static auto namespaced(Symbol const& name) {
+    return ExpressionBuilder(Symbol(DefaultNamespace + name.getName()));
+  }
   static ComplexExpression namespaced(ComplexExpression const& name) {
     return ComplexExpression(Symbol(DefaultNamespace + name.getHead().getName()),
                              name.getArguments());
@@ -288,9 +305,10 @@ struct EngineImplementation {
     evalWithoutNamespace("Set"_("BOSSVersion"_, 1));
 
     for(std::string const& it :
-        vector{"Plus", "Minus", "Length", "Times", "And", "UnixTime", "StringJoin", "Greater",
-               "Symbol", "UndefinedFunction", "Evaluate", "Set", "SortBy", "Values", "List", "Rule",
-               "Equal", "Extract", "StringContainsQ"}) {
+        vector{"Plus",     "Minus",      "Length",  "Times",  "And",
+               "UnixTime", "StringJoin", "Greater", "Symbol", "UndefinedFunction",
+               "Evaluate", "Set",        "SortBy",  "Values", "List",
+               "Rule",     "Equal",      "Extract", "Apply",  "StringContainsQ"}) {
       evalWithoutNamespace("Set"_(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
 
@@ -335,13 +353,13 @@ struct EngineImplementation {
     WSDeinitialize(environment);
   }
 
-  Expression evaluate(Expression const& e,
-                      std::string const& namespaceIdentifier = DefaultNamespace,
-                      std::ostream& console =
+  boss::Expression evaluate(Expression const& e,
+                            std::string const& namespaceIdentifier = DefaultNamespace,
+                            std::ostream& console =
 #ifdef NDEBUG
-                          noOpConsole
+                                noOpConsole
 #else
-                          std::cout
+                                std::cout
 #endif // NDEBUG
   ) {
     putExpressionOnLink("Return"_(e), namespaceIdentifier, console);
@@ -360,7 +378,7 @@ Engine::Engine() : impl([]() -> EngineImplementation& { return *(new EngineImple
 }
 Engine::~Engine() { delete &impl; }
 
-Expression Engine::evaluate(Expression const& e) { return impl.evaluate(e); }
+boss::Expression Engine::evaluate(Expression const& e) { return impl.evaluate(e); }
 } // namespace boss::engines::wolfram
 
 #endif // WSINTERFACE

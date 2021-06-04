@@ -5,11 +5,11 @@
 - Swig 4
 - Python3 libs
 - NumPy
-- Racket
+- Racket 7.9 (CS racket has a different C API and is the default from 8.0 onward). I used [[https://cmichel.io/how-to-install-an-old-package-version-with-brew/][these instructions]] to install 7.9 
 
 *** MacOS
 : brew install python3-numpy
-: brew install --cask racket
+: see instructions
 
 : cmake -DCMAKE_BUILD_TYPE=Debug -BDebug && cd Debug
 : OR

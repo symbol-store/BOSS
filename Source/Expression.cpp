@@ -20,7 +20,7 @@ bool operator==(Expression const& r1, Expression const& r2) {
             },
             [&](Symbol const& r1) { return r1.getName() == std::get<Symbol>(r2).getName(); },
             [&](auto r1) { return r1 == std::get<decltype(r1)>(r2); }),
-        r1);
+        (Expression::SuperType const&)r1);
   }
   return false;
 }

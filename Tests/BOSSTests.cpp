@@ -1,7 +1,7 @@
 #include <variant>
 #define CATCH_CONFIG_MAIN
 #include "../Source/BOSS.hpp"
-#include "../Source/Utilities.hpp"
+#include "../Source/ExpressionUtilities.hpp"
 #include <catch2/catch.hpp>
 #ifdef WSINTERFACE
 using boss::Expression;
@@ -32,6 +32,14 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
   SECTION("Strings") {
     CHECK(get<string>(eval("StringJoin"_((string) "howdie", (string) " ", (string) "world"))) ==
           "howdie world");
+  }
+
+  SECTION("Floats") {
+    auto const twoAndAHalf = 2.5F;
+    auto const two = 2.0F;
+    auto const quantum = 0.001F;
+    CHECK(std::fabs(get<float>(eval("Plus"_(twoAndAHalf, twoAndAHalf))) - two * twoAndAHalf) <
+          quantum);
   }
 
   SECTION("Booleans") {
@@ -164,6 +172,21 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
                            1),
                 1))) == 1);
     }
+  }
+}
+
+TEMPLATE_TEST_CASE("WolframSpecifics", "[wolfram]", boss::engines::wolfram::Engine) { // NOLINT
+  using ExpressionBuilder =
+      boss::utilities::ExtensibleExpressionBuilder<boss::engines::wolfram::WolframExpressionSystem>;
+
+  auto& engine = getEngine<TestType>();
+  auto eval = [&engine](boss::engines::wolfram::Expression const& expression) mutable {
+    return engine.evaluate(expression);
+  };
+
+  SECTION("AdditionOfVector") {
+    CHECK(get<int>(eval(ExpressionBuilder("Apply")("Plus"_, std::vector<int>{2, 3, 4}))) ==
+          9); // NOLINT
   }
 }
 
