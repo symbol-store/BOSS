@@ -12,6 +12,7 @@ using boss::utilities::operator""_;
 
 // static auto const vtune = VTuneAPIInterface{"BOSS"};
 
+#include "GroupingBenchmarks.inc.cpp"
 #include "SelectionBenchmarks.inc.cpp"
 
 static void IntegerScanBaseline(benchmark::State& state) {
