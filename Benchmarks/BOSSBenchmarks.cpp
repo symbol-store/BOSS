@@ -12,6 +12,7 @@ using boss::utilities::operator""_;
 
 // static auto const vtune = VTuneAPIInterface{"BOSS"};
 
+#include "WolframComparison.inc.cpp"
 #include "GroupingBenchmarks.inc.cpp"
 #include "SelectionBenchmarks.inc.cpp"
 
