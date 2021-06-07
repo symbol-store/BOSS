@@ -1,6 +1,6 @@
-(GroupBy
+(Group
  (Project
-  (Select Lineitem
+  (Select LINEITEM
           (Where (And (Greater QUANTITY 25)
                       (Greater DISCOUNT 3)
                       (Greater 10 DISCOUNT)
