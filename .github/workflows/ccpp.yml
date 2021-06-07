@@ -121,3 +121,35 @@ jobs:
         path: core*
     needs: [build]
 
+
+  tpch-test:
+    runs-on: self-hosted
+    container:
+      image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
+      credentials:
+         username: ${{ github.actor }}
+         password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Download artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: Debug
+        path: Debug
+    - name: test
+      run: |
+        export TERM=xterm
+        expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
+        cp Debug/RacketBOSS.so .
+        racket -e '(load-extension "RacketBOSS.so")' -f Benchmarks/TPCH/create.rkt -f Benchmarks/TPCH/Q10.rkt
+    - name: Upload potential core dumps
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.build-type }}-core
+        retention-days: 1
+        path: core*
+    needs: [build]
+
