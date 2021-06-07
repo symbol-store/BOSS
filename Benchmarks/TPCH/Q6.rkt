@@ -7,6 +7,6 @@
                       (Greater (UnixTime "1998-01-01") SHIPDATE)
                       (Greater SHIPDATE (UnixTime "1996-03-08"))
                       )))
-  (As revenue (Times EXTENDEDPRICE DISCOUNT)))
+  (As revenue (Times L_EXTENDEDPRICE L_DISCOUNT)))
  (Sum revenue)
  )
