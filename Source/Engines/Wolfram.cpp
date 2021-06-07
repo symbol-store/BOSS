@@ -288,8 +288,8 @@ struct EngineImplementation {
         "Load"_, {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("from"_, "Blank"_("String"_))},
         "CompoundExpression"_(
             "Set"_("Database"_("relation"_),
-                   "Map"_("Function"_("tuple"_, "Association"_("Thread"_("Rule"_(
-                                                    "Schema"_("relation"_), "List"_("tuple"_))))),
+                   "Map"_("Function"_("tuple"_, "Association"_("Thread"_(
+                                                    "Rule"_("Schema"_("relation"_), "tuple"_)))),
                           "Import"_("from"_, "Table", "Rule"_("FieldSeparators", "List"_("|"))))),
             "Null"_));
   }
