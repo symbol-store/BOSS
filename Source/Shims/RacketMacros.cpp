@@ -15,6 +15,7 @@ std::string getRacketMacroShims() {
     [(list 'quote argument) (convert-to-boss-expression argument)]
     [(list head arguments ...) (new-Expression (new-ComplexExpression head (map convert-to-boss-expression arguments)))]
     [(and i (? integer?)) (new-Expression i)]
+    [(and f (? real?)) (new-Expression f)]
     [(and s (? string?)) (new-Expression s)]
     [(and s (? symbol?)) (new-Expression
                           (new-Symbol
