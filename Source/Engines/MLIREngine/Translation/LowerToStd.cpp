@@ -220,7 +220,7 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
         {"Plus", [&]() { return replaceBinaryOp<mlir::AddIOp>(s, rewriter); }},
         {"Minus", [&]() { return replaceBinaryOp<mlir::SubIOp>(s, rewriter); }},
         {"Mul", [&]() { return replaceBinaryOp<mlir::MulIOp>(s, rewriter); }},
-        {"IDiv", [&]() { return replaceBinaryOp<mlir::SignedDivIOp>(s, rewriter); }},
+        {"Div", [&]() { return replaceBinaryOp<mlir::SignedDivIOp>(s, rewriter); }},
         {"And", [&]() { return replaceBinaryOp<mlir::AndOp>(s, rewriter); }},
         {"Eval",
          [&]() {

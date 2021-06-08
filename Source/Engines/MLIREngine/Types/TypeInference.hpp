@@ -30,36 +30,55 @@ struct TypeInferenceContext {
       : mlirContext(mlirContext), database(database), activePartitions(std::move(openRelations)),
         symbolOp(symbolOp) {}
 
+  static ::mlir::Type expressionToType(boss::Expression const& e, ::mlir::MLIRContext* mlirContext) {
+    ::mlir::Type result;
+
+    std::visit(
+        boss::utilities::overload(
+            [&](int e) { result = ::mlir::IntegerType::get(32, mlirContext); },
+            [&](size_t e) {
+              result = ::mlir::IntegerType::get(64, mlirContext);
+            },
+            [&](bool e) { result = ::mlir::IntegerType::get(1, mlirContext); },
+            [&](char const* e) { result = StringType::get(mlirContext); },
+            [&](std::string e) { result = StringType::get(mlirContext); },
+            [&](float e) { result = ::mlir::Float32Type::get(mlirContext); },
+            [&](Symbol e) {
+              result =
+                  SymbolOrValueType::get(mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
+            },
+            [&](ComplexExpression e) {
+              // TODO we can't use the normal type inference here, because that uses the context..
+              if (e.getHead().getName() == "NextValue") {
+                result = boss::mlir::conversion::stringToMLIRType(mlirContext, std::get<boss::Symbol>(e.getArguments()[1]).getName());
+              } else {
+                std::vector<::mlir::Type> argTypes;
+                for (auto const& child : e.getArguments()) {
+                  argTypes.emplace_back(expressionToType(child, mlirContext));
+                }
+
+                auto childContext = TypeInferenceContext(mlirContext, nullptr, {}, nullptr);
+                auto inferredType = inferSymbolType(e.getHead().getName(), argTypes, childContext);
+
+                // Extract the symbolOrValue if it is a value
+                if (inferredType.isa<SymbolOrValueType>() && inferredType.dyn_cast<SymbolOrValueType>().isSymbolic() == sexprtype::SymbolOrValue::VALUE) {
+                  result = inferredType.dyn_cast<SymbolOrValueType>().getBaseType();
+                }
+              }
+
+            }),
+        e);
+
+    return result;
+  }
+
   TypeInferenceContext(::mlir::MLIRContext* mlirContext, const new_runtime::Database* database,
                        std::unordered_map<std::string, boss::Expression> symbolTable)
       : mlirContext(mlirContext), database(database) {
     for(auto const& symbol : symbolTable) {
       auto name = symbol.first;
-      std::visit(
-          boss::utilities::overload(
-              [&](int e) { this->symbolTable[name] = ::mlir::IntegerType::get(32, mlirContext); },
-              [&](size_t e) {
-                this->symbolTable[name] = ::mlir::IntegerType::get(64, mlirContext);
-              },
-              [&](bool e) { this->symbolTable[name] = ::mlir::IntegerType::get(1, mlirContext); },
-              [&](char const* e) { this->symbolTable[name] = StringType::get(mlirContext); },
-              [&](std::string e) { this->symbolTable[name] = StringType::get(mlirContext); },
-              [&](float e) { this->symbolTable[name] = ::mlir::Float32Type::get(mlirContext); },
-              [&](Symbol e) {
-                this->symbolTable[name] =
-                    SymbolOrValueType::get(mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
-              },
-              [&](ComplexExpression e) {
-                // TODO generalise hardcoded value
-                if (e.getHead().getName() == "NextValue") {
-                  this->symbolTable[name] = boss::mlir::conversion::stringToMLIRType(mlirContext, std::get<boss::Symbol>(e.getArguments()[1]).getName());
-                } else {
-                  this->symbolTable[name] =
-                      SymbolOrValueType::get(mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
-                }
 
-              }),
-          symbol.second);
+      this->symbolTable[name] = expressionToType(symbol.second, mlirContext);
     }
   }
 

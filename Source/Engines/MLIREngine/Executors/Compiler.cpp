@@ -77,7 +77,7 @@ Expression Compiler::evaluate(Expression const& e, bool compileOnly = false) {
     throw std::runtime_error("Compilation failed");
   }
 
-//  module->dump();
+  module->dump();
 
   llvm::LLVMContext llvmContext;
   auto llvmModule = ::mlir::translateModuleToLLVMIR(module.get(), llvmContext);
