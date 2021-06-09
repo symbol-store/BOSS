@@ -313,6 +313,15 @@ struct EngineImplementation {
         {"HoldFirst"_});
   }
 
+  void loadSymbolicOperators() {
+    DefineFunction(
+        "Assuming"_,
+        {"Pattern"_("input"_, "Blank"_()), "Pattern"_("assumptions"_, "BlankSequence"_())},
+        "ReplaceAll"_(namespaced("GetPersistentTableIfSymbol"_)("input"_),
+                      "Rule"_("First"_("assumptions"_), "Last"_("assumptions"_))),
+        {"HoldAll"_});
+  }
+
   void loadShimLayer() {
     evalWithoutNamespace("Set"_("BOSSVersion"_, 1));
 
@@ -360,6 +369,7 @@ struct EngineImplementation {
 
     loadRelationalOperators();
     loadDataLoadingOperators();
+    loadSymbolicOperators();
   };
 
   EngineImplementation() {

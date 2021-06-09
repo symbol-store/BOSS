@@ -48,6 +48,7 @@ std::string getRacketMacroShims() {
   '(Join leftInput rightInput predicate)
   '(Order input predicate)
   '(Load relation file)
+  '(Assuming input assumption ...)
   '(Top input predicate number)
   )
 ;; End Racket
