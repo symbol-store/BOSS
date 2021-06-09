@@ -46,6 +46,7 @@ std::string getRacketMacroShims() {
   '(Project input projectionFunction)
   '(Join leftInput rightInput predicate)
   '(Order input predicate)
+  '(Assuming input assumption ...)
   '(Top input predicate number)
   )
 ;; End Racket
