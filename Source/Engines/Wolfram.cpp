@@ -290,7 +290,7 @@ struct EngineImplementation {
             "Set"_("Database"_("relation"_),
                    "Map"_("Function"_("tuple"_, "Association"_("Thread"_(
                                                     "Rule"_("Schema"_("relation"_), "tuple"_)))),
-                          "Import"_("from"_, "Table", "Rule"_("FieldSeparators", "List"_("|"))))),
+                          "Normal"_("SemanticImport"_("from"_, "Rule"_("Delimiters", "List"_("|")))))),
             "Null"_));
   }
 
