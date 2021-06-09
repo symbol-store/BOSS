@@ -8,6 +8,25 @@ for x in [5, 50, 500, 5000, 50000, 500000]:
         for i in range(0, x):
             f.write(f"{randint(-500,500)},{randint(50,100)}\n")
 
+# Dataset for benchmark queries
+for x in [5, 50, 500, 5000, 50000, 500000, 1000000]:
+    with open(f"ComparisonBenchmark{x}.csv", "w") as f:
+        f.write("A,B,C\n")
+        for i in range(0, x):
+            f.write(f"{randint(-500,500)},{randint(-100,100)},{randint(-100,100)}\n")
+
+# Dataset for benchmark queries
+for x in [5, 50, 500, 5000, 50000, 500000]:
+    with open(f"ComparisonBenchmarkQ3-{x}.csv", "w") as f:
+        f.write("A,B,C\n")
+        for i in range(0, x):
+            if uniform(0, 1) < 0.25:
+                f.write(f"{randint(-500,500)},Sx,{randint(-100,100)}\n")
+            elif uniform(0, 1) < 0.5:
+                f.write(f"{randint(-500,500)},Sy,{randint(-100,100)}\n")
+            else:
+                f.write(f"{randint(-500,500)},{randint(-100,100)},{randint(-100,100)}\n")
+
 # Integer Dataset with Addition 5%
 for x in [5, 50, 500, 5000, 50000, 500000]:
     with open(f"IntegerDataset{x}-0.05Add.csv", "w") as f:

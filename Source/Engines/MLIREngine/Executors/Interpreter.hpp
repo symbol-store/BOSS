@@ -8,7 +8,7 @@ class Interpreter {
 public:
   explicit Interpreter(new_runtime::Database* database): database(database) {}
 
-  boss::Expression evaluate(boss::Expression e);
+  boss::Expression evaluate(boss::Expression e, bool compileOnly = false);
 
 private:
   new_runtime::Database* database;

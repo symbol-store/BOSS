@@ -700,8 +700,14 @@ struct HashValuesOpLowering : public OpConversionPattern<database::HashValuesOp>
       std::string hashFuncName;
       LLVM::LLVMType argumentType;
 
+      // Speed hack: We can just return the integer for the hash if it is one
+      if (runtimeType == boss::mlir::types::RuntimeTypes::INT) {
+        auto argAsIndex = rewriter.create<mlir::IndexCastOp>(op.getLoc(), arg, rewriter.getIndexType());
+        hashedValues.push(argAsIndex.getResult());
+        continue;
+      }
+
       // Hash value
-      // TODO handle remaining types
       switch(runtimeType) {
       case boss::mlir::types::RuntimeTypes::STRING:
         hashFuncName = "hash_String";

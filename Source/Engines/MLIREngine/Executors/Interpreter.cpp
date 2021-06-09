@@ -41,7 +41,7 @@ Expression Interpreter::evaluateArithmeticOperator(ComplexExpression e, std::fun
   }
 }
 
-boss::Expression Interpreter::evaluate(boss::Expression e) {
+boss::Expression Interpreter::evaluate(boss::Expression e, bool compileOnly) {
   Expression returnValue;
 
   std::map<std::string, std::function<Expression(ComplexExpression)>> symbolMap{
@@ -121,13 +121,13 @@ boss::Expression Interpreter::evaluate(boss::Expression e) {
        [&](ComplexExpression e) {
          auto newArgs = evaluateArguments(e);
          boss::engines::mlir::compiler::Compiler compiler(database, symbolTable);
-         return compiler.evaluate(ComplexExpression(e.getHead(), newArgs), false);
+         return compiler.evaluate(ComplexExpression(e.getHead(), newArgs), compileOnly);
        }},
       {"GroupBy",
        [&](ComplexExpression e) {
          auto newArgs = evaluateArguments(e);
          boss::engines::mlir::compiler::Compiler compiler(database, symbolTable);
-         return compiler.evaluate(ComplexExpression(e.getHead(), newArgs), false);
+         return compiler.evaluate(ComplexExpression(e.getHead(), newArgs), compileOnly);
        }},
       {"Join", [&](ComplexExpression e) {
          auto newArgs = evaluateArguments(e);
@@ -136,7 +136,7 @@ boss::Expression Interpreter::evaluate(boss::Expression e) {
 
          // Compile and execute the right side of the join
          boss::engines::mlir::compiler::Compiler compiler(database, symbolTable);
-         auto hashTable = compiler.evaluate(hashTableBuild, false);
+         auto hashTable = compiler.evaluate(hashTableBuild, compileOnly);
 
          auto table = reinterpret_cast<runtime::hash::HashTable*>(std::get<size_t>(hashTable));
 
