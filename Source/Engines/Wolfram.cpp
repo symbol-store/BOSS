@@ -287,10 +287,11 @@ struct EngineImplementation {
     DefineFunction(
         "Load"_, {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("from"_, "Blank"_("String"_))},
         "CompoundExpression"_(
-            "Set"_("Database"_("relation"_),
-                   "Map"_("Function"_("tuple"_, "Association"_("Thread"_(
-                                                    "Rule"_("Schema"_("relation"_), "tuple"_)))),
-                          "Normal"_("SemanticImport"_("from"_, "Rule"_("Delimiters", "List"_("|")))))),
+            "Set"_(
+                "Database"_("relation"_),
+                "Map"_("Function"_("tuple"_, "Association"_("Thread"_(
+                                                 "Rule"_("Schema"_("relation"_), "tuple"_)))),
+                       "Normal"_("SemanticImport"_("from"_, "Rule"_("Delimiters", "List"_("|")))))),
             "Null"_));
   }
 
@@ -315,11 +316,31 @@ struct EngineImplementation {
   void loadShimLayer() {
     evalWithoutNamespace("Set"_("BOSSVersion"_, 1));
 
-    for(std::string const& it :
-        vector{"Plus",     "Minus",      "Length",  "Times",  "And",
-               "UnixTime", "StringJoin", "Greater", "Symbol", "UndefinedFunction",
-               "Evaluate", "Set",        "SortBy",  "Values", "List",
-               "Rule",     "Equal",      "Extract", "Apply",  "StringContainsQ"}) {
+    for(std::string const& it : vector{
+            //
+            "And",
+            "Apply",
+            "DateObject",
+            "Equal",
+            "Evaluate",
+            "Extract",
+            "Greater",
+            "Length",
+            "List",
+            "Minus",
+            "Plus",
+            "Rule",
+            "Set",
+            "SortBy",
+            "StringContainsQ",
+            "StringJoin",
+            "Symbol",
+            "Times",
+            "UndefinedFunction",
+            "UnixTime",
+            "Values",
+            //
+        }) {
       evalWithoutNamespace("Set"_(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
 
