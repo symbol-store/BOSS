@@ -15,134 +15,103 @@ using boss::utilities::operator""_;
 #include "CompileBenchmarks.inc.cpp"
 #include "GroupingBenchmarks.inc.cpp"
 #include "WolframComparison.inc.cpp"
-#include "SelectionBenchmarks.inc.cpp"
 
-static void IntegerScanBaseline(benchmark::State& state) {
+static void VaryingSymbols(benchmark::State& state) {
   new_runtime::Relation relation;
-  relation.loadFromFile("../DataSets/IntegerDataset" + std::to_string(state.range(0)) + ".csv");
+  relation.loadFromFile("../DataSets/VaryingAdd500k-" + std::to_string(state.range(0)) + ".0.csv");
   new_runtime::Database database;
   database.addRelation("Integers", std::move(relation));
   boss::engines::mlir::Engine engine(database);
 
+  auto query = "GroupBy"_(
+      "Fields"_("B"),
+      "Lambda"_(
+          "Args"_("Pair"_("currentValue", "Int")),
+          "Plus"_("Symbol"_("currentValue"), "A"_)),
+      "GetRelation"_("Integers")
+  );
+
   for(auto _ : state) {
-    auto result = engine.evaluate("CollectTuples"_("GetRelation"_(std::string("Integers"))));
+    auto result = engine.evaluate(query);
     benchmark::DoNotOptimize(result);
   }
 }
-BENCHMARK(IntegerScanBaseline)->Unit(benchmark::kMillisecond)->Arg(5)->Arg(50)->Arg(500)->Arg(5000)->Arg(50000)->Arg(500000);
+BENCHMARK(VaryingSymbols)->Unit(benchmark::kMillisecond)->Arg(0)->Arg(20)->Arg(40)->Arg(60)->Arg(80)->Arg(100);
 
-static void IntegerScanWithAdd5PercentBaseline(benchmark::State& state) {
+static void VaryingNextValueSymbols(benchmark::State& state) {
   new_runtime::Relation relation;
-  relation.loadFromFile("../DataSets/IntegerDataset" + std::to_string(state.range(0)) + "-0.05Add.csv");
+  relation.loadFromFile("../DataSets/VaryingNextValue500k-" + std::to_string(state.range(0)) + ".0.csv");
   new_runtime::Database database;
   database.addRelation("Integers", std::move(relation));
   boss::engines::mlir::Engine engine(database);
 
+  auto query = "GroupBy"_(
+      "Fields"_("B"),
+      "Lambda"_(
+          "Args"_("Pair"_("currentValue", "Int")),
+          "Plus"_("Symbol"_("currentValue"), "A"_)),
+      "GetRelation"_("Integers")
+  );
+
   for(auto _ : state) {
-    auto result = engine.evaluate("CollectTuples"_("GetRelation"_(std::string("Integers"))));
+    auto result = engine.evaluate(query);
     benchmark::DoNotOptimize(result);
   }
 }
-BENCHMARK(IntegerScanWithAdd5PercentBaseline)->Unit(benchmark::kMillisecond)->Arg(5)->Arg(50)->Arg(500)->Arg(5000)->Arg(50000)->Arg(500000);
+BENCHMARK(VaryingNextValueSymbols)->Unit(benchmark::kMillisecond)->Arg(0)->Arg(20)->Arg(40)->Arg(60)->Arg(80)->Arg(100);
 
-static void IntegerScanWithAdd95PercentBaseline(benchmark::State& state) {
+static void VaryingUndefSymbols(benchmark::State& state) {
   new_runtime::Relation relation;
-  relation.loadFromFile("../DataSets/IntegerDataset" + std::to_string(state.range(0)) + "-0.95Add.csv");
+  relation.loadFromFile("../DataSets/VaryingUndef500k-" + std::to_string(state.range(0)) + ".0.csv");
   new_runtime::Database database;
   database.addRelation("Integers", std::move(relation));
   boss::engines::mlir::Engine engine(database);
 
+  auto query =
+      "Assuming"_(
+        "undef"_,
+        0,
+        "GroupBy"_(
+            "Fields"_("B"),
+            "Lambda"_(
+                "Args"_("Pair"_("currentValue", "Int")),
+                "Plus"_("Symbol"_("currentValue"), "A"_)),
+            "GetRelation"_("Integers")
+      )
+  );
+
   for(auto _ : state) {
-    auto result = engine.evaluate("CollectTuples"_("GetRelation"_(std::string("Integers"))));
+    auto result = engine.evaluate(query);
     benchmark::DoNotOptimize(result);
   }
 }
-BENCHMARK(IntegerScanWithAdd95PercentBaseline)->Unit(benchmark::kMillisecond)->Arg(5)->Arg(50)->Arg(500)->Arg(5000)->Arg(50000)->Arg(500000);
+BENCHMARK(VaryingUndefSymbols)->Unit(benchmark::kMillisecond)->Arg(0)->Arg(20)->Arg(40)->Arg(60)->Arg(80)->Arg(100);
 
-static void ScanWithAssuming5PercentConstantIntSymbol(benchmark::State& state) {
+static void VaryingUndefNextValueSymbols(benchmark::State& state) {
   new_runtime::Relation relation;
-  relation.loadFromFile("../DataSets/IntegerDataset" + std::to_string(state.range(0)) + "-0.05UnknownSymbol.csv");
+  relation.loadFromFile("../DataSets/VaryingUndef500k-" + std::to_string(state.range(0)) + ".0.csv");
   new_runtime::Database database;
   database.addRelation("Integers", std::move(relation));
   boss::engines::mlir::Engine engine(database);
 
+  auto query =
+      "Assuming"_(
+          "undef"_,
+          "NextValue"_(1, "Int"_),
+          "GroupBy"_(
+              "Fields"_("B"),
+              "Lambda"_(
+                  "Args"_("Pair"_("currentValue", "Int")),
+                  "Plus"_("Symbol"_("currentValue"), "A"_)),
+              "GetRelation"_("Integers")
+          )
+      );
+
   for(auto _ : state) {
-    auto result = engine.evaluate("Assuming"_("unknown"_, 0, "CollectTuples"_("GetRelation"_(std::string("Integers")))));
+    auto result = engine.evaluate(query);
     benchmark::DoNotOptimize(result);
   }
 }
-BENCHMARK(ScanWithAssuming5PercentConstantIntSymbol)->Unit(benchmark::kMillisecond)->Arg(5)->Arg(50)->Arg(500)->Arg(5000)->Arg(50000)->Arg(500000);
-
-static void ScanWithAssuming95PercentConstantIntSymbol(benchmark::State& state) {
-  new_runtime::Relation relation;
-  relation.loadFromFile("../DataSets/IntegerDataset" + std::to_string(state.range(0)) + "-0.95UnknownSymbol.csv");
-  new_runtime::Database database;
-  database.addRelation("Integers", std::move(relation));
-  boss::engines::mlir::Engine engine(database);
-
-  for(auto _ : state) {
-    auto result = engine.evaluate("Assuming"_("unknown"_, 0, "CollectTuples"_("GetRelation"_(std::string("Integers")))));
-    benchmark::DoNotOptimize(result);
-  }
-}
-BENCHMARK(ScanWithAssuming95PercentConstantIntSymbol)->Unit(benchmark::kMillisecond)->Arg(5)->Arg(50)->Arg(500)->Arg(5000)->Arg(50000)->Arg(500000);
-
-static void ScanInteger5PercentNextValue(benchmark::State& state) {
-  new_runtime::Relation relation;
-  relation.loadFromFile("../DataSets/IntegerDataset" + std::to_string(state.range(0)) + "-0.05NextValue.csv");
-  new_runtime::Database database;
-  database.addRelation("Integers", std::move(relation));
-  boss::engines::mlir::Engine engine(database);
-
-  for(auto _ : state) {
-    auto result = engine.evaluate("Assuming"_("unknown"_, "NextValue"_(1, "Int"_), "CollectTuples"_("GetRelation"_(std::string("Integers")))));
-    benchmark::DoNotOptimize(result);
-  }
-}
-BENCHMARK(ScanInteger5PercentNextValue)->Unit(benchmark::kMillisecond)->Arg(5)->Arg(50)->Arg(500)->Arg(5000)->Arg(50000)->Arg(500000);
-
-static void ScanInteger95PercentNextValue(benchmark::State& state) {
-  new_runtime::Relation relation;
-  relation.loadFromFile("../DataSets/IntegerDataset" + std::to_string(state.range(0)) + "-0.95NextValue.csv");
-  new_runtime::Database database;
-  database.addRelation("Integers", std::move(relation));
-  boss::engines::mlir::Engine engine(database);
-
-  for(auto _ : state) {
-    auto result = engine.evaluate( "CollectTuples"_("GetRelation"_(std::string("Integers"))));
-    benchmark::DoNotOptimize(result);
-  }
-}
-BENCHMARK(ScanInteger95PercentNextValue)->Unit(benchmark::kMillisecond)->Arg(5)->Arg(50)->Arg(500)->Arg(5000)->Arg(50000)->Arg(500000);
-
-
-static void ScanWithAssuming5PercentPreviousValue(benchmark::State& state) {
-  new_runtime::Relation relation;
-  relation.loadFromFile("../DataSets/IntegerDataset" + std::to_string(state.range(0)) + "-0.05UnknownSymbol.csv");
-  new_runtime::Database database;
-  database.addRelation("Integers", std::move(relation));
-  boss::engines::mlir::Engine engine(database);
-
-  for(auto _ : state) {
-    auto result = engine.evaluate( "Assuming"_("unknown"_, "NextValue"_(1, "Int"_), "CollectTuples"_("GetRelation"_(std::string("Integers")))));
-    benchmark::DoNotOptimize(result);
-  }
-}
-BENCHMARK(ScanWithAssuming5PercentPreviousValue)->Unit(benchmark::kMillisecond)->Arg(5)->Arg(50)->Arg(500)->Arg(5000)->Arg(50000)->Arg(500000);
-
-static void ScanWithAssuming95PercentPreviousValue(benchmark::State& state) {
-  new_runtime::Relation relation;
-  relation.loadFromFile("../DataSets/IntegerDataset" + std::to_string(state.range(0)) + "-0.95UnknownSymbol.csv");
-  new_runtime::Database database;
-  database.addRelation("Integers", std::move(relation));
-  boss::engines::mlir::Engine engine(database);
-
-  for(auto _ : state) {
-    auto result = engine.evaluate("Assuming"_("unknown"_, "NextValue"_(1, "Int"_), "CollectTuples"_("GetRelation"_(std::string("Integers")))));
-    benchmark::DoNotOptimize(result);
-  }
-}
-BENCHMARK(ScanWithAssuming95PercentPreviousValue)->Unit(benchmark::kMillisecond)->Arg(5)->Arg(50)->Arg(500)->Arg(5000)->Arg(50000)->Arg(500000);
-
+BENCHMARK(VaryingUndefNextValueSymbols)->Unit(benchmark::kMillisecond)->Arg(0)->Arg(20)->Arg(40)->Arg(60)->Arg(80)->Arg(100);
 
 BENCHMARK_MAIN();
