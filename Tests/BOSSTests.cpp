@@ -101,15 +101,14 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLIN
           ("Select"_("Customer"_,
                      "Function"_("tuple"_, "StringContainsQ"_("Madden", "Column"_("tuple"_, 2))))),
           "Function"_(0), "Count"_)))
-      CHECK(
-          eval("Extract"_(
-              "Extract"_("Group"_(("Select"_("Customer"_,
+      CHECK(eval("Extract"_(
+                "Extract"_("Group"_(("Select"_("Customer"_,
                                                "Function"_("tuple"_,
                                                            "StringContainsQ"_(
                                                                "Madden", "Column"_("tuple"_, 2))))),
                                     "Function"_(0), "Count"_),
-                         1),
-              1)) == Expression(1));
+                           1),
+                1)) == Expression(1));
     }
 
     SECTION("Join") {

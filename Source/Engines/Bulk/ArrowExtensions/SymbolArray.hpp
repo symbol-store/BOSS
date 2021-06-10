@@ -6,7 +6,6 @@
 
 #include <arrow/array/array_binary.h>
 #include <arrow/array/array_dict.h>
-#include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_dict.h>
 #include <arrow/extension_type.h>
 

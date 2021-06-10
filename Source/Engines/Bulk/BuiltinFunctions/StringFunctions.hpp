@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Executor.hpp"
+#include "../ExpressionVisitDispatcher.hpp"
 #include "../Operator.hpp"
 
 #include <string>
@@ -25,21 +27,21 @@ private:
     template <typename LhsValueType, typename RhsType>
     BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
                             RhsType const& rhs) const {
-      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
-      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(lhs->length(), rhs);
+      return OperatorUtils::evaluateForEachTuple(function(), lhs, rhsSingleElementArray);
     }
 
     template <typename LhsType, typename RhsValueType>
     BulkExpression evaluate(LhsType const& lhs,
                             std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
-      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
-      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(rhs->length(), lhs);
+      return OperatorUtils::evaluateForEachTuple(function(), lhsSingleElementArray, rhs);
     }
 
     template <typename LhsValueType, typename RhsValueType>
     BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
                             std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
-      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+      return OperatorUtils::evaluateForEachTuple(function(), lhs, rhs);
     }
 
   private:
@@ -58,21 +60,21 @@ private:
     template <typename LhsValueType, typename RhsType>
     BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
                             RhsType const& rhs) const {
-      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(1, rhs);
-      return OperatorUtils::evaluateElements(function(), lhs, rhsSingleElementArray);
+      auto rhsSingleElementArray = std::make_shared<ValueArray<RhsType> const>(lhs->length(), rhs);
+      return OperatorUtils::evaluateForEachTuple(function(), lhs, rhsSingleElementArray);
     }
 
     template <typename LhsType, typename RhsValueType>
     BulkExpression evaluate(LhsType const& lhs,
                             std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
-      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(1, lhs);
-      return OperatorUtils::evaluateElements(function(), lhsSingleElementArray, rhs);
+      auto lhsSingleElementArray = std::make_shared<ValueArray<LhsType> const>(rhs->length(), lhs);
+      return OperatorUtils::evaluateForEachTuple(function(), lhsSingleElementArray, rhs);
     }
 
     template <typename LhsValueType, typename RhsValueType>
     BulkExpression evaluate(std::shared_ptr<ValueArray<LhsValueType>> const& lhs,
                             std::shared_ptr<ValueArray<RhsValueType>> const& rhs) const {
-      return OperatorUtils::evaluateElements(function(), lhs, rhs);
+      return OperatorUtils::evaluateForEachTuple(function(), lhs, rhs);
     }
 
   private:

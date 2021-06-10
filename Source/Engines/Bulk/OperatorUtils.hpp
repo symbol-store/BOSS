@@ -1,13 +1,27 @@
 #pragma once
 
-#include "Batch/Batch.hpp"
-#include "BatchVisitDispatcher.hpp"
+#include "ArrowExtensions/CompoundArray.hpp"
+#include "ArrowExtensions/ValueArray.hpp"
+#include "ExpressionVisitDispatcher.hpp"
+#include "OperatorUtils.hpp"
 
 namespace boss::engines::bulk {
 
 /** A set of util functions which can be called by the operators to avoid repeating common code.*/
 template <typename... SupportedTypes> class OperatorUtils {
+private:
+  // to be passed as template argument to define compile-time symbol names
+  // used for operator's argument resolution
+  static char constexpr functionSymbolName[] = "Function"; // NOLINT
+  static char constexpr listSymbolName[] = "List";         // NOLINT
+  static char constexpr symbolSymbolName[] = "Symbol";     // NOLINT
+
 public:
+  // common specific complex expression heads
+  using FunctionHeadOnly = CompileTimeSymbol<&functionSymbolName[0]>;
+  using ListHeadOnly = CompileTimeSymbol<&listSymbolName[0]>;
+  using SymbolHeadOnly = CompileTimeSymbol<&symbolSymbolName[0]>;
+
   // common argument types
 
   using AnyTypeArgument =
@@ -17,39 +31,47 @@ public:
 
   using AnySimpleTypeArgument = AllowedArguments<SupportedTypes..., Symbol>;
 
-  using AnySimpleTypeCollectionArgument =
-      AllowedArguments<std::shared_ptr<ValueArray<SupportedTypes>>...,
-                       std::shared_ptr<ValueArray<Symbol>>, BulkComplexExpression>;
-
   template <typename T>
   using SimpleTypeOrCollection = AllowedArguments<T, std::shared_ptr<ValueArray<T>>>;
 
+  using AnySimpleTypeCollectionArgument =
+      AllowedArguments<ListHeadOnly, std::shared_ptr<ValueArray<SupportedTypes>>...,
+                       std::shared_ptr<ValueArray<Symbol>>>;
+
   using AnyCollectionArgument =
-      AllowedArguments<BulkComplexExpression, std::shared_ptr<ValueArray<SupportedTypes>>...,
+      AllowedArguments<ListHeadOnly, std::shared_ptr<ValueArray<SupportedTypes>>...,
                        std::shared_ptr<ValueArray<Symbol>>, std::shared_ptr<CompoundArray>>;
 
   using AnySymbolicArgument =
       AllowedArguments<Symbol, BulkComplexExpression, std::shared_ptr<ValueArray<Symbol>>,
                        std::shared_ptr<CompoundArray>>;
 
+  using FunctionArgument = AllowedArguments<FunctionHeadOnly>;
+  using ListArgument = AllowedArguments<ListHeadOnly>;
   using TableArgument = AllowedArguments<std::shared_ptr<CompoundArray>>;
+  using TableOrSymbolArgument = AllowedArguments<Symbol, std::shared_ptr<CompoundArray>>;
+  using TableOrListArgument = AllowedArguments<ListHeadOnly, std::shared_ptr<CompoundArray>>;
 
   // common visit dispatcher types
 
   using AnyTypeVisitDispatcher =
-      BatchVisitDispatcher<SupportedTypes..., Symbol, BulkComplexExpression,
-                           std::shared_ptr<ValueArray<SupportedTypes>>...,
-                           std::shared_ptr<ValueArray<Symbol>>, std::shared_ptr<CompoundArray>>;
+      ExpressionVisitDispatcher<SupportedTypes..., Symbol, BulkComplexExpression,
+                                std::shared_ptr<ValueArray<SupportedTypes>>...,
+                                std::shared_ptr<ValueArray<Symbol>>,
+                                std::shared_ptr<CompoundArray>>;
 
   using CollectionVisitDispatcher =
-      BatchVisitDispatcher<std::shared_ptr<ValueArray<SupportedTypes>>...,
-                           std::shared_ptr<ValueArray<Symbol>>, std::shared_ptr<CompoundArray>>;
+      ExpressionVisitDispatcher<std::shared_ptr<ValueArray<SupportedTypes>>...,
+                                std::shared_ptr<ValueArray<Symbol>>,
+                                std::shared_ptr<CompoundArray>>;
 
-  using SimpleTypeVisitDispatcher = BatchVisitDispatcher<SupportedTypes..., Symbol>;
+  using SimpleTypeVisitDispatcher = ExpressionVisitDispatcher<SupportedTypes..., Symbol>;
 
-  /// to iterate and evaluate on each element of a batch
+  /// To iterate on all the input arrays at once
+  /// and call a function on each tuple of elements from input arrays.
+  /// Return an array with a return type resolved from the function Func to call.
   template <typename Func, typename... ArrayPtrIn>
-  static BulkExpression evaluateElements(Func&& func, ArrayPtrIn&&... in) {
+  static BulkExpression evaluateForEachTuple(Func&& func, ArrayPtrIn&&... in) {
     auto apply = [&](auto& out, auto&&... inIt) {
       auto outIt = out.begin();
       for(; outIt != out.end(); ++outIt, ((++inIt), ...)) {
@@ -59,50 +81,37 @@ public:
     };
 
     using ReturnType = ReturnType<std::decay_t<decltype(func)>, std::decay_t<decltype(in)>...>;
-    if constexpr(std::is_same_v<ReturnType, Symbol>) {
-      // assuming symbol to be always a single output
-      // (different symbols must be dispatched to different batches!)
-      auto output = std::make_shared<ValueArray<Symbol>>(1);
-      apply(*output, in->begin()...);
-      return output;
-    } else if constexpr(std::is_same_v<ReturnType, ComplexExpression>) {
-      auto output = std::make_shared<CompoundArray>();
-      apply(*output, in->begin()...);
-      return output;
-    } else {
-      auto output = std::make_shared<ValueArray<ReturnType>>();
-      size_t outputSize = 1;
-      (..., [&outputSize, &in]() { outputSize = std::max(outputSize, in->length()); }());
-      output->resize(outputSize);
-      apply(*output,
-            const_cast<typename std::remove_reference_t<ArrayPtrIn>::element_type const*>(in.get())
-                ->begin()...);
-      return output;
-    }
+    using ArrayType = std::conditional_t<std::is_same_v<ReturnType, ComplexExpression>,
+                                         CompoundArray, ValueArray<ReturnType>>;
+
+    auto output = std::make_shared<ArrayType>();
+    size_t outputSize = 1;
+    (..., [&outputSize, &in]() { outputSize = std::max(outputSize, in->length()); }());
+    output->resize(outputSize);
+    apply(*output,
+          reinterpret_cast<typename std::remove_reference_t<ArrayPtrIn>::element_type const*>(
+              in.get())
+              ->begin()...);
+    return output;
   }
 
-  template <typename ArrayType> static BulkExpression getColumnNames(ArrayType const& srcArray) {
+  static BulkExpression getColumnNames(CompoundArray const& srcArray) {
     // create a temporary Symbol array from the field names
+    auto const& childFields = srcArray.childFields();
     auto columnsPtr = std::make_shared<ValueArray<Symbol>>();
     auto& columns = *columnsPtr;
-    auto const& batchData = srcArray.data();
-    if(batchData.builder || !batchData.arrays.chunks().empty()) {
-      auto type = batchData.builder ? batchData.builder->type() : batchData.arrays.chunk(0)->type();
-      auto const& extensionType = *dynamic_cast<arrow::ExtensionType const*>(type.get());
-      auto structType = extensionType.storage_type();
-      columns.resize(structType->num_fields());
-      auto columnIt = columns.begin();
-      for(auto const& field : structType->fields()) {
-        *columnIt = Symbol(field->name());
-        ++columnIt;
-      }
+    columns.resize(childFields.size());
+    auto columnIt = columns.begin();
+    for(auto const& field : childFields) {
+      *columnIt = Symbol(field->name());
+      ++columnIt;
     }
     return columnsPtr;
   }
 
   template <typename DestArrayType, typename SrcArrayType>
   static void insertAllRows(DestArrayType& destArray, SrcArrayType const& srcArray) {
-    std::vector<BatchData> argData;
+    std::vector<ArrayData> argData;
     argData.reserve(srcArray.numArguments());
     for(auto srcArg : srcArray) {
       CollectionVisitDispatcher::visit(
@@ -120,18 +129,16 @@ public:
     static_assert(std::is_same_v<std::remove_const_t<SrcArrayType>, DestArrayType>);
     // special case for columns of complex expressions
     if constexpr(std::is_base_of_v<CompoundArray, SrcArrayType>) {
-      // check if the columns already exist in the destination
-      // if not initialise the right arg batch types (but empty so far)
-      if(destArray.numArguments() == 0) {
-        std::vector<BatchData> argData;
-        argData.reserve(srcArray.numArguments());
-        for(auto srcArg : srcArray) {
-          CollectionVisitDispatcher::visit(
-              [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
-              srcArg);
-        }
-        destArray.initArguments(srcArray.getHead(), argData);
+      // make sure the columns exist in the destination
+      // but just initialise them empty so far
+      std::vector<ArrayData> argData;
+      argData.reserve(srcArray.numArguments());
+      for(auto srcArg : srcArray) {
+        CollectionVisitDispatcher::visit(
+            [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
+            srcArg);
       }
+      destArray.initArguments(srcArray.getHead(), argData);
       // then recursive call for every argument
       size_t prevSize = destArray.length();
       if(needResize) {
@@ -146,14 +153,13 @@ public:
               // insert to existing arg column
               // assuming destination column is same type
               auto destArg = *destArgIt;
-              BatchVisitDispatcher<ColumnType>::visit(
+              ExpressionVisitDispatcher<ColumnType>::visit(
                   [&srcColumnPtr, &rowIndices, &prevSize](auto& destColumnPtr) {
                     auto& destColumn = *destColumnPtr;
                     insertRowValuesInOrder(destColumn, *srcColumnPtr, rowIndices, false, prevSize);
                   },
                   destArg);
               ++destArgIt;
-              return;
             },
             srcArg);
       }
@@ -182,18 +188,16 @@ public:
     static_assert(std::is_same_v<std::remove_const_t<SrcArrayType>, DestArrayType>);
     // special case for columns of complex expressions
     if constexpr(std::is_base_of_v<CompoundArray, SrcArrayType>) {
-      // check if the columns already exist in the destination
-      // if not initialise the right arg batch types (but empty so far)
-      if(destArray.numArguments() == 0) {
-        std::vector<BatchData> argData;
-        argData.reserve(srcArray.numArguments());
-        for(auto srcArg : srcArray) {
-          CollectionVisitDispatcher::visit(
-              [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
-              srcArg);
-        }
-        destArray.initArguments(srcArray.getHead(), argData);
+      // make sure the columns exist in the destination
+      // but just initialise them empty so far
+      std::vector<ArrayData> argData;
+      argData.reserve(srcArray.numArguments());
+      for(auto srcArg : srcArray) {
+        CollectionVisitDispatcher::visit(
+            [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
+            srcArg);
       }
+      destArray.initArguments(srcArray.getHead(), argData);
       // then recursive call for every argument
       size_t prevSize = destArray.length();
       if(needResize) {
@@ -208,7 +212,7 @@ public:
               // insert to existing arg column
               // assuming destination column is same type
               auto destArg = *destArgIt;
-              BatchVisitDispatcher<ColumnType>::visit(
+              ExpressionVisitDispatcher<ColumnType>::visit(
                   [&srcColumnPtr, &conditionArray, &prevSize](auto& destColumnPtr) {
                     auto& destColumn = *destColumnPtr;
                     insertRowValuesWithCondition(destColumn, *srcColumnPtr, conditionArray, false,
@@ -216,7 +220,6 @@ public:
                   },
                   destArg);
               ++destArgIt;
-              return;
             },
             srcArg);
       }
@@ -241,7 +244,7 @@ public:
   }
 
 private:
-  // to retrieve return type for a specific set of Batch argument types
+  // to retrieve a return type for a certain set of typed arguments when calling Func
   template <typename T> using FromArrayTypeToElementType = typename T::ValueType;
   template <typename Func, typename... ArrayPtrTypes>
   using ReturnType = typename std::invoke_result_t<

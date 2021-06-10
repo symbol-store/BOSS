@@ -12,13 +12,16 @@
 #include "Bulk/BuiltinFunctions/Queries.hpp"
 #include "Bulk/BuiltinFunctions/StringFunctions.hpp"
 #include "Bulk/BuiltinFunctions/SymbolicFunctions.hpp"
+#include "Bulk/BulkExpression.hpp"
 #include "Bulk/Executor.hpp"
-#include "Bulk/ExtendedExpression.hpp"
+#include "Bulk/ExpressionVisitDispatcher.hpp"
 #include "Bulk/OperatorRegistry.hpp"
 #include "Bulk/OperatorUtils.hpp"
 #include "Bulk/SymbolRegistry.hpp"
 
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace boss::engines::bulk {
 
@@ -45,10 +48,10 @@ Engine::Engine() {
   }
 }
 
-BulkExpression Engine::createArray(arrow::ArrayVector&& arrays,
-                                   std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder,
-                                   CompoundArray const* parent, size_t childIndex) {
-  // create a batch of the right type from these arrays/builder
+template <bool canCreateScalar>
+BulkExpression createExpression(arrow::ArrayVector&& arrays,
+                                std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder,
+                                CompoundArray const* parent, size_t childIndex) {
   auto type = arrayBuilder ? arrayBuilder->type() : arrays[0]->type();
   // assuming all arrays and builder share the same type!
   // if not, keep only the latest type
@@ -67,22 +70,38 @@ BulkExpression Engine::createArray(arrow::ArrayVector&& arrays,
   switch(type->id()) {
   case arrow::Type::BOOL: {
     auto arrayPtr = std::make_shared<ValueArray<bool>>(std::move(arrays), std::move(arrayBuilder));
+    if(canCreateScalar && arrayPtr->length() == 1) {
+      auto const& constArray = *arrayPtr;
+      return static_cast<bool>(*constArray.begin());
+    }
     arrayPtr->setOwner(parent, childIndex);
     return arrayPtr;
   }
   case arrow::Type::INT32: {
     auto arrayPtr = std::make_shared<ValueArray<int>>(std::move(arrays), std::move(arrayBuilder));
+    if(canCreateScalar && arrayPtr->length() == 1) {
+      auto const& constArray = *arrayPtr;
+      return static_cast<int>(*constArray.begin());
+    }
     arrayPtr->setOwner(parent, childIndex);
     return arrayPtr;
   }
   case arrow::Type::FLOAT: {
     auto arrayPtr = std::make_shared<ValueArray<float>>(std::move(arrays), std::move(arrayBuilder));
+    if(canCreateScalar && arrayPtr->length() == 1) {
+      auto const& constArray = *arrayPtr;
+      return static_cast<float>(*constArray.begin());
+    }
     arrayPtr->setOwner(parent, childIndex);
     return arrayPtr;
   }
   case arrow::Type::STRING: {
     auto arrayPtr =
         std::make_shared<ValueArray<std::string>>(std::move(arrays), std::move(arrayBuilder));
+    if(canCreateScalar && arrayPtr->length() == 1) {
+      auto const& constArray = *arrayPtr;
+      return static_cast<std::string>(*constArray.begin());
+    }
     arrayPtr->setOwner(parent, childIndex);
     return arrayPtr;
   }
@@ -92,12 +111,25 @@ BulkExpression Engine::createArray(arrow::ArrayVector&& arrays,
       // SYMBOL
       auto arrayPtr =
           std::make_shared<ValueArray<Symbol>>(std::move(arrays), std::move(arrayBuilder));
+      if(canCreateScalar && arrayPtr->length() == 1) {
+        auto const& constArray = *arrayPtr;
+        return static_cast<Symbol>(*constArray.begin());
+      }
       arrayPtr->setOwner(parent, childIndex);
       return arrayPtr;
     }
     // COMPLEX EXPRESSION
     auto arrayPtr =
         std::make_shared<CompoundArray>(std::move(arrays), std::move(arrayBuilder), false);
+    if(canCreateScalar && arrayPtr->length() == 1) {
+      BulkExpressionArguments args;
+      auto numColumns = arrayPtr->numArguments();
+      args.reserve(numColumns);
+      for(int i = 0; i < numColumns; ++i) {
+        args.emplace_back(arrayPtr->column(i, true));
+      }
+      return BulkComplexExpression(arrayPtr->getHead(), args);
+    }
     arrayPtr->setOwner(parent, childIndex);
     return arrayPtr;
   }
@@ -109,28 +141,24 @@ BulkExpression Engine::createArray(arrow::ArrayVector&& arrays,
   return 0; // should not happen!
 }
 
-/// convert the batch back to an expression
+BulkExpression Engine::createArray(arrow::ArrayVector&& arrays,
+                                   std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder,
+                                   CompoundArray const* parent, size_t childIndex) {
+  return createExpression<false>(std::move(arrays), std::move(arrayBuilder), parent, childIndex);
+}
+
+BulkExpression Engine::createArrayOrScalar(arrow::ArrayVector&& arrays,
+                                           std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder,
+                                           CompoundArray const* parent, size_t childIndex) {
+  return createExpression<true>(std::move(arrays), std::move(arrayBuilder), parent, childIndex);
+}
+
+/// transform it back to a standard expression
+/// changing arrow arrays into lists
 Expression toBossExpression(BulkExpression const& bulkExpression) {
-  bool done = false;
-  Expression output;
-  std::visit(
-      [&done, &output](auto const& unpacked) {
-        using Type = std::decay_t<decltype(unpacked)>;
-        if constexpr(std::is_constructible_v<Expression, Type>) {
-          output = unpacked;
-          done = true;
-        }
-      },
-      (BulkExpression::SuperType const&)bulkExpression);
-
-  if(done) {
-    return output;
-  }
-
-  bool handledAsSymbol = false;
-  std::string symbolName;
-  BatchVisitDispatcher<std::shared_ptr<CompoundArray>>::visit(
-      [&handledAsSymbol, &symbolName](auto& tableArrayPtr) {
+  std::optional<Symbol> storedSymbol;
+  ExpressionVisitDispatcher<std::shared_ptr<CompoundArray>>::visit(
+      [&storedSymbol](auto& tableArrayPtr) {
         auto& tableArray = *tableArrayPtr;
         if(!tableArray.isDecomposed()) {
           return;
@@ -140,39 +168,52 @@ Expression toBossExpression(BulkExpression const& bulkExpression) {
         // to a long list of tuples
         // [https://github.com/symbol-store/BOSS/issues/91] find a way to garbage-collect them
         static int i = 0;
-        symbolName = "_table" + std::to_string(i++);
+        std::string symbolName = "_table" + std::to_string(i++);
         auto numRows = tableArray.length();
         auto numCols = tableArray.numArguments();
         symbolName += "_cols" + std::to_string(numCols) + "rows" + std::to_string(numRows);
-        Symbol savedSymbol(symbolName);
-        DefaultSymbolRegistry::instance().registerSymbol(savedSymbol, tableArrayPtr);
-        handledAsSymbol = true;
+        storedSymbol = Symbol(symbolName);
+        DefaultSymbolRegistry::instance().registerSymbol(*storedSymbol, tableArrayPtr);
       },
       bulkExpression);
-  if(handledAsSymbol) {
-    return Symbol(symbolName);
+  if(storedSymbol) {
+    return *storedSymbol;
   }
 
   std::optional<Symbol> rootHead;
   ExpressionArguments arguments;
-  OperatorUtilsImpl::CollectionVisitDispatcher::visit(
-      [&arguments, &rootHead](auto const& argArrayPtr) {
-        auto const& argArray = *argArrayPtr;
-        arguments.reserve(argArray.length());
-        using ArrayType = std::decay_t<decltype(argArray)>;
-        if constexpr(std::is_same_v<CompoundArray, ArrayType>) {
-          rootHead = argArray.getHead();
-          for(size_t index = 0; index < argArray.length(); ++index) {
-            auto extractedExpr = argArray.extract(index);
-            arguments.emplace_back(toBossExpression(extractedExpr));
-          }
-        } else {
-          for(auto const& value : argArray) {
-            arguments.emplace_back(static_cast<typename ArrayType::ValueType>(value));
-          }
-        }
-      },
-      bulkExpression);
+  std::visit(utilities::overload(
+                 [&arguments, &rootHead](std::shared_ptr<CompoundArray> const& compoundArrayPtr) {
+                   auto const& compoundArray = *compoundArrayPtr;
+                   arguments.reserve(compoundArray.length());
+                   rootHead = compoundArray.getHead();
+                   for(size_t index = 0; index < compoundArray.length(); ++index) {
+                     auto extractedExpr = compoundArray.extract(index);
+                     arguments.emplace_back(toBossExpression(extractedExpr));
+                   }
+                 },
+                 [&arguments, &rootHead](BulkComplexExpression const& complexExpression) {
+                   auto const& bulkArguments = complexExpression.getArguments();
+                   arguments.reserve(bulkArguments.size());
+                   rootHead = complexExpression.getHead();
+                   for(auto const& bulkArgument : bulkArguments) {
+                     arguments.emplace_back(toBossExpression(bulkArgument));
+                   }
+                 },
+                 [&arguments](auto const& other) {
+                   if constexpr(std::is_constructible_v<Expression, decltype(other)>) {
+                     arguments.emplace_back(other);
+                   } else {
+                     auto const& valueArray = *other;
+                     arguments.reserve(valueArray.length());
+                     using ValueArrayType = std::decay_t<decltype(valueArray)>;
+                     for(auto const& value : valueArray) {
+                       arguments.emplace_back(
+                           static_cast<typename ValueArrayType::ValueType>(value));
+                     }
+                   }
+                 }),
+             (BulkExpression::SuperType const&)bulkExpression);
 
   if(arguments.size() == 1 && !rootHead) {
     return arguments[0];
@@ -182,13 +223,11 @@ Expression toBossExpression(BulkExpression const& bulkExpression) {
   return ComplexExpression(head, arguments);
 }
 
-Expression evaluate(Expression const& e) { // NOLINT
-  BulkExpression output;
-  if(!Executor::evaluate(e, output)) {
-    return e;
-  }
+Expression Engine::evaluate(Expression const& e) { // NOLINT
+  auto output = Executor::evaluate(e);
 
-  // transform the batch back to an expression
+  // transform it back to a standard expression
+  // changing arrow arrays into lists
   return toBossExpression(output);
 }
 

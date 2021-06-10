@@ -1,7 +1,5 @@
 #pragma once
 
-#include "../Batch/ValueBatch.hpp"
-#include "../BatchVisitDispatcher.hpp"
 #include "../Operator.hpp"
 
 namespace boss::engines::bulk {
@@ -11,6 +9,7 @@ template <typename OperatorUtils, typename OperatorRegistry> class Collections {
   using AnySimpleTypeArgument = typename OperatorUtils::AnySimpleTypeArgument;
   using AnyCollectionArgument = typename OperatorUtils::AnyCollectionArgument;
   using AnySimpleTypeCollectionArgument = typename OperatorUtils::AnySimpleTypeCollectionArgument;
+  using TableOrListArgument = typename OperatorUtils::TableOrListArgument;
 
 public:
   static void registerAll() {
@@ -25,7 +24,7 @@ public:
   }
 
 private:
-  class CountOperator : public Operator<1, AnyCollectionArgument> {
+  class CountOperator : public Operator<AnyCollectionArgument> {
   public:
     template <typename ArrayType>
     BulkExpression evaluate(std::shared_ptr<ArrayType> const& arrayPtr) const {
@@ -37,7 +36,7 @@ private:
     }
   };
 
-  class ExtractOperator : public Operator<2, AnyCollectionArgument, AllowedArguments<int>> {
+  class ExtractOperator : public Operator<AnyCollectionArgument, AllowedArguments<int>> {
   public:
     template <typename ArrayPtrType>
     BulkExpression evaluate(ArrayPtrType const& arrayPtr, int index) const {
@@ -55,7 +54,7 @@ private:
     }
   };
 
-  class FirstOperator : public Operator<1, AnyCollectionArgument> {
+  class FirstOperator : public Operator<AnyCollectionArgument> {
   public:
     template <typename ArrayPtrType> BulkExpression evaluate(ArrayPtrType const& arrayPtr) const {
       using ArrayType = typename ArrayPtrType::element_type;
@@ -72,7 +71,7 @@ private:
     }
   };
 
-  class LastOperator : public Operator<1, AnyCollectionArgument> {
+  class LastOperator : public Operator<AnyCollectionArgument> {
   public:
     template <typename ArrayPtrType> BulkExpression evaluate(ArrayPtrType const& arrayPtr) const {
       using ArrayType = typename ArrayPtrType::element_type;
@@ -90,16 +89,19 @@ private:
     }
   };
 
-  class ColumnOperator : public Operator<2, AllowedArguments<std::shared_ptr<CompoundArray>>,
-                                         AllowedArguments<int>> {
+  class ColumnOperator
+      : public OperatorWithoutMaxEvaluation<TableOrListArgument, AllowedArguments<int>> {
   public:
     BulkExpression evaluate(std::shared_ptr<CompoundArray> const& arrayPtr, int index) const {
       return arrayPtr->column(index - 1);
     }
+
+    BulkExpression evaluate(BulkComplexExpression const& list, int index) const {
+      return list.getArguments()[index - 1];
+    }
   };
 
-  class IndexOfOperator
-      : public Operator<2, AnySimpleTypeCollectionArgument, AnySimpleTypeArgument> {
+  class IndexOfOperator : public Operator<AnySimpleTypeCollectionArgument, AnySimpleTypeArgument> {
   public:
     template <typename ArrayPtrType, typename ValueType>
     auto evaluate(ArrayPtrType const& arrayPtr, ValueType const& value) const {
@@ -140,7 +142,7 @@ private:
               }
               return false;
             },
-            arg);
+            (BulkExpression::SuperType const&)arg);
         if(found) {
           return index;
         }

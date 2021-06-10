@@ -1,24 +1,27 @@
 #pragma once
 
-#include "Batch/Batch.hpp"
-#include "BatchVisitDispatcher.hpp"
+#include "ExpressionVisitDispatcher.hpp"
 
 namespace boss::engines::bulk {
 
-template <size_t N, typename... AllowedArguments> class Operator {
+template <bool HoldAllArguments, bool MaxArgumentEvaluation, typename... AllowedArguments>
+class OperatorWithProperties {
 public:
   class Properties {
   public:
-    static size_t constexpr ArgumentCount = N;
+    static size_t constexpr ParameterCount = sizeof...(AllowedArguments);
+    static bool constexpr maxArgumentEvaluation = MaxArgumentEvaluation;
+    static bool constexpr holdAllArguments = HoldAllArguments;
 
-    /// Check if the batch type matches one of the expected types for the operator's nth argument.
+    /// Check if the argument type matches one of the expected types for the operator's nth
+    /// argument.
     static bool isSupportedType(size_t argumentIndex, BulkExpression const& expression) {
       return isSupportedTypeInternal(argumentIndex, expression,
                                      std::make_index_sequence<sizeof...(AllowedArguments)>{});
     }
 
-    /// Check if the batch type matches one of the expected types for the operator's nth argument.
-    /// This is a compile-time check alternative.
+    /// Check if the argument type matches one of the expected types for the operator's nth
+    /// argument. This is a compile-time check alternative.
     template <size_t ArgumentIndex, typename ArgumentType> static constexpr bool isSupportedType() {
       if constexpr(ArgumentIndex < sizeof...(AllowedArguments)) {
         using AllowedArgumentTypes =
@@ -31,18 +34,20 @@ public:
       }
     }
 
-    /// This function allows to call back the visitor with the batch (casted to the supported type).
-    /// If the provided batch isn't supported for the nth argument, the visitor won't be called.
+    /// This function allows to call back the visitor with the argument
+    /// (cast to the supported type).
+    /// If the provided argument isn't supported as nth argument,
+    /// the visitor won't be called.
     template <size_t ArgumentIndex, typename Vis>
     static bool visitSupportedType(Vis&& visitor, BulkExpression const& expression) {
       if constexpr(ArgumentIndex < sizeof...(AllowedArguments)) {
         using AllowedArgumentTypes =
             std::tuple_element_t<ArgumentIndex, std::tuple<AllowedArguments...>>;
-        return AllowedArgumentTypes::BatchVisitDispatcher::visit(visitor, expression);
+        return AllowedArgumentTypes::ExpressionVisitDispatcher::visit(visitor, expression);
       } else {
         using AllowedArgumentTypes =
             std::tuple_element_t<sizeof...(AllowedArguments) - 1, std::tuple<AllowedArguments...>>;
-        return AllowedArgumentTypes::BatchVisitDispatcher::visit(visitor, expression);
+        return AllowedArgumentTypes::ExpressionVisitDispatcher::visit(visitor, expression);
       }
     };
 
@@ -69,68 +74,95 @@ public:
   }; // class Properties
 };
 
-/// Helper to define a set of batch types allowed on one of the argument
-/// (when allowing more than one type).
-template <typename... ArgumentTypes> class AllowedArguments {
+template <typename... AllowedArguments>
+using OperatorWithMaxEvaluation = OperatorWithProperties<false, true, AllowedArguments...>;
+template <typename... AllowedArguments>
+using OperatorWithoutMaxEvaluation = OperatorWithProperties<false, false, AllowedArguments...>;
+template <typename... AllowedArguments>
+using OperatorHoldAllArguments = OperatorWithProperties<true, false, AllowedArguments...>;
+template <typename... AllowedArguments>
+using Operator = OperatorWithMaxEvaluation<AllowedArguments...>;
+
+/// Helper to define a specific head symbol only allowed on one of the argument
+template <char const* name> class CompileTimeSymbol {
 public:
-  using BatchVisitDispatcher = BatchVisitDispatcher<ArgumentTypes...>;
+  using ArgumentType = BulkComplexExpression;
+
+  static bool isMatching(BulkExpression const& expression) {
+    auto const* complexExpression = std::get_if<BulkComplexExpression>(&expression);
+    return complexExpression != nullptr &&
+           complexExpression->getHead().getName() ==
+               name; // NOLINT, std::string function safe to take a char const*
+  }
+};
+template <class T> struct isCompileTimeSymbol { static bool const value = false; };
+template <char const* name> struct isCompileTimeSymbol<CompileTimeSymbol<name>> {
+  static bool const value = true;
+};
+
+/// Helper to define a set of expression types allowed on one of the argument
+template <typename... ArgumentTypes> class AllowedArguments {
+private:
+  template <typename ArgumentType> static bool check(BulkExpression const& expression) {
+    if constexpr(isCompileTimeSymbol<ArgumentType>::value) {
+      return ArgumentType::isMatching(expression);
+    } else {
+      return std::holds_alternative<ArgumentType>(expression);
+    }
+  }
+
+  template <typename T, typename = void> class ExpressionType {
+  public:
+    using type = T;
+  };
+
+  template <typename T> class ExpressionType<T, std::void_t<typename T::ArgumentType>> {
+  public:
+    using type = typename T::ArgumentType;
+  };
+
+public:
+  using ExpressionVisitDispatcher =
+      ExpressionVisitDispatcher<typename ExpressionType<ArgumentTypes>::type...>;
   static bool isAllowed(BulkExpression const& expression) {
-    return (... || (std::holds_alternative<ArgumentTypes>(expression)));
+    return (... || (check<ArgumentTypes>(expression)));
   }
 };
 
-/// helper to create operator based a list of allowed data types
+/// helper to create an operator based on a list of allowed data types
 template <size_t N> class OperatorBuilder {
 private:
-  template <typename, typename> struct MergeTwoFixedTypes;
+  template <typename, typename> struct ConcatenateTwoArguments;
   template <typename... Args0, typename... Args1>
-  struct MergeTwoFixedTypes<Operator<N, AllowedArguments<Args0...>>,
-                            Operator<N, AllowedArguments<Args1...>>> {
-    using type = Operator<N, AllowedArguments<Args0...>, AllowedArguments<Args1...>>;
+  struct ConcatenateTwoArguments<OperatorWithProperties<false, true, AllowedArguments<Args0...>>,
+                                 OperatorWithProperties<false, true, AllowedArguments<Args1...>>> {
+    using type =
+        OperatorWithProperties<false, true, AllowedArguments<Args0...>, AllowedArguments<Args1...>>;
   };
-  template <typename, typename> struct MergeTwoAllowedTypes;
-  template <typename... Args0, typename... Args1>
-  struct MergeTwoAllowedTypes<Operator<N, AllowedArguments<Args0...>>,
-                              Operator<N, AllowedArguments<Args1...>>> {
-    using type = Operator<N, AllowedArguments<Args0..., Args1...>>;
+  template <size_t N1, typename OperatorImpl> struct GenerateFullOperator {
+    using type = typename ConcatenateTwoArguments<
+        OperatorImpl, typename GenerateFullOperator<N1 - 1, OperatorImpl>::type>::type;
   };
-  template <bool, typename...> struct MergeAllowedTypes;
-  template <bool UsingFixedTypes, typename FirstAllowedType>
-  struct MergeAllowedTypes<UsingFixedTypes, FirstAllowedType> {
-    using type = FirstAllowedType;
+  template <typename BaseOperator> struct GenerateFullOperator<1, BaseOperator> {
+    using type = BaseOperator;
   };
-  template <bool UsingFixedTypes, typename FirstAllowedType, typename... OtherAllowedTypes>
-  struct MergeAllowedTypes<UsingFixedTypes, FirstAllowedType, OtherAllowedTypes...> {
-    using type = std::conditional_t<
-        UsingFixedTypes,
-        typename MergeTwoFixedTypes<
-            FirstAllowedType,
-            typename MergeAllowedTypes<UsingFixedTypes, OtherAllowedTypes...>::type>::type,
-        typename MergeTwoAllowedTypes<
-            FirstAllowedType,
-            typename MergeAllowedTypes<UsingFixedTypes, OtherAllowedTypes...>::type>::type>;
-  };
-  template <bool UsingFixedTypes, typename... Types>
-  using FromElementTypesToAllowedTypes = typename MergeAllowedTypes<
-      UsingFixedTypes, Operator<N, AllowedArguments<Types...>>,
-      std::conditional_t<std::disjunction_v<std::is_same<Types, ComplexExpression>,
-                                            std::is_same<Types, BulkComplexExpression>>,
-                         Operator<N, AllowedArguments<std::shared_ptr<CompoundArray>>>,
-                         Operator<N, AllowedArguments<std::shared_ptr<ValueArray<Types>>>>>...>::
-      type;
+  template <typename... Types>
+  using FromElementTypesToAllowedTypes = typename GenerateFullOperator<
+      N, OperatorWithProperties<
+             false, true,
+             AllowedArguments<
+                 Types...,
+                 std::conditional_t<std::disjunction_v<std::is_same<Types, ComplexExpression>,
+                                                       std::is_same<Types, BulkComplexExpression>>,
+                                    std::shared_ptr<CompoundArray>,
+                                    std::shared_ptr<ValueArray<Types>>>...>>>::type;
 
   template <typename... Types> struct ForTypes {
-    using type = FromElementTypesToAllowedTypes<false, Types...>;
-  };
-
-  template <typename... Types> struct ForTypesInOrder {
-    using type = FromElementTypesToAllowedTypes<true, Types...>;
+    using type = FromElementTypesToAllowedTypes<Types...>;
   };
 
 public:
   template <typename... Types> using OperatorForTypes = typename ForTypes<Types...>::type;
-  template <typename... Types>
-  using OperatorForTypesInOrder = typename ForTypesInOrder<Types...>::type;
 };
 
 } // namespace boss::engines::bulk

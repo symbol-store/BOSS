@@ -1,18 +1,15 @@
 #pragma once
 
-#include "Batch/Batch.hpp"
-#include "ExtendedExpression.hpp"
-
-#include "../../Expression.hpp"
+#include "BulkExpression.hpp"
 
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <variant>
 
 namespace boss::engines::bulk {
 
-/** Keep any type of batch stored and map to a symbol. */
+/** Keep any type of expression stored (including columns/tables as value/compound arrays)
+ * and mapped to a symbol. */
 template <typename T> class SymbolRegistry {
 private:
   SymbolRegistry() = default;
@@ -28,26 +25,28 @@ public:
     static SymbolRegistry instance;
     return instance;
   }
-  
-  using StoredType = T;
-  using SymbolPtr = std::unique_ptr<StoredType>;
 
-  SymbolPtr& findSymbol(Symbol const& symbol) { return m_symbolMap[symbol.getName()]; }
+  using StoredType = T;
+  using StoredTypePtr = std::unique_ptr<StoredType>;
 
   void registerSymbol(Symbol const& symbol, StoredType const& value) {
-    m_symbolMap[symbol.getName()] = std::make_unique<StoredType>(value);
-  }
-  
-  void registerSymbol(Symbol const& symbol, SymbolPtr&& symbolPtr) {
-    m_symbolMap[symbol.getName()] = std::move(symbolPtr);
+    symbolMap[symbol.getName()] = std::make_unique<StoredType>(value);
   }
 
-  void clear() { m_symbolMap.clear(); }
+  void clearSymbol(Symbol const& symbol) { symbolMap[symbol.getName()].reset(); }
+
+  StoredTypePtr& findSymbol(Symbol const& symbol) { return symbolMap[symbol.getName()]; }
+
+  void setSymbol(StoredTypePtr& position, StoredType const& value) {
+    position = std::make_unique<StoredType>(value);
+  }
+
+  void clear() { symbolMap.clear(); }
 
 private:
-  using SymbolMapping = std::unordered_map<std::string, SymbolPtr>;
+  using SymbolMapping = std::unordered_map<std::string, StoredTypePtr>;
 
-  SymbolMapping m_symbolMap;
+  SymbolMapping symbolMap;
 };
 
 using DefaultSymbolRegistry = SymbolRegistry<BulkExpression>;

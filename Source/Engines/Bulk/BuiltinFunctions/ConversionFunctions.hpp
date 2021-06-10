@@ -25,7 +25,7 @@ private:
 
     template <typename ValueType>
     BulkExpression evaluate(std::shared_ptr<ValueArray<ValueType>> const& arrayPtr) const {
-      return OperatorUtils::evaluateElements(function(), arrayPtr);
+      return OperatorUtils::evaluateForEachTuple(function(), arrayPtr);
     }
 
   private:

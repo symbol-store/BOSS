@@ -40,183 +40,132 @@ private:
 public:
   using ValueType = T;
 
-  explicit ValueArrayBase()
-      : m_arrays({}), m_builder(std::make_shared<BuilderType>()), m_builderLogicalSize(0) {}
+  explicit ValueArrayBase() : arrays({}), builder(std::make_shared<BuilderType>()) {}
 
-  explicit ValueArrayBase(std::vector<ValueType> const& values)
-      : m_arrays({}), m_builder(std::make_shared<BuilderType>(values)),
-        m_builderLogicalSize(values.size()) {}
-
-  explicit ValueArrayBase(size_t size)
-      : m_arrays({}), m_builder(std::make_shared<BuilderType>()), m_builderLogicalSize(0) {
+  explicit ValueArrayBase(size_t size) : arrays({}), builder(std::make_shared<BuilderType>()) {
     // TODO: any more efficient way?
     resize(size);
   }
 
   ValueArrayBase(size_t size, ValueType const& value)
-      : m_arrays({}), m_builder(std::make_shared<BuilderType>()), m_builderLogicalSize(0) {
+      : arrays({}), builder(std::make_shared<BuilderType>()) {
     // TODO: any efficient way?
     resize(size);
-    for(auto& batchValue : *this) {
-      batchValue = value;
-    }
-  }
-
-  ValueArrayBase(size_t size, ValueType&& value)
-      : m_arrays({}), m_builder(std::make_shared<BuilderType>()), m_builderLogicalSize(0) {
-    // TODO: any efficient way?
-    resize(size);
-    for(auto& batchValue : *this) {
-      batchValue = value;
+    for(auto& destValue : *this) {
+      destValue = value;
     }
   }
 
   ValueArrayBase(arrow::ArrayVector&& arrays, std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder)
-      : m_arrays(std::move(arrays)),
-        m_builder(std::move(std::dynamic_pointer_cast<BuilderType>(arrayBuilder))),
-        m_builderLogicalSize(m_builder ? m_builder->length() : 0) {
-    if(!m_builder) {
-      m_builder = std::make_shared<BuilderType>();
+      : arrays(std::move(arrays)),
+        builder(std::move(std::dynamic_pointer_cast<BuilderType>(arrayBuilder))) {
+    if(!builder) {
+      builder = std::make_shared<BuilderType>();
     }
   }
 
   ValueArrayBase(ValueArrayBase const& other, bool clear = false)
-      : m_arrays({}), m_builder(std::make_shared<BuilderType>()), m_builderLogicalSize(0) {
+      : arrays({}), builder(std::make_shared<BuilderType>()) {
     if(!clear) {
       // TODO: any efficient way?
       resize(other.size());
       auto otherIt = other.begin();
-      for(auto& batchValue : *this) {
-        batchValue = *otherIt;
+      for(auto& destValue : *this) {
+        destValue = *otherIt;
         ++otherIt;
       }
     }
   }
 
-  ValueArrayBase(ValueArrayBase&& other, bool clear = false) noexcept
-      : m_arrays({}), m_builder(std::make_shared<BuilderType>()), m_builderLogicalSize(0) {
-    if(!clear) {
-      // TODO: any efficient way?
-      resize(other.size());
-      auto otherIt = other.begin();
-      for(auto& batchValue : *this) {
-        batchValue = *otherIt;
-        ++otherIt;
-      }
-    }
-  }
-
-  ~ValueArrayBase() = default; /*{
-    // if the logical size of the builder doesn't match the stored size
-    // we need to finish the builder into an array!
-    // otherwise now that we destroy this representation, the logical size will be lost
-    if(m_builder && m_builder->length() != m_builderLogicalSize) {
-      freezeData();
-    }
-  }*/
+  ~ValueArrayBase() = default;
 
   ValueArrayBase& operator=(ValueArrayBase const& other) = delete;
   ValueArrayBase& operator=(ValueArrayBase&& other) = delete;
 
   // [https://github.com/symbol-store/BOSS/issues/88]
   // need to make this iterate on the arrays as well, not only the builder.
-  // it works for now because we use it only for writing new elements and with this
+  // it works for now because we use it only for writing new elements and with a
   // workaround: we provide the offset for the elements we cannot iterate
-  auto begin() { return m_builder->begin(m_arrays.length()); }
-  auto end() { return m_builder->begin(m_arrays.length()) + m_builderLogicalSize; }
+  auto begin() { return builder->begin(arrays.length()); }
+  auto end() { return builder->end(); }
 
   // [https://github.com/symbol-store/BOSS/issues/88] clean up iterators
+  // This iterator can iterate on both the arrays and the builder, but read-only
   class ConstIterator {
   public:
     ConstIterator(std::vector<std::shared_ptr<ArrayType>> const& arrays, BuilderType const& builder,
                   size_t chunkIndex, size_t rowIndex = 0)
-        : m_arrays(arrays), m_builder(builder), m_chunkIndex(chunkIndex), m_rowIndex(rowIndex),
-          m_constant(arrays.size() <= 1 &&
-                     (arrays.empty() ? builder.length() : builder.length() + arrays[0]->length()) ==
-                         1) {}
+        : arrays(arrays), builder(builder), chunkIndex(chunkIndex), rowIndex(rowIndex) {}
     ValueType operator*() const {
-      // TODO: check how expensive is this check in the loop
-      // need to clean up this code...
-      if(m_chunkIndex >= m_arrays.size()) {
-        return m_constant ? ValueType(*m_builder.begin())
-                          : ValueType(*(m_builder.begin() + m_rowIndex));
+      // TODO: check how expensive is this condition when using in a loop
+      if(chunkIndex >= arrays.size()) {
+        return ValueType(*(builder.begin() + rowIndex));
       }
-      // TODO: check if loop invariant optimization takes care of the m_constant check
-      if constexpr(std::is_same_v<T, Symbol>) {
-        return m_constant ? ValueType(std::string(m_arrays[0]->GetView(0)))
-                          : ValueType(std::string(m_arrays[m_chunkIndex]->GetView(m_rowIndex)));
-      } else if constexpr(std::is_same_v<T, std::string>) {
-        return m_constant ? ValueType(m_arrays[0]->GetView(0))
-                          : ValueType(m_arrays[m_chunkIndex]->GetView(m_rowIndex));
+      if constexpr(std::is_same_v<T, Symbol> || std::is_same_v<T, std::string>) {
+        return ValueType(std::string(arrays[chunkIndex]->GetView(rowIndex)));
       } else {
-        return m_constant ? m_arrays[0]->Value(0) : m_arrays[m_chunkIndex]->Value(m_rowIndex);
+        return arrays[chunkIndex]->Value(rowIndex);
       }
     }
     bool operator!=(ConstIterator const& rhs) const {
-      return m_chunkIndex != rhs.m_chunkIndex || m_rowIndex != rhs.m_rowIndex;
+      return chunkIndex != rhs.chunkIndex || rowIndex != rhs.rowIndex;
     }
     bool operator!=(ConstIterator&& rhs) const {
-      return m_chunkIndex != rhs.m_chunkIndex || m_rowIndex != rhs.m_rowIndex;
+      return chunkIndex != rhs.chunkIndex || rowIndex != rhs.rowIndex;
     }
     ConstIterator operator+(size_t incr) const {
-      size_t chunkIndex = m_chunkIndex;
-      size_t rowIndex = m_rowIndex + incr;
-      while(chunkIndex < m_arrays.size() && rowIndex >= m_arrays[chunkIndex]->length()) {
-        rowIndex -= m_arrays[chunkIndex]->length();
-        ++chunkIndex;
+      size_t nextChunkIndex = chunkIndex;
+      size_t nextRowIndex = rowIndex + incr;
+      while(nextChunkIndex < arrays.size() && nextRowIndex >= arrays[nextChunkIndex]->length()) {
+        nextRowIndex -= arrays[nextRowIndex]->length();
+        ++nextChunkIndex;
       }
-      return ConstIterator(m_arrays, m_builder, chunkIndex, rowIndex);
+      return ConstIterator(arrays, builder, nextChunkIndex, nextRowIndex);
     }
     void operator++() {
-      // TODO: check if loop invariant optimization takes care of the m_constant check
-      if(m_constant) {
-        m_rowIndex = m_builder.length();
-        m_chunkIndex = m_arrays.size();
-        return;
-      }
-      ++m_rowIndex;
-      if(m_chunkIndex < m_arrays.size()) {
-        if(m_rowIndex >= m_arrays[m_chunkIndex]->length()) {
-          m_rowIndex = 0;
-          ++m_chunkIndex;
+      ++rowIndex;
+      if(chunkIndex < arrays.size()) {
+        if(rowIndex >= arrays[chunkIndex]->length()) {
+          rowIndex = 0;
+          ++chunkIndex;
         }
       }
     }
 
   private:
-    std::vector<std::shared_ptr<ArrayType>> const& m_arrays;
-    BuilderType const& m_builder;
-    size_t m_chunkIndex;
-    size_t m_rowIndex;
-    bool m_constant; // allow single element arrays to safely be used in iterations
+    std::vector<std::shared_ptr<ArrayType>> const& arrays;
+    BuilderType const& builder;
+    size_t chunkIndex;
+    size_t rowIndex;
   };
 
-  auto begin() const { return ConstIterator(m_arrays.typedChunks(), *m_builder, 0); }
+  auto begin() const { return ConstIterator(arrays.getTypedChunks(), *builder, 0); }
   auto end() const {
-    return ConstIterator(m_arrays.typedChunks(), *m_builder, m_arrays.num_chunks(),
-                         m_builder->length());
+    return ConstIterator(arrays.getTypedChunks(), *builder, arrays.num_chunks(), builder->length());
   }
 
   // [https://github.com/symbol-store/BOSS/issues/88]
+  /// used to set the owner (parent array) after creating a child array in CompoundArray::column()
+  /// so the parent can freezeData() when the child need to freezeData()
+  /// since it should always be done together
   void setOwner(CompoundArray const* parentArray, size_t childIndex = 0) {
-    // used to set the owner (parent batch) after creating a child batch in CompoundBatch::column()
-    // so the parent can freezeData() when the child need to freezeData()
-    // since it should always be done together
-    m_parentArray = parentArray;
-    m_childIndex = childIndex;
+    this->parentArray = parentArray;
+    this->childIndex = childIndex;
   }
 
-  BatchData data() const {
+  /// return arrays + builder in a form that can be used to construct a compound array
+  ArrayData data() const {
     std::shared_ptr<arrow::Field> field;
-    if(m_parentArray != nullptr) {
-      field = m_parentArray->childField(m_childIndex);
+    if(parentArray != nullptr) {
+      field = parentArray->getChildField(childIndex);
     } else {
       field = std::make_shared<arrow::Field>("", nullptr);
     }
-    return BatchData(m_arrays, m_builder, m_builderLogicalSize, field);
+    return ArrayData(arrays, builder, field);
   }
 
-  BatchData freezedData() {
+  /// make sure to have only arrays and not builder left when retrieving the data
+  ArrayData freezedData() {
     freezeData();
     return data();
   }
@@ -226,80 +175,70 @@ public:
   /// so the data in the builder isn't ignored.
   /// All query operators are able to iterate on the builders, so don't need that.
   /// Currently, it is used only when exporting arrow arrays outside of the backend.
+  // [https://github.com/symbol-store/BOSS/issues/88] ideally should be protected
   void freezeData() {
     std::shared_ptr<arrow::Array> chunkArray;
-    if(m_parentArray) {
-      auto newChunkIndex = m_arrays.length();
-      const_cast<CompoundArray*>(m_parentArray)->freezeData(); // NOLINT
-      if(m_parentArray->numChunks() <= newChunkIndex) {
+    if(parentArray != nullptr) {
+      auto newChunkIndex = arrays.length();
+      const_cast<CompoundArray*>(parentArray)->freezeData(); // NOLINT
+      if(parentArray->numChunks() <= newChunkIndex) {
         // nothing new
         return;
       }
       // [https://github.com/symbol-store/BOSS/issues/92] handle multiple types in union
-      chunkArray = m_parentArray->getArgument(newChunkIndex, m_childIndex)->field(0);
+      chunkArray = parentArray->getArgument(newChunkIndex, childIndex)->field(0);
     } else {
-      if(m_builder->length() == 0) {
+      if(builder->length() == 0) {
         // nothing new
         return;
       }
-      auto result = m_builder->Finish(&chunkArray);
+      auto result = builder->Finish(&chunkArray);
       if(!result.ok()) {
         // failed
         return;
       }
     }
-
-    if(m_builderLogicalSize < chunkArray->length()) {
-      m_arrays.append(chunkArray->Slice(0, m_builderLogicalSize));
-    } else {
-      m_arrays.append(std::move(chunkArray));
-    }
-    m_builderLogicalSize = 0;
+    arrays.append(std::move(chunkArray));
   }
 
   void resize(size_t size) {
-    if(size < m_arrays.length()) {
+    if(size < arrays.length()) {
       // [https://github.com/symbol-store/BOSS/issues/88]
       // any way to handle this case? with slicing?
+      // is it a needed case anymore?
       return;
     }
-    size -= m_arrays.length();
-    if(size > m_builderLogicalSize) {
-      if constexpr(std::is_same_v<T, std::string> || std::is_same_v<T, Symbol>) {
-        // [https://github.com/symbol-store/BOSS/issues/88] need cleaner implementation
-        // don't resize the internal data in advance when using the proxy
-        // since it cannot revisit previous empty values
-        // since append will take care of that
-      } else {
-        auto status = m_builder->AppendEmptyValues(size - m_builder->length());
-        if(!status.ok()) {
-          return;
-        }
+    size -= arrays.length();
+    auto builderSize = builder->length();
+    if(size > builderSize) {
+      auto status = builder->AppendEmptyValues(size - builderSize);
+      if(!status.ok()) {
+        // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
+        return;
       }
-    } else if(size < m_builderLogicalSize) {
+    } else if(size < builderSize) {
       // [https://github.com/symbol-store/BOSS/issues/88] need a way to shrink builder size
       // is it a needed case anymore?
-      // m_builder->Resize(size);
+      // builder->Resize(size);
     }
-    m_builderLogicalSize = size;
   }
 
-  size_t length() const { return m_builderLogicalSize + m_arrays.length(); }
+  size_t length() const { return builder ? builder->length() + arrays.length() : arrays.length(); }
 
   void append(Expression const& expression) { append(std::get<ValueType>(expression)); }
 
   void append(ValueType const& value) {
-    auto status = m_builder->Append(value);
+    auto status = builder->Append(value);
     if(!status.ok()) {
+      // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
       return;
     }
-    ++m_builderLogicalSize;
   }
 
 protected:
-  BuilderType const* getTypedBuilder() const { return m_builder.get(); }
+  BuilderType const* getTypedBuilder() const { return builder.get(); }
   std::vector<std::shared_ptr<ArrayType>> const& getTypedArrays() const {
-    return m_arrays.typedChunks();
+    return arrays.getTypedChunks();
   }
 
 private:
@@ -311,13 +250,13 @@ private:
         : MutableChunkedArray(std::move(arrays)) {
       for(auto& chunk : chunks()) {
         auto typedChunk = std::dynamic_pointer_cast<ArrayType>(chunk);
-        m_typedChunks.emplace_back(std::move(typedChunk));
+        typedChunks.emplace_back(std::move(typedChunk));
       }
     }
 
     void append(std::shared_ptr<arrow::Array>&& chunk) {
       auto typedChunk = std::dynamic_pointer_cast<ArrayType>(chunk);
-      m_typedChunks.emplace_back(std::move(typedChunk));
+      typedChunks.emplace_back(std::move(typedChunk));
       chunks_.emplace_back(std::move(chunk));
       ++length_;
       if(!type_) {
@@ -325,31 +264,29 @@ private:
       }
     }
 
-    std::vector<std::shared_ptr<ArrayType>> const& typedChunks() const { return m_typedChunks; }
+    std::vector<std::shared_ptr<ArrayType>> const& getTypedChunks() const { return typedChunks; }
 
     void clear() {
-      m_typedChunks.clear();
+      typedChunks.clear();
       MutableChunkedArray::clear();
     }
 
   private:
-    std::vector<std::shared_ptr<ArrayType>> m_typedChunks;
+    std::vector<std::shared_ptr<ArrayType>> typedChunks;
   };
 
-  TypedChunkedArray m_arrays;
-  std::shared_ptr<BuilderType> m_builder;
+  TypedChunkedArray arrays;
+  std::shared_ptr<BuilderType> builder;
 
-  // [https://github.com/symbol-store/BOSS/issues/88]
-  // needed until we can shrink a builder
-  size_t m_builderLogicalSize;
-
-  CompoundArray const* m_parentArray = nullptr;
-  size_t m_childIndex = 0;
+  CompoundArray const* parentArray = nullptr;
+  size_t childIndex = 0;
 };
 
+// this is a layer needed only for the bool specialization to work
 template <typename T> class ValueArray : public ValueArrayBase<T> {
 private:
   using ValueArrayBase = ValueArrayBase<T>;
+
 public:
   using ValueArrayBase::ValueArrayBase;
 };
@@ -358,6 +295,7 @@ public:
 template <> class ValueArray<bool> : public ValueArrayBase<bool> {
 private:
   using ValueArrayBase = ValueArrayBase<bool>;
+
 public:
   using ValueArrayBase::ValueArrayBase;
 
@@ -368,7 +306,7 @@ public:
       bitCount += arrayPtr->true_count();
     }
     auto const* builder = ValueArrayBase::getTypedBuilder();
-    if(builder) {
+    if(builder != nullptr) {
       bitCount += builder->calculateBitCount();
     }
     return bitCount;

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../ArrowExtensions/CompoundArray.hpp"
-#include "../BatchVisitDispatcher.hpp"
 #include "../Executor.hpp"
+#include "../ExpressionVisitDispatcher.hpp"
 #include "../Operator.hpp"
 
 #include <map>
@@ -12,6 +12,7 @@ namespace boss::engines::bulk {
 
 template <typename OperatorUtils, typename OperatorRegistry> class Queries {
   using TableArgument = typename OperatorUtils::TableArgument;
+  using FunctionArgument = typename OperatorUtils::FunctionArgument;
 
 public:
   static void registerAll() {
@@ -23,52 +24,25 @@ public:
   }
 
 private:
-  class SelectOperator
-      : public Operator<2, TableArgument, AllowedArguments<BulkComplexExpression>> {
+  class SelectOperator : public Operator<TableArgument, FunctionArgument> {
   public:
     template <typename TableType, typename PredicateType>
     BulkExpression evaluate(TableType const& tableArrayPtr, PredicateType const& predicate) const {
-      // copy with 'clear' flag, so we keep the column builders
+      // copy with 'clear' flag, so we keep the (empty) column builders
       auto tableOutPtr = std::make_shared<CompoundArray>(*tableArrayPtr, true);
       auto& tableOut = *tableOutPtr;
 
       tableArrayPtr->visitPartitions([&tableOut, &predicate](auto&& batchOfRowsPtr) {
-        // TODO: should evaluate only the columns used as criteria for the predicate
-        // but for now it causes issues for where to set the "$tuple" information
-        // (since the rows wouldn't be explicitely evaluated as a CBatch)
-        // maybe should clean up "$tuple" if it is unused
-        BulkExpression evaluatedRows;
-        bool evaluated = Executor::evaluate(batchOfRowsPtr, evaluatedRows);
-        auto* pointerToArrayPtr =
-            std::get_if<std::shared_ptr<CompoundArray>>((BulkExpression::SuperType*)&evaluatedRows);
-        auto const& batchOfRows =
-            evaluated && pointerToArrayPtr != nullptr ? **pointerToArrayPtr : *batchOfRowsPtr;
-
-        BulkExpressionArguments inputs;
-        if(evaluated) {
-          inputs.emplace_back(evaluatedRows);
-        } else {
-          inputs.emplace_back(batchOfRowsPtr);
-        }
-
         // evaluate the predicate
-        BulkExpression toKeepOutput;
-        if(!Executor::evaluate(predicate, inputs, toKeepOutput)) {
-          return;
-        }
+        auto argsWithInputs = predicate.getArguments();
+        argsWithInputs.emplace_back(BulkComplexExpression(Symbol("List"), {batchOfRowsPtr}));
+        BulkComplexExpression predicateWithInputs(predicate.getHead(), argsWithInputs);
+        auto toKeepOutput = Executor::evaluate(predicateWithInputs);
 
         // apply the predicate
-        BatchVisitDispatcher<bool, std::shared_ptr<ValueArray<bool>>>::visit(
-            [&tableOut, &evaluated, &evaluatedRows, &batchOfRowsPtr](auto const& toKeep) {
-              if(evaluated) {
-                auto* evaluatedArrayPtr =
-                    std::get_if<std::shared_ptr<CompoundArray>>(&evaluatedRows);
-                if(evaluatedArrayPtr) {
-                  SelectOperator::select(tableOut, **evaluatedArrayPtr, toKeep);
-                }
-              } else {
-                SelectOperator::select(tableOut, *batchOfRowsPtr, toKeep);
-              }
+        ExpressionVisitDispatcher<bool, std::shared_ptr<ValueArray<bool>>>::visit(
+            [&tableOut, &batchOfRowsPtr](auto const& toKeep) {
+              SelectOperator::select(tableOut, *batchOfRowsPtr, toKeep);
             },
             toKeepOutput);
       });
@@ -77,90 +51,74 @@ private:
     }
 
   private:
-    static void select(CompoundArray& tableOut, CompoundArray const& srcBatchArray,
-                       std::shared_ptr<ValueArray<bool>> toKeepPtr) {
-      CompoundArray destBatchArray(true);
-      OperatorUtils::insertRowValuesWithCondition(destBatchArray, srcBatchArray, *toKeepPtr);
-      if(destBatchArray.numArguments() > 0) {
-        tableOut.append(std::move(destBatchArray));
-      }
+    static void select(CompoundArray& tableOut, CompoundArray const& srcArray,
+                       std::shared_ptr<ValueArray<bool>> const& toKeepPtr) {
+      OperatorUtils::insertRowValuesWithCondition(tableOut, srcArray, *toKeepPtr);
     }
 
-    static void select(CompoundArray& tableOut, CompoundArray const& srcBatchArray, bool toKeep) {
+    static void select(CompoundArray& tableOut, CompoundArray const& srcArray, bool toKeep) {
       // special case when toKeep is just a boolean
       // we can just do one single check and take all or nothing
       if(toKeep) {
-        CompoundArray destBatchArray(true);
-        OperatorUtils::insertAllRows(destBatchArray, srcBatchArray);
-        if(destBatchArray.numArguments() > 0) {
-          tableOut.append(std::move(destBatchArray));
-        }
+        OperatorUtils::insertAllRows(tableOut, srcArray);
       }
     }
   };
 
   // projector: Function(tuple) return the list of columns we want to keep
   // e.g to project on the 1st column: "Function"_("tuple"_, "List"_("Column"_("tuple"_, 1)))
-  class ProjectOperator
-      : public Operator<2, TableArgument, AllowedArguments<BulkComplexExpression>> {
+  class ProjectOperator : public Operator<TableArgument, FunctionArgument> {
   public:
     template <typename TableType, typename ProjectorType>
     BulkExpression evaluate(TableType const& tableArrayPtr, ProjectorType const& projector) const {
-      // not a copy so we clear the column builders too
-      auto tableOutPtr = std::make_shared<CompoundArray>(true);
-      auto& tableOut = *tableOutPtr;
+      // evaluate the projector function
+      auto argsWithInputs = projector.getArguments();
+      argsWithInputs.emplace_back(BulkComplexExpression(Symbol("List"), {tableArrayPtr}));
+      BulkComplexExpression projectorWithInputs(projector.getHead(), argsWithInputs);
+      auto projectedColumns = Executor::evaluate(projectorWithInputs);
 
-      // evaluate the projection
-      BulkExpressionArguments inputs{tableArrayPtr};
-      BulkExpression projectedColumns;
-      bool evaluated = Executor::evaluate(projector, inputs, projectedColumns);
-
-      if(evaluated) {
-        BatchVisitDispatcher<std::shared_ptr<CompoundArray>, BulkComplexExpression>::visit(
-            [&tableOut](auto const& columns) { ProjectOperator::project(tableOut, columns); },
-            projectedColumns);
-      }
-
-      return tableOutPtr;
+      // retrieve the columns output by the projector
+      // to return them as a table
+      BulkExpression output;
+      ExpressionVisitDispatcher<BulkComplexExpression>::visit(
+          [&output](auto const& columns) { output = ProjectOperator::project(columns); },
+          projectedColumns);
+      return output;
     }
 
   private:
-    static void project(CompoundArray& tableOut, std::shared_ptr<CompoundArray> const& columnArrayPtr) {
-      CompoundArray projectedArray(*columnArrayPtr, false);
-      tableOut.append(std::move(projectedArray));
-    }
-
-    static void project(CompoundArray& tableOut, BulkComplexExpression const& columnList) {
-      std::vector<BatchData> argData;
+    static BulkExpression project(BulkComplexExpression const& columnList) {
+      auto tableOutPtr = std::make_shared<CompoundArray>(true);
+      auto& tableOut = *tableOutPtr;
+      std::vector<ArrayData> argData;
       argData.reserve(columnList.getArguments().size());
-      for(auto column : columnList.getArguments()) {
+      for(auto const& column : columnList.getArguments()) {
         OperatorUtils::CollectionVisitDispatcher::visit(
             [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
             column);
       }
       tableOut.append(columnList.getHead(), argData);
+      return tableOutPtr;
     }
   };
 
   // sortFunction: Function(tuple) return the key used for sorting
   // e.g to sort by first column: "Function"_(List_("tuple"_), "Column"_("tuple"_, 1))
-  class SortByOperator
-      : public Operator<2, TableArgument, AllowedArguments<BulkComplexExpression>> {
+  class SortByOperator : public Operator<TableArgument, FunctionArgument> {
   public:
     template <typename TableType, typename SortFunctionType>
     BulkExpression evaluate(TableType const& tableArrayPtr,
                             SortFunctionType const& sortFunction) const {
-      // copy with 'clear' flag, so we keep the column builders
+      // copy with 'clear' flag, so we keep the (empty) column builders
       auto tableOutPtr = std::make_shared<CompoundArray>(*tableArrayPtr, true);
       auto& tableOut = *tableOutPtr;
 
       tableArrayPtr->visitPartitions([&sortFunction, &tableOut](auto const& batchOfRowsPtr) {
         // evaluate the keys
-        BulkExpressionArguments inputs{batchOfRowsPtr};
-        BulkExpression keysOutput;
-        if(!Executor::evaluate(sortFunction, inputs, keysOutput)) {
-          return;
-        }
+        auto argsWithInputs = sortFunction.getArguments();
+        argsWithInputs.emplace_back(BulkComplexExpression(Symbol("List"), {batchOfRowsPtr}));
+        BulkComplexExpression sortFunctionWithInputs(sortFunction.getHead(), argsWithInputs);
+        auto keysOutput = Executor::evaluate(sortFunctionWithInputs);
 
         // sort using these keys
         OperatorUtils::AnyTypeVisitDispatcher::visit(
@@ -175,22 +133,18 @@ private:
 
   private:
     template <typename ElementType>
-    static void sort(CompoundArray& tableOut, CompoundArray const& srcBatchArray,
+    static void sort(CompoundArray& tableOut, CompoundArray const& srcArray,
                      ElementType const& /*key*/) {
-      // special case with only a unique key...
+      // special case with only a single key...
       // just copy all the rows
-      CompoundArray destBatchArray(srcBatchArray, true);
-      OperatorUtils::insertAllRows(destBatchArray, srcBatchArray);
-      if(destBatchArray.numArguments() > 0) {
-        tableOut.append(std::move(destBatchArray));
-      }
+      OperatorUtils::insertAllRows(tableOut, srcArray);
     }
 
     template <typename ElementType>
-    static void sort(CompoundArray& tableOut, CompoundArray const& srcBatchArray,
+    static void sort(CompoundArray& tableOut, CompoundArray const& srcArray,
                      std::shared_ptr<ValueArray<ElementType>> const& keysPtr) {
-      size_t batchSize = srcBatchArray.length();
-      if(batchSize == 0) {
+      size_t ArraySize = srcArray.length();
+      if(ArraySize == 0) {
         return;
       }
 
@@ -201,22 +155,17 @@ private:
                                          std::map<ElementType, std::vector<size_t>>>;
       SortMap sorted;
       auto keyIt = keysPtr->begin();
-      for(size_t rowIndex = 0; rowIndex < batchSize; ++rowIndex, ++keyIt) {
+      for(size_t rowIndex = 0; rowIndex < ArraySize; ++rowIndex, ++keyIt) {
         sorted[(ElementType)*keyIt].push_back(rowIndex);
       }
 
-      CompoundArray destBatchArray(true);
       for(auto const& sortedIt : sorted) {
         auto const& rowIndices = sortedIt.second;
-        OperatorUtils::insertRowValuesInOrder(destBatchArray, srcBatchArray, rowIndices);
-      }
-
-      if(destBatchArray.numArguments() > 0) {
-        tableOut.append(std::move(destBatchArray));
+        OperatorUtils::insertRowValuesInOrder(tableOut, srcArray, rowIndices);
       }
     }
 
-    static void sort(CompoundArray& tableOut, CompoundArray const& srcBatchArray,
+    static void sort(CompoundArray& tableOut, CompoundArray const& srcArray,
                      std::shared_ptr<CompoundArray> const& keysPtr) {
       // [https://github.com/symbol-store/BOSS/issues/86]
       // how to do sorting if we handle list/expression as a key?
@@ -230,8 +179,7 @@ private:
   // e.g to count: "Function"_("tuple"_, "Count"_("Column"_("tuple"_, 1)))
   // e.g to sum: "Function"_("tuple"_, "Sum_("Column"_("tuple"_, 1)))
   // e.g to return the key: "Function"_("tuple"_, "Column"_("tuple"_, 1))
-  class GroupOperator : public Operator<3, TableArgument, AllowedArguments<BulkComplexExpression>,
-                                        AllowedArguments<Symbol, BulkComplexExpression>> {
+  class GroupOperator : public Operator<TableArgument, FunctionArgument, FunctionArgument> {
   public:
     template <typename TableType, typename GroupFunctionType, typename AggregatorType>
     BulkExpression evaluate(TableType const& tableArrayPtr, GroupFunctionType const& groupFunction,
@@ -243,11 +191,10 @@ private:
       tableArrayPtr->visitPartitions(
           [&groupFunction, &aggregatorFunction, &tableOut](auto const& batchOfRowsPtr) {
             // evaluate the keys
-            BulkExpressionArguments inputs{batchOfRowsPtr};
-            BulkExpression keysOutput;
-            if(!Executor::evaluate(groupFunction, inputs, keysOutput)) {
-              return;
-            }
+            auto argsWithInputs = groupFunction.getArguments();
+            argsWithInputs.emplace_back(BulkComplexExpression(Symbol("List"), {batchOfRowsPtr}));
+            BulkComplexExpression groupFunctionWithInputs(groupFunction.getHead(), argsWithInputs);
+            auto keysOutput = Executor::evaluate(groupFunctionWithInputs);
 
             // group using these keys and aggregate
             OperatorUtils::AnyTypeVisitDispatcher::visit(
@@ -262,33 +209,31 @@ private:
 
   private:
     template <typename ElementType, typename AggregatorType>
-    static void group(CompoundArray& tableOut,
-                      std::shared_ptr<CompoundArray> const& srcBatchArrayPtr,
+    static void group(CompoundArray& tableOut, std::shared_ptr<CompoundArray> const& srcArrayPtr,
                       ElementType const& /*key*/, AggregatorType const& aggregator) {
-      auto const& srcBatchArray = *srcBatchArrayPtr;
-      size_t batchSize = srcBatchArray.length();
-      if(batchSize == 0) {
+      auto const& srcArray = *srcArrayPtr;
+      size_t arraySize = srcArray.length();
+      if(arraySize == 0) {
         return;
       }
 
       // special case with only a unique key.
       // just aggregate on all the rows at once
       BulkExpressionArguments outputs;
-      aggregate(outputs, aggregator, srcBatchArrayPtr);
+      aggregate(outputs, aggregator, srcArrayPtr);
 
-      if(outputs.size() > 0) {
-        tableOut.append(BulkComplexExpression(srcBatchArray.getHead(), std::move(outputs)));
+      if(!outputs.empty()) {
+        tableOut.append(BulkComplexExpression(srcArray.getHead(), outputs));
       }
     }
 
     template <typename ElementType, typename AggregatorType>
-    static void group(CompoundArray& tableOut,
-                      std::shared_ptr<CompoundArray> const& srcBatchArrayPtr,
+    static void group(CompoundArray& tableOut, std::shared_ptr<CompoundArray> const& srcArrayPtr,
                       std::shared_ptr<ValueArray<ElementType>> const& keysPtr,
                       AggregatorType const& aggregator) {
-      auto const& srcBatchArray = *srcBatchArrayPtr;
-      size_t batchSize = srcBatchArray.length();
-      if(batchSize == 0) {
+      auto const& srcArray = *srcArrayPtr;
+      size_t arraySize = srcArray.length();
+      if(arraySize == 0) {
         return;
       }
 
@@ -299,21 +244,21 @@ private:
                                          std::map<ElementType, std::vector<size_t>>>;
       SortMap sorted;
       auto keyIt = keysPtr->begin();
-      for(size_t rowIndex = 0; rowIndex < batchSize; ++rowIndex, ++keyIt) {
+      for(size_t rowIndex = 0; rowIndex < arraySize; ++rowIndex, ++keyIt) {
         sorted[(ElementType)*keyIt].push_back(rowIndex);
       }
 
       BulkExpressionArguments outputs;
-      aggregate(outputs, aggregator, srcBatchArray, sorted);
+      aggregate(outputs, aggregator, srcArray, sorted);
 
-      if(outputs.size() > 0) {
-        tableOut.append(BulkComplexExpression(srcBatchArray.getHead(), std::move(outputs)));
+      if(!outputs.empty()) {
+        tableOut.append(BulkComplexExpression(srcArray.getHead(), outputs));
       }
     }
 
     template <typename AggregatorType>
     static void
-    group(CompoundArray& /*tableOut*/, std::shared_ptr<CompoundArray> const& /*srcBatchArrayPtr*/,
+    group(CompoundArray& /*tableOut*/, std::shared_ptr<CompoundArray> const& /*srcArrayPtr*/,
           std::shared_ptr<CompoundArray> const& /*keysPtr*/, AggregatorType const& /*aggregator*/) {
       // [https://github.com/symbol-store/BOSS/issues/86]
       // how to do sorting if we handle list/expression as a key?
@@ -326,17 +271,17 @@ private:
                           CompoundArray const& srcArray, SortMap const& sorted) {
       auto groupedPtr = std::make_shared<CompoundArray>(srcArray, true);
 
+      outputs.reserve(outputs.size() + sorted.size());
       for(auto const& sortedIt : sorted) {
         // prepare the rows for the group to be processed
         auto const& rowIndices = sortedIt.second;
         OperatorUtils::insertRowValuesInOrder(*groupedPtr, srcArray, rowIndices);
 
         // evaluate the aggregate on the group
-        BulkExpressionArguments inputs{groupedPtr};
-        BulkExpression aggregatedOutput;
-        if(Executor::evaluate(aggregator, inputs, aggregatedOutput)) {
-          outputs.emplace_back(aggregatedOutput);
-        }
+        auto argsWithInputs = aggregator.getArguments();
+        argsWithInputs.emplace_back(BulkComplexExpression(Symbol("List"), {groupedPtr}));
+        BulkComplexExpression aggregatorWithInputs(aggregator.getHead(), argsWithInputs);
+        outputs.emplace_back(Executor::evaluate(aggregatorWithInputs));
 
         groupedPtr->clear();
       }
@@ -347,11 +292,10 @@ private:
     static void aggregate(BulkExpressionArguments& outputs, AggregatorType const& aggregator,
                           std::shared_ptr<CompoundArray> const& srcArrayPtr) {
       // evaluate the aggregate on the input directly
-      BulkExpressionArguments inputs{srcArrayPtr};
-      BulkExpression aggregatedOutput;
-      if(Executor::evaluate(aggregator, inputs, aggregatedOutput)) {
-        outputs.emplace_back(aggregatedOutput);
-      }
+      auto argsWithInputs = aggregator.getArguments();
+      argsWithInputs.emplace_back(BulkComplexExpression(Symbol("List"), {srcArrayPtr}));
+      BulkComplexExpression aggregatorWithInputs(aggregator.getHead(), argsWithInputs);
+      outputs.emplace_back(Executor::evaluate(aggregatorWithInputs));
     }
   };
 };

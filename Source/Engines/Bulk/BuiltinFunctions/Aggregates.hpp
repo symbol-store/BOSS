@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../Batch/ValueBatch.hpp"
 #include "../Operator.hpp"
 
 namespace boss::engines::bulk {
@@ -20,7 +19,7 @@ public:
   }
 
 private:
-  class SumOperator : public Operator<1, AnyAgregableCollectionArgument> {
+  class SumOperator : public Operator<AnyAgregableCollectionArgument> {
   public:
     template <typename ArrayType>
     BulkExpression evaluate(std::shared_ptr<ArrayType> const& arrayPtr) const {
@@ -35,7 +34,7 @@ private:
     }
   };
 
-  class MinOperator : public Operator<1, AnyAgregableCollectionArgument> {
+  class MinOperator : public Operator<AnyAgregableCollectionArgument> {
   public:
     template <typename ArrayType>
     BulkExpression evaluate(std::shared_ptr<ArrayType> const& arrayPtr) const {
@@ -53,7 +52,7 @@ private:
     }
   };
 
-  class MaxOperator : public Operator<1, AnyAgregableCollectionArgument> {
+  class MaxOperator : public Operator<AnyAgregableCollectionArgument> {
   public:
     template <typename ArrayType>
     BulkExpression evaluate(std::shared_ptr<ArrayType> const& arrayPtr) const {

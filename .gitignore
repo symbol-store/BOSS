@@ -6,3 +6,7 @@ Debug/
 Release/
 MinSizeRel/
 RelWithDebInfo/
+Docs/Doxyfile
+Docs/html/
+dbgen/
+patches/

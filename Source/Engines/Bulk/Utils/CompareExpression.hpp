@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../ExtendedExpression.hpp"
+#include "../BulkExpression.hpp"
 
 namespace boss::engines::bulk {
 
@@ -11,7 +11,7 @@ template <bool DispatchArgumentTypes, bool DispatchSymbolNames> struct CompareEx
   }
 
 private:
-  int compare(BulkExpression::SuperType const& lhs, BulkExpression::SuperType const& rhs) const {
+  int compare(BulkExpression const& lhs, BulkExpression const& rhs) const {
     if(lhs.index() != rhs.index()) {
       return lhs.index() < rhs.index() ? -1 : 1;
     }

@@ -1,9 +1,11 @@
 #pragma once
 
-#include "bulk/ExtendedExpression.hpp"
+#include "Bulk/BulkExpression.hpp"
 
 #include "../Engine.hpp"
 #include "../Expression.hpp"
+
+#include <arrow/type_fwd.h>
 
 namespace boss::engines::bulk {
 
@@ -22,6 +24,10 @@ public:
   static BulkExpression createArray(arrow::ArrayVector&& arrays,
                                     std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder,
                                     CompoundArray const* parent = nullptr, size_t childIndex = 0);
+  static BulkExpression createArrayOrScalar(arrow::ArrayVector&& arrays,
+                                            std::shared_ptr<arrow::ArrayBuilder>&& arrayBuilder,
+                                            CompoundArray const* parent = nullptr,
+                                            size_t childIndex = 0);
 };
 
 } // namespace boss::engines::bulk

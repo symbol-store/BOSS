@@ -35,39 +35,36 @@ public:
   // when we actually need to go through the SetValue/GetValue interface of the array
   class BoolBuilderProxy {
   public:
-    BoolBuilderProxy(IterableBooleanBuilder& builder, int index)
-        : m_builder(builder), m_index(index) {}
-    explicit operator bool() const { return m_builder.GetValue(m_index); }
+    BoolBuilderProxy(IterableBooleanBuilder& builder, int index) : builder(builder), index(index) {}
+    explicit operator bool() const { return builder.GetValue(index); }
     BoolBuilderProxy& operator=(bool value) {
-      m_builder.SetValue(m_index, value);
+      builder.SetValue(index, value);
       return *this;
     }
-    IterableBooleanBuilder& getBuilder() const { return m_builder; }
-    int getIndex() const { return m_index; }
-    void incrementIndex() { ++m_index; }
+    IterableBooleanBuilder& getBuilder() const { return builder; }
+    int getIndex() const { return index; }
+    void incrementIndex() { ++index; }
 
   private:
-    IterableBooleanBuilder& m_builder;
-    int m_index;
+    IterableBooleanBuilder& builder;
+    int index;
   };
 
   class BoolIterator {
   public:
-    BoolIterator(IterableBooleanBuilder& builder, int index) : m_proxy(builder, index) {}
-    auto& operator*() { return m_proxy; }
+    BoolIterator(IterableBooleanBuilder& builder, int index) : proxy(builder, index) {}
+    auto& operator*() { return proxy; }
     bool operator!=(BoolIterator const& rhs) const {
-      return m_proxy.getIndex() != rhs.m_proxy.getIndex();
+      return proxy.getIndex() != rhs.proxy.getIndex();
     }
-    bool operator!=(BoolIterator&& rhs) const {
-      return m_proxy.getIndex() != rhs.m_proxy.getIndex();
-    }
+    bool operator!=(BoolIterator&& rhs) const { return proxy.getIndex() != rhs.proxy.getIndex(); }
     BoolIterator operator+(int incr) const {
-      return BoolIterator(m_proxy.getBuilder(), m_proxy.getIndex() + incr);
+      return BoolIterator(proxy.getBuilder(), proxy.getIndex() + incr);
     }
-    void operator++() { m_proxy.incrementIndex(); }
+    void operator++() { proxy.incrementIndex(); }
 
   private:
-    BoolBuilderProxy m_proxy;
+    BoolBuilderProxy proxy;
   };
 
   // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
@@ -79,18 +76,16 @@ public:
   class BoolConstIterator {
   public:
     BoolConstIterator(IterableBooleanBuilder const& builder, int index)
-        : m_builder(builder), m_index(index) {}
-    auto operator*() const { return m_builder[m_index]; }
-    bool operator!=(BoolConstIterator const& rhs) const { return m_index != rhs.m_index; }
-    bool operator!=(BoolConstIterator&& rhs) const { return m_index != rhs.m_index; }
-    BoolConstIterator operator+(int incr) const {
-      return BoolConstIterator(m_builder, m_index + incr);
-    }
-    void operator++() { ++m_index; }
+        : builder(builder), index(index) {}
+    auto operator*() const { return builder[index]; }
+    bool operator!=(BoolConstIterator const& rhs) const { return index != rhs.index; }
+    bool operator!=(BoolConstIterator&& rhs) const { return index != rhs.index; }
+    BoolConstIterator operator+(int incr) const { return BoolConstIterator(builder, index + incr); }
+    void operator++() { ++index; }
 
   private:
-    IterableBooleanBuilder const& m_builder;
-    int m_index;
+    IterableBooleanBuilder const& builder;
+    int index;
   };
 
   // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
@@ -101,68 +96,109 @@ public:
 };
 
 /** Special case to iterate a string builder.
- * This is because we cannot have random write like other simple data types.
- * We can only iterate as read-only and write by appending to the end.
- * Because for now, we need to fit this builder API with other builders,
- * we pretend to resize+set data, but we should do is actually reserve+insert. */
+ * When we reserve, we only adjust the offset array
+ * Then, when use a proxy to do the actual Append when we set a string value.
+ * This is because, unlike other builders, we don't know in advance the size we need to allocate.
+ */
 template <typename ElementType = std::string> // allow to handle Symbol as well
 class IterableStringBuilder : public arrow::StringBuilder {
-  // [https://github.com/symbol-store/BOSS/issues/88] we need one of those changes:
-  // - a separate StringBatch with a different API
-  // - change all batches to be reserve+insert (but how to be still efficient?)
-  // - use a dictionary for strings, so can separate ordered insert and data allocation
+  // [https://github.com/symbol-store/BOSS/issues/88] we could implement it in a better way
+  // for example, using a dictionary for strings, so can separate ordered insert and data allocation
+private:
+  size_t actualSize;
+
 public:
   explicit IterableStringBuilder(arrow::MemoryPool* pool = arrow::default_memory_pool())
-      : arrow::StringBuilder(pool) {}
+      : arrow::StringBuilder(pool), actualSize(0) {}
+
+  arrow::Status Append(const uint8_t* value, offset_type length) {
+    ++actualSize;
+    return arrow::StringBuilder::Append(value, length);
+  }
+
+  arrow::Status Append(const char* value, offset_type length) {
+    ++actualSize;
+    return arrow::StringBuilder::Append(value, length);
+  }
+
+  arrow::Status Append(arrow::util::string_view value) {
+    ++actualSize;
+    return arrow::StringBuilder::Append(value);
+  }
+
+  void UnsafeAppend(const char* value, offset_type length) {
+    ++actualSize;
+    arrow::StringBuilder::UnsafeAppend(value, length);
+  }
+
+  void UnsafeAppend(const std::string& value) {
+    ++actualSize;
+    arrow::StringBuilder::UnsafeAppend(value);
+  }
+
+  void UnsafeAppend(arrow::util::string_view value) {
+    ++actualSize;
+    arrow::StringBuilder::UnsafeAppend(value);
+  }
+
+  void ReappendValue(size_t index, ElementType const& value) {
+    if(index < actualSize) {
+      // this is not a sequential write
+      // we would have to move all the data to do this insertion
+      // so not supporting it for now
+      return;
+    }
+
+    auto toStringRef = [](auto const& value) -> std::string const& {
+      if constexpr(std::is_same_v<ElementType, Symbol>) {
+        return value.getName();
+      } else {
+        return value;
+      }
+    };
+
+    auto prevOffset = static_cast<offset_type>(value_data_builder_.length());
+
+    // append the data
+    auto const& str = toStringRef(value);
+    auto const* strData = reinterpret_cast<uint8_t const*>(str.c_str());
+    auto strLength = static_cast<offset_type>(str.size());
+    auto status = value_data_builder_.Append(strData, strLength);
+    if(!status.ok()) {
+      // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
+      return;
+    }
+
+    // adjust actual size and offsets (including for all values we skipped)
+    for(int i = actualSize; i <= index; ++i) {
+      offsets_builder_.mutable_data()[i] = prevOffset;
+    }
+
+    actualSize = index + 1;
+  }
 
   // need a proxy to pretend having a reference to a string
-  // when we actually need to iterate using the append workaround
+  // when we actually need to insert when we write on the proxy
   class StringBuilderProxy {
   public:
     StringBuilderProxy(IterableStringBuilder& builder, int index)
-        : m_builder(builder), m_index(index) {}
+        : builder(builder), index(index) {}
     ~StringBuilderProxy() = default;
     StringBuilderProxy(StringBuilderProxy const& other) = default;
     StringBuilderProxy(StringBuilderProxy&& other) noexcept = default;
-    bool operator!=(StringBuilderProxy const& rhs) const { return m_index != rhs.m_index; }
-    bool operator!=(StringBuilderProxy&& rhs) const { return m_index != rhs.m_index; }
+    bool operator!=(StringBuilderProxy const& rhs) const { return index != rhs.index; }
+    bool operator!=(StringBuilderProxy&& rhs) const { return index != rhs.index; }
     StringBuilderProxy operator+(int incr) const {
-      return StringBuilderProxy(m_builder, m_index + incr);
+      return StringBuilderProxy(builder, index + incr);
     }
-    void operator++() { ++m_index; }
+    void operator++() { ++index; }
 
     explicit operator ElementType() const {
-      return ElementType(std::string(m_builder.GetView(m_index)));
+      return ElementType(std::string(builder.GetView(index)));
     }
 
     StringBuilderProxy& operator=(ElementType const& value) {
-      if(m_builder.length() > m_index) {
-        // TODO: need another solution for the storage for random write
-        // cannot replace a previously inserted value...
-        // (except if it takes exactly the same size?)
-        return *this;
-      }
-      if(m_builder.length() < m_index) {
-        auto status = m_builder.AppendEmptyValues(m_index - m_builder.length());
-        if(!status.ok()) {
-          return *this;
-        }
-      }
-
-      auto toStringRef = [](auto const& value) -> std::string const& {
-        if constexpr(std::is_same_v<ElementType, Symbol>) {
-          return value.getName();
-        } else {
-          return value;
-        }
-      };
-
-      auto status = m_builder.Append(toStringRef(value));
-      if(!status.ok()) {
-        // [https://github.com/symbol-store/BOSS/issues/97] throw an exception
-        return *this;
-      }
-
+      builder.ReappendValue(index, value);
       return *this;
     }
 
@@ -176,23 +212,23 @@ public:
     }
 
   private:
-    IterableStringBuilder& m_builder;
-    int m_index;
+    IterableStringBuilder& builder;
+    int index;
   };
 
   class StringIterator {
   public:
-    StringIterator(IterableStringBuilder& builder, int index) : m_proxy(builder, index) {}
-    explicit StringIterator(StringBuilderProxy const& proxy) : m_proxy(proxy) {}
-    StringBuilderProxy const& operator*() const { return m_proxy; }
-    StringBuilderProxy& operator*() { return m_proxy; }
-    bool operator!=(StringIterator const& rhs) const { return m_proxy != rhs.m_proxy; }
-    bool operator!=(StringIterator&& rhs) const { return m_proxy != rhs.m_proxy; }
-    StringIterator operator+(size_t incr) const { return StringIterator(m_proxy + incr); }
-    void operator++() { ++m_proxy; }
+    StringIterator(IterableStringBuilder& builder, int index) : proxy(builder, index) {}
+    explicit StringIterator(StringBuilderProxy const& proxy) : proxy(proxy) {}
+    StringBuilderProxy const& operator*() const { return proxy; }
+    StringBuilderProxy& operator*() { return proxy; }
+    bool operator!=(StringIterator const& rhs) const { return proxy != rhs.proxy; }
+    bool operator!=(StringIterator&& rhs) const { return proxy != rhs.proxy; }
+    StringIterator operator+(size_t incr) const { return StringIterator(proxy + incr); }
+    void operator++() { ++proxy; }
 
   private:
-    StringBuilderProxy m_proxy;
+    StringBuilderProxy proxy;
   };
 
   // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
@@ -204,18 +240,18 @@ public:
   class StringConstIterator {
   public:
     StringConstIterator(IterableStringBuilder const& builder, int index)
-        : m_builder(builder), m_index(index) {}
-    auto operator*() const { return std::string(m_builder.GetView(m_index)); }
-    bool operator!=(StringConstIterator const& rhs) const { return m_index != rhs.m_index; }
-    bool operator!=(StringConstIterator&& rhs) const { return m_index != rhs.m_index; }
+        : builder(builder), index(index) {}
+    auto operator*() const { return std::string(builder.GetView(index)); }
+    bool operator!=(StringConstIterator const& rhs) const { return index != rhs.index; }
+    bool operator!=(StringConstIterator&& rhs) const { return index != rhs.index; }
     StringConstIterator operator+(int incr) const {
-      return StringConstIterator(m_builder, m_index + incr);
+      return StringConstIterator(builder, index + incr);
     }
-    void operator++() { ++m_index; }
+    void operator++() { ++index; }
 
   private:
-    IterableStringBuilder const& m_builder;
-    int m_index;
+    IterableStringBuilder const& builder;
+    int index;
   };
 
   // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
@@ -246,15 +282,15 @@ public:
   /// Just wrap an iterator around a pointer to the underline c-array
   class NumericIterator {
   public:
-    explicit NumericIterator(value_type* pointer) : m_pointer(pointer) {}
-    value_type& operator*() const { return *m_pointer; }
-    bool operator!=(NumericIterator const& rhs) const { return m_pointer != rhs.m_pointer; }
-    bool operator!=(NumericIterator&& rhs) const { return m_pointer != rhs.m_pointer; }
-    NumericIterator operator+(size_t incr) const { return NumericIterator(m_pointer + incr); }
-    void operator++() { ++m_pointer; }
+    explicit NumericIterator(value_type* pointer) : pointer(pointer) {}
+    value_type& operator*() const { return *pointer; }
+    bool operator!=(NumericIterator const& rhs) const { return pointer != rhs.pointer; }
+    bool operator!=(NumericIterator&& rhs) const { return pointer != rhs.pointer; }
+    NumericIterator operator+(size_t incr) const { return NumericIterator(pointer + incr); }
+    void operator++() { ++pointer; }
 
   private:
-    value_type* m_pointer;
+    value_type* pointer;
   };
 
   // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now
@@ -266,17 +302,17 @@ public:
   /// Just wrap an iterator around a pointer to the underline c-array
   class NumericConstIterator {
   public:
-    explicit NumericConstIterator(value_type const* pointer) : m_pointer(pointer) {}
-    value_type const& operator*() const { return *m_pointer; }
-    bool operator!=(NumericConstIterator const& rhs) const { return m_pointer != rhs.m_pointer; }
-    bool operator!=(NumericConstIterator&& rhs) const { return m_pointer != rhs.m_pointer; }
+    explicit NumericConstIterator(value_type const* pointer) : pointer(pointer) {}
+    value_type const& operator*() const { return *pointer; }
+    bool operator!=(NumericConstIterator const& rhs) const { return pointer != rhs.pointer; }
+    bool operator!=(NumericConstIterator&& rhs) const { return pointer != rhs.pointer; }
     NumericConstIterator operator+(size_t incr) const {
-      return NumericConstIterator(m_pointer + incr);
+      return NumericConstIterator(pointer + incr);
     }
-    void operator++() { ++m_pointer; }
+    void operator++() { ++pointer; }
 
   private:
-    value_type const* m_pointer;
+    value_type const* pointer;
   };
 
   // [https://github.com/symbol-store/BOSS/issues/88] offset is a workaround for now

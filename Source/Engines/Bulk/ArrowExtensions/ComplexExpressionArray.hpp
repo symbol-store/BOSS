@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include "../BatchData.hpp"
+#include "../ArrayData.hpp"
 
 #include "../../../Expression.hpp"
 
@@ -35,9 +35,9 @@ public:
   class ComplexExpressionArrayType : public arrow::ExtensionType {
   public:
     explicit ComplexExpressionArrayType(Symbol const& head, arrow::FieldVector const& fields)
-        : ExtensionType(arrow::struct_(fields)), m_head(head) {}
+        : ExtensionType(arrow::struct_(fields)), head(head) {}
 
-    Symbol const& getHead() const { return m_head; }
+    Symbol const& getHead() const { return head; }
 
     /// Called by Arrow to create our custom ComplexExpressionArray from a
     /// ComplexExpressionArrayBuilder
@@ -46,7 +46,7 @@ public:
       // it will be reverted in the ComplexExpressionArray constructor
       auto adjustedData = data->Copy();
       adjustedData->type = arrow::struct_(storage_type()->fields());
-      return std::make_shared<ComplexExpressionArray>(adjustedData, m_head);
+      return std::make_shared<ComplexExpressionArray>(adjustedData, head);
     }
 
     ///////////////////////////////////////////////////////////////////////
@@ -66,11 +66,11 @@ public:
       return std::make_shared<ComplexExpressionArrayType>(Symbol(serialized),
                                                           storage_type->fields());
     }
-    std::string Serialize() const override { return m_head.getName(); }
+    std::string Serialize() const override { return head.getName(); }
     ///////////////////////////////////////////////////////////////////////
 
   private:
-    Symbol m_head;
+    Symbol head;
   };
 };
 
@@ -99,7 +99,7 @@ public:
                                 arrow::MemoryPool* pool = arrow::default_memory_pool())
       : arrow::StructBuilder(std::make_shared<arrow::StructType>(fields), pool,
                              makeChildBuilders(fields.size(), pool)),
-        m_head(head) {
+        head(head) {
     initialisation();
   }
 
@@ -107,7 +107,7 @@ public:
                                 arrow::MemoryPool* pool = arrow::default_memory_pool())
       : arrow::StructBuilder(std::make_shared<arrow::StructType>(makeFields(argCount)), pool,
                              makeChildBuilders(argCount, pool)),
-        m_head(head) {
+        head(head) {
     initialisation();
   }
 
@@ -116,17 +116,19 @@ public:
             other.arrow::StructBuilder::type(), other.pool_,
             clear ? makeChildBuilders(other.arrow::StructBuilder::type()->num_fields(), other.pool_)
                   : other.children_),
-        m_head(other.m_head) {
+        head(other.head) {
     initialisation();
-    // initialise properly the struct builder
-    // since the children arrays weren't empty but not handle by StructBuilder constructor
-    if(!children_.empty()) {
-      auto length = children_[0]->length();
-      auto reserveStatus = Reserve(length);
-      if(!reserveStatus.ok()) {
-        return;
+    if(!clear) {
+      // initialise properly the struct builder
+      // since the children arrays weren't empty but not handle by StructBuilder constructor
+      if(!children_.empty()) {
+        auto length = children_[0]->length();
+        auto reserveStatus = Reserve(length);
+        if(!reserveStatus.ok()) {
+          return;
+        }
+        UnsafeAppendToBitmap(length, true);
       }
-      UnsafeAppendToBitmap(length, true);
     }
   }
 
@@ -135,17 +137,19 @@ public:
             other.arrow::StructBuilder::type(), other.pool_,
             clear ? makeChildBuilders(other.arrow::StructBuilder::type()->num_fields(), other.pool_)
                   : other.children_),
-        m_head(other.m_head) {
+        head(other.head) {
     initialisation();
-    // initialise properly the struct builder
-    // since the children arrays wreen't empty but not handle by StructBuilder constructor
-    if(!children_.empty()) {
-      auto length = children_[0]->length();
-      auto reserveStatus = Reserve(length);
-      if(!reserveStatus.ok()) {
-        return;
+    if(!clear) {
+      // initialise properly the struct builder
+      // since the children arrays wreen't empty but not handle by StructBuilder constructor
+      if(!children_.empty()) {
+        auto length = children_[0]->length();
+        auto reserveStatus = Reserve(length);
+        if(!reserveStatus.ok()) {
+          return;
+        }
+        UnsafeAppendToBitmap(length, true);
       }
-      UnsafeAppendToBitmap(length, true);
     }
   }
 
@@ -153,11 +157,11 @@ public:
   ComplexExpressionArrayBuilder& operator=(ComplexExpressionArrayBuilder const& other) = delete;
   ComplexExpressionArrayBuilder& operator=(ComplexExpressionArrayBuilder&& other) = delete;
 
-  Symbol const& getHead() { return m_head; }
+  Symbol const& getHead() { return head; }
 
   std::shared_ptr<arrow::DataType> type() const override {
     return std::make_shared<ComplexExpressionArray::ComplexExpressionArrayType>(
-        m_head, arrow::StructBuilder::type()->fields());
+        head, arrow::StructBuilder::type()->fields());
   }
 
   // we resize both the struct array itself and the children arrays.
@@ -206,7 +210,7 @@ public:
   /// Check if the expression type of each argument
   /// is already supported by the child union array builder
   /// or if it will require to create a new array type
-  bool IsSupported(std::vector<BatchData> const& argData) {
+  bool IsSupported(std::vector<ArrayData> const& argData) {
     for(int idx = 0; idx < argData.size(); ++idx) {
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
       auto type = argData[idx].builder->type();
@@ -240,14 +244,15 @@ public:
 
   // [https://github.com/symbol-store/BOSS/issues/88]
   // refactor all the AppendExpression once we have a better array API
-  arrow::Status AppendExpressions(std::vector<BatchData> const& argData) {
+  arrow::Status AppendExpressions(std::vector<ArrayData> const& argData) {
     if(argData.empty()) {
       // no arguments?
       return arrow::Status::OK();
     }
 
     // assuming same length for every argument array
-    auto length = argData[0].arrays.length() + argData[0].builderLogicalSize;
+    auto length = argData[0].builder ? argData[0].arrays.length() + argData[0].builder->length()
+                                     : argData[0].arrays.length();
 
     // append to the args structure
     auto structStatus = Reserve(length);
@@ -269,9 +274,8 @@ public:
       }
 
       // append builder info
-      if(argData[idx].builder && argData[idx].builderLogicalSize > 0) {
-        auto status =
-            argBuilder.AppendExpressions(argData[idx].builder, argData[idx].builderLogicalSize);
+      if(argData[idx].builder && argData[idx].builder->length() > 0) {
+        auto status = argBuilder.AppendExpressions(argData[idx].builder);
         if(!status.ok()) {
           return status;
         }
@@ -309,14 +313,14 @@ public:
 
   // [https://github.com/symbol-store/BOSS/issues/88]
   // refactor all the AppendExpression once we have a better array API
-  arrow::Status AppendExpressions(ComplexExpressionArrayBuilder const& complexArrayBuilder,
-                                  size_t logicalSize) {
+  arrow::Status AppendExpressions(ComplexExpressionArrayBuilder const& complexArrayBuilder) {
+    auto srcSize = complexArrayBuilder.length();
     // append to the args structure
-    auto structStatus = Reserve(logicalSize);
+    auto structStatus = Reserve(srcSize);
     if(!structStatus.ok()) {
       return structStatus;
     }
-    UnsafeAppendToBitmap(logicalSize, true);
+    UnsafeAppendToBitmap(srcSize, true);
 
     // append each argument
     // (assuming matching order between source and destination)
@@ -324,7 +328,7 @@ public:
     for(int i = 0; i < complexArrayBuilder.num_children(); ++i) {
       auto const& srcArgBuilderPtr = complexArrayBuilder.child_builder(i);
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(destIndex++));
-      auto status = argBuilder.AppendExpressions(srcArgBuilderPtr, logicalSize);
+      auto status = argBuilder.AppendExpressions(srcArgBuilderPtr);
       if(!status.ok()) {
         return status;
       }
@@ -345,7 +349,7 @@ public:
   }
 
 private:
-  Symbol m_head;
+  Symbol head;
 
   static arrow::FieldVector makeFields(size_t argCount) {
     arrow::FieldVector fields;
