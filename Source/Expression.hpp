@@ -43,7 +43,8 @@ public:
       ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type;
 
   using SuperType::SuperType;
-  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
+  template <typename... T, typename U = std::tuple<T...>,
+            typename = std::enable_if<std::tuple_size<U>::value != 0>>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
       ExpressionWithAdditionalCustomAtoms<T...> const& o) noexcept
       : SuperType(std::visit(
@@ -59,6 +60,8 @@ public:
             (typename variant_amend<AtomicExpressionWithAdditionalCustomAtoms<T...>,
                                     ComplexExpressionWithAdditionalCustomAtoms<T...>>::type const&)
                 o)) {}
+
+  ExpressionWithAdditionalCustomAtoms() = default;
   ~ExpressionWithAdditionalCustomAtoms() = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) noexcept =
@@ -67,6 +70,36 @@ public:
   operator=(ExpressionWithAdditionalCustomAtoms const&) = default;
   ExpressionWithAdditionalCustomAtoms&
   operator=(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
+
+  bool operator==(ExpressionWithAdditionalCustomAtoms const& other) const {
+    using ComplexExpression = ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+    SuperType const& v1 = *this;
+    SuperType const& v2 = other;
+    if(v1.index() == v2.index()) {
+      return std::visit(
+          utilities::overload(
+              [&v2](ComplexExpression const& r1) {
+                auto const& r2Expression = std::get<ComplexExpression>(v2);
+                if(r1.getHead().getName() != r2Expression.getHead().getName() ||
+                   r1.getArguments().size() != r2Expression.getArguments().size()) {
+                  return false;
+                }
+                for(auto i = 0u; i < r1.getArguments().size(); i++) {
+                  if(r1.getArguments()[i] != r2Expression.getArguments()[i]) {
+                    return false;
+                  }
+                }
+                return true;
+              },
+              [&](Symbol const& r1) { return r1.getName() == std::get<Symbol>(v2).getName(); },
+              [&](auto r1) { return r1 == std::get<decltype(r1)>(v2); }),
+          v1);
+    }
+    return false;
+  }
+  bool operator!=(ExpressionWithAdditionalCustomAtoms const& other) const {
+    return !(*this == other);
+  }
 };
 
 template <typename... AdditionalCustomAtoms>
@@ -83,8 +116,9 @@ public:
       Symbol const& head,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& arguments)
       : head(head), arguments(arguments){};
-  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
-  explicit ComplexExpressionWithAdditionalCustomAtoms(
+  template <typename... T, typename U = std::tuple<T...>,
+            typename = std::enable_if<std::tuple_size<U>::value != 0>>
+  ComplexExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
       ComplexExpressionWithAdditionalCustomAtoms<T...> const& other)
       : head(other.getHead()), arguments([&other] {
           ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments;
@@ -126,7 +160,3 @@ using Expression = DefaultExpressionSystem::Expression;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 
 } // namespace boss
-bool operator==(boss::Expression const& r1, boss::Expression const& r2);
-static bool operator!=(boss::Expression const& r1, boss::Expression const& r2) {
-  return !(r1 == r2);
-};

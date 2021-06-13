@@ -152,7 +152,7 @@ endforeach()
 
 ############################### Executable Targets ###############################
 
-set(ImplementationFiles Source/BOSS.cpp Source/Expression.cpp)
+set(ImplementationFiles Source/BOSS.cpp)
 set(ExecutableFiles Source/main.cpp)
 set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
