@@ -5,6 +5,12 @@
 #include <wstp.h>
 
 namespace boss::engines::wolfram {
+using WolframExpressionSystem = ExtensibleExpressionSystem<std::vector<int>>;
+using AtomicExpression = WolframExpressionSystem::AtomicExpression;
+using ComplexExpression = WolframExpressionSystem::ComplexExpression;
+using Expression = WolframExpressionSystem::Expression;
+using ExpressionArguments = WolframExpressionSystem::ExpressionArguments;
+
 class Engine : public boss::Engine {
 private:
   class EngineImplementation& impl;
@@ -16,7 +22,7 @@ public:
   Engine(Engine&&) = default;
   Engine& operator=(Engine&&) = delete;
   Engine();
-  Expression evaluate(Expression const& e);
+  boss::Expression evaluate(Expression const& e);
   ~Engine();
 };
 } // namespace boss::engines::wolfram

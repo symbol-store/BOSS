@@ -1,12 +1,12 @@
-(GroupBy
+(Group
  (Project
-  (Select Lineitem
-          (Where (And (Greater QUANTITY 25)
-                      (Greater DISCOUNT 3)
-                      (Greater 10 DISCOUNT)
-                      (Greater (UnixTime "1998-01-01") SHIPDATE)
-                      (Greater SHIPDATE (UnixTime "1996-03-08"))
+  (Select LINEITEM
+          (Where (And (Greater L_QUANTITY 25)
+                      (Greater L_DISCOUNT 0.03)
+                      (Greater 0.10 L_DISCOUNT)
+                      (Greater (DateObject "1998-01-01") L_SHIPDATE)
+                      (Greater L_SHIPDATE (DateObject "1996-03-08"))
                       )))
-  (As revenue (Times EXTENDEDPRICE DISCOUNT)))
+  (As revenue (Times L_EXTENDEDPRICE L_DISCOUNT)))
  (Sum revenue)
  )
