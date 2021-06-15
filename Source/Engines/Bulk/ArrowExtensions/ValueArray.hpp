@@ -77,6 +77,8 @@ public:
     }
   }
 
+  ValueArrayBase(ValueArrayBase&& other) noexcept = default;
+
   ~ValueArrayBase() = default;
 
   ValueArrayBase& operator=(ValueArrayBase const& other) = delete;

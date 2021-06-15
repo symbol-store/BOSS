@@ -4,14 +4,20 @@
 
 namespace boss::engines::bulk {
 
-template <bool HoldAllArguments, bool MaxArgumentEvaluation, typename... AllowedArguments>
+enum class ArgumentEvaluationMethod {
+  MAX_EVALUATION, // evaluate again and again as far as output changes
+  UNTIL_MATCHES,  // stop to evaluate when it is compatible
+  ONLY_ONCE,      // try to evaluate once but hold if not compatible
+  HOLD_ALL,       // don't try to evaluate the args
+};
+
+template <ArgumentEvaluationMethod method, typename... AllowedArguments>
 class OperatorWithProperties {
 public:
   class Properties {
   public:
     static size_t constexpr ParameterCount = sizeof...(AllowedArguments);
-    static bool constexpr maxArgumentEvaluation = MaxArgumentEvaluation;
-    static bool constexpr holdAllArguments = HoldAllArguments;
+    static ArgumentEvaluationMethod constexpr argEvaluation = method;
 
     /// Check if the argument type matches one of the expected types for the operator's nth
     /// argument.
@@ -75,11 +81,21 @@ public:
 };
 
 template <typename... AllowedArguments>
-using OperatorWithMaxEvaluation = OperatorWithProperties<false, true, AllowedArguments...>;
+using OperatorWithMaxEvaluation =
+    OperatorWithProperties<ArgumentEvaluationMethod::MAX_EVALUATION, AllowedArguments...>;
+
 template <typename... AllowedArguments>
-using OperatorWithoutMaxEvaluation = OperatorWithProperties<false, false, AllowedArguments...>;
+using OperatorWithoutMaxEvaluation =
+    OperatorWithProperties<ArgumentEvaluationMethod::UNTIL_MATCHES, AllowedArguments...>;
+
 template <typename... AllowedArguments>
-using OperatorHoldAllArguments = OperatorWithProperties<true, false, AllowedArguments...>;
+using OperatorEvaluateOnlyOnce =
+    OperatorWithProperties<ArgumentEvaluationMethod::ONLY_ONCE, AllowedArguments...>;
+
+template <typename... AllowedArguments>
+using OperatorHoldAllArguments =
+    OperatorWithProperties<ArgumentEvaluationMethod::HOLD_ALL, AllowedArguments...>;
+
 template <typename... AllowedArguments>
 using Operator = OperatorWithMaxEvaluation<AllowedArguments...>;
 
@@ -134,10 +150,12 @@ template <size_t N> class OperatorBuilder {
 private:
   template <typename, typename> struct ConcatenateTwoArguments;
   template <typename... Args0, typename... Args1>
-  struct ConcatenateTwoArguments<OperatorWithProperties<false, true, AllowedArguments<Args0...>>,
-                                 OperatorWithProperties<false, true, AllowedArguments<Args1...>>> {
-    using type =
-        OperatorWithProperties<false, true, AllowedArguments<Args0...>, AllowedArguments<Args1...>>;
+  struct ConcatenateTwoArguments<
+      OperatorWithProperties<ArgumentEvaluationMethod::MAX_EVALUATION, AllowedArguments<Args0...>>,
+      OperatorWithProperties<ArgumentEvaluationMethod::MAX_EVALUATION,
+                             AllowedArguments<Args1...>>> {
+    using type = OperatorWithProperties<ArgumentEvaluationMethod::MAX_EVALUATION,
+                                        AllowedArguments<Args0...>, AllowedArguments<Args1...>>;
   };
   template <size_t N1, typename OperatorImpl> struct GenerateFullOperator {
     using type = typename ConcatenateTwoArguments<
@@ -149,7 +167,7 @@ private:
   template <typename... Types>
   using FromElementTypesToAllowedTypes = typename GenerateFullOperator<
       N, OperatorWithProperties<
-             false, true,
+             ArgumentEvaluationMethod::MAX_EVALUATION,
              AllowedArguments<
                  Types...,
                  std::conditional_t<std::disjunction_v<std::is_same<Types, ComplexExpression>,

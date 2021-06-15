@@ -289,7 +289,7 @@ private:
                           [&](Symbol const & /*s*/) -> std::shared_ptr<arrow::ArrayBuilder> {
                             return std::make_shared<SymbolArrayBuilder>(pool_);
                           },
-                          [&](ComplexExpression const& e) -> std::shared_ptr<arrow::ArrayBuilder> {
+                          [&](BulkComplexExpression const& e) -> std::shared_ptr<arrow::ArrayBuilder> {
                             return std::make_shared<ComplexExpressionArrayBuilder>(
                                 e.getHead(), e.getArguments().size(), pool_);
                           },
@@ -350,7 +350,7 @@ private:
                           [&](float /*v*/) -> std::string { return "Float"; },
                           [&](std::string const & /*v*/) -> std::string { return "String"; },
                           [&](Symbol const & /*s*/) -> std::string { return "Symbol"; },
-                          [&](ComplexExpression const& e) { return e.getHead().getName(); },
+                          [&](BulkComplexExpression const& e) { return e.getHead().getName(); },
                           [&](auto const & /*other*/) -> std::string {
                             // we should not try to store any other type
                             // [https://github.com/symbol-store/BOSS/issues/97]
@@ -372,7 +372,7 @@ private:
             [&](Symbol const& s) {
               return dynamic_cast<SymbolArrayBuilder&>(childBuilder).Append(s);
             },
-            [&](ComplexExpression const& e) {
+            [&](BulkComplexExpression const& e) {
               return dynamic_cast<ComplexExpressionArrayBuilder&>(childBuilder).AppendExpression(e);
             },
             [&](auto const& /*other*/) {
@@ -527,27 +527,32 @@ private:
   }
 
   static arrow::Status resizeChildBuilder(arrow::ArrayBuilder& destBuilder, size_t size) {
+    auto currentSize = destBuilder.length();
+    if(currentSize > size) {
+      return arrow::Status::TypeError("shrinking a builder isn't supported");
+    }
+    auto additionalSize = size - currentSize;
     auto const& type = destBuilder.type();
     switch(type->id()) {
     case arrow::Type::BOOL: {
-      return dynamic_cast<IterableBooleanBuilder&>(destBuilder).AppendEmptyValues(size);
+      return dynamic_cast<IterableBooleanBuilder&>(destBuilder).AppendEmptyValues(additionalSize);
     }
     case arrow::Type::INT32: {
-      return dynamic_cast<IterableInt32Builder&>(destBuilder).AppendEmptyValues(size);
+      return dynamic_cast<IterableInt32Builder&>(destBuilder).AppendEmptyValues(additionalSize);
     }
     case arrow::Type::FLOAT: {
-      return dynamic_cast<IterableFloatBuilder&>(destBuilder).AppendEmptyValues(size);
+      return dynamic_cast<IterableFloatBuilder&>(destBuilder).AppendEmptyValues(additionalSize);
     }
     case arrow::Type::STRING: {
-      return dynamic_cast<IterableStringBuilder<>&>(destBuilder).AppendEmptyValues(size);
+      return dynamic_cast<IterableStringBuilder<>&>(destBuilder).AppendEmptyValues(additionalSize);
     }
     case arrow::Type::EXTENSION: {
       auto const& extensionType = dynamic_cast<arrow::ExtensionType const&>(*type);
       if(extensionType.extension_name()[0] == 's') {
-        return dynamic_cast<SymbolArrayBuilder&>(destBuilder).AppendEmptyValues(size);
+        return dynamic_cast<SymbolArrayBuilder&>(destBuilder).AppendEmptyValues(additionalSize);
       }
       // EXPRESSION
-      return dynamic_cast<ComplexExpressionArrayBuilder&>(destBuilder).deepResize(size);
+      return dynamic_cast<ComplexExpressionArrayBuilder&>(destBuilder).deepResize(additionalSize);
     }
 
     default:

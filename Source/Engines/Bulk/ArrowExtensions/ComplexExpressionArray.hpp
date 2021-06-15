@@ -213,7 +213,8 @@ public:
   bool IsSupported(std::vector<ArrayData> const& argData) {
     for(int idx = 0; idx < argData.size(); ++idx) {
       auto& argBuilder = dynamic_cast<ExpressionArrayBuilder&>(*child_builder(idx));
-      auto type = argData[idx].builder->type();
+      auto type = argData[idx].builder ? argData[idx].builder->type()
+                                       : argData[idx].arrays.chunk(0)->type();
       if(!argBuilder.IsSupported(*type)) {
         return false;
       }

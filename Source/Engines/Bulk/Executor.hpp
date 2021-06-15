@@ -159,7 +159,7 @@ private:
   template <typename OperatorProperties>
   static BulkExpression evaluateCandidateArgument(BulkExpression const& candidate,
                                                   size_t parameterIndex) {
-    if constexpr(OperatorProperties::holdAllArguments) {
+    if constexpr(OperatorProperties::argEvaluation == ArgumentEvaluationMethod::HOLD_ALL) {
       return candidate;
     }
 
@@ -173,14 +173,15 @@ private:
       bool hasTypeExpectedByTheOperator =
           OperatorProperties::isSupportedType(parameterIndex, evaluatedExpression);
 
-      if constexpr(OperatorProperties::maxArgumentEvaluation) {
+      if constexpr(OperatorProperties::argEvaluation == ArgumentEvaluationMethod::MAX_EVALUATION) {
         // also check if the evaluated type is still a compatible argument
         if(hadTypeExpectedByTheOperator && !hasTypeExpectedByTheOperator) {
           break;
         }
-      } else {
-        // or if we don't do full evaluation,
-        // just return as soon as it is compatible
+      }
+
+      if constexpr(OperatorProperties::argEvaluation == ArgumentEvaluationMethod::UNTIL_MATCHES) {
+        // if we don't do full evaluation, just return as soon as it is compatible
         if(hasTypeExpectedByTheOperator) {
           break;
         }
@@ -190,9 +191,13 @@ private:
       evaluatedExpression = Executor::evaluate(previousExpression);
 
       hadTypeExpectedByTheOperator = hasTypeExpectedByTheOperator;
+
+      if constexpr(OperatorProperties::argEvaluation == ArgumentEvaluationMethod::ONLY_ONCE) {
+        break;
+      }
     }
 
-    if constexpr(OperatorProperties::maxArgumentEvaluation) {
+    if constexpr(OperatorProperties::argEvaluation == ArgumentEvaluationMethod::MAX_EVALUATION) {
       if(hadTypeExpectedByTheOperator) {
         // if we are here, it means that the evaluated wasn't compatible anymore
         // better return the previous one

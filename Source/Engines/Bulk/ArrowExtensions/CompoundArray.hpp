@@ -38,10 +38,6 @@ public:
         builder(std::move(std::dynamic_pointer_cast<ComplexExpressionArrayBuilder>(arrayBuilder))),
         decomposed(decomposed) {}
 
-  CompoundArray(CompoundArray&& other) noexcept
-      : arrays(std::move(other.arrays)), builder(std::move(other.builder)),
-        decomposed(other.decomposed) {}
-
   // clear: if true, we create only the column structure but not copying the data
   CompoundArray(CompoundArray const& other, bool clear = false)
       : builder(other.builder != nullptr
@@ -52,6 +48,8 @@ public:
       arrays.append(other.arrays);
     }
   }
+
+  CompoundArray(CompoundArray&& other) noexcept = default;
 
   ~CompoundArray() = default;
   CompoundArray& operator=(CompoundArray const& other) = delete;
@@ -211,7 +209,6 @@ public:
   }
 
   void resize(size_t size) {
-    // resize the parent array, but not the children
     if(builder) {
       auto status = builder->deepResize(size);
       if(!status.ok()) {
@@ -286,12 +283,7 @@ public:
     return arrow::FieldVector{};
   }
 
-  size_t length() const {
-    if(!decomposed) {
-      return numArguments();
-    }
-    return decomposed ? numRows() : numArguments();
-  }
+  size_t length() const { return decomposed ? numRows() : numArguments(); }
 
   // [https://github.com/symbol-store/BOSS/issues/88] ideally should not be exposed
   size_t numChunks() const { return arrays.num_chunks(); }
@@ -357,7 +349,7 @@ public:
   }
 
   template <typename Func> void visitPartitions(Func&& visitor) const {
-    for(auto chunk : arrays.chunks()) {
+    for(auto const& chunk : arrays.chunks()) {
       visitor(std::make_shared<CompoundArray>(arrow::ArrayVector{chunk}, nullptr, decomposed));
     }
     if(builder && builder->length() > 0) {

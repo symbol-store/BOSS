@@ -81,7 +81,7 @@ public:
     };
 
     using ReturnType = ReturnType<std::decay_t<decltype(func)>, std::decay_t<decltype(in)>...>;
-    using ArrayType = std::conditional_t<std::is_same_v<ReturnType, ComplexExpression>,
+    using ArrayType = std::conditional_t<std::is_same_v<ReturnType, BulkComplexExpression>,
                                          CompoundArray, ValueArray<ReturnType>>;
 
     auto output = std::make_shared<ArrayType>();
@@ -116,7 +116,7 @@ public:
     for(auto srcArg : srcArray) {
       CollectionVisitDispatcher::visit(
           [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
-          srcArg);
+          Executor::evaluate(srcArg)); // evaluate the column before inserting it
     }
     destArray.append(srcArray.getHead(), argData);
   }
@@ -129,34 +129,41 @@ public:
     static_assert(std::is_same_v<std::remove_const_t<SrcArrayType>, DestArrayType>);
     // special case for columns of complex expressions
     if constexpr(std::is_base_of_v<CompoundArray, SrcArrayType>) {
+      // evaluate the columns before inserting them
+      BulkExpressionArguments evaluatedSrcArgs;
+      evaluatedSrcArgs.reserve(srcArray.numArguments());
+      for(auto srcArg : srcArray) {
+        evaluatedSrcArgs.emplace_back(Executor::evaluate(srcArg));
+      }
       // make sure the columns exist in the destination
       // but just initialise them empty so far
       std::vector<ArrayData> argData;
-      argData.reserve(srcArray.numArguments());
-      for(auto srcArg : srcArray) {
+      argData.reserve(evaluatedSrcArgs.size());
+      for(auto const& srcArg : evaluatedSrcArgs) {
         CollectionVisitDispatcher::visit(
             [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
             srcArg);
       }
       destArray.initArguments(srcArray.getHead(), argData);
       // then recursive call for every argument
-      size_t prevSize = destArray.length();
       if(needResize) {
+        size_t prevSize = destArray.numRows();
+        offset += prevSize;
         size_t numRowsToInsert = rowIndices.size();
         destArray.resize(prevSize + numRowsToInsert);
       }
       auto destArgIt = destArray.begin();
-      for(auto srcArg : srcArray) {
+      for(auto const& srcArg : evaluatedSrcArgs) {
         CollectionVisitDispatcher::visit(
-            [&destArgIt, &rowIndices, &prevSize](auto const& srcColumnPtr) {
+            [&destArgIt, &rowIndices, &offset](auto const& srcColumnPtr) {
               using ColumnType = std::decay_t<decltype(srcColumnPtr)>;
               // insert to existing arg column
               // assuming destination column is same type
               auto destArg = *destArgIt;
               ExpressionVisitDispatcher<ColumnType>::visit(
-                  [&srcColumnPtr, &rowIndices, &prevSize](auto& destColumnPtr) {
+                  [&srcColumnPtr, &rowIndices, &offset](auto& destColumnPtr) {
                     auto& destColumn = *destColumnPtr;
-                    insertRowValuesInOrder(destColumn, *srcColumnPtr, rowIndices, false, prevSize);
+                    insertRowValuesInOrder(destColumn, *srcColumnPtr, rowIndices, false, offset);
                   },
                   destArg);
               ++destArgIt;
@@ -165,7 +172,7 @@ public:
       }
       return;
     }
-    // general case
+    // general case (for value arrays)
     if(needResize) {
       auto prevSize = destArray.length();
       offset += prevSize;
@@ -188,35 +195,42 @@ public:
     static_assert(std::is_same_v<std::remove_const_t<SrcArrayType>, DestArrayType>);
     // special case for columns of complex expressions
     if constexpr(std::is_base_of_v<CompoundArray, SrcArrayType>) {
+      // evaluate the columns before inserting them
+      BulkExpressionArguments evaluatedSrcArgs;
+      evaluatedSrcArgs.reserve(srcArray.numArguments());
+      for(auto srcArg : srcArray) {
+        evaluatedSrcArgs.emplace_back(Executor::evaluate(srcArg));
+      }
       // make sure the columns exist in the destination
       // but just initialise them empty so far
       std::vector<ArrayData> argData;
-      argData.reserve(srcArray.numArguments());
-      for(auto srcArg : srcArray) {
+      argData.reserve(evaluatedSrcArgs.size());
+      for(auto const& srcArg : evaluatedSrcArgs) {
         CollectionVisitDispatcher::visit(
             [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
             srcArg);
       }
       destArray.initArguments(srcArray.getHead(), argData);
       // then recursive call for every argument
-      size_t prevSize = destArray.length();
       if(needResize) {
+        size_t prevSize = destArray.numRows();
+        offset += prevSize;
         size_t numRowsToInsert = conditionArray.calculateBitCount();
-        destArray.resize(numRowsToInsert);
+        destArray.resize(prevSize + numRowsToInsert);
       }
       auto destArgIt = destArray.begin();
-      for(auto srcArg : srcArray) {
+      for(auto const& srcArg : evaluatedSrcArgs) {
         CollectionVisitDispatcher::visit(
-            [&destArgIt, &conditionArray, &prevSize](auto const& srcColumnPtr) {
+            [&destArgIt, &conditionArray, &offset](auto const& srcColumnPtr) {
               using ColumnType = std::decay_t<decltype(srcColumnPtr)>;
               // insert to existing arg column
               // assuming destination column is same type
               auto destArg = *destArgIt;
               ExpressionVisitDispatcher<ColumnType>::visit(
-                  [&srcColumnPtr, &conditionArray, &prevSize](auto& destColumnPtr) {
+                  [&srcColumnPtr, &conditionArray, &offset](auto& destColumnPtr) {
                     auto& destColumn = *destColumnPtr;
                     insertRowValuesWithCondition(destColumn, *srcColumnPtr, conditionArray, false,
-                                                 prevSize);
+                                                 offset);
                   },
                   destArg);
               ++destArgIt;

@@ -121,7 +121,7 @@ BulkExpression createExpression(arrow::ArrayVector&& arrays,
     // COMPLEX EXPRESSION
     auto arrayPtr =
         std::make_shared<CompoundArray>(std::move(arrays), std::move(arrayBuilder), false);
-    if(canCreateScalar && arrayPtr->length() == 1) {
+    if(canCreateScalar && arrayPtr->numRows() == 1) {
       BulkExpressionArguments args;
       auto numColumns = arrayPtr->numArguments();
       args.reserve(numColumns);
@@ -169,7 +169,7 @@ Expression toBossExpression(BulkExpression const& bulkExpression) {
         // [https://github.com/symbol-store/BOSS/issues/91] find a way to garbage-collect them
         static int i = 0;
         std::string symbolName = "_table" + std::to_string(i++);
-        auto numRows = tableArray.length();
+        auto numRows = tableArray.numRows();
         auto numCols = tableArray.numArguments();
         symbolName += "_cols" + std::to_string(numCols) + "rows" + std::to_string(numRows);
         storedSymbol = Symbol(symbolName);

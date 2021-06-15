@@ -78,7 +78,7 @@ private:
     }
   };
 
-  class InsertIntoOperator : public Operator<TableArgument, ListArgument> {
+  class InsertIntoOperator : public OperatorEvaluateOnlyOnce<TableArgument, ListArgument> {
   public:
     template <typename TableArrayType, typename RowType>
     BulkExpression evaluate(TableArrayType const& tableArrayPtr,
