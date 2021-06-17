@@ -14,6 +14,11 @@ enum class ArgumentEvaluationMethod {
 template <ArgumentEvaluationMethod method, typename... AllowedArguments>
 class OperatorWithProperties {
 public:
+  // set the context from which the arguments are evaluated
+  // so we have the information we need for vertical operations (such as interpolation etc)
+  void setContext(CompoundArray const* contextArray) { this->contextArray = contextArray; }
+  void clearContext() { contextArray = nullptr; }
+
   class Properties {
   public:
     static size_t constexpr ParameterCount = sizeof...(AllowedArguments);
@@ -78,6 +83,12 @@ public:
       return funcIsSupportedType(expression);
     }
   }; // class Properties
+
+protected:
+  CompoundArray const* getContextArray() const { return contextArray; }
+
+private:
+  CompoundArray const* contextArray;
 };
 
 template <typename... AllowedArguments>

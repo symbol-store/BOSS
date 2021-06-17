@@ -213,6 +213,50 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::bulk::Engine) { // NOLIN
       CHECK(get<int>(eval("Extract"_("Extract"_(countMadden, 1), 1))) == 1);
     }
   }
+  
+  SECTION("Interpolation") {
+    eval("CreateTable"_("Weather"_, "ID"_, "dt"_, "temp"_, "windSpeed"_));
+      
+    auto interpolate = []() {
+      return "Unevaluated"_("Times"_("Plus"_("LastKnownFloat"_(), "NextKnownFloat"_()), 0.5f));
+    };
+
+    std::vector<int> dts{1420070400, 1420074000, 1420077600, 1420081200, 1420084800, 1420088400,
+                         1420092000, 1420095600, 1420099200, 1420102800, 1420106400, 1420108000};
+    std::vector<float> temps{282.0f,  281.79f, 282.0f,  282.38f, 282.53f, 282.58f,
+                             282.23f, 282.05f, 281.97f, 282.12f, 282.64f};
+    std::vector<float> windSpeeds{
+        5.7f, 6.7f, 7.7f, 8.2f, 10.3f, 9.3f, 8.2f, 7.2f, 8.8f, 6.7f, 7.2f,
+    };
+
+    int numImputed = 0;
+    for(int i = 0; i < dts.size(); ++i) {
+      auto dt = dts[i];
+      if(dt % 1000 == 0) {
+        ++numImputed;
+        eval("InsertInto"_("Weather"_, "List"_("IMPUTED", dt, interpolate(), interpolate())));
+      } else {
+        eval("InsertInto"_("Weather"_, "List"_("FETCHED", dt, temps[i], windSpeeds[i])));
+      }
+    }
+
+    auto const& rows = eval("Select"_("Weather"_, "Function"_(true)));
+    CHECK(get<int>(eval("Length"_(rows))) == dts.size());
+
+    auto const& imputedRows = eval(
+        "Select"_("Weather"_, "Function"_("List"_("tuple"_),
+                                          "StringContainsQ"_("IMPUTED", "Column"_("tuple"_, 1)))));
+    CHECK(get<int>(eval("Length"_(imputedRows))) == numImputed);
+
+    for(int index = 1; index <= numImputed; ++index) {
+      auto const& imputedRow = eval("Extract"_(imputedRows, index));
+      CHECK(get<int>(eval("Extract"_(imputedRow, 2))) != 0);
+      CHECK(get<float>(eval("Extract"_(imputedRow, 3))) > 280.0f);
+      CHECK(get<float>(eval("Extract"_(imputedRow, 3))) < 283.0f);
+      CHECK(get<float>(eval("Extract"_(imputedRow, 4))) > 5.0f);
+      CHECK(get<float>(eval("Extract"_(imputedRow, 4))) < 11.0f);
+    }
+  }
 }
 
 TEMPLATE_TEST_CASE("WolframSpecifics", "[wolfram]", boss::engines::wolfram::Engine) { // NOLINT

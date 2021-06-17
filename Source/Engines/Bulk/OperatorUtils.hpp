@@ -60,6 +60,10 @@ public:
                                 std::shared_ptr<ValueArray<Symbol>>,
                                 std::shared_ptr<CompoundArray>>;
 
+  using SimpleTypeCollectionVisitDispatcher =
+      ExpressionVisitDispatcher<std::shared_ptr<ValueArray<SupportedTypes>>...,
+                                std::shared_ptr<ValueArray<Symbol>>>;
+
   using CollectionVisitDispatcher =
       ExpressionVisitDispatcher<std::shared_ptr<ValueArray<SupportedTypes>>...,
                                 std::shared_ptr<ValueArray<Symbol>>,

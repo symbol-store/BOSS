@@ -37,36 +37,58 @@ public:
   void clear() { operators.clear(); }
 
   BulkExpression findAndExecuteOperator(BulkExpression const& expression) const {
-    return std::visit(utilities::overload(
-                          [this](BulkComplexExpression const& complexExpression) -> BulkExpression {
-                            auto const& head = complexExpression.getHead();
-                            auto const numArgs = complexExpression.getArguments().size();
-                            auto const* container = findOperatorContainer(head, numArgs);
-                            if(container != nullptr) {
-                              return container->execute(complexExpression);
-                            }
-                            if(head.getName() == "List") {
-                              // if we cannot find an operator for this head,
-                              // at least evaluate arguments and return as is
-                              return evaluateArguments(complexExpression);
-                            }
-                            return complexExpression;
-                          },
-                          [this](Symbol const& symbol) {
-                            BulkComplexExpression symbolExpr(Symbol("Symbol"), {symbol.getName()});
-                            auto const* container = findOperatorContainer(symbolExpr.getHead(), 1);
-                            return container != nullptr ? container->execute(symbolExpr) : symbol;
-                          },
-                          [&expression](auto const& /*other*/) {
-                            // any other type: just return as is
-                            return expression;
-                          }),
-                      (BulkExpression::SuperType const&)expression);
+    return std::visit(
+        utilities::overload(
+            [this](BulkComplexExpression const& complexExpression) -> BulkExpression {
+              auto const& head = complexExpression.getHead();
+              auto const numArgs = complexExpression.getArguments().size();
+              auto* container = findOperatorContainer(head, numArgs);
+              if(container != nullptr) {
+                return container->execute(complexExpression);
+              }
+              if(head.getName() == "List") {
+                // if we cannot find an operator for this head,
+                // at least evaluate arguments and return as is
+                return evaluateArguments(complexExpression);
+              }
+              return complexExpression;
+            },
+            [this](Symbol const& symbol) {
+              BulkComplexExpression symbolExpr(Symbol("Symbol"), {symbol.getName()});
+              auto* container = findOperatorContainer(symbolExpr.getHead(), 1);
+              return container != nullptr ? container->execute(symbolExpr) : symbol;
+            },
+            [this](std::shared_ptr<CompoundArray> const& compoundArrayPtr) -> BulkExpression {
+              auto const& compoundArray = *compoundArrayPtr;
+              if(compoundArray.isDecomposed()) {
+                // we cannot turn it directly into an expression
+                // without transposing the rows
+                // so just keep it as a CompoundArray
+                return compoundArrayPtr;
+              }
+              auto const& head = compoundArray.getHead();
+              auto const numArgs = compoundArray.numArguments();
+              auto* container = findOperatorContainer(head, numArgs);
+              if(container == nullptr) {
+                return compoundArrayPtr;
+              }
+              BulkExpressionArguments args;
+              args.reserve(numArgs);
+              for(auto&& arg : compoundArray) {
+                args.emplace_back(std::move(arg));
+              }
+              return container->execute(BulkComplexExpression(head, args), &compoundArray);
+            },
+            [&expression](auto const& /*other*/) {
+              // any other type: just return as is
+              return expression;
+            }),
+        (BulkExpression::SuperType const&)expression);
   }
 
   /// return < 0 if the operator cannot be found
   int findOperatorAndGetNumParameters(Symbol const& head) const {
-    auto const* container = findOperatorContainer(head);
+    auto* container = findOperatorContainer(head);
     if(container != nullptr) {
       return container->numParameters();
     }
@@ -112,7 +134,8 @@ private:
     OperatorContainerBase& operator=(OperatorContainerBase&& other) noexcept = default;
 
     virtual unsigned int numParameters() const = 0;
-    virtual BulkExpression execute(BulkComplexExpression const& expression) const = 0;
+    virtual BulkExpression execute(BulkComplexExpression const& expression,
+                                   CompoundArray const* contextArray = nullptr) = 0;
   };
 
   template <typename OperatorType> class OperatorContainer : public OperatorContainerBase {
@@ -122,8 +145,12 @@ private:
 
     unsigned int numParameters() const override { return OperatorType::Properties::ParameterCount; }
 
-    BulkExpression execute(BulkComplexExpression const& expression) const override {
-      return Executor::execute(op, expression);
+    BulkExpression execute(BulkComplexExpression const& expression,
+                           CompoundArray const* contextArray = nullptr) override {
+      op.setContext(contextArray);
+      auto result = Executor::execute(op, expression);
+      op.clearContext();
+      return result;
     }
 
   private:
@@ -134,8 +161,8 @@ private:
   /// - if an operator with exactly numArgs cannot be found,
   /// it will try to find the closest match < numArgs
   /// - if called without numArgs, it will try to find the operator with largest numArgs
-  OperatorContainerBase const* findOperatorContainer(Symbol const& symbol,
-                                                     size_t numArgs = size_t(-1)) const {
+  OperatorContainerBase* findOperatorContainer(Symbol const& symbol,
+                                               size_t numArgs = size_t(-1)) const {
     OperatorKey key(symbol.getName(), numArgs);
     auto operatorIt = operators.find(key);
     if(operatorIt != operators.end()) {

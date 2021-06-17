@@ -5,8 +5,8 @@
 #include "../BulkExpression.hpp"
 #include "ComplexExpressionArray.hpp"
 #include "ExpressionArray.hpp"
-
-#include "../ArrowExtensions/MutableChunkedArray.hpp"
+#include "MutableChunkedArray.hpp"
+#include "ValueArrayTypes.hpp"
 
 #include "../../../Expression.hpp"
 
@@ -222,9 +222,42 @@ public:
     builder.reset();
   }
 
-  void setOwner(CompoundArray const* parentArray, size_t childIndex = 0) {
+  void setParent(CompoundArray const* parentArray, size_t childIndex = 0) {
     this->parentArray = parentArray;
     this->childIndex = childIndex;
+  }
+
+  /// used to keep track of the global position when extracting a partition
+  void setGlobalPosition(CompoundArray const* globalArray, size_t globalIndex) {
+    this->globalArray = globalArray;
+    this->globalIndex = globalIndex;
+  }
+
+  /// get the array at the top of the parent hierarchy
+  /// (to retrieve the table/query result)
+  CompoundArray const* getGlobalArray() const {
+    if(parentArray == nullptr) {
+      return globalArray;
+    }
+    return parentArray->getGlobalArray();
+  }
+
+  /// get the index of the column where this array belongs
+  int getGlobalColumnIndex() const {
+    if(parentArray == nullptr) {
+      return -1;
+    }
+    int index = parentArray->getGlobalColumnIndex();
+    return index < 0 ? static_cast<int>(childIndex) : index;
+  }
+
+  /// get the row index for the beginning of this array
+  /// at the top of the parent hierarchy
+  size_t getGlobalRowIndex() const {
+    if(parentArray == nullptr) {
+      return globalIndex;
+    }
+    return parentArray->getGlobalRowIndex();
   }
 
   ArrayData data() const { return ArrayData(arrays, builder, getField()); }
@@ -349,11 +382,18 @@ public:
   }
 
   template <typename Func> void visitPartitions(Func&& visitor) const {
+    size_t globalIndex = 0;
     for(auto const& chunk : arrays.chunks()) {
-      visitor(std::make_shared<CompoundArray>(arrow::ArrayVector{chunk}, nullptr, decomposed));
+      auto partition =
+          std::make_shared<CompoundArray>(arrow::ArrayVector{chunk}, nullptr, decomposed);
+      partition->setGlobalPosition(this, globalIndex);
+      visitor(std::move(partition));
+      globalIndex += chunk->length();
     }
     if(builder && builder->length() > 0) {
-      visitor(std::make_shared<CompoundArray>(arrow::ArrayVector{}, builder, decomposed));
+      auto partition = std::make_shared<CompoundArray>(arrow::ArrayVector{}, builder, decomposed);
+      partition->setGlobalPosition(this, globalIndex);
+      visitor(std::move(partition));
     }
   }
 
@@ -377,6 +417,175 @@ public:
   ColumnIterator begin() const { return ColumnIterator(*this); }
   ColumnIterator end() const { return ColumnIterator(*this, numArguments()); }
 
+  /** An iterator to go through the values in a heterogeneous column
+   * with the ability to retrieve only a certain type
+   * and skip the values of other types. */
+  template <typename T> class IntraColumnIterator {
+  private:
+    using CorrectArrayType = typename ValueArrayTypeToArrowType<T>::arrayType;
+    using CorrectBuilderType = typename ValueArrayTypeToArrowType<T>::builderType;
+
+  public:
+    IntraColumnIterator(arrow::ArrayVector&& arrays,
+                        std::shared_ptr<arrow::ArrayBuilder> const& builder, size_t chunkIndex = 0,
+                        size_t rowIndex = 0)
+        : IntraColumnIterator(std::move(arrays), builder, chunkIndex,
+                              std::make_shared<std::vector<bool>>(), rowIndex) {
+      // cache the condition if the array type matching the type T
+      // so we can faster at iterating and returning the values
+      correctTypes.reserve(this->arrays.size() + 1);
+      for(auto const& arrayPtr : this->arrays) {
+        correctTypes.emplace_back(arrayPtr->type_id() == ValueArrayTypeToArrowType<T>::arrowTypeId);
+      }
+      if(builder) {
+        correctTypes.emplace_back(builder->type()->id() ==
+                                  ValueArrayTypeToArrowType<T>::arrowTypeId);
+      } else {
+        correctTypes.emplace_back(false);
+      }
+    }
+    IntraColumnIterator(arrow::ArrayVector&& arrays,
+                        std::shared_ptr<arrow::ArrayBuilder> const& builder, size_t chunkIndex,
+                        std::shared_ptr<std::vector<bool>> const& correctTypesPtr,
+                        size_t rowIndex = 0)
+        : correctTypesPtr(correctTypesPtr),
+          arraysPtr(std::make_shared<arrow::ArrayVector>(std::move(arrays))), builder(builder),
+          chunkIndex(chunkIndex), rowIndex(rowIndex), correctTypes(*correctTypesPtr),
+          arrays(*arraysPtr) {}
+    IntraColumnIterator(std::shared_ptr<arrow::ArrayVector> const& arraysPtr,
+                        std::shared_ptr<arrow::ArrayBuilder> const& builder, size_t chunkIndex,
+                        std::shared_ptr<std::vector<bool>> const& correctTypesPtr,
+                        size_t rowIndex = 0)
+        : correctTypesPtr(correctTypesPtr), arraysPtr(arraysPtr), builder(builder),
+          chunkIndex(chunkIndex), rowIndex(rowIndex), correctTypes(*correctTypesPtr),
+          arrays(*arraysPtr) {}
+
+    T operator*() const { // this operator should be called only for a matching type!
+      // TODO: check how expensive is this condition when using in a loop
+      if(chunkIndex >= arrays.size()) {
+        return T(*(static_cast<CorrectBuilderType const*>(builder.get())->begin() + rowIndex));
+      }
+      if constexpr(std::is_same_v<T, Symbol> || std::is_same_v<T, std::string>) {
+        return T(std::string(
+            static_cast<CorrectArrayType const*>(arrays[chunkIndex].get())->GetView(rowIndex)));
+      } else {
+        return static_cast<CorrectArrayType const*>(arrays[chunkIndex].get())->Value(rowIndex);
+      }
+    }
+    bool operator!=(IntraColumnIterator const& rhs) const {
+      return chunkIndex != rhs.chunkIndex || rowIndex != rhs.rowIndex;
+    }
+    bool operator!=(IntraColumnIterator&& rhs) const {
+      return chunkIndex != rhs.chunkIndex || rowIndex != rhs.rowIndex;
+    }
+    IntraColumnIterator operator+(size_t incr) const {
+      size_t nextChunkIndex = chunkIndex;
+      size_t nextRowIndex = rowIndex + incr;
+      while(nextChunkIndex < arrays.size() && nextRowIndex >= arrays[nextChunkIndex]->length()) {
+        nextRowIndex -= arrays[nextChunkIndex]->length();
+        ++nextChunkIndex;
+      }
+      return IntraColumnIterator(arraysPtr, builder, nextChunkIndex, correctTypesPtr, nextRowIndex);
+    }
+    IntraColumnIterator operator-(size_t decr) const {
+      size_t prevChunkIndex = chunkIndex;
+      int prevRowIndex = rowIndex - decr;
+      while(prevChunkIndex > 0 && prevRowIndex < 0) {
+        if(prevChunkIndex < arrays.size()) {
+          prevRowIndex += arrays[prevChunkIndex]->length();
+        } else {
+          prevRowIndex += builder->length();
+        }
+        --prevChunkIndex;
+      }
+      return IntraColumnIterator(arraysPtr, builder, prevChunkIndex, correctTypesPtr, prevRowIndex);
+    }
+    void operator++() {
+      ++rowIndex;
+      if(chunkIndex < arrays.size()) {
+        if(rowIndex >= arrays[chunkIndex]->length()) {
+          rowIndex = 0;
+          ++chunkIndex;
+          return;
+        }
+      }
+    }
+    void operator--() {
+      if(chunkIndex == 0) {
+        if(rowIndex == 0) {
+          if(chunkIndex < arrays.size()) {
+            rowIndex = arrays[chunkIndex]->length() - 1;
+          } else {
+            rowIndex = builder->length() - 1;
+          }
+          --chunkIndex;
+          return;
+        }
+      }
+      --rowIndex;
+    }
+
+    bool isMatchingType() const { return correctTypes[chunkIndex]; }
+    void incrementUntilMatchingType() {
+      this->operator++();
+      if(isMatchingType()) {
+        return;
+      }
+      while(chunkIndex <= arrays.size()) {
+        // try next chunk/builder
+        ++chunkIndex;
+        rowIndex = 0;
+        if(isMatchingType()) {
+          return;
+        }
+      }
+    }
+    void decrementUntilMatchingType() {
+      this->operator--();
+      if(isMatchingType()) {
+        return;
+      }
+      while(chunkIndex > 0) {
+        // try previous chunk/builder
+        --chunkIndex;
+        rowIndex = arrays[chunkIndex]->length() - 1;
+        if(isMatchingType()) {
+          return;
+        }
+      }
+    }
+
+  private:
+    std::shared_ptr<std::vector<bool>> correctTypesPtr;
+    std::shared_ptr<arrow::ArrayVector> arraysPtr;
+    std::shared_ptr<arrow::ArrayBuilder> builder;
+    size_t chunkIndex;
+    size_t rowIndex;
+
+    // cache
+    arrow::ArrayVector& arrays;
+    std::vector<bool>& correctTypes;
+  };
+
+  template <typename T> auto intraColumnBegin(size_t columnIndex) const {
+    // retrieve all the array chunks from the child array
+    arrow::ArrayVector argChunks;
+    argChunks.reserve(numChunks());
+    for(size_t chunkIdx = 0; chunkIdx < numChunks(); ++chunkIdx) {
+      argChunks.emplace_back(getChildChunk(columnIndex, chunkIdx));
+    }
+    // + retrieve the child builder if it has been used (and not yet finished into an array)
+    std::shared_ptr<arrow::ArrayBuilder> argBuilder = getChildBuilder(columnIndex);
+    return IntraColumnIterator<T>(std::move(argChunks), argBuilder);
+  }
+  template <typename T> auto intraColumnEnd(size_t columnIndex) const {
+    // nothing else than chunks size and builder's row indexes matter for the end iterator
+    auto builder = getChildBuilder(columnIndex);
+    auto builderLength = builder ? builder->length() : 0;
+    return IntraColumnIterator<T>(arrow::ArrayVector{}, builder, numChunks(), nullptr,
+                                  builderLength);
+  }
+
 private:
   bool decomposed;
 
@@ -385,6 +594,9 @@ private:
 
   CompoundArray const* parentArray = nullptr;
   size_t childIndex = 0;
+
+  CompoundArray const* globalArray = this;
+  size_t globalIndex = 0;
 
   void addArgument(std::string const& argName) {
     arrow::FieldVector fields;

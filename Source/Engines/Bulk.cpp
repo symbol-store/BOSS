@@ -8,6 +8,7 @@
 #include "Bulk/BuiltinFunctions/ComparisonFunctions.hpp"
 #include "Bulk/BuiltinFunctions/ConversionFunctions.hpp"
 #include "Bulk/BuiltinFunctions/DBManagementOps.hpp"
+#include "Bulk/BuiltinFunctions/Imputation.hpp"
 #include "Bulk/BuiltinFunctions/LogicFunctions.hpp"
 #include "Bulk/BuiltinFunctions/Queries.hpp"
 #include "Bulk/BuiltinFunctions/StringFunctions.hpp"
@@ -45,6 +46,7 @@ Engine::Engine() {
     Aggregates<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
     DBManagementOps<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
     Queries<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
+    Imputation<OperatorUtilsImpl, OperatorRegistryWithExecutor>::registerAll();
   }
 }
 
@@ -74,7 +76,7 @@ BulkExpression createExpression(arrow::ArrayVector&& arrays,
       auto const& constArray = *arrayPtr;
       return static_cast<bool>(*constArray.begin());
     }
-    arrayPtr->setOwner(parent, childIndex);
+    arrayPtr->setParent(parent, childIndex);
     return arrayPtr;
   }
   case arrow::Type::INT32: {
@@ -83,7 +85,7 @@ BulkExpression createExpression(arrow::ArrayVector&& arrays,
       auto const& constArray = *arrayPtr;
       return static_cast<int>(*constArray.begin());
     }
-    arrayPtr->setOwner(parent, childIndex);
+    arrayPtr->setParent(parent, childIndex);
     return arrayPtr;
   }
   case arrow::Type::FLOAT: {
@@ -92,7 +94,7 @@ BulkExpression createExpression(arrow::ArrayVector&& arrays,
       auto const& constArray = *arrayPtr;
       return static_cast<float>(*constArray.begin());
     }
-    arrayPtr->setOwner(parent, childIndex);
+    arrayPtr->setParent(parent, childIndex);
     return arrayPtr;
   }
   case arrow::Type::STRING: {
@@ -102,7 +104,7 @@ BulkExpression createExpression(arrow::ArrayVector&& arrays,
       auto const& constArray = *arrayPtr;
       return static_cast<std::string>(*constArray.begin());
     }
-    arrayPtr->setOwner(parent, childIndex);
+    arrayPtr->setParent(parent, childIndex);
     return arrayPtr;
   }
   case arrow::Type::EXTENSION: {
@@ -115,7 +117,7 @@ BulkExpression createExpression(arrow::ArrayVector&& arrays,
         auto const& constArray = *arrayPtr;
         return static_cast<Symbol>(*constArray.begin());
       }
-      arrayPtr->setOwner(parent, childIndex);
+      arrayPtr->setParent(parent, childIndex);
       return arrayPtr;
     }
     // COMPLEX EXPRESSION
@@ -130,7 +132,7 @@ BulkExpression createExpression(arrow::ArrayVector&& arrays,
       }
       return BulkComplexExpression(arrayPtr->getHead(), args);
     }
-    arrayPtr->setOwner(parent, childIndex);
+    arrayPtr->setParent(parent, childIndex);
     return arrayPtr;
   }
   default:

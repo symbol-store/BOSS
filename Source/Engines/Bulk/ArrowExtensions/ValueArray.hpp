@@ -1,36 +1,12 @@
 #pragma once
 
-#include "../ArrowExtensions/CompoundArray.hpp"
-#include "../ArrowExtensions/IterableBuilders.hpp"
-#include "../ArrowExtensions/MutableChunkedArray.hpp"
-#include "../ArrowExtensions/SymbolArray.hpp"
+#include "CompoundArray.hpp"
+#include "MutableChunkedArray.hpp"
+#include "ValueArrayTypes.hpp"
 
 #include <arrow/array.h>
 
 namespace boss::engines::bulk {
-
-// builder type and array type we use for all the data types supported by ValueArray
-template <typename T> struct ValueArrayTypeToArrowType;
-template <> struct ValueArrayTypeToArrowType<bool> {
-  using arrayType = arrow::BooleanArray;
-  using builderType = IterableBooleanBuilder;
-};
-template <> struct ValueArrayTypeToArrowType<int> {
-  using arrayType = arrow::Int32Array;
-  using builderType = IterableInt32Builder;
-};
-template <> struct ValueArrayTypeToArrowType<float> {
-  using arrayType = arrow::FloatArray;
-  using builderType = IterableFloatBuilder;
-};
-template <> struct ValueArrayTypeToArrowType<std::string> {
-  using arrayType = arrow::StringArray;
-  using builderType = IterableStringBuilder<>;
-};
-template <> struct ValueArrayTypeToArrowType<Symbol> {
-  using arrayType = SymbolArray;
-  using builderType = SymbolArrayBuilder;
-};
 
 template <typename T> class ValueArrayBase {
 private:
@@ -150,7 +126,7 @@ public:
   /// used to set the owner (parent array) after creating a child array in CompoundArray::column()
   /// so the parent can freezeData() when the child need to freezeData()
   /// since it should always be done together
-  void setOwner(CompoundArray const* parentArray, size_t childIndex = 0) {
+  void setParent(CompoundArray const* parentArray, size_t childIndex = 0) {
     this->parentArray = parentArray;
     this->childIndex = childIndex;
   }
