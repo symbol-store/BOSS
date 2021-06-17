@@ -109,6 +109,7 @@ public:
     return columnsPtr;
   }
 
+  // https://github.com/symbol-store/BOSS/issues/104
   template <typename DestArrayType, typename SrcArrayType>
   static void insertAllRows(DestArrayType& destArray, SrcArrayType const& srcArray) {
     std::vector<ArrayData> argData;
@@ -121,6 +122,7 @@ public:
     destArray.append(srcArray.getHead(), argData);
   }
 
+  // https://github.com/symbol-store/BOSS/issues/104
   /// copy row values in sorted order (based on indices), column per column
   template <typename DestArrayType, typename SrcArrayType>
   static void insertRowValuesInOrder(DestArrayType& destArray, SrcArrayType const& srcArray,
@@ -187,6 +189,7 @@ public:
     }
   }
 
+  // https://github.com/symbol-store/BOSS/issues/104
   /// copy row values if matches a condition, column per column
   template <typename DestArrayType, typename SrcArrayType, typename ConditionArrayType>
   static void insertRowValuesWithCondition(DestArrayType& destArray, SrcArrayType const& srcArray,

@@ -32,6 +32,7 @@ private:
       auto tableOutPtr = std::make_shared<CompoundArray>(*tableArrayPtr, true);
       auto& tableOut = *tableOutPtr;
 
+      // https://github.com/symbol-store/BOSS/issues/105 ideally not exposed to the operator
       tableArrayPtr->visitPartitions([&tableOut, &predicate](auto&& batchOfRowsPtr) {
         // evaluate the predicate
         auto argsWithInputs = predicate.getArguments();
@@ -97,6 +98,8 @@ private:
             [&argData](auto const& srcColumnPtr) { argData.emplace_back(srcColumnPtr->data()); },
             column);
       }
+      // it will copy the source columns to the destination table (deep copy)
+      // https://github.com/symbol-store/BOSS/issues/106 we should do shallow copy when possible
       tableOut.append(columnList.getHead(), argData);
       return tableOutPtr;
     }
