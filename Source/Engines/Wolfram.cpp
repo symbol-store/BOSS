@@ -2,6 +2,8 @@
 #ifdef WSINTERFACE
 #include "../ExpressionUtilities.hpp"
 #include "Wolfram.hpp"
+#include "spdlog/cfg/env.h"
+#include "spdlog/sinks/basic_file_sink.h"
 #include <iostream>
 #include <regex>
 #include <set>
@@ -27,11 +29,31 @@ using std::vector;
 using std::string_literals::operator""s;
 using std::endl;
 
-struct NOOPConsole : public std::ostringstream {
-  template <typename T> std::ostream& operator<<(T /*unused*/) { return *this; }
-  std::ostream& operator<<(std::ostream& (*/*pf*/)(std::ostream&)) { return *this; };
-};
-static NOOPConsole noOpConsole; // NOLINT
+static class WolframLogStream {
+public:
+  WolframLogStream() { spdlog::cfg::load_env_levels(); }
+
+  template <typename T> WolframLogStream& operator<<(T unused) {
+    str << unused;
+    return *this;
+  }
+  WolframLogStream& operator<<(std::ostream& (*/*pf*/)(std::ostream&)) {
+    logger().trace(str.str());
+    str.str("");
+    return *this;
+  };
+
+private:
+  static spdlog::logger& logger() {
+    static auto instance = spdlog::basic_logger_mt("console", "wolframlog.m");
+    static std::once_flag flag;
+    std::call_once(flag, [&] { instance->sinks()[0]->set_pattern("%v"); });
+    return *instance;
+  }
+
+  std::stringstream str;
+
+} console; // NOLINT
 
 struct EngineImplementation {
   constexpr static char const* const DefaultNamespace = "BOSS`";
@@ -57,8 +79,7 @@ struct EngineImplementation {
     return normalizedName;
   }
 
-  void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier,
-                           std::ostream& console) {
+  void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier) {
     std::visit(
         boss::utilities::overload(
             [&](bool a) {
@@ -71,7 +92,7 @@ struct EngineImplementation {
             },
             [&](std::vector<int> values) {
               putExpressionOnLink(ComplexExpression("List"_, {values.begin(), values.end()}),
-                                  namespaceIdentifier, console);
+                                  namespaceIdentifier);
             },
             [&](char const* a) {
               console << a;
@@ -104,7 +125,7 @@ struct EngineImplementation {
                 if(it != expression.getArguments().begin()) {
                   console << ", ";
                 }
-                putExpressionOnLink(argument, namespaceIdentifier, console);
+                putExpressionOnLink(argument, namespaceIdentifier);
               }
               console << "]";
             }),
@@ -397,15 +418,8 @@ struct EngineImplementation {
   }
 
   boss::Expression evaluate(Expression const& e,
-                            std::string const& namespaceIdentifier = DefaultNamespace,
-                            std::ostream& console =
-#ifdef NDEBUG
-                                noOpConsole
-#else
-                                std::cout
-#endif // NDEBUG
-  ) {
-    putExpressionOnLink("Return"_(e), namespaceIdentifier, console);
+                            std::string const& namespaceIdentifier = DefaultNamespace) {
+    putExpressionOnLink("Return"_(e), namespaceIdentifier);
     console << endl;
     WSEndPacket(link);
     int pkt = 0;
