@@ -11,7 +11,7 @@ static void WolframQuery1(benchmark::State& state) {
       "Fields"_("B"),
       "Lambda"_(
           "Args"_("Pair"_("currentValue", "Int")),
-          "Plus"_("Symbol"_("currentValue"), "A"_)),
+          "Plus"_("Symbol"_("currentValue"), 1)),
       "GetRelation"_("Integers")
   );
 
@@ -34,7 +34,7 @@ static void WolframQuery2(benchmark::State& state) {
       "Fields"_("B"),
       "Lambda"_(
           "Args"_("Pair"_("currentValue", "Int")),
-          "Plus"_("Symbol"_("currentValue"), "A"_)),
+          "Plus"_("Symbol"_("currentValue"), 1)),
                 "Select"_(
                   "Where"_("Less"_("A"_, 0)),
                   "Project"_(
@@ -63,7 +63,7 @@ static void WolframQuery3(benchmark::State& state) {
       "Fields"_("B"),
       "Lambda"_(
           "Args"_("Pair"_("currentValue", "Int")),
-          "Plus"_("Symbol"_("currentValue"), "A"_)),
+          "Plus"_("Symbol"_("currentValue"), 1)),
       "Select"_(
           "Where"_("Less"_("A"_, 0)),
           "Project"_(

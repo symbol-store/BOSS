@@ -122,7 +122,6 @@ struct CollectTuplesOpLowering : public OpConversionPattern<database::CollectTup
                                 ConversionPatternRewriter& rewriter) const override {
     auto loc = op.getLoc();
 
-    // TODO free somewhere
     auto* relationBuilder = new new_runtime::RelationBuilder;
 
     for(auto const& operand : operands) {
@@ -163,7 +162,6 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
   std::string const& relationName;
   std::string const& fieldName;
 
-  // TODO remaining types
   arrow::Status Visit(const arrow::Int32Type& /*type*/) override {
     auto integerArray = std::dynamic_pointer_cast<arrow::Int32Array>(baseArray);
     auto loadOp = rewriter.create<memory::LoadConstantAddressOp>(
@@ -215,7 +213,7 @@ struct ArrayLoaderTypeVisitor : arrow::TypeVisitor {
         rewriter.create<ConstantIndexOp>(loc, reinterpret_cast<size_t>(typedArray->raw_data()));
     auto actualAddress = rewriter.create<AddIOp>(loc, basePtr, stringOffset64);
 
-    // TODO find a way to reuse this memory
+    // Ideally we should find a way to reuse this memory instead of creating a new string reference
     auto stringRef = rewriter.create<memory::StringReferenceOp>(
         loc, StringType::get(rewriter.getContext()), actualAddress, length64);
     result = stringRef.getResult();
@@ -574,7 +572,6 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
     auto hashedValues =
         rewriter.create<database::HashValuesOp>(op.getLoc(), rewriter.getIndexType(), valuesToHash);
 
-    // TODO this should return a list and then you have to look up all the values
     // Look up the value in the hash table
     auto hashTableResult = rewriter.create<database::FindInHashTableOp>(
         op.getLoc(), rewriter.getIndexType(), hashedValues.getResult(),
@@ -634,7 +631,7 @@ struct LookupJoinOpLowering : public OpConversionPattern<database::LookupJoinOp>
     auto wasMatchCond = rewriter.create<scf::IfOp>(op.getLoc(), wasMatchOp.getResult(), false);
     rewriter.setInsertionPointToStart(&wasMatchCond.thenRegion().front());
 
-    // TODO optimise with other loop (don't load twice)
+    // TODO optimise with other loop (don't load values twice)
     std::vector<Value> loadedTupleValues;
     // Load left values
     for(auto const& [name, type] : inputTupleStream.getFields()) {
@@ -741,7 +738,6 @@ struct GroupByOpLowering : public OpConversionPattern<database::GroupByOp> {
     auto* context = op.getContext();
 
     auto initialValue = defaultValueFromType(op);
-    // TODO free somewhere
     auto* hashTable = new runtime::aggregate::HashAggregate{initialValue};
     auto hashTablePtr = reinterpret_cast<size_t>(hashTable);
     auto hashTableAttr = ::mlir::IntegerAttr::get(IndexType::get(context), hashTablePtr);
@@ -901,7 +897,6 @@ void DatabaseLoweringPass::runOnOperation() {
   typeConverter.addConversion([](Type t) { return t; });
 
   typeConverter.addConversion([&](RelationType t) {
-    // TODO use correct type
     return mlir::IndexType::get(t.getContext());
   });
 

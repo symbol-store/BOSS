@@ -523,4 +523,32 @@ TEST_CASE("STORAGE_TEST") {
     auto result = engine.evaluate("Assuming"_("unknown"_, "NextValue"_(1, "Int"_), "CollectTuples"_("GetRelation"_(std::string("Integers")))));
   }
 
+  SECTION("ReportExample") {
+    new_runtime::Relation relation;
+
+    relation.bulk_load({
+                           {{"A", 1}, {"B", 5}},
+                           {{"A", "Plus"_(1,2)}, {"B", 6}},
+                           {{"A", 2}, {"B", 7}}
+                       });
+
+    new_runtime::Database database;
+    database.addRelation("Foo", std::move(relation));
+    boss::engines::mlir::Engine engine(database);
+
+    auto result = engine.evaluate(
+        "GroupBy"_("Fields"_("A"),
+            "Lambda"_("Args"_("Pair"_("currentValue", "Int")),
+                      "Plus"_("Symbol"_("currentValue"), "Symbol"_("B"))),
+            "GetRelation"_("Foo")));
+
+    auto ptr = std::get<size_t>(result);
+    auto* group = reinterpret_cast<runtime::aggregate::HashAggregate*>(ptr);
+
+    for (auto it = group->begin(); it != group->end(); it++) {
+      std::cout << it->second << std::endl;
+    }
+    CHECK(std::get<int>(group->begin()->second) == 6);
+  }
+
 }

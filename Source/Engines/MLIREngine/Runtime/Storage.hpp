@@ -34,15 +34,8 @@ public:
 private:
   static std::shared_ptr<arrow::ArrayBuilder> builderForType(boss::mlir::types::RuntimeTypes type);
 
-  // TODO create a dense union builder, then create a method that selects the correct child builder
-  // given the fields and field name
-
-  // The builder for expression will need to be done dynamically at runtime because we don't know
-  // the full expression type
-
   std::shared_ptr<arrow::DenseUnionBuilder> builder;
 
-  // TODO compare function
   // Stores child index in denseUnionBuilder for given fields
   std::map<Fields, uint8_t> fieldsToBuilder;
 };

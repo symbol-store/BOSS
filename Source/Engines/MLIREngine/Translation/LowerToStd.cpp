@@ -197,7 +197,6 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
       return replaceOpWithSymbol(s, rewriter);
     }
 
-    // TODO make it work for strings
     auto cmpOp = rewriter.create<mlir::CmpIOp>(s.getLoc(), cmpPred, operands[0], operands[1]);
     rewriter.replaceOp(s.getOperation(), cmpOp.result());
 
@@ -344,7 +343,6 @@ struct SymbolOpLowering : public OpConversionPattern<sexpr::SymbolOp> {
              if(func.getType().getResult(0).isa<SymbolOrValueType>() &&
                 func.getType().getResult(0).dyn_cast<SymbolOrValueType>().isSymbolic() ==
                     sexprtype::SymbolOrValue::SYMBOL) {
-               // TODO conditional tuple, or something else?
                continue;
              }
 

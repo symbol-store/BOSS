@@ -25,7 +25,6 @@ extern "C" SymbolExpression* allocateSymbol(RuntimeString* name) {
   newMemory->head[name->length] = '\0';
   memcpy(newMemory->head, name->data, name->length);
 
-  // TODO Reference counting/garbage collection
   return newMemory;
 }
 

@@ -49,7 +49,6 @@ bool isSymbolic(::mlir::Type type);
   return callback(argTypes);
 }
 
-// TODO refactor this to its own class or something
 std::vector<std::pair<std::string, std::string>> extractLambdaArgs(TypeInferenceContext& context) {
   std::vector<std::pair<std::string, std::string>> args;
   auto const& functionArguments =
@@ -71,7 +70,6 @@ static const auto inferArithmeticType = [](std::vector<::mlir::Type> const& argT
     return SymbolOrValueType::get(context.mlirContext, sexprtype::SymbolOrValue::SYMBOL, {});
   }
 
-  // TODO fix type inference
   return ::mlir::IntegerType::get(32, context.mlirContext);
 };
 
@@ -191,7 +189,6 @@ static const auto inferGetRelationType = [](std::vector<::mlir::Type> const& /*a
     auto structType = std::dynamic_pointer_cast<arrow::StructType>(unionType->field(i)->type());
     auto structArray = std::dynamic_pointer_cast<arrow::StructArray>(rawTablePtr->field(i));
     for(auto const& columnWithType : structType->fields()) {
-      // TODO: take into account what type an expression evaluates to
       if (context.symbolTable.find(columnWithType->name()) != context.symbolTable.end()) {
         // Check if its in the symbol table
         fieldsAndTypes[columnWithType->name()] = context.symbolTable[columnWithType->name()];
@@ -531,7 +528,6 @@ bool isRegisteredSymbol(std::string const& name) {
     baseType = getSymbolTableType(symbolName, context);
   } else {
     // If yes, call the correct inference function
-    // TODO the arg types are wrong here because we recursed at a different point in time
     baseType = (inferenceFuncIterator->second)(argTypes, context);
   }
 
@@ -566,7 +562,6 @@ int numUnionStreamArgs(std::vector<::mlir::Type> const& arguments) {
 }
 
 bool hasSymbolicArguments(std::vector<::mlir::Type> const& arguments) {
-  // TODO propagate generictuplestream properly
   for(auto& argument : arguments) {
     if(isSymbolic(argument)) {
       return true;

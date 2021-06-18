@@ -38,6 +38,4 @@ TEST_CASE("CompilerTest") {
     CHECK(std::get<bool>(compiler.evaluate("Eq"_((string) "world", (string) "world"), false)));
 
   }
-
-  // TODO check unevaluated symbols
 }

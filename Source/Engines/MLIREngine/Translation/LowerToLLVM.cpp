@@ -506,7 +506,6 @@ struct GroupByGetLowering : public OpConversionPattern<database::GroupByGet> {
     auto extractionType = converter.convertType(op.getType()).dyn_cast<LLVM::LLVMType>();
 
     std::string funcName;
-    // TODO remaining types
     switch(aggregateType) {
     case boss::mlir::types::RuntimeTypes::INT:
       funcName = "groupByGet_Int";
@@ -548,7 +547,6 @@ struct GroupByInsertLowering : public OpConversionPattern<database::GroupByInser
     std::string funcName;
     LLVM::LLVMType argType;
     switch(valueType) {
-      // TODO other types
     case boss::mlir::types::RuntimeTypes::INT:
       funcName = "groupByInsert_Int";
       argType = LLVM::LLVMIntegerType::get(context, 32);
@@ -676,7 +674,6 @@ struct StringReferenceOpLowering : public OpConversionPattern<memory::StringRefe
         rewriter.create<CallOp>(loc, allocStringRefFunc, stringStructPtrType,
                                 ValueRange{stringDataPtr.getResult(), op.length()});
     // TODO create a way to re-use references
-
     rewriter.replaceOp(op, stringStructMem.getResults());
     return success();
   }
@@ -880,7 +877,6 @@ void SexprToLLVMLoweringPass::runOnOperation() {
   });
 
   typeConverter.addConversion([](RelationType t) -> llvm::Optional<Type> {
-    // TODO change to correct type
     return LLVM::LLVMIntegerType::get(t.getContext(), 32);
   });
 

@@ -20,7 +20,6 @@ std::vector<Expression> Interpreter::evaluateArguments(ComplexExpression const& 
 template <typename T>
 Expression Interpreter::evaluateArithmeticOperator(ComplexExpression e, std::function<T(T, T)> Op,
                                                    T initialVal) {
-  // TODO make it work for non-abelian groups
   auto evaluatedArgs = evaluateArguments(e);
 
   auto sum = initialVal;
@@ -115,8 +114,6 @@ boss::Expression Interpreter::evaluate(boss::Expression e, bool compileOnly) {
 
          return res;
        }},
-
-      // TODO rewriter lambda arguments
       {"CollectTuples",
        [&](ComplexExpression e) {
          auto newArgs = evaluateArguments(e);

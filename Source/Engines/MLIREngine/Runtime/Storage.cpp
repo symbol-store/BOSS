@@ -99,12 +99,12 @@ struct CompareTuple {
   // true iff lhs < rhs
   bool operator()(std::map<std::string, boss::Expression> const& lhs,
                   std::map<std::string, boss::Expression> const& rhs) const {
-    // TODO this is an approximation and may lead to crashes if there is a hash collision
+    // This is an approximation and may lead to crashes if there is a hash collision
     if(hashFieldNames(lhs) != hashFieldNames(rhs)) {
       return hashFieldNames(lhs) < hashFieldNames(rhs);
     }
 
-    // TODO assumes order for all tuples is always the same
+    // Assumes order for all tuples is always the same
     auto lhsPtr = lhs.begin();
     auto rhsPtr = rhs.begin();
 
@@ -249,9 +249,8 @@ private:
               // head
               auto headBuilder = std::make_shared<arrow::StringDictionaryBuilder>();
               argBuilders.push_back(std::move(headBuilder));
-              // TODO currently using the name of the first field to store head name. The name is
-              // also stored in the array itself.
-              // TODO maybe make the array null instead? Or find a way to add metadata
+              // This could be optimised - currently storing the head for each row,
+              // even though they are all identical
               fields.push_back(std::make_shared<arrow::Field>(e.getHead().getName(), nullptr));
 
               // args
@@ -526,7 +525,6 @@ new_runtime::RelationBuilder::builderForType(boss::mlir::types::RuntimeTypes typ
   case boss::mlir::types::RuntimeTypes::FLOAT:
     return std::make_shared<arrow::FloatBuilder>();
   case boss::mlir::types::RuntimeTypes::SYMBOL:
-    // TODO do we want binary? Probably just store as BSON.
     return std::make_shared<arrow::BinaryBuilder>();
   default:
     throw std::runtime_error("Cannot insert type into relation");
@@ -599,7 +597,6 @@ extern "C" void addToRelation_String(arrow::ArrayBuilder* builder, RuntimeString
 
 extern "C" size_t advanceBuilder(arrow::StructBuilder* structBuilder,
                                  arrow::DenseUnionBuilder* unionBuilder, int8_t child) {
-  // TODO error handling
   unionBuilder->Append(child);
   structBuilder->Append();
   return structBuilder->length() - 1;

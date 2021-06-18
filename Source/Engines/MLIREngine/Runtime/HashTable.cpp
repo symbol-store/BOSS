@@ -26,7 +26,6 @@ void runtime::hash::HashTable::build() {
   relation = relationBuilder.build();
 }
 
-// TODO more efficient implementation
 size_t runtime::hash::hash_Int(int value) {
   auto hash = llvm::hash_value(value);
   return hash;
@@ -57,6 +56,5 @@ size_t runtime::hash::hashTableLookup(std::unordered_map<size_t, std::vector<siz
   if (it == map->end()) {
     return -1;
   }
-  // TODO return all of them
   return it->second[0];
 }
