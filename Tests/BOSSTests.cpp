@@ -60,6 +60,16 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
                   .getArguments()[0]) == "Hello World!");
   }
 
+  SECTION("Interpolation") {
+
+    eval("CreateTable"_("InterpolationTable"_, "x"_, "y"_));
+    eval("InsertInto"_("InterpolationTable"_, 4, 1));
+    eval("InsertInto"_("InterpolationTable"_, 5, "Interpolate"_("x"_)));
+    eval("InsertInto"_("InterpolationTable"_, 6, 3));
+    REQUIRE(eval("Project"_("InterpolationTable"_, "As"_("y"_,"y"_))) ==
+            "List"_("List"_(1), "List"_(2), "List"_(3)));
+  }
+
   SECTION("Relational (simple)") {
     eval("CreateTable"_("Customer"_, "FirstName"_, "LastName"_));
     eval("InsertInto"_("Customer"_, "John", "McCarthy"));
