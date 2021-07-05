@@ -66,7 +66,7 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
     eval("InsertInto"_("InterpolationTable"_, 4, 1));
     eval("InsertInto"_("InterpolationTable"_, 5, "Interpolate"_("x"_)));
     eval("InsertInto"_("InterpolationTable"_, 6, 3));
-    REQUIRE(eval("Project"_("InterpolationTable"_, "As"_("y"_,"y"_))) ==
+    REQUIRE(eval("Project"_("InterpolationTable"_, "As"_("y"_, "y"_))) ==
             "List"_("List"_(1), "List"_(2), "List"_(3)));
   }
 
