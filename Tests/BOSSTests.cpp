@@ -8,6 +8,8 @@ using boss::Expression;
 using std::get;
 using std::string;
 using boss::utilities::operator""_;
+using Catch::Generators::random;
+using Catch::Generators::take;
 
 template <typename Engine> Engine& getEngine();
 template <> boss::engines::wolfram::Engine& getEngine<boss::engines::wolfram::Engine>() {
@@ -61,13 +63,15 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
   }
 
   SECTION("Interpolation") {
+    auto thing = GENERATE(take(1, chunk(3, range(1, 4))));
+    auto y = GENERATE(take(1, chunk(3, filter([](int i) { return i % 2 == 1; }, random(1, 1000)))));
 
     eval("CreateTable"_("InterpolationTable"_, "x"_, "y"_));
-    eval("InsertInto"_("InterpolationTable"_, 4, 1));
-    eval("InsertInto"_("InterpolationTable"_, 5, "Interpolate"_("x"_)));
-    eval("InsertInto"_("InterpolationTable"_, 6, 3));
+    eval("InsertInto"_("InterpolationTable"_, thing[0], y[0]));
+    eval("InsertInto"_("InterpolationTable"_, thing[1], "Interpolate"_("x"_)));
+    eval("InsertInto"_("InterpolationTable"_, thing[2], y[2]));
     REQUIRE(eval("Project"_("InterpolationTable"_, "As"_("y"_, "y"_))) ==
-            "List"_("List"_(1), "List"_(2), "List"_(3)));
+            "List"_("List"_(y[0]), "List"_((y[0] + y[2]) / 2), "List"_(y[2])));
   }
 
   SECTION("Relational (simple)") {
