@@ -64,7 +64,8 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
 
   SECTION("Interpolation") {
     auto thing = GENERATE(take(1, chunk(3, range(1, 4))));
-    auto y = GENERATE(take(1, chunk(3, filter([](int i) { return i % 2 == 1; }, random(1, 1000)))));
+    auto y = GENERATE(
+        take(1, chunk(3, filter([](int i) { return i % 2 == 1; }, random(1, 1000))))); // NOLINT
 
     eval("CreateTable"_("InterpolationTable"_, "x"_, "y"_));
     eval("InsertInto"_("InterpolationTable"_, thing[0], y[0]));
