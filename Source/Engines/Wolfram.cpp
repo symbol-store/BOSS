@@ -209,8 +209,18 @@ struct EngineImplementation {
                    "Function"_("tuple"_, "ReplaceAll"_("List"_("projections"_), "tuple"_)),
                    {"HoldAll"_});
 
-    DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_("Symbol"_))},
-                   "Database"_("input"_));
+    DefineFunction(
+        "GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_("Symbol"_))},
+        "If"_("Greater"_("Length"_("Database"_("input"_)), 0),
+              "MovingMap"_(
+                  "Function"_("ReplaceAll"_(
+                      "Part"_("Slot"_(1), 2),
+                      "Rule"_("KeyValuePattern"_("Rule"_(
+                                  "Pattern"_("attribute"_, "Blank"_()),
+                                  namespaced("Interpolate"_)("Pattern"_("by"_, "Blank"_())))),
+                              "Divide"_("Total"_("Drop"_("Slot"_(1), "List"_(2))), 2)))),
+                  "Database"_("input"_), "List"_(2, "Center"_, "Automatic"_), "Fixed"),
+              "Database"_("input"_)));
     DefineFunction("GetPersistentTableIfSymbol"_, {"Pattern"_("input"_, "Blank"_())}, "input"_,
                    {"HoldAll"_});
 
