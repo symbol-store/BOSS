@@ -221,6 +221,7 @@ endif(SWIG_FOUND)
 ############################ Targets Common Properties ############################
 
 foreach (Target IN LISTS AllTargets)
+  add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
   set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
   target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
