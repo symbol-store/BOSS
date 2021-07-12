@@ -79,7 +79,7 @@ struct EngineImplementation {
     return normalizedName;
   }
 
-  void putExpressionOnLink(Expression const& expression, std::string namespaceIdentifier) {
+  void putExpressionOnLink(Expression const& expression, std::string const& namespaceIdentifier) {
     std::visit(
         boss::utilities::overload(
             [&](bool a) {
@@ -132,7 +132,7 @@ struct EngineImplementation {
         (Expression::SuperType const&)expression);
   }
 
-  boss::Expression readExpressionFromLink() {
+  boss::Expression readExpressionFromLink() const {
     auto resultType = WSGetType(link);
     if(resultType == WSTKSTR) {
       char const* resultAsCString = nullptr;
