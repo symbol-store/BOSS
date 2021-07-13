@@ -109,12 +109,11 @@ endforeach()
 ############################### Executable Targets ###############################
 
 set(ImplementationFiles Source/BOSS.cpp Source/Expression.cpp)
-set(ExecutableFiles Source/main.cpp)
 set(TestFiles Tests/BOSSTests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
 # BOSS
-add_executable(BOSS ${ImplementationFiles} ${ExecutableFiles})
+add_library(BOSS SHARED ${ImplementationFiles})
 
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
@@ -227,4 +226,14 @@ foreach (Target IN LISTS AllTargets)
     endforeach()
   endforeach()
 endforeach()
+
+install(TARGETS BOSS LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib)
+install(FILES
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp
+ DESTINATION include)
+
 
