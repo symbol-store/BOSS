@@ -234,6 +234,7 @@ install(FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp
- DESTINATION include)
+ DESTINATION include/BOSS)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engines/Wolfram.hpp DESTINATION include/BOSS/Engines)
 
 
