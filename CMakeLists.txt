@@ -220,6 +220,9 @@ endif(SWIG_FOUND)
 
 ############################ Targets Common Properties ############################
 
+foreach (Target IN LISTS AllBackends)
+  add_dependencies(${Target} spdlog)
+endforeach()
 foreach (Target IN LISTS AllTargets)
   add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
