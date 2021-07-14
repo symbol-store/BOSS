@@ -110,7 +110,8 @@ foreach (Backend IN LISTS AllBackends)
   target_include_directories(${Backend} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Backend} rt)
-  endif()  
+  endif()
+  add_dependencies(${Target} spdlog)
 endforeach()
 
 ############################### Executable Targets ###############################
@@ -220,9 +221,6 @@ endif(SWIG_FOUND)
 
 ############################ Targets Common Properties ############################
 
-foreach (Target IN LISTS AllBackends)
-  add_dependencies(${Target} spdlog)
-endforeach()
 foreach (Target IN LISTS AllTargets)
   add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
