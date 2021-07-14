@@ -111,7 +111,7 @@ foreach (Backend IN LISTS AllBackends)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Backend} rt)
   endif()
-  add_dependencies(${Target} spdlog)
+  add_dependencies(${Backend} spdlog)
 endforeach()
 
 ############################### Executable Targets ###############################
