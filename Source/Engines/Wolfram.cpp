@@ -467,12 +467,42 @@ struct EngineImplementation {
 
 extern "C" {
 
+//K: internal data from Brill batteries
+class BrillBatteryMOD {
+  public:
+    float VBat_V;
+    float IBat_A;
+    float TBat_degC;
+    float TPwr_degC;
+    float RBat_ohm;
+    float currentThroughput_kAh;
+    float currentThroughput_Ah;
+    float energyThroughput_kWh;
+    float energyThroughput_Wh;
+    float PBat_W;
+    float soh_pct;
+    float soc_pct;
+    float capacity_Ah;
+    float energyCapacity_Wh;
+    float Rbat_ohm;
+};
+
+class BrillBatteryMSTR {
+  public:
+    float Vsys_V;
+    float Vsysout_V;
+    float Isys_A;
+    float Psys_W;
+    float soh_pct;
+    float soc_pct;
+};
+
 // for convenience
 using json = nlohmann::json;
 std::vector < json > jsonVector;
+
+//TODO we can probably use mosquitto_new userdata for this
 EngineImplementation* mqttBossEngine = nullptr;
-
-
 
 void my_message_callback(struct mosquitto *mosq, void *userdata, const struct mosquitto_message *message)
 {
@@ -498,12 +528,84 @@ void my_message_callback(struct mosquitto *mosq, void *userdata, const struct mo
 		std::cout << "data: " << data.at("data");
 		std::cout << "\n==========\n";
 
+    //K: data mapping
+
+    std::string devType = data.at("devType");
+
+    //ignore if avg
+    if(devType != "AVG"){
+
+    //common data
+    int ts = data.at("ts");
+    std::string id = data.at("id");
+    std::string battId = data.at("battId");
+    std::string groupId = data.at("groupId");
+
+    if(devType == "MOD"){
+    std::string modId = data.at("modId");
+
+    //mod internal data
+    BrillBatteryMOD internalData;
+    datum = data.at("data");
+    internalData.VBat_V = datum.at("VBat_V");
+    internalData.IBat_A = datum.at("IBat_A");
+    internalData.TBat_degC = datum.at("TBat_degC");
+    internalData.TPwr_degC = datum.at("TPwr_degC");
+    internalData.RBat_ohm = datum.at("RBat_ohm");
+    internalData.currentThroughput_kAh = datum.at("currentThroughput_kAh");
+    internalData.currentThroughput_Ah = datum.at("currentThroughput_Ah");
+    internalData.energyThroughput_kWh = datum.at("energyThroughput_kWh");
+    internalData.energyThroughput_Wh = datum.at("energyThroughput_Wh");
+    internalData.PBat_W = datum.at("PBat_W");
+    internalData.soh_pct = datum.at("soh_pct");
+    internalData.soc_pct = datum.at("soc_pct");
+    internalData.capacity_Ah = datum.at("capacity_Ah");
+    internalData.energyCapacity_Wh = datum.at("energyCapacity_Wh");
+    internalData.Rbat_ohm = datum.at("Rbat_ohm");
+
     //K: boss insert
-    //K: TODO: is engine accessible? How can we make it so?
-    int ts = data.at("ts"); // @andrea: you need to check if this is correctly typed?
-    int datum = data.at("data");
-    int size = jsonVector.size();
-    mqttBossEngine->evaluate("InsertInto"_("BatteryData"_, ts, datum, size));
+    mqttBossEngine->evaluate("InsertInto"_("BatteryData"_, id, modId, battId, groupId, ts, 
+    internalData.VBat_V,
+    internalData.IBat_A,
+    internalData.TBat_degC,
+    internalData.TPwr_degC,
+    internalData.RBat_ohm,
+    internalData.currentThroughput_kAh,
+    internalData.currentThroughput_Ah,
+    internalData.energyThroughput_kWh,
+    internalData.energyThroughput_Wh,
+    internalData.PBat_W,
+    internalData.soh_pct,
+    internalData.soc_pct,
+    internalData.capacity_Ah,
+    internalData.energyCapacityWh,
+    internalData.Rbat_ohm
+    ));
+    }
+
+    if(devType == "MSTR"){
+
+    //mstr internal data
+    BrillBatteryMSTR internalData;
+    datum = data.at("data");
+    internalData.Vsys_V = datum.at("Vsys_V");
+    internalData.Vsysout_V = datum.at("Vsysout_V");
+    internalData.Isys_A = datum.at("Isys_A");
+    internalData.Psys_W = datum.at("Psys_W");
+    internalData.soh_pct = datum.at("soh_pct");
+    internalData.soc_pct = datum.at("soc_pct");
+
+    //K: boss insert
+    mqttBossEngine->evaluate("InsertInto"_("BatteryData"_, id, battId, groupId, ts, 
+    internalData.Vsys_V,
+    internalData.Vsysout_V,
+    internalData.Isys_A,
+    internalData.Psys_W,
+    internalData.soh_pct,
+    internalData.soc_pct));
+    }
+
+    }
 		
 		// printf(" id is: %s", data.at("id"));
 	}else{
@@ -543,13 +645,35 @@ void my_log_callback(struct mosquitto *mosq, void *userdata, int level, const ch
 	/* Pring all log messages regardless of level. */
 	printf("%s\n", str);
 }
-}
 
 void thingy(EngineImplementation& engine) {
 
-  //K: boss table creation
+  //K: boss tables creation id, modId, battId, groupId, ts,
   mqttBossEngine = &engine;
-  mqttBossEngine->evaluate("CreateTable"_("BatteryData"_, "Time"_, "Data"_, "Position"_));
+  mqttBossEngine->evaluate("CreateTable"_("BatteryDataMOD"_, "id"_, "modId"_, "battId"_, "groupId"_, "ts"_,
+  "VBat_V"_,
+  "IBat_A"_,
+  "TBat_degC"_,
+  "TPwr_degC"_,
+  "RBat_ohm"_,
+  "currentThroughput_kAh"_,
+  "currentThroughput_Ah"_,
+  "energyThroughput_kWh"_,
+  "energyThroughput_Wh"_,
+  "PBat_W"_,
+  "soh_pct"_,
+  "soc_pct"_,
+  "capacity_Ah"_,
+  "energyCapacityWh"_,
+  "Rbat_ohm"_));
+
+  mqttBossEngine->evaluate("CreateTable"_("BatteryDataMSTR"_, "id"_, "modId"_, "battId"_, "groupId"_, "ts"_,
+  "Vsys_V"_,
+  "Vsysout_V"_,
+  "Isys_A"_,
+  "Psys_W"_,
+  "soh_pct"_,
+  "soc_pct"_));
   
   int i;
 	//char *host = "localhost";
@@ -590,6 +714,10 @@ void thingy(EngineImplementation& engine) {
   //   }
   // });
 }
+
+}
+
+
 
 Engine::Engine() : impl([]() -> EngineImplementation& { return *(new EngineImplementation()); }()) {
   impl.loadShimLayer();
