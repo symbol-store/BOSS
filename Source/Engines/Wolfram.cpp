@@ -470,55 +470,9 @@ extern "C" {
 // for convenience
 using json = nlohmann::json;
 std::vector < json > jsonVector;
-EngineImplementation mqttBossEngine;
+EngineImplementation* mqttBossEngine = nullptr;
 
-void thingy(EngineImplementation& engine) {
 
-  //K: boss table creation
-  mqttBossEngine = engine;
-  mqttBossEngine.evaluate("CreateTable"_("BatteryData"_, "Time"_, "Data"_, "Position"_));
-  
-  int i;
-	//char *host = "localhost";
-    char *host = "test.mosquitto.org";
-	int port = 1883;
-	int keepalive = 60;
-	bool clean_session = true;
-	struct mosquitto *mosq = NULL;
-
-	mosquitto_lib_init();
-	mosq = mosquitto_new(NULL, clean_session, NULL);
-	if(!mosq){
-		fprintf(stderr, "Error: Out of memory.\n");
-		return 1;
-	}
-    //K: log messages not needed now
-	//mosquitto_log_callback_set(mosq, my_log_callback);
-	mosquitto_connect_callback_set(mosq, my_connect_callback);
-	mosquitto_message_callback_set(mosq, my_message_callback);
-	mosquitto_subscribe_callback_set(mosq, my_subscribe_callback);
-
-	if(mosquitto_connect(mosq, host, port, keepalive)){
-		fprintf(stderr, "Unable to connect.\n");
-		return 1;
-	}
-
-	mosquitto_loop_forever(mosq, -1, 1);
-
-	mosquitto_destroy(mosq);
-	mosquitto_lib_cleanup();
-	return 0;
-
-  // OLD
-  // static std::thread first([&engine]() {
-  //   engine.evaluate("CreateTable"_("BatteryData"_, "Time"_, "Value"_, "Value2"_));
-  //   while(true) {
-  //     static auto i = 0;
-  //     engine.evaluate("InsertInto"_("BatteryData"_, 123189, "Status", i++));
-  //     std::this_thread::sleep_for(std::chrono::seconds(1));
-  //   }
-  // });
-}
 
 void my_message_callback(struct mosquitto *mosq, void *userdata, const struct mosquitto_message *message)
 {
@@ -546,7 +500,10 @@ void my_message_callback(struct mosquitto *mosq, void *userdata, const struct mo
 
     //K: boss insert
     //K: TODO: is engine accessible? How can we make it so?
-    mqttBossEngine.evaluate("InsertInto"_("BatteryData"_, data.at("ts"), data.at("data"), jsonVector.size()));
+    int ts = data.at("ts"); // @andrea: you need to check if this is correctly typed?
+    int datum = data.at("data");
+    int size = jsonVector.size();
+    mqttBossEngine->evaluate("InsertInto"_("BatteryData"_, ts, datum, size));
 		
 		// printf(" id is: %s", data.at("id"));
 	}else{
@@ -586,6 +543,52 @@ void my_log_callback(struct mosquitto *mosq, void *userdata, int level, const ch
 	/* Pring all log messages regardless of level. */
 	printf("%s\n", str);
 }
+}
+
+void thingy(EngineImplementation& engine) {
+
+  //K: boss table creation
+  mqttBossEngine = &engine;
+  mqttBossEngine->evaluate("CreateTable"_("BatteryData"_, "Time"_, "Data"_, "Position"_));
+  
+  int i;
+	//char *host = "localhost";
+    char *host = "test.mosquitto.org";
+	int port = 1883;
+	int keepalive = 60;
+	bool clean_session = true;
+	struct mosquitto *mosq = NULL;
+
+	mosquitto_lib_init();
+	mosq = mosquitto_new(NULL, clean_session, NULL);
+	if(!mosq){
+		fprintf(stderr, "Error: Out of memory.\n");
+	}
+    //K: log messages not needed now
+	//mosquitto_log_callback_set(mosq, my_log_callback);
+	mosquitto_connect_callback_set(mosq, my_connect_callback);
+	mosquitto_message_callback_set(mosq, my_message_callback);
+	mosquitto_subscribe_callback_set(mosq, my_subscribe_callback);
+
+	if(mosquitto_connect(mosq, host, port, keepalive)){
+		fprintf(stderr, "Unable to connect.\n");
+	}
+
+	mosquitto_loop_forever(mosq, -1, 1);
+
+	mosquitto_destroy(mosq);
+	mosquitto_lib_cleanup();
+	// return 0;
+
+  // OLD
+  // static std::thread first([&engine]() {
+  //   engine.evaluate("CreateTable"_("BatteryData"_, "Time"_, "Value"_, "Value2"_));
+  //   while(true) {
+  //     static auto i = 0;
+  //     engine.evaluate("InsertInto"_("BatteryData"_, 123189, "Status", i++));
+  //     std::this_thread::sleep_for(std::chrono::seconds(1));
+  //   }
+  // });
 }
 
 Engine::Engine() : impl([]() -> EngineImplementation& { return *(new EngineImplementation()); }()) {

@@ -58,6 +58,12 @@ ExternalProject_Add(spdlog
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DDCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS}
   )
 
+ExternalProject_Add(json
+	URL https://github.com/nlohmann/json/archive/refs/tags/v3.9.1.tar.gz
+  DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
+	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DDCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS} -DJSON_BuildTests=OFF
+  )
+
 ########################## Other Library Dependencies ##########################
 
 set(VTune_DIR "" CACHE PATH "Where to look for VTune installation")
@@ -109,15 +115,18 @@ list(APPEND AllBackends WolframBOSS)
 
 ############################ Backends Common Properties ############################
 
+get_filename_component(MOSQUITTO_LIB_PATH ${pkgcfg_lib_Mosquitto_mosquitto} DIRECTORY)
 foreach (Backend IN LISTS AllBackends)
   target_link_libraries(${Backend} Threads::Threads)
   set_target_properties(${Backend} PROPERTIES POSITION_INDEPENDENT_CODE ON)
   set_target_properties(${Backend} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
   target_include_directories(${Backend} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
+  target_include_directories(${Backend} SYSTEM PUBLIC ${MOSQUITTO_LIB_PATH}/../include)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Backend} rt)
   endif()
   add_dependencies(${Backend} spdlog)
+  add_dependencies(${Backend} json)
 endforeach()
 
 ############################### Executable Targets ###############################
@@ -229,6 +238,9 @@ endif(SWIG_FOUND)
 foreach (Target IN LISTS AllTargets)
   add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
+  target_link_libraries(${Target} mosquitto)
+  target_link_directories(${Target} SYSTEM PUBLIC ${MOSQUITTO_LIB_PATH})
+
   set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
   target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
