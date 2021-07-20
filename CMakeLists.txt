@@ -84,7 +84,7 @@ find_package(Threads REQUIRED)
 # https://stackoverflow.com/questions/40668959/how-to-link-to-mosquitto-lib-in-cmake
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(Mosquitto REQUIRED IMPORTED_TARGET libmosquitto)
-target_link_libraries(BOSS_MQTT_bridge PkgConfig::Mosquitto)
+# target_link_libraries(BOSS_MQTT_bridge PkgConfig::Mosquitto)
 
 #################################### Backends ####################################
 
