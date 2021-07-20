@@ -470,11 +470,13 @@ extern "C" {
 // for convenience
 using json = nlohmann::json;
 std::vector < json > jsonVector;
+EngineImplementation mqttBossEngine;
 
 void thingy(EngineImplementation& engine) {
 
   //K: boss table creation
-  engine.evaluate("CreateTable"_("BatteryData"_, "Time"_, "Data"_, "Position"_));
+  mqttBossEngine = engine;
+  mqttBossEngine.evaluate("CreateTable"_("BatteryData"_, "Time"_, "Data"_, "Position"_));
   
   int i;
 	//char *host = "localhost";
@@ -544,7 +546,7 @@ void my_message_callback(struct mosquitto *mosq, void *userdata, const struct mo
 
     //K: boss insert
     //K: TODO: is engine accessible? How can we make it so?
-    engine.evaluate("InsertInto"_("BatteryData"_, data.at("ts"), data.at("data"), jsonVector.size()));
+    mqttBossEngine.evaluate("InsertInto"_("BatteryData"_, data.at("ts"), data.at("data"), jsonVector.size()));
 		
 		// printf(" id is: %s", data.at("id"));
 	}else{
