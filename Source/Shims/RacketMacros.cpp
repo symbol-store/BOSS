@@ -38,6 +38,7 @@ std::string getRacketMacroShims() {
 (define-operators
   '(InsertInto relation values ...)
   '(Where conditionExpression)
+  '(RunNativeFunction function)
   '(Greater left right)
   '(Plus operands ...)
   '(CreateTable relationName attributes ...)

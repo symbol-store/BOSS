@@ -4,6 +4,7 @@
 #include "Wolfram.hpp"
 #include "spdlog/cfg/env.h"
 #include "spdlog/sinks/basic_file_sink.h"
+#include <dlfcn.h>
 #include <iostream>
 #include <regex>
 #include <set>
@@ -433,6 +434,23 @@ struct EngineImplementation {
 
   boss::Expression evaluate(Expression const& e,
                             std::string const& namespaceIdentifier = DefaultNamespace) {
+    if(std::visit(boss::utilities::overload(
+                      [&](WolframExpressionSystem::ComplexExpression const& e) {
+                        if(e.getHead().getName() == "RunNativeFunction") {
+                          auto engineCallback = (void (*)(EngineImplementation&))dlsym(
+                              RTLD_SELF,
+                              std::get<boss::Symbol>(e.getArguments()[0]).getName().c_str());
+                          engineCallback(*this);
+                          return true;
+                        }
+                        return false;
+                      },
+                      [&](auto a) { return false; }),
+                  e)) {
+      return boss::ComplexExpression(boss::Symbol("List"),
+                                     {boss::ComplexExpression(boss::Symbol("List"), {})});
+    };
+
     putExpressionOnLink("Return"_(e), namespaceIdentifier);
     console << endl;
     WSEndPacket(link);
@@ -443,6 +461,18 @@ struct EngineImplementation {
     return readExpressionFromLink();
   }
 };
+
+extern "C" {
+void thingy(EngineImplementation& engine) {
+  static std::thread first([&engine]() {
+    while(true) {
+      static auto i = 0;
+      engine.evaluate("InsertInto"_("Customer"_, "User", "Nationality", i++));
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+  });
+}
+}
 
 Engine::Engine() : impl([]() -> EngineImplementation& { return *(new EngineImplementation()); }()) {
   impl.loadShimLayer();
