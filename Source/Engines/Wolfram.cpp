@@ -539,7 +539,7 @@ void my_message_callback(struct mosquitto *mosq, void *userdata, const struct mo
     int ts = data.at("ts");
     std::string id = data.at("id");
     std::string battId = data.at("battId");
-    std::string groupId = data.at("groupId");
+    int groupId = data.at("groupId");
 
     if(devType == "MOD"){
     std::string modId = data.at("modId");
@@ -578,7 +578,7 @@ void my_message_callback(struct mosquitto *mosq, void *userdata, const struct mo
     internalData.soh_pct,
     internalData.soc_pct,
     internalData.capacity_Ah,
-    internalData.energyCapacityWh,
+    internalData.energyCapacity_Wh,
     internalData.Rbat_ohm
     ));
     }
@@ -647,6 +647,7 @@ void my_log_callback(struct mosquitto *mosq, void *userdata, int level, const ch
 }
 
 void thingy(EngineImplementation& engine) {
+  static std::thread first([&engine]() {
 
   //K: boss tables creation id, modId, battId, groupId, ts,
   mqttBossEngine = &engine;
@@ -705,14 +706,13 @@ void thingy(EngineImplementation& engine) {
 	// return 0;
 
   // OLD
-  // static std::thread first([&engine]() {
   //   engine.evaluate("CreateTable"_("BatteryData"_, "Time"_, "Value"_, "Value2"_));
   //   while(true) {
   //     static auto i = 0;
   //     engine.evaluate("InsertInto"_("BatteryData"_, 123189, "Status", i++));
   //     std::this_thread::sleep_for(std::chrono::seconds(1));
   //   }
-  // });
+  });
 }
 
 }
