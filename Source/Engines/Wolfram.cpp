@@ -546,7 +546,7 @@ void my_message_callback(struct mosquitto *mosq, void *userdata, const struct mo
 
     //mod internal data
     BrillBatteryMOD internalData;
-    datum = data.at("data");
+    json datum = data.at("data");
     internalData.VBat_V = datum.at("VBat_V");
     internalData.IBat_A = datum.at("IBat_A");
     internalData.TBat_degC = datum.at("TBat_degC");
@@ -587,7 +587,7 @@ void my_message_callback(struct mosquitto *mosq, void *userdata, const struct mo
 
     //mstr internal data
     BrillBatteryMSTR internalData;
-    datum = data.at("data");
+    json datum = data.at("data");
     internalData.Vsys_V = datum.at("Vsys_V");
     internalData.Vsysout_V = datum.at("Vsysout_V");
     internalData.Isys_A = datum.at("Isys_A");
