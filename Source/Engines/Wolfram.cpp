@@ -465,9 +465,10 @@ struct EngineImplementation {
 extern "C" {
 void thingy(EngineImplementation& engine) {
   static std::thread first([&engine]() {
+    engine.evaluate("CreateTable"_("BatteryData"_, "Time"_, "Value"_, "Value2"_));
     while(true) {
       static auto i = 0;
-      engine.evaluate("InsertInto"_("Customer"_, "User", "Nationality", i++));
+      engine.evaluate("InsertInto"_("BatteryData"_, 123189, "Status", i++));
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
   });
