@@ -400,6 +400,10 @@ struct EngineImplementation {
                           "result"_));
     DefineFunction("Return"_, {"Pattern"_("result"_, "Blank"_())}, "result"_);
 
+    DefineFunction("Schema"_, {"Pattern"_("result"_, "Blank"_("List"_))},
+                   "If"_("Greater"_("Length"_("result"_), 0),
+                         "Map"_("Composition"_("List"_), "Keys"_("First"_("result"_))), "List"_()));
+
     loadDDLOperators();
 
     loadRelationalOperators();

@@ -36,14 +36,26 @@
          threading
          web-server/dispatch)
 
-(define (list->html-table data)
-  `(table
-    ,@(map
-       (lambda (row) `(tr
-                       ,@(map (lambda (col) `(td ,(format "~a" col))) row)))
-       data)
-    )
+(define (list->html-table data schema)
+  `(div ((style "overflow-x: auto; overflow-y: auto; height:100%;"))
+        (table
+         ((class "table table-striped table-bordered")
+          (style "background:white;width:1024px;white-space: nowrap;"))
+         (thead
+          (tr ,@(map
+                 (lambda (attribute)
+                   `(th ((style "position: sticky;top: 0;background-color: white;"))
+                        ,(string-replace (string-replace
+                                          (format "~a" (first attribute)) "$1" ".") "$0" "_"))
+                   ) schema)))
+         ,@(map
+            (lambda (row) `(tr
+                            ,@(map (lambda (col) `(td ,(format "~a" col))) row)))
+            data)
+         ))
   )
+
+
 
 (define (embed-in-page . nested)
   (response/xexpr
@@ -59,24 +71,49 @@
                (crossorigin "anonymous"))
               )
       )
-     (body ((style "width:1024px;margin:auto;border:1px solid black;padding:1em;border-radius:15px;")) ,@nested))
+     (body (
+            (style "width:1024px; margin:auto; border:1px solid black; border-radius:15px; height: 100%; overflow: hidden;")) ,@nested))
    )
   )
 
 (define (explain req operators)
-  (let ((plan #`(~> #,@(unflatten (map (lambda (op) (read (open-input-string op))) operators)))))
-    (embed-in-page '(h1 "Result")
-                   (list->html-table (eval plan))
-                   '(hr)
-                   `(pre ,(format "~a" (syntax->datum plan)))
-                   )
-    )
-  )
+  (if (equal? (last operators) "RunNativeFunction")
+      (let ((plan #`(~> #,@(unflatten
+                            (map (lambda (op) (read (open-input-string op)))
+                                 operators)))))
+        (embed-in-page '(h1 "Result")
+                       `(pre ,(format "~a" (eval plan)) )
+                       '(hr)
+                       `(pre ,(format "~a" (syntax->datum plan)))
+                       )
+        )
+
+
+      (let ((plan #`(~> #,@(unflatten (map
+                                       (lambda (op) (read (open-input-string op))) operators))))
+            (schema #`(~> #,@(unflatten
+                              (map
+                               (lambda (op) (read (open-input-string op)))
+                               operators))
+                          Schema))
+            )
+
+        (embed-in-page '(h1 "Result")
+                       (list->html-table (eval plan) (eval schema))
+                       '(hr)
+                       `(pre ,(format "~a" (syntax->datum plan)))
+                       )
+        )))
 
 (define (index req)
   (embed-in-page
    '(h1 "Description")
-   "URLs encode queries as threaded s-expressions. The rough idea is that every path component is an element in a list. To nest lists, there are three \"colon\"-operators. A single colon path component opens a new list. A double colon closes the list. A triple colon closes all lists (excluding the root), thus stacking another operator on top of the query."
+   #<<"
+URLs encode queries as threaded s-expressions. The rough idea is that every path component
+is an element in a list. To nest lists, there are three "colon"-operators. A single colon
+path component opens a new list. A double colon closes the list. A triple colon closes
+all lists (excluding the root), thus stacking another operator on top of the query.
+"
    '(h1 "Examples")
 
    '(list
@@ -107,4 +144,3 @@
                #:listen-ip #f
                #:command-line? #t
                )
-
