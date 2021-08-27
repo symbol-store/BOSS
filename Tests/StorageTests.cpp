@@ -215,6 +215,37 @@ TEST_CASE("STORAGE_TEST") {
     CHECK(firstVal != secondVal);
   }
 
+  SECTION("GroupByComplex") {
+    new_runtime::Relation relation;
+
+    relation.bulk_load({{{"A", 1}, {"B", 100}},
+                        {{"A", 1}, {"B", 100}},
+                        {{"A", 2}, {"B", 10}},
+                        {{"A", 2}, {"B", 10}}});
+
+
+    auto query = "GroupBy"_("Fields"_("A"),
+                            "Lambda"_("Args"_("Pair"_("currentValue", "Int")),
+                                      "Plus"_("Symbol"_("currentValue"), "Symbol"_("B"))),
+                            "GetRelation"_("Foo"));
+
+    new_runtime::Database database;
+
+    database.addRelation("Foo", std::move(relation));
+
+    interpreter::Interpreter i(&database);
+
+    auto result = i.evaluate(query);
+
+    auto ptr = std::get<size_t>(result);
+    auto aggregate = reinterpret_cast<runtime::aggregate::HashAggregate*>(ptr);
+
+    auto firstVal =  std::get<int>((aggregate->begin())->second);
+    auto secondVal = std::get<int>((++aggregate->begin())->second);
+
+    CHECK(firstVal != secondVal);
+  }
+
   SECTION("SelectSymbol") {
     new_runtime::Relation relation;
 

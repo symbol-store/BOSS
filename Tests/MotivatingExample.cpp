@@ -51,6 +51,7 @@ TEST_CASE("MotivatingExample") {
 
   for (auto i = 0U; i < resultInts->length(); i++) {
     outCsv << offsetInts->Value(i) << "," << resultInts->Value(i) << '\n';
+    std::cout << offsetInts->Value(i) << "," << resultInts->Value(i) << '\n';
   }
   outCsv.close();
 }

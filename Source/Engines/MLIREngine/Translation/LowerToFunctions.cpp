@@ -46,7 +46,7 @@ llvm::Optional<Value> replaceSymbol(Operation* op, FuncOp function) {
 Value flattenCallsStandard(sexpr::CombineOp& c, OpBuilder& builder, FuncOp function, int unionIndex) {
   // Recursively flatten al child combineOps
   for(auto combineOp : c.getRegion().getOps<sexpr::CombineOp>()) {
-    auto val = flattenCallsRecursive(combineOp, builder, function, -1);
+    auto val = flattenCallsRecursive(combineOp, builder, function, unionIndex);
     combineOp.replaceAllUsesWith(val);
   }
 

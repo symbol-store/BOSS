@@ -414,6 +414,9 @@ bool isFloat(std::string const& expr) {
 }
 
 boss::Expression fileStringToExpression(std::string const& s) {
+  if (s == "") {
+    return "";
+  }
   if (isInteger(s)) {
     return Expression(std::stoi(s));
   }
