@@ -168,6 +168,6 @@ static void TPCHQ6(benchmark::State& state) {
     benchmark::DoNotOptimize(result);
   }
 }
-BENCHMARK(TPCHQ6)->Unit(benchmark::kMillisecond)->Arg(1024)->Arg(4096)->Arg(32768)->Arg(262144)->Arg(2097152);
+BENCHMARK(TPCHQ6)->Unit(benchmark::kMillisecond)->Arg(1024)->Arg(4096)->Arg(32768)->Arg(262144)->Arg(2097152)->Arg(16777216);
 
 BENCHMARK_MAIN();

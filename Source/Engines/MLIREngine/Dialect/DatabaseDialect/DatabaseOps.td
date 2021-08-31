@@ -56,13 +56,7 @@ def BuildJoinTableOp : Database_Op<"buildJoinTable", []> {
     I64Attr:$table
   );
 
-  let builders = [
-    OpBuilderDAG<(ins "ValueRange":$tupleStreams, "::mlir::ArrayAttr":$fields, "size_t":$table), [{
-        $_state.addAttribute("fields", fields);
-        $_state.addAttribute("table", $_builder.getI64IntegerAttr(table));
-        $_state.addOperands(tupleStreams);
-      }]>
-  ];
+  
 }
 
 def LookupJoinOp : Database_Op<"lookupJoin", [NoSideEffect]> {
