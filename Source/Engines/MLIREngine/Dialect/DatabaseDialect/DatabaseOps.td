@@ -56,7 +56,7 @@ def BuildJoinTableOp : Database_Op<"buildJoinTable", []> {
     I64Attr:$table
   );
 
-  
+
 }
 
 def LookupJoinOp : Database_Op<"lookupJoin", [NoSideEffect]> {

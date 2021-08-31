@@ -121,25 +121,7 @@ static void TPCHQ6(benchmark::State& state) {
   database.addRelation("LINEITEM", std::move(relation));
   boss::engines::mlir::Engine engine(database);
 
-//  auto query =
-//      "GroupBy"_(
-//        "Fields"_("DummyField"),
-//        "Lambda"_(
-//            "Args"_("Pair"_("currentValue", "Int")),
-//            "Plus"_("Symbol"_("currentValue"), "Mul"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_))),
-//        "Select"_(
-//              "Where"_(
-//                  "And"_(
-//                      "Less"_("L_QUANTITY"_, 24), "Greater"_("L_DISCOUNT"_, 0.05f),
-//                      "Greater"_(0.07f, "L_DISCOUNT"_),
-//                      "Greater"_(788914800, "L_SHIPDATE"_),
-//                      "Greater"_("L_SHIPDATE"_, 757378800)
-//                      )
-//                  ),
-//                "GetRelation"_("LINEITEM")
-//              )
-//      );
-        auto query =
+  auto query =
       "GroupBy"_(
         "Fields"_("DummyField"),
         "Lambda"_(
@@ -169,5 +151,37 @@ static void TPCHQ6(benchmark::State& state) {
   }
 }
 BENCHMARK(TPCHQ6)->Unit(benchmark::kMillisecond)->Arg(1024)->Arg(4096)->Arg(32768)->Arg(262144)->Arg(2097152)->Arg(16777216);
+
+static void TPCHQ1_Simplified(benchmark::State& state) {
+  new_runtime::Relation relation;
+  relation.loadFromFile("../DataSets/lineitem-csv-" + std::to_string(state.range(0)) + ".csv");
+  new_runtime::Database database;
+  database.addRelation("LINEITEM", std::move(relation));
+  boss::engines::mlir::Engine engine(database);
+
+  auto query =
+      "GroupBy"_(
+          "Fields"_("LINEITEM"),
+          "Lambda"_(
+              "Args"_("Pair"_("currentValue", "Int")),
+              "Plus"_(
+                "Symbol"_("currentValue"),
+                "L_QUANTITY"_,
+                "L_EXTENDEDPRICE"_,
+                "Mul"_("L_EXTENDEDPRICE"_, "Minus"_(1, "L_DISCOUNT"_)),
+                "L_DISCOUNT"_
+              )),
+          "Select"_(
+              "Where"_("Less"_("L_SHIPDATE"_, 912466800)),
+              "GetRelation"_("LINEITEM")
+          )
+      );
+
+  for (auto _ : state) {
+    auto result = engine.evaluate(query);
+    benchmark::DoNotOptimize(result);
+  }
+}
+BENCHMARK(TPCHQ1_Simplified)->Unit(benchmark::kMillisecond)->Arg(1024)->Arg(4096)->Arg(32768)->Arg(262144)->Arg(2097152)->Arg(16777216);
 
 BENCHMARK_MAIN();

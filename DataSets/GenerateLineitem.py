@@ -3,7 +3,7 @@ import datetime
 import math
 import random
 
-for size in [1024, 4096, 32768, 262144, 2097152, 16777216]:
+for size in [16777216]:
     with open("lineitem.tbl", "r") as f:
         with open("lineitem-csv-" + str(size) + ".csv", "w+") as g:
             header = "LINEITEM,L_ORDERKEY,L_PARTKEY,L_SUPPKEY,L_LINENUMBER,L_QUANTITY,L_EXTENDEDPRICE,L_DISCOUNT,L_TAX,L_RETURNFLAG,L_LINESTATUS,L_SHIPDATE,L_COMMITDATE,L_RECEIPTDATE,L_SHIPINSTRUCT,L_SHIPMODE,L_COMMENT,DummyField\n"
