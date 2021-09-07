@@ -134,6 +134,7 @@ all lists (excluding the root), thus stacking another operator on top of the que
      (InsertInto  Customer "Holger" "German" 38)
      (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
      (InsertInto  Customer "Hubert" "Frenchman" 34)
+     (InsertInto  Customer "Andrea" "Italianman" 32)
      ))
  )
 
