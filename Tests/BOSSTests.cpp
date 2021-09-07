@@ -22,7 +22,8 @@ template <> boss::engines::bulk::Engine& getEngine<boss::engines::bulk::Engine>(
   return e;
 };
 
-TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine, boss::engines::bulk::Engine) { // NOLINT
+TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine,
+                   boss::engines::bulk::Engine) { // NOLINT
   auto& engine = getEngine<TestType>();
   auto eval = [&engine](boss::Expression const& expression) mutable {
     return engine.evaluate(expression);

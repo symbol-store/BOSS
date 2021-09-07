@@ -58,7 +58,7 @@ public:
   Engine& operator=(Engine&&) = delete;
   Engine() = default;
 
-  class OperatorDirectory : public map<std::string, std::unique_ptr<Op>> {
+  class OperatorDirectory : public std::map<std::string, std::unique_ptr<Op>> {
   public:
     template <template <typename...> typename Operator, typename... AcceptedTypes>
     auto emplace(std::string const& name) {
