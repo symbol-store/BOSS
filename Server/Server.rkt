@@ -36,6 +36,9 @@
          threading
          web-server/dispatch)
 
+;K: probably the way to go https://docs.racket-lang.org/web-server/templates.html
+(require web-server/templates)
+
 (define (list->html-table data schema)
   `(div ((style "overflow-x: auto; overflow-y: auto; height:100%;"))
         (table
@@ -105,6 +108,22 @@
                        )
         )))
 
+;K: like embed-in-page, but with external html
+;K: TODO: pass the file as a string. A very hard task, indeed.
+(define (embed-ext my-param)
+  (response/full
+  200
+  #"OK"
+  (current-seconds)
+  TEXT/HTML-MIME-TYPE
+  '()
+  (list (string->bytes/utf-8
+    (let ([param my-param])
+    (include-template "../Server/page.html"))
+    ))
+   )
+  )
+
 ;K: a very cool new explain function
 (define (visual-explain req operators)
   (if (equal? (last operators) "RunNativeFunction")
@@ -128,13 +147,10 @@
                           Schema))
             )
 
-        (embed-in-page '(h1 "Visual Result")
-                       ; K: THIS gives out data as a string!! 
-                       (format "~v" (eval plan))
-                       ;(list->html-table (eval plan) (eval schema))
-                       ;'(hr)
-                       ;`(pre ,(format "~a" (syntax->datum plan)))
-                       )
+        
+        ;(embed-ext "foo")
+        (embed-ext (format "~v" (eval plan)))
+
         )))
 
 (define (index req)
