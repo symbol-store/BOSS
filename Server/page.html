@@ -1,0 +1,26 @@
+<html>
+
+<head>
+    <title>Visualisation Page</title>
+</head>
+
+<body>
+    <h1>Visualisation Page</h1>
+    <div id="desc">original data:</div>
+    <p id="data"> @param </p>
+
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <!-- <script src="visualisationscript.js"></script> -->
+    <!-- K: TODO: can't seem to import external js file, for who knows what reason. -->
+    <script>console.log("things not happening");</script>
+    <script>
+        data = d3.select("#data").text();
+        console.log("original data is " + data);
+        data = data.slice(2,-1);
+        d3.select("#data").text(data);
+        d3.select("#desc").text("original data (manipulated by d3):");
+        console.log("done.");
+    </script>
+</body>
+
+</html>
