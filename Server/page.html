@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
 <html>
 
 <head>
@@ -6,20 +8,95 @@
 
 <body>
     <h1>Visualisation Page</h1>
-    <div id="desc">original data:</div>
-    <p id="data"> @param </p>
+
+    <div style="display: none;" id="data"> @param </div>
+
+    <!-- TODO: parameterise data header -->
+    <!-- <div style="display: none;" id="dataheader"> @param </p> -->
+    <div style="display: none;" id="dataheader"> x,y,desc </div>
+
+
+    <div id="my_dataviz"></div>
 
     <script src="https://d3js.org/d3.v4.min.js"></script>
-    <!-- <script src="visualisationscript.js"></script> -->
+    
     <!-- K: TODO: can't seem to import external js file, for who knows what reason. -->
-    <script>console.log("things not happening");</script>
+    <!-- <script src="d3.min.js"></script> -->
+    <!-- <script src="visualisationscript.js"></script> -->
+
     <script>
+        // K: function to make the data a csv
+        function csvify(data, header) {
+            //substitute racket characters with csv characters
+            //strip initial quote
+            data = data.slice(2, -1);
+            //insert \n
+            data = data.replaceAll(") (", "\n");
+            //insert comas
+            data = data.replaceAll(" ", ",");
+            //strip double quotes
+            data = data.replaceAll("\"", "");
+            //strip parenthesis
+            data = data.replaceAll("((", "");
+            data = data.replaceAll("))", "");
+            
+            //insert header
+            data = header + "\n" + data;
+            return data;
+        }
+
+        header = d3.select("#dataheader").text();
+        header = header.replaceAll(" ", "");
+
+        //get data from the html container feed by racket
         data = d3.select("#data").text();
         console.log("original data is " + data);
-        data = data.slice(2,-1);
-        d3.select("#data").text(data);
-        d3.select("#desc").text("original data (manipulated by d3):");
-        console.log("done.");
+        data = csvify(data, header);
+
+        data = d3.csvParse(data);
+        console.log("new data is: ");
+        console.log(data);
+
+        // set the dimensions and margins of the graph
+        var margin = { top: 10, right: 30, bottom: 30, left: 60 },
+            width = 460 - margin.left - margin.right,
+            height = 400 - margin.top - margin.bottom;
+
+        // append the svg object to the body of the page
+        var svg = d3.select("#my_dataviz")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform",
+                "translate(" + margin.left + "," + margin.top + ")");
+
+        // Add X axis
+        var x = d3.scaleLinear()
+            .domain([0, d3.max(data, function (d) { return +d.x + 1; })])
+            .range([0, width]);
+        svg.append("g")
+            .attr("transform", "translate(0," + height + ")")
+            .call(d3.axisBottom(x));
+
+        // Add Y axis
+        var y = d3.scaleLinear()
+            .domain([0, d3.max(data, function (d) { return +d.y + 1; })])
+            .range([height, 0]);
+        svg.append("g")
+            .call(d3.axisLeft(y));
+
+        // Add the line
+        svg.append("path")
+            .datum(data)
+            .attr("fill", "none")
+            .attr("stroke", "steelblue")
+            .attr("stroke-width", 1.5)
+            .attr("d", d3.line()
+                .x(function (d) { return x(d.x) })
+                .y(function (d) { return y(d.y) })
+            );
+
     </script>
 </body>
 

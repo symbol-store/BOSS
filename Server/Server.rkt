@@ -181,7 +181,6 @@ all lists (excluding the root), thus stacking another operator on top of the que
      (li (a ((href "NumbersTable/:/Project/:/As/x/xnumber/y/ynumber/desc/description")) "The Numbers Table"))
      (li (a ((href "Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "The Customer Table"))
      (li (a ((href "visual/NumbersTable/:/Project/:/As/x/xnumber/y/ynumber/desc/description")) "The Visual Numbers Table"))
-     (li (a ((href "visual/Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "The Visual Customer Table"))
      )
   )
 )
