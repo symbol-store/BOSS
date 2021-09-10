@@ -181,7 +181,6 @@ all lists (excluding the root), thus stacking another operator on top of the que
      (li (a ((href "NumbersTable/:/Project/:/As/x/xnumber/y/ynumber/desc/description")) "The Numbers Table"))
      (li (a ((href "Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "The Customer Table"))
      (li (a ((href "visual/NumbersTable/:/Project/:/As/x/xnumber/y/ynumber/desc/description")) "The Visual Numbers Table"))
-     (li (a ((href "visual/Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "The Visual Customer Table"))
      )
   )
 )
@@ -205,9 +204,11 @@ all lists (excluding the root), thus stacking another operator on top of the que
      (InsertInto  Customer "Andrea" "Italianman" 32)
      ; K: just an example table to play with, full of numbers
      (CreateTable NumbersTable xnumber ynumber description)
-     (InsertInto  NumbersTable 1 1 "desc1")
-     (InsertInto  NumbersTable 2 2 "desc2")
-     (InsertInto  NumbersTable 3 3 "desc3")
+     (InsertInto  NumbersTable 1 3 "desc1")
+     (InsertInto  NumbersTable 2 4 "desc2")
+     (InsertInto  NumbersTable 3 5 "desc3")
+     (InsertInto  NumbersTable 4 7 "desc4")
+     (InsertInto  NumbersTable 5 6 "desc5")
      ))
  )
 
