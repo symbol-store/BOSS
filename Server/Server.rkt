@@ -119,7 +119,35 @@
   '()
   (list (string->bytes/utf-8
     (let ([param my-param])
-    (include-template "../Server/page.html"))
+    (include-template "../Server/visualPage.html"))
+    ))
+   )
+  )
+;K: like embed-in-page, but with external html (custom for MOD, TODO optimise)
+(define (embed-extMOD my-param)
+  (response/full
+  200
+  #"OK"
+  (current-seconds)
+  TEXT/HTML-MIME-TYPE
+  '()
+  (list (string->bytes/utf-8
+    (let ([param my-param])
+    (include-template "../Server/visualMOD.html"))
+    ))
+   )
+  )
+;K: like embed-in-page, but with external html (custom for MSTR, TODO optimise)
+(define (embed-extMSTR my-param)
+  (response/full
+  200
+  #"OK"
+  (current-seconds)
+  TEXT/HTML-MIME-TYPE
+  '()
+  (list (string->bytes/utf-8
+    (let ([param my-param])
+    (include-template "../Server/visualMSTR.html"))
     ))
    )
   )
@@ -153,6 +181,65 @@
 
         )))
 
+;K: custom explain for MOD table
+(define (visual-explainMOD req operators)
+  (if (equal? (last operators) "RunNativeFunction")
+      (let ((plan #`(~> #,@(unflatten
+                            (map (lambda (op) (read (open-input-string op)))
+                                 operators)))))
+        (embed-in-page '(h1 "Visual Result")
+                       `(pre ,(format "~a" (eval plan)) )
+                       '(hr)
+                       `(pre ,(format "~a" (syntax->datum plan)))
+                       )
+        )
+
+
+      (let ((plan #`(~> #,@(unflatten (map
+                                       (lambda (op) (read (open-input-string op))) operators))))
+            (schema #`(~> #,@(unflatten
+                              (map
+                               (lambda (op) (read (open-input-string op)))
+                               operators))
+                          Schema))
+            )
+
+        
+        ;(embed-ext "foo")
+        (embed-extMOD (format "~v" (eval plan)))
+
+        )))
+
+
+;K: custom explain for MSTR table
+(define (visual-explainMSTR req operators)
+  (if (equal? (last operators) "RunNativeFunction")
+      (let ((plan #`(~> #,@(unflatten
+                            (map (lambda (op) (read (open-input-string op)))
+                                 operators)))))
+        (embed-in-page '(h1 "Visual Result")
+                       `(pre ,(format "~a" (eval plan)) )
+                       '(hr)
+                       `(pre ,(format "~a" (syntax->datum plan)))
+                       )
+        )
+
+
+      (let ((plan #`(~> #,@(unflatten (map
+                                       (lambda (op) (read (open-input-string op))) operators))))
+            (schema #`(~> #,@(unflatten
+                              (map
+                               (lambda (op) (read (open-input-string op)))
+                               operators))
+                          Schema))
+            )
+
+        
+        ;(embed-ext "foo")
+        (embed-extMSTR (format "~v" (eval plan)))
+
+        )))
+
 (define (index req)
   (embed-in-page
    '(h1 "Description")
@@ -182,6 +269,13 @@ all lists (excluding the root), thus stacking another operator on top of the que
      (li (a ((href "Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "The Customer Table"))
      (li (a ((href "visual/NumbersTable/:/Project/:/As/x/xnumber/y/ynumber/desc/description")) "The Visual Numbers Table"))
      )
+   '(h1 "Brill Data")
+   '(list
+     (li (a ((href "BatteryDataMOD/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/VBat_V/VBat_V/IBat_A/IBat_A/TBat_degC/TBat_degC/TPwr_degC/TPwr_degC/RBat_ohm/RBat_ohm/currentThroughput_kAh/currentThroughput_kAh/currentThroughput_Ah/currentThroughput_Ah/energyThroughput_kWh/energyThroughput_kWh/energyThroughput_Wh/energyThroughput_Wh/PBat_W/PBat_W/soh_pct/soh_pct/soc_pct/soc_pct/capacity_Ah/capacity_Ah/energyCapacityWh/energyCapacityWh/Rbat_ohm/Rbat_ohm")) "MOD Table"))
+     (li (a ((href "visualMOD/BatteryDataMOD/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/VBat_V/VBat_V/IBat_A/IBat_A/TBat_degC/TBat_degC/TPwr_degC/TPwr_degC/RBat_ohm/RBat_ohm/currentThroughput_kAh/currentThroughput_kAh/currentThroughput_Ah/currentThroughput_Ah/energyThroughput_kWh/energyThroughput_kWh/energyThroughput_Wh/energyThroughput_Wh/PBat_W/PBat_W/soh_pct/soh_pct/soc_pct/soc_pct/capacity_Ah/capacity_Ah/energyCapacityWh/energyCapacityWh/Rbat_ohm/Rbat_ohm")) "visual MOD Table"))
+     (li (a ((href "BatteryDataMSTR/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "MSTR Table"))
+     (li (a ((href "visualMSTR/BatteryDataMSTR/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "visual MSTR Table"))
+     )
   )
 )
 
@@ -192,6 +286,9 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [("kpage") kpage]
    ; K: visual/something will evaluate as explain, but with visualisation component
    [("visual" (string-arg) ...) visual-explain]
+   ; K: visual functions and page, custom for brill table (TODO optimise)
+   [("visualMOD" (string-arg) ...) visual-explainMOD]
+   [("visualMSTR" (string-arg) ...) visual-explainMSTR]
    [((string-arg) ...) explain]
    ))
 
