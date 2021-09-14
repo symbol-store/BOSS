@@ -13,13 +13,15 @@
 
     <!-- TODO: parameterise data header -->
     <!-- <div style="display: none;" id="dataheader"> @param </p> -->
-    <div style="display: none;" id="dataheader"> id,battId,groupId,ts,Vsys_V,Vsysout_V,Isys_A,Psys_W,soh_pct,soc_pct </div>
+    <div style="display: none;" id="dataheader">
+        id,battId,groupId,ts,Vsys_V,Vsysout_V,Isys_A,Psys_W,soh_pct,soc_pct
+    </div>
 
 
     <div id="my_dataviz"></div>
 
     <script src="https://d3js.org/d3.v4.min.js"></script>
-    
+
     <!-- K: TODO: can't seem to import external js file, for who knows what reason. -->
     <!-- <script src="d3.min.js"></script> -->
     <!-- <script src="visualisationscript.js"></script> -->
@@ -39,13 +41,13 @@
             //strip parenthesis
             data = data.replaceAll("((", "");
             data = data.replaceAll("))", "");
-            
+
             //insert header
             data = header + "\n" + data;
             return data;
         }
 
-        header = d3.select("#dataheader").text();
+        header = d3.select("#dataheader").text().trim();
         header = header.replaceAll(" ", "");
 
         //get data from the html container feed by racket
@@ -54,6 +56,12 @@
         data = csvify(data, header);
 
         data = d3.csvParse(data);
+
+        //fix data timestamp
+        data.forEach(element => {
+            element.ts = new Date(element.ts * 1000);
+        });
+
         console.log("new data is: ");
         console.log(data);
 
@@ -72,8 +80,16 @@
                 "translate(" + margin.left + "," + margin.top + ")");
 
         // Add X axis
-        var x = d3.scaleLinear()
-            .domain([0, d3.max(data, function (d) { return +d.ts + 1; })])
+        // var x = d3.scaleLinear()
+        //     .domain([0, d3.max(data, function (d) { return +d.ts + 1; })])
+        //     .range([0, width]);
+        // svg.append("g")
+        //     .attr("transform", "translate(0," + height + ")")
+        //     .call(d3.axisBottom(x));
+
+        // Add X axis --> it is a date format
+        var x = d3.scaleTime()
+            .domain(d3.extent(data, function (d) { return d.ts; }))
             .range([0, width]);
         svg.append("g")
             .attr("transform", "translate(0," + height + ")")
@@ -81,7 +97,8 @@
 
         // Add Y axis
         var y = d3.scaleLinear()
-            .domain([0, d3.max(data, function (d) { return +d.Vsysout_V + 1; })])
+            // .domain([0, d3.max(data, function (d) { return +parseFloat(d.soc_pct) + 1; })])
+            .domain([0, 100])
             .range([height, 0]);
         svg.append("g")
             .call(d3.axisLeft(y));
@@ -94,7 +111,7 @@
             .attr("stroke-width", 1.5)
             .attr("d", d3.line()
                 .x(function (d) { return x(d.ts) })
-                .y(function (d) { return y(d.Vsysout_V) })
+                .y(function (d) { return y(parseFloat(d.soc_pct)) })
             );
 
     </script>
