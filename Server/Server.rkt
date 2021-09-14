@@ -273,8 +273,8 @@ all lists (excluding the root), thus stacking another operator on top of the que
    '(list
      (li (a ((href "BatteryDataMOD/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/VBat_V/VBat_V/IBat_A/IBat_A/TBat_degC/TBat_degC/TPwr_degC/TPwr_degC/RBat_ohm/RBat_ohm/currentThroughput_kAh/currentThroughput_kAh/currentThroughput_Ah/currentThroughput_Ah/energyThroughput_kWh/energyThroughput_kWh/energyThroughput_Wh/energyThroughput_Wh/PBat_W/PBat_W/soh_pct/soh_pct/soc_pct/soc_pct/capacity_Ah/capacity_Ah/energyCapacityWh/energyCapacityWh/Rbat_ohm/Rbat_ohm")) "MOD Table"))
      (li (a ((href "visualMOD/BatteryDataMOD/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/VBat_V/VBat_V/IBat_A/IBat_A/TBat_degC/TBat_degC/TPwr_degC/TPwr_degC/RBat_ohm/RBat_ohm/currentThroughput_kAh/currentThroughput_kAh/currentThroughput_Ah/currentThroughput_Ah/energyThroughput_kWh/energyThroughput_kWh/energyThroughput_Wh/energyThroughput_Wh/PBat_W/PBat_W/soh_pct/soh_pct/soc_pct/soc_pct/capacity_Ah/capacity_Ah/energyCapacityWh/energyCapacityWh/Rbat_ohm/Rbat_ohm")) "visual MOD Table"))
-     (li (a ((href "BatteryDataMSTR/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "MSTR Table"))
-     (li (a ((href "visualMSTR/BatteryDataMSTR/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "visual MSTR Table"))
+     (li (a ((href "BatteryDataMSTR/:/Project/:/As/id/id/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "MSTR Table"))
+     (li (a ((href "visualMSTR/BatteryDataMSTR/:/Project/:/As/id/id/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "visual MSTR Table"))
      )
   )
 )
