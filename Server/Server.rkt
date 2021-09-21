@@ -240,45 +240,6 @@
 
         )))
 
-;K: explain funtion returning data on get
-(define (rest-explain req operators)
-  (if (equal? (last operators) "RunNativeFunction")
-      (let ((plan #`(~> #,@(unflatten
-                            (map (lambda (op) (read (open-input-string op)))
-                                 operators)))))
-        (response/full
-        200
-        #"OK"
-        (current-seconds)
-        TEXT/HTML-MIME-TYPE
-        '()
-        (list (string->bytes/utf-8 (string-append (format "~a" (syntax->datum plan)) ";" (format "~a" (eval plan)) ) ))
-        )
-        )
-
-
-      (let ((plan #`(~> #,@(unflatten (map
-                                       (lambda (op) (read (open-input-string op))) operators))))
-            (schema #`(~> #,@(unflatten
-                              (map
-                               (lambda (op) (read (open-input-string op)))
-                               operators))
-                          Schema))
-            )
-
-        
-        ;(embed-ext "foo")
-        (response/full
-        200
-        #"OK"
-        (current-seconds)
-        TEXT/HTML-MIME-TYPE
-        '()
-        (list (string->bytes/utf-8 (string-append (format "~a" (eval schema)) ";" (format "~a" (eval plan)) ) ))
-        )
-
-        )))
-
 (define (index req)
   (embed-in-page
    '(h1 "Description")
@@ -315,25 +276,7 @@ all lists (excluding the root), thus stacking another operator on top of the que
      (li (a ((href "BatteryDataMSTR/:/Project/:/As/id/id/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "MSTR Table"))
      (li (a ((href "visualMSTR/BatteryDataMSTR/:/Project/:/As/id/id/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "visual MSTR Table"))
      )
-   '(h1 "Brill Data w/ REST interface")
-   '(list
-     (li (a ((href "rest-feeded-page")) "REST feeded page"))
-     )
   )
-)
-
-; K: a rest feeded page
-(define (rest-feeded-page req)
- (response/full
-  200
-  #"OK"
-  (current-seconds)
-  TEXT/HTML-MIME-TYPE
-  '()
-  (list (string->bytes/utf-8
-    (include-template "../Server/visualRestPage.html")
-    ))
- )
 )
 
 (define-values (start route-url)
@@ -346,10 +289,6 @@ all lists (excluding the root), thus stacking another operator on top of the que
    ; K: visual functions and page, custom for brill table (TODO optimise)
    [("visualMOD" (string-arg) ...) visual-explainMOD]
    [("visualMSTR" (string-arg) ...) visual-explainMSTR]
-   ; K: REST interface to BOSS (https://lisp.sh/crud-web-api-in-racket/)
-   [("rest" (string-arg) ...) #:method "get" rest-explain]
-   ; K: REST feeded page
-   [("rest-feeded-page") rest-feeded-page]
    [((string-arg) ...) explain]
    ))
 
