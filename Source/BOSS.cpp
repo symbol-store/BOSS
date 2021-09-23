@@ -6,7 +6,7 @@
 #include <iterator>
 #include <ostream>
 #include <sstream>
-#include <string.h>
+#include <cstring.h>
 extern "C" {
 struct BOSSExpression {
   boss::Expression delegate;
