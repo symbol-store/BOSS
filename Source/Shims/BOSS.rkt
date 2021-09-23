@@ -6,25 +6,25 @@
 (define libBoss (ffi-lib "libBOSS.dylib"))
 
 (define symbolToNewString
-  (get-ffi-obj "symbolToNewString" libBoss (_fun _pointer -> _string))
+  (get-ffi-obj "bossSymbolToNewString" libBoss (_fun _pointer -> _string))
   )
 (define symbolNameToNewSymbol
-  (get-ffi-obj "symbolNameToNewSymbol" libBoss (_fun _string  -> _pointer)))
+  (get-ffi-obj "symbolNameToNewBOSSSymbol" libBoss (_fun _string  -> _pointer)))
 (define _Symbol (make-ctype _pointer
                             (lambda (s) (symbolNameToNewSymbol (symbol->string s)))
                             (lambda (s) (string->symbol (symbolToNewString s)))))
 
 
-(define intToNewExpression (get-ffi-obj "intToNewExpression" libBoss (_fun _int  -> _pointer)))
+(define intToNewExpression (get-ffi-obj "intToNewBOSSExpression" libBoss (_fun _int  -> _pointer)))
 (define floatToNewExpression
-  (get-ffi-obj "floatToNewExpression" libBoss (_fun _float  -> _pointer)))
+  (get-ffi-obj "floatToNewBOSSExpression" libBoss (_fun _float  -> _pointer)))
 (define stringToNewExpression
-  (get-ffi-obj "stringToNewExpression" libBoss (_fun _string  -> _pointer)))
+  (get-ffi-obj "stringToNewBOSSExpression" libBoss (_fun _string  -> _pointer)))
 (define symbolNameToNewExpression
-  (get-ffi-obj "symbolNameToNewExpression" libBoss (_fun _string  -> _pointer)))
+  (get-ffi-obj "bossSymbolNameToNewBOSSExpression" libBoss (_fun _string  -> _pointer)))
 
 (define newComplexExpression
-  (get-ffi-obj "newComplexExpression" libBoss
+  (get-ffi-obj "newComplexBOSSExpression" libBoss
                (_fun _Symbol _size _pointer -> _pointer)))
 
 (define (convert-to-boss-expression x)
@@ -42,10 +42,10 @@
           'list
           2
           (list->cblock 
-                         (map convert-to-boss-expression
-                              (map string->symbol
-                                   (list (first (string-split (symbol->string s) ":"))
-                                         (second (string-split (symbol->string s) ":"))))) _pointer))
+           (map convert-to-boss-expression
+                (map string->symbol
+                     (list (first (string-split (symbol->string s) ":"))
+                           (second (string-split (symbol->string s) ":"))))) _pointer))
          (symbolNameToNewExpression (symbol->string s))
          )
      ]
@@ -56,15 +56,23 @@
 (define bossTypeID (_enum '(bool int float string symbol complexExpression))
   )
 
-(define getTypeID (get-ffi-obj "getBOSSTypeID" libBoss (_fun _pointer -> bossTypeID)))
-(define getBoolValueFromExpression (get-ffi-obj "getBoolValueFromExpression" libBoss (_fun _pointer -> _bool)))
-(define getIntValueFromExpression (get-ffi-obj "getIntValueFromExpression" libBoss (_fun _pointer -> _int)))
-(define getFloatValueFromExpression (get-ffi-obj "getFloatValueFromExpression" libBoss (_fun _pointer -> _float)))
-(define getStringValueFromExpression (get-ffi-obj "getNewStringValueFromExpression" libBoss (_fun _pointer -> _string)))
-(define getSymbolNameFromExpression (get-ffi-obj "getNewSymbolNameFromExpression" libBoss (_fun _pointer -> _string)))
-(define getHeadFromExpression (get-ffi-obj "getHeadFromExpression" libBoss (_fun _pointer -> _Symbol)))
-(define getArgumentCountFromExpression (get-ffi-obj "getArgumentCountFromExpression" libBoss (_fun _pointer -> _size)))
-(define getArgumentsFromExpression (get-ffi-obj "getArgumentsFromExpression" libBoss (_fun _pointer -> _pointer)))
+(define getTypeID (get-ffi-obj "getBOSSExpressionTypeID" libBoss (_fun _pointer -> bossTypeID)))
+(define getBoolValueFromExpression (get-ffi-obj "getBoolValueFromBOSSExpression" libBoss
+                                                (_fun _pointer -> _bool)))
+(define getIntValueFromExpression (get-ffi-obj "getIntValueFromBOSSExpression" libBoss
+                                               (_fun _pointer -> _int)))
+(define getFloatValueFromExpression (get-ffi-obj "getFloatValueFromBOSSExpression" libBoss
+                                                 (_fun _pointer -> _float)))
+(define getStringValueFromExpression (get-ffi-obj "getNewStringValueFromBOSSExpression" libBoss
+                                                  (_fun _pointer -> _string)))
+(define getSymbolNameFromExpression (get-ffi-obj "getNewSymbolNameFromBOSSExpression" libBoss 
+                                                 (_fun _pointer -> _string)))
+(define getHeadFromExpression (get-ffi-obj "getHeadFromBOSSExpression" libBoss
+                                           (_fun _pointer -> _Symbol)))
+(define getArgumentCountFromExpression (get-ffi-obj "getArgumentCountFromBOSSExpression" libBoss
+                                                    (_fun _pointer -> _size)))
+(define getArgumentsFromExpression (get-ffi-obj "getArgumentsFromBOSSExpression" libBoss
+                                                (_fun _pointer -> _pointer)))
 
 (define (convert-from-boss-expression x)
   (case (getTypeID x)
@@ -74,10 +82,11 @@
     ['string (getStringValueFromExpression x)]
     ['symbol (string->symbol (getSymbolNameFromExpression x))]
     ['complexExpression
-     (let ([arguments (map convert-from-boss-expression (ptr-ref
-                                                         (getArgumentsFromExpression x)
-                                                         (_array/list _pointer (getArgumentCountFromExpression x))
-                                                         ))
+     (let ([arguments (map convert-from-boss-expression 
+                           (ptr-ref
+                            (getArgumentsFromExpression x)
+                            (_array/list _pointer (getArgumentCountFromExpression x))
+                            ))
                       ])
        (if (eq? 'List (getHeadFromExpression x))
            arguments
@@ -90,10 +99,7 @@
 (define _Expression (make-ctype _pointer convert-to-boss-expression convert-from-boss-expression))
 
 (define evaluate
-  (get-ffi-obj "evaluate" libBoss (_fun _Expression -> _Expression)))
-(define toString
-  (get-ffi-obj "toString" libBoss (_fun _Expression -> _string))
-  )
+  (get-ffi-obj "BOSSEvaluate" libBoss (_fun _Expression -> _Expression)))
 
 (define-syntax-rule (define-operator name arguments ...)
   (begin 
@@ -116,7 +122,7 @@
   '(Plus operands ...)
   '(CreateTable relationName attributes ...)
   '(Group input groupFunction aggregateFunction ...)
-  ;;'(Group input aggregateFunction ...)
+  ;; '(Group input aggregateFunction ...)
   '(Select input predicate)
   '(Project input projectionFunction)
   '(ProjectAll input name)
