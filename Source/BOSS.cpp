@@ -2,11 +2,11 @@
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
 #include <algorithm>
+#include <cstring.h>
 #include <iostream>
 #include <iterator>
 #include <ostream>
 #include <sstream>
-#include <cstring.h>
 extern "C" {
 struct BOSSExpression {
   boss::Expression delegate;
