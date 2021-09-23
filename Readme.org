@@ -41,7 +41,6 @@
 #+begin_src racket :exports both :tangle yes :main no :cache no
   #lang racket
   ;; utilities
-  (load-extension "RacketBOSS.so")
   (require rackunit)
   (require rackunit/text-ui)
 
@@ -101,19 +100,19 @@
     (test-suite
      "All Tests"
 
-     (expect (Group Customer (Function tuple 0) Count) '((1)) "Grouping")
+     (expect (Group Customer (Function tuple 0) Count) '((1 0)) "Grouping")
      (expect (Plus 1 2 3) 6 "Arithmetic")
      (expect (Greater 1 0) #t "Logic")
      (expect (Group
               (Select Customer
                       (Function t (Greater 1 0)))
-              (Function 0) Count) '((1)) "Select + Aggregate")
+              (Function 0) Count) '((1 0)) "Select + Aggregate")
      (expect (Group
               (Select
                (Select Customer
                        (Function t (Greater 1 0)))
                (Function t (Greater 1 0)))
-              (Function 0) Count) '((1)) "Select + Select + Aggregate")
+              (Function 0) Count) '((1 0)) "Select + Select + Aggregate")
 
      (expect (Group
               (Select
@@ -122,7 +121,7 @@
                (Where (Greater DISCOUNT 5)))
               (Function 0)
               Count
-              ) '((1)) "TPC-H Q6 simplified")
+              ) '((1 0)) "TPC-H Q6 simplified")
 
      (expect (Group
               (Select Lineitem
@@ -134,7 +133,7 @@
                        ))
               (Function 0)
               Count
-              ) '((1)) "TPC-H Q6 simplified")
+              ) '((1 0)) "TPC-H Q6 simplified")
 
      (expect (Group
               (Select Lineitem
@@ -145,11 +144,10 @@
                        ))
               (Function 0)
               Count
-              ) '((1)) "TPC-H Q6 simplified")
+              ) '((1 0)) "TPC-H Q6 simplified")
 
      (expect (Group
               Lineitem
-              (Function 0)
               (Sum QUANTITY)
               ) `((,(+ 17 36 8))) "TPC-H Q6 simplified")
 
@@ -157,7 +155,6 @@
               (Project
                Lineitem
                (As revenue (Times EXTENDEDPRICE DISCOUNT)))
-              (Function 0)
               (Sum revenue)
               ) '((73204488)) "TPC-H Q6 simplified")
 
@@ -171,7 +168,6 @@
                                    (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
                                    )))
                (As revenue (Times EXTENDEDPRICE DISCOUNT)))
-              (Function 0)
               Count
               ) '((1)) "TPC-H Q6 simplified")
 
@@ -185,7 +181,6 @@
                                    (Greater SHIPDATE (UnixTime "1996-03-08" (Rule TimeZone 1)))
                                    )))
                (As revenue (Times EXTENDEDPRICE DISCOUNT)))
-              (Function 0) ;; everything goes in one group
               (Sum revenue)
               ) '((51019308)) "TPC-H Q6")
 
@@ -229,22 +224,23 @@
 
      (expect
       (Group Lineitem (By TAX) (Sum QUANTITY) )
-      '((25) (36)) "Grouping + Sum Results")
+      '((25 2) (36 6)) "Grouping + Sum Results")
 
      (expect
       (Group Lineitem (By ORDERKEY) Count )
-      '((3)) "Grouping + Count Results")
+      '((3 1)) "Grouping + Count Results")
 
      (expect
       (Group Lineitem (By TAX) Count )
-      '((2) (1)) "Grouping + Count Results")
+      '((2 2) (1 6)) "Grouping + Count Results")
 
      (expect (Join Lineitem Part (Where (Equal PARTKEY P_PARTKEY)))
-             '((1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000 829954800
-                  "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold" 674 "Banana Bread")
-               (1 637 38 3 8 1230104 10 2 "N" "O" 822870000 825980400 823042800
-                  "TAKE BACK RETURN" "REG AIR" "riously. regular, express dep" 637 "Blobfish")
-               ) "Join")
+             '((637 "Blobfish" 1 637 38 3 8 1230104 10 2 "N" "O" 822870000 825980400
+                    823042800 "TAKE BACK RETURN" "REG AIR" "riously. regular, express dep")
+               (674 "Banana Bread" 1 674 75 2 36 5668812 9 6 "N" "O" 829263600 825462000
+                    829954800 "TAKE BACK RETURN" "MAIL" "ly final dependencies: slyly bold")) "Join")
+
+
 
      (expect
       (Group
@@ -256,7 +252,7 @@
 
      (expect
       (Group Lineitem (By TAX) (Sum QUANTITY) (Sum EXTENDEDPRICE) )
-      '((25 3701139) (36 5668812)) "Grouping + Sum Results")
+      '((25 3701139 2) (36 5668812 6)) "Grouping + Sum Results")
      )
     )
    )

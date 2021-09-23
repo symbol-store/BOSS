@@ -278,37 +278,41 @@ struct EngineImplementation {
             "List"_("Set"_("input"_, namespaced("GetPersistentTableIfSymbol"_)("inputName"_))),
 
             "KeyValueMap"_(
-                "Function"_("List"_("groupkey"_, "groupresult"_),
-                            "Append"_("groupresult"_,
-                                      "Thread"_("Rule"_("Extract"_("groupFunction"_, "List"_(2, 1)),
-                                                        "groupkey"_)))),
+                "Function"_(
+                    "List"_("groupkey"_, "groupresult"_),
+                    "Append"_("groupresult"_,
+                              "Thread"_("Rule"_(
+                                  "Quiet"_("Check"_("Extract"_("groupFunction"_, "List"_(2, 1)),
+                                                    "Unique"_("groupKey"_))),
+                                  "groupkey"_)))),
                 "GroupBy"_(
                     "input"_, "groupFunction"_,
                     "Function"_(
                         "groupedInput"_,
-                        "Merge"_("Map"_("Function"_(
-                                            "aggregateFunction"_,
-                                            "Construct"_(
-                                                "Switch"_(
-                                                    "aggregateFunction"_, namespaced("Count"_),
-                                                    "Composition"_(
-                                                        "Association"_,
-                                                        "Construct"_("CurryApplied"_("Rule"_, 2),
-                                                                     "Count"_),
-                                                        "Length"_),
-                                                    "Blank"_(),
-                                                    "Composition"_("Fold"_("Plus"_),
-                                                                   "Apply"_("KeyTake"_,
-                                                                            "aggregateFunction"_))),
-                                                "groupedInput"_)),
-                                        "List"_("aggregateFunctions"_)),
-                                 "First"_))))));
+                        "Merge"_(
+                            "Map"_(
+                                "Function"_(
+                                    "aggregateFunction"_,
+                                    "Construct"_(
+                                        "Switch"_("aggregateFunction"_, namespaced("Count"_),
+                                                  "Composition"_(
+                                                      "Association"_,
+                                                      "Construct"_("CurryApplied"_("Rule"_, 2),
+                                                                   "Count"_),
+                                                      "Length"_),
+                                                  "Blank"_(),
+                                                  "Composition"_(
+                                                      "Fold"_("Plus"_),
+                                                      "Apply"_("KeyTake"_, "aggregateFunction"_))),
+                                        "groupedInput"_)),
+                                "List"_("aggregateFunctions"_)),
+                            "First"_))))));
 
     DefineFunction(
-        "Group"_, {"Pattern"_("inputName"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
+        "Group"_,
+        {"Pattern"_("inputName"_, "Blank"_()), "Pattern"_("aggregateFunctions"_, "Blank"_())},
         "With"_("List"_("Set"_("input"_, namespaced("GetPersistentTableIfSymbol"_)("inputName"_))),
-                "List"_
-                ("Merge"_(
+                "List"_("Merge"_(
                     "Map"_("Function"_(
                                "aggregateFunction"_,
                                "Construct"_(

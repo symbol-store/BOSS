@@ -1,9 +1,10 @@
 #lang racket
 ;; right now, you need to run it (in the directory where you have RacketBOSS.so) like this
-;; racket -e '(load "...../Server.rkt")' -e "(require 'Server)"
+;; racket -tm ..../Server/Server.rkt
 
 (require threading)
 (require racket/list)
+(require "../Source/Shims/BOSS.rkt")
 (define (unflatten l)
   (foldl
    (lambda (op plan)
@@ -30,7 +31,6 @@
    '()
    l))
 
-(load-extension "RacketBOSS.so")
 (require web-server/servlet-env
          web-server/servlet
          threading
@@ -128,19 +128,18 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [((string-arg) ...) explain]
    ))
 
-(eval ;; create some sample data in the customer table
- '((lambda ()
-     (CreateTable Customer FirstName LastName age)
-     (InsertInto  Customer "Holger" "German" 38)
-     (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
-     (InsertInto  Customer "Hubert" "Frenchman" 34)
-     ))
- )
+(CreateTable Customer FirstName LastName age)
+(InsertInto  Customer "Holger" "German" 38)
+(InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
+(InsertInto  Customer "Hubert" "Frenchman" 34)
 
-(serve/servlet start
-               #:stateless? #t
-               #:servlet-path "/"
-               #:servlet-regexp #rx""
-               #:listen-ip #f
-               #:command-line? #t
-               )
+
+(provide main)
+(define (main)
+  (serve/servlet start
+                 #:stateless? #t
+                 #:servlet-path "/"
+                 #:servlet-regexp #rx""
+                 #:listen-ip #f
+                 #:command-line? #t
+                 ))
