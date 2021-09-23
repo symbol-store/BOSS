@@ -12,7 +12,8 @@ BOSSExpression* floatToNewBOSSExpression(float i);
 BOSSExpression* stringToNewBOSSExpression(char const* i);
 BOSSExpression* symbolNameToNewBOSSExpression(char const* i);
 
-BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality, BOSSExpression* arguments[]);
+BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
+                                         BOSSExpression* arguments[]);
 
 /**
  *     bool = 0, int = 1, float = 2 , std::string = 3, Symbol = 4 , ComplexExpression = 5

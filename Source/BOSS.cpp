@@ -18,7 +18,9 @@ BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
   static boss::engines::wolfram::Engine engine;
   return new BOSSExpression{.delegate = engine.evaluate(arg->delegate)};
 };
-BOSSExpression* intToNewBOSSExpression(int i) { return new BOSSExpression{.delegate = boss::Expression(i)}; }
+BOSSExpression* intToNewBOSSExpression(int i) {
+  return new BOSSExpression{.delegate = boss::Expression(i)};
+}
 BOSSExpression* floatToNewBOSSExpression(float i) {
   return new BOSSExpression{.delegate = boss::Expression(i)};
 }
@@ -29,9 +31,12 @@ BOSSExpression* bossSymbolNameToNewBOSSExpression(char const* i) {
   return new BOSSExpression{.delegate = boss::Expression(boss::Symbol(i))};
 }
 
-BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i) { return new BOSSSymbol{.delegate = boss::Symbol(i)}; }
+BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i) {
+  return new BOSSSymbol{.delegate = boss::Symbol(i)};
+}
 
-BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality, BOSSExpression* arguments[]) {
+BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
+                                         BOSSExpression* arguments[]) {
   std::vector<boss::Expression> args;
   std::transform(arguments, arguments + cardinality, std::back_insert_iterator(args),
                  [](auto const* a) { return a->delegate; });
@@ -67,9 +72,15 @@ size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
   return arg->delegate.index();
 }
 
-bool getBoolValueFromBOSSExpression(BOSSExpression const* arg) { return std::get<bool>(arg->delegate); }
-int getIntValueFromBOSSExpression(BOSSExpression const* arg) { return std::get<int>(arg->delegate); }
-float getFloatValueFromBOSSExpression(BOSSExpression const* arg) { return std::get<float>(arg->delegate); }
+bool getBoolValueFromBOSSExpression(BOSSExpression const* arg) {
+  return std::get<bool>(arg->delegate);
+}
+int getIntValueFromBOSSExpression(BOSSExpression const* arg) {
+  return std::get<int>(arg->delegate);
+}
+float getFloatValueFromBOSSExpression(BOSSExpression const* arg) {
+  return std::get<float>(arg->delegate);
+}
 char const* getNewStringValueFromBOSSExpression(BOSSExpression const* arg) {
   return strdup(std::get<std::string>(arg->delegate).c_str());
 }
