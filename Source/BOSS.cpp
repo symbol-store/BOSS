@@ -63,12 +63,12 @@ size_t getBOSSTypeID(Expression const* arg) {
   static_assert(
       std::is_same_v<
           float, std::variant_alternative_t<2, boss::DefaultExpressionSystem::AtomicExpression>>);
-  static_assert(
-      std::is_same_v<
-      std::string, std::variant_alternative_t<3, boss::DefaultExpressionSystem::AtomicExpression>>);
-  static_assert(
-      std::is_same_v<
-      boss::Symbol, std::variant_alternative_t<4, boss::DefaultExpressionSystem::AtomicExpression>>);
+  static_assert(std::is_same_v<
+                std::string,
+                std::variant_alternative_t<3, boss::DefaultExpressionSystem::AtomicExpression>>);
+  static_assert(std::is_same_v<
+                boss::Symbol,
+                std::variant_alternative_t<4, boss::DefaultExpressionSystem::AtomicExpression>>);
   return arg->delegate.index();
 }
 
