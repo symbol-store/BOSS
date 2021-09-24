@@ -2,7 +2,7 @@
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
 #include <algorithm>
-#include <cstring.h>
+#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <ostream>
