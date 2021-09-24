@@ -37,17 +37,16 @@ BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i) {
 
 BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                                          BOSSExpression* arguments[]) {
-  std::vector<boss::Expression> args;
+  auto args = std::vector<boss::Expression>();
   std::transform(arguments, arguments + cardinality, std::back_insert_iterator(args),
                  [](auto const* a) { return a->delegate; });
   return new BOSSExpression{.delegate = boss::ComplexExpression(head->delegate, args)};
 }
 
 char const* bossSymbolToNewString(BOSSSymbol const* arg) {
-  std::stringstream result;
+  auto result = std::stringstream();
   result << arg->delegate;
-  auto* res = strdup(result.str().c_str());
-  return res;
+  return strdup(result.str().c_str());
 }
 
 /**
@@ -100,5 +99,12 @@ BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
   std::transform(begin(args), end(args), result,
                  [](auto const& arg) { return new BOSSExpression{.delegate = arg}; });
   return result;
+}
+
+void freeBOSSExpression(BOSSExpression* e) {
+  free(e); // NOLINT
+}
+void freeBOSSSymbol(BOSSSymbol* s) {
+  free(s); // NOLINT
 }
 }

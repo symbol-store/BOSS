@@ -31,4 +31,6 @@ size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg);
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg);
 
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg);
+void freeBOSSExpression(BOSSExpression* e);
+void freeBOSSSymbol(BOSSSymbol*);
 }
