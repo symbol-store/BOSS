@@ -256,4 +256,5 @@
      )
     )
    )
+  (collect-garbage)
 #+end_src
