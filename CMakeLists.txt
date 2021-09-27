@@ -101,6 +101,12 @@ endif(Mathematica_WSTP_FOUND)
 
 list(APPEND AllBackends WolframBOSS)
 
+
+# Bulk BOSS
+add_library(BulkBOSS STATIC Source/Engines/Bulk.cpp ${ImplementationFiles})
+
+list(APPEND AllBackends BulkBOSS)
+
 ############################ Backends Common Properties ############################
 
 foreach (Backend IN LISTS AllBackends)
