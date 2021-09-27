@@ -1,7 +1,8 @@
 #lang racket
 (require racket/match
          racket/trace
-         ffi/unsafe)
+         ffi/unsafe
+         (rename-in racket/contract [-> -->]))
 
 (define libBoss (ffi-lib "libBOSS"))
 
@@ -10,9 +11,16 @@
   )
 (define symbolNameToNewSymbol
   (get-ffi-obj "symbolNameToNewBOSSSymbol" libBoss (_fun _string  -> _pointer)))
+(define freeSymbol (get-ffi-obj "freeBOSSSymbol" libBoss (_fun _pointer -> _void)))
+
+(define (gcSymbol x) (begin (register-finalizer x freeSymbol)
+                       x))
+
 (define _Symbol (make-ctype _pointer
-                            (lambda (s) (symbolNameToNewSymbol (symbol->string s)))
-                            (lambda (s) (string->symbol (symbolToNewString s)))))
+                            (lambda (s) (gcSymbol (symbolNameToNewSymbol (symbol->string s))))
+                            (lambda (s)  (let ( [r (string->symbol (symbolToNewString s))])
+                                           (freeSymbol s)
+                                           r))))
 
 
 (define intToNewExpression (get-ffi-obj "intToNewBOSSExpression" libBoss (_fun _int  -> _pointer)))
@@ -26,27 +34,38 @@
 (define newComplexExpression
   (get-ffi-obj "newComplexBOSSExpression" libBoss
                (_fun _Symbol _size _pointer -> _pointer)))
+(define freeExpression
+  (get-ffi-obj "freeBOSSExpression" libBoss
+               (_fun _pointer -> _void)))
+(define/contract (gcExpression x)
+  (cpointer? . --> . cpointer?)
+  (begin
+
+    (register-finalizer x freeExpression)
+    x))
 
 (define (convert-to-boss-expression x)
   (match x
     [(list 'quote argument) (convert-to-boss-expression argument)]
     [(list head arguments ...)
-     (newComplexExpression head (length arguments)
-                           (list->cblock (map convert-to-boss-expression arguments) _pointer))]
-    [(and i (? integer?)) (intToNewExpression i)]
-    [(and f (? real?)) (floatToNewExpression f)]
-    [(and s (? string?)) (stringToNewExpression s)]
-    [(and s (? symbol?)) 
+     (gcExpression
+      (newComplexExpression head (length arguments)
+                            (list->cblock (map convert-to-boss-expression arguments) _pointer)))]
+    [(and i (? integer?)) (gcExpression (intToNewExpression i))]
+    [(and f (? real?)) (gcExpression (floatToNewExpression f))]
+    [(and s (? string?)) (gcExpression (stringToNewExpression s))]
+    [(and s (? symbol?))
      (if (string-contains? (symbol->string s) ":")
-         (newComplexExpression
-          'list
-          2
-          (list->cblock 
-           (map convert-to-boss-expression
-                (map string->symbol
-                     (list (first (string-split (symbol->string s) ":"))
-                           (second (string-split (symbol->string s) ":"))))) _pointer))
-         (symbolNameToNewExpression (symbol->string s))
+         (gcExpression
+          (newComplexExpression
+           'list
+           2
+           (list->cblock
+            (map convert-to-boss-expression
+                 (map string->symbol
+                      (list (first (string-split (symbol->string s) ":"))
+                            (second (string-split (symbol->string s) ":"))))) _pointer)))
+         (gcExpression (symbolNameToNewExpression (symbol->string s)))
          )
      ]
     [_ 'unknown]
@@ -65,8 +84,6 @@
                                                  (_fun _pointer -> _float)))
 (define getStringValueFromExpression (get-ffi-obj "getNewStringValueFromBOSSExpression" libBoss
                                                   (_fun _pointer -> _string)))
-(define getSymbolNameFromExpression (get-ffi-obj "getNewSymbolNameFromBOSSExpression" libBoss 
-                                                 (_fun _pointer -> _string)))
 (define getHeadFromExpression (get-ffi-obj "getHeadFromBOSSExpression" libBoss
                                            (_fun _pointer -> _Symbol)))
 (define getArgumentCountFromExpression (get-ffi-obj "getArgumentCountFromBOSSExpression" libBoss
@@ -74,15 +91,20 @@
 (define getArgumentsFromExpression (get-ffi-obj "getArgumentsFromBOSSExpression" libBoss
                                                 (_fun _pointer -> _pointer)))
 
+(define getSymbolNameFromExpression (get-ffi-obj "getNewSymbolNameFromBOSSExpression" libBoss
+                                                 (_fun _pointer -> _string)))
+
+
 (define (convert-from-boss-expression x)
   (case (getTypeID x)
     ['bool (getBoolValueFromExpression x)]
     ['int (getIntValueFromExpression x)]
     ['float (getFloatValueFromExpression x)]
-    ['string (getStringValueFromExpression x)]
-    ['symbol (string->symbol (getSymbolNameFromExpression x))]
+    ['string (let ([r (getStringValueFromExpression x)])
+               r) ]
+    ['symbol (getSymbolNameFromExpression x)]
     ['complexExpression
-     (let ([arguments (map convert-from-boss-expression 
+     (let ([arguments (map convert-from-boss-expression
                            (ptr-ref
                             (getArgumentsFromExpression x)
                             (_array/list _pointer (getArgumentCountFromExpression x))
@@ -96,13 +118,17 @@
     )
   )
 
-(define _Expression (make-ctype _pointer convert-to-boss-expression convert-from-boss-expression))
+(define _Expression (make-ctype _pointer convert-to-boss-expression
+                                (lambda (x) (convert-from-boss-expression (gcExpression x)) )
+                                ))
 
 (define evaluate
   (get-ffi-obj "BOSSEvaluate" libBoss (_fun _Expression -> _Expression)))
 
+(provide evaluate)
+(provide gcExpression)
 (define-syntax-rule (define-operator name arguments ...)
-  (begin 
+  (begin
     (provide name)
     (define-syntax (name stx)
       (syntax-case stx ()
@@ -133,4 +159,3 @@
   '(Assuming input assumption ...)
   '(Top input predicate number)
   )
-
