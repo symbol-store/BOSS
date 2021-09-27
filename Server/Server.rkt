@@ -274,10 +274,47 @@
         (current-seconds)
         TEXT/HTML-MIME-TYPE
         '()
-        (list (string->bytes/utf-8 (string-append (format "~a" (eval schema)) ";" (format "~a" (eval plan)) ) ))
+        ;;; (list (string->bytes/utf-8 (string-append (format "~a" (eval schema)) ";" (format "~a" (eval plan)) ) ))
+        ; (list (string->bytes/utf-8 (jsonify (format "~a" (eval schema)) (format "~a" (eval plan)) ) ))
+        (list (string->bytes/utf-8 (jsonify (eval schema) (eval plan) ) ))
         )
 
         )))
+
+;K: jsonifier
+(define (jsonify schema data)
+(string-replace 
+  (string-append "["
+                 (let ([json-data (format "~a"
+                                          (map (lambda (record)         
+                                                 (string-append "{\n"
+                                                                (let ([json-record (format "~a"
+                                                                                           (map (lambda (item field)
+                                                                                                  (string-append "\"" (format "~a" (car field)) "\": \"" (format "~a" item) "\",\n" )
+                                                                                                  )
+                                                                                                record
+                                                                                                schema
+                                                                                                )
+                                                                                           )]
+                                                                      )
+                                                                  (substring json-record 1 (- (string-length json-record) 3) )
+                                                                  )               
+                                                                "\n},\n")
+                                                 )
+                                               data
+                                               )
+                                          )]
+                       )
+                   (substring json-data 1 (- (string-length json-data) 3) )
+                   )
+                 "]" )
+"$0" "_" )
+  )
+
+;old version (not json)
+;;; (define (jsonify schema data)
+;;;   (string-append schema ";" data)
+;;;   )
 
 (define (index req)
   (embed-in-page
