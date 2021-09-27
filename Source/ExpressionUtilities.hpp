@@ -29,7 +29,7 @@ public:
   }
 
   template <typename... Ts>
-  typename ExpressionSystem::ComplexExpression operator()(Ts const&... args /*a*/) const {
+  typename ExpressionSystem::ComplexExpression operator()(Ts... args /*a*/) const {
     return typename ExpressionSystem::ComplexExpression{
         s, {convertConstCharToStringAndOnToExpression<decltype(args)>(args)...}};
   };

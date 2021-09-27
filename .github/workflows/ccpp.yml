@@ -109,9 +109,9 @@ jobs:
       run: |
         export TERM=xterm
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
-        cp Debug/RacketBOSS.so .
+        cp Debug/libBOSS.so .
         emacs --batch --eval "(require 'org)" --eval '(add-to-list (quote org-babel-tangle-lang-exts) (quote ("racket" . "rkt")))' --eval '(org-babel-tangle-file "Readme.org")'
-        racket -e '(load "Readme.rkt")' -e "(require 'Readme)"
+        racket -f Source/Shims/BOSS.rkt -e "(require 'BOSS)" -f Readme.rkt -e "(require 'Readme)"
     - name: Upload core dumps
       if: ${{ always() }}
       uses: actions/upload-artifact@v2
@@ -142,9 +142,9 @@ jobs:
       run: |
         export TERM=xterm
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
-        cp Debug/RacketBOSS.so .
-        racket -e '(load-extension "RacketBOSS.so")' -f Benchmarks/TPCH/create.rkt -f Benchmarks/TPCH/Q10.rkt
-        racket -e '(load-extension "RacketBOSS.so")' -f Benchmarks/TPCH/create.rkt -e '(Load LINEITEM "/Users/holgerpirk/Projects/BOSS/Benchmarks/Data/TPCH/lineitem.tbl")' -e '(Group LINEITEM Count)'
+        cp Debug/libBOSS.so .
+        racket -f Source/Shims/BOSS.rkt -e "(require 'BOSS)" -f Benchmarks/TPCH/create.rkt -f Benchmarks/TPCH/Q10.rkt
+        racket -f Source/Shims/BOSS.rkt -e "(require 'BOSS)" -f Benchmarks/TPCH/create.rkt -e '(Load LINEITEM "/Users/holgerpirk/Projects/BOSS/Benchmarks/Data/TPCH/lineitem.tbl")' -e '(Group LINEITEM Count)'
     - name: Upload potential core dumps
       if: ${{ always() }}
       uses: actions/upload-artifact@v2

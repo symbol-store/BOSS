@@ -117,7 +117,7 @@ endforeach()
 ############################### Executable Targets ###############################
 
 set(ImplementationFiles Source/BOSS.cpp Source/Expression.cpp)
-set(TestFiles Tests/BOSSTests.cpp)
+set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
 # BOSS
@@ -156,25 +156,6 @@ if(SWIG_FOUND)
   message(VERBOSE "Found Swig files: ${SWIG_USE_FILE}")
   INCLUDE(${SWIG_USE_FILE})
   set_source_files_properties(${SwigFiles} PROPERTIES CPLUSPLUS ON)
-
-  if(Racket_LIB_DIR AND Racket_INCLUDE_DIR)
-    message(VERBOSE "Found Racket lib dir: ${Racket_LIB_DIR}")
-    message(VERBOSE "Found Racket include dir: ${Racket_INCLUDE_DIR}")
-    swig_add_library(RacketBOSS TYPE MODULE LANGUAGE mzscheme SOURCES ${SwigFiles} ${ImplementationFiles} "${Racket_LIB_DIR}/mzdyn3m${CMAKE_CXX_OUTPUT_EXTENSION}")
-    set_property(TARGET ${SWIG_MODULE_RacketBOSS_REAL_NAME} PROPERTY CXX_CLANG_TIDY "") # no clang-tidy
-    target_compile_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC -DMZ_PRECISE_GC)
-    if(APPLE)
-      target_compile_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC -DOS_X)
-      target_link_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC  -bundle -flat_namespace -undefined suppress)
-    endif(APPLE)
-    if(NOT WIN32)
-      target_compile_options(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC -Wno-reserved-user-defined-literal)
-    endif(NOT WIN32)
-    set_property(TARGET ${SWIG_MODULE_RacketBOSS_REAL_NAME} PROPERTY SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
-    target_include_directories(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-    target_include_directories(${SWIG_MODULE_RacketBOSS_REAL_NAME} PUBLIC "${Racket_INCLUDE_DIR}")
-    list(APPEND AllTargets ${SWIG_MODULE_RacketBOSS_REAL_NAME})
-  endif(Racket_LIB_DIR AND Racket_INCLUDE_DIR)
 
   if(Python3_FOUND)
     message(VERBOSE "Found Python include dir: ${Python3_INCLUDE_DIRS}")

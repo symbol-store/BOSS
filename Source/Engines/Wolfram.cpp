@@ -1,4 +1,5 @@
 #include <cstring>
+#include <spdlog/common.h>
 #ifdef WSINTERFACE
 #include "../ExpressionUtilities.hpp"
 #include "Wolfram.hpp"
@@ -80,56 +81,59 @@ struct EngineImplementation {
   }
 
   void putExpressionOnLink(Expression const& expression, std::string const& namespaceIdentifier) {
-    std::visit(
-        boss::utilities::overload(
-            [&](bool a) {
-              console << (a ? "True" : "False");
-              WSPutSymbol(link, (a ? "True" : "False"));
-            },
-            [&](int a) {
-              console << a;
-              WSPutInteger(link, a);
-            },
-            [&](std::vector<int> values) {
-              putExpressionOnLink(ComplexExpression("List"_, {values.begin(), values.end()}),
-                                  namespaceIdentifier);
-            },
-            [&](char const* a) {
-              console << a;
-              WSPutString(link, a);
-            },
-            [&](float a) {
-              console << a;
-              WSPutFloat(link, a);
-            },
-            [&](Symbol const& a) {
-              auto normalizedName = mangle(a.getName());
-              auto unnamespacedSymbols = set<string>{"TimeZone"};
-              auto namespaced =
-                  (unnamespacedSymbols.count(normalizedName) > 0 ? "" : namespaceIdentifier) +
-                  normalizedName;
-              console << namespaced;
-              WSPutSymbol(link, namespaced.c_str());
-            },
-            [&](std::string const& a) {
-              console << "\"" << a << "\"";
-              WSPutString(link, a.c_str());
-            },
-            [&](ComplexExpression const& expression) {
-              console << (namespaceIdentifier + expression.getHead().getName()) << "[";
-              WSPutFunction(link, (namespaceIdentifier + expression.getHead().getName()).c_str(),
-                            (int)expression.getArguments().size());
-              for(auto it = expression.getArguments().begin();
-                  it != expression.getArguments().end(); ++it) {
-                auto const& argument = *it;
-                if(it != expression.getArguments().begin()) {
-                  console << ", ";
-                }
-                putExpressionOnLink(argument, namespaceIdentifier);
-              }
-              console << "]";
-            }),
-        (Expression::SuperType const&)expression);
+    std::visit(boss::utilities::overload(
+                   [&](bool a) {
+                     console << (a ? "True" : "False");
+                     WSPutSymbol(link, (a ? "True" : "False"));
+                   },
+                   [&](int a) {
+                     console << a;
+                     WSPutInteger(link, a);
+                   },
+                   [&](std::vector<int> values) {
+                     putExpressionOnLink(ComplexExpression("List"_, {values.begin(), values.end()}),
+                                         namespaceIdentifier);
+                   },
+                   [&](char const* a) {
+                     console << a;
+                     WSPutString(link, a);
+                   },
+                   [&](float a) {
+                     console << a;
+                     WSPutFloat(link, a);
+                   },
+                   [&](Symbol const& a) {
+                     auto normalizedName = mangle(a.getName());
+                     auto unnamespacedSymbols = set<string>{"TimeZone"};
+                     auto namespaced =
+                         (unnamespacedSymbols.count(normalizedName) > 0 ? ""
+                                                                        : namespaceIdentifier) +
+                         normalizedName;
+                     console << namespaced;
+                     WSPutSymbol(link, namespaced.c_str());
+                   },
+                   [&](std::string const& a) {
+                     console << "\"" << a << "\"";
+                     WSPutString(link, a.c_str());
+                   },
+                   [&](ComplexExpression const& expression) {
+                     auto headName = namespaceIdentifier + expression.getHead().getName();
+                     if(headName == namespaceIdentifier + "list") {
+                       headName = "List";
+                     }
+                     console << (headName) << "[";
+                     WSPutFunction(link, (headName).c_str(), (int)expression.getArguments().size());
+                     for(auto it = expression.getArguments().begin();
+                         it != expression.getArguments().end(); ++it) {
+                       auto const& argument = *it;
+                       if(it != expression.getArguments().begin()) {
+                         console << ", ";
+                       }
+                       putExpressionOnLink(argument, namespaceIdentifier);
+                     }
+                     console << "]";
+                   }),
+               (Expression::SuperType const&)expression);
   }
 
   boss::Expression readExpressionFromLink() const {
@@ -212,7 +216,8 @@ struct EngineImplementation {
 
   void loadRelationalOperators() {
     DefineFunction("Where"_, {"Pattern"_("condition"_, "Blank"_())},
-                   "Function"_("tuple"_, "ReplaceAll"_("condition"_, "tuple"_)), {"HoldFirst"_});
+                   "Function"_("tuple"_, "ReplaceAll"_("Unevaluated"_("condition"_), "tuple"_)),
+                   {"HoldFirst"_});
 
     DefineFunction("Column"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("column"_, "Blank"_())},
                    "Extract"_("input"_, "column"_), {"HoldFirst"_});
@@ -272,40 +277,70 @@ struct EngineImplementation {
         "With"_(
             "List"_("Set"_("input"_, namespaced("GetPersistentTableIfSymbol"_)("inputName"_))),
 
-            "Values"_("GroupBy"_(
-                "input"_, "groupFunction"_,
+            "KeyValueMap"_(
                 "Function"_(
-                    "groupedInput"_,
-                    "Merge"_(
-                        "Map"_(
-                            "Function"_(
-                                "aggregateFunction"_,
-                                "Construct"_(
-                                    "Switch"_(
-                                        "aggregateFunction"_, namespaced("Count"_),
-                                        "Composition"_(
-                                            "Association"_,
-                                            "Construct"_("CurryApplied"_("Rule"_, 2), "Count"_),
-                                            "Length"_),
-                                        "Blank"_(),
-                                        "Composition"_("Fold"_("Plus"_),
-                                                       "Apply"_("KeyTake"_, "aggregateFunction"_))),
-                                    "groupedInput"_)),
-                            "List"_("aggregateFunctions"_)),
-                        "First"_))))));
+                    "List"_("groupkey"_, "groupresult"_),
+                    "Append"_("groupresult"_,
+                              "Thread"_("Rule"_(
+                                  "Quiet"_("Check"_("Extract"_("groupFunction"_, "List"_(2, 1)),
+                                                    "Unique"_("groupKey"_))),
+                                  "groupkey"_)))),
+                "GroupBy"_(
+                    "input"_, "groupFunction"_,
+                    "Function"_(
+                        "groupedInput"_,
+                        "Merge"_(
+                            "Map"_(
+                                "Function"_(
+                                    "aggregateFunction"_,
+                                    "Construct"_(
+                                        "Switch"_("aggregateFunction"_, namespaced("Count"_),
+                                                  "Composition"_(
+                                                      "Association"_,
+                                                      "Construct"_("CurryApplied"_("Rule"_, 2),
+                                                                   "Count"_),
+                                                      "Length"_),
+                                                  "Blank"_(),
+                                                  "Composition"_(
+                                                      "Fold"_("Plus"_),
+                                                      "Apply"_("KeyTake"_, "aggregateFunction"_))),
+                                        "groupedInput"_)),
+                                "List"_("aggregateFunctions"_)),
+                            "First"_))))));
 
     DefineFunction(
-        "Group"_, {"Pattern"_("input"_, "Blank"_()), "Pattern"_("aggregateFunction"_, "Blank"_())},
-        namespaced("Group"_)("input"_, "Function"_(0), "aggregateFunction"_), {"HoldAll"_});
+        "Group"_,
+        {"Pattern"_("inputName"_, "Blank"_()), "Pattern"_("aggregateFunctions"_, "Blank"_())},
+        "With"_("List"_("Set"_("input"_, namespaced("GetPersistentTableIfSymbol"_)("inputName"_))),
+                "List"_("Merge"_(
+                    "Map"_("Function"_(
+                               "aggregateFunction"_,
+                               "Construct"_(
+                                   "Switch"_(
+                                       "aggregateFunction"_, namespaced("Count"_),
+                                       "Composition"_(
+                                           "Association"_,
+                                           "Construct"_("CurryApplied"_("Rule"_, 2), "Count"_),
+                                           "Length"_),
+                                       "Blank"_(),
+                                       "Composition"_("Fold"_("Plus"_),
+                                                      "Apply"_("KeyTake"_, "aggregateFunction"_))),
+                                   "input"_)),
+                           "List"_("aggregateFunctions"_)),
+                    "First"_))),
+        {"HoldAll"_});
 
     DefineFunction("Order"_,
                    {"Pattern"_("input"_, "Blank"_()), "Pattern"_("orderFunction"_, "Blank"_())},
-                   "SortBy"_("input"_, "orderFunction"_), {"HoldAll"_});
+                   "SortBy"_(namespaced("GetPersistentTableIfSymbol"_)("input"_), "orderFunction"_),
+                   {"HoldAll"_});
 
     DefineFunction("Top"_,
                    {"Pattern"_("input"_, "Blank"_()), "Pattern"_("orderFunction"_, "Blank"_()),
                     "Pattern"_("number"_, "Blank"_("Integer"_))},
-                   "TakeSmallestBy"_("input"_, "orderFunction"_, "number"_), {"HoldAll"_});
+                   "MinimalBy"_(namespaced("GetPersistentTableIfSymbol"_)("input"_),
+                                "orderFunction"_, "UpTo"_("number"_)),
+                   {"HoldAll"_});
 
     DefineFunction(
         "Join"_,
@@ -316,17 +351,58 @@ struct EngineImplementation {
                                       namespaced("GetPersistentTableIfSymbol"_)("right"_), 1),
                              1),
                   "predicate"_));
+
+    DefineFunction(
+        "Join"_,
+        {"Pattern"_("leftInput"_, "Blank"_()), "Pattern"_("rightInput"_, "Blank"_()),
+         namespaced("Where"_)(namespaced("Equal"_)("Pattern"_("leftAttribute"_, "Blank"_()),
+                                                   "Pattern"_("rightAttribute"_, "Blank"_())))},
+        "With"_(
+            "List"_("Set"_("ht"_, "CreateDataStructure"_("HashTable"))),
+            "CompoundExpression"_(
+                "Map"_("Function"_(
+                           "buildTuple"_,
+                           "ht"_("Insert", "Rule"_("ReplaceAll"_("leftAttribute"_, "buildTuple"_),
+                                                   "Append"_("ht"_("Lookup",
+                                                                   "ReplaceAll"_("leftAttribute"_,
+                                                                                 "buildTuple"_),
+                                                                   "Function"_("List"_())),
+                                                             "buildTuple"_)))),
+                       namespaced("GetPersistentTableIfSymbol"_)("leftInput"_)),
+                "Flatten"_(
+                    "Map"_(
+                        "Function"_(
+                            "probeTuple"_,
+                            "Map"_("Function"_(
+                                       "buildTuple"_,
+                                       "Merge"_("List"_("probeTuple"_, "buildTuple"_), "First"_)),
+                                   "ht"_("Lookup", "ReplaceAll"_("rightAttribute"_, "probeTuple"_),
+                                         "Function"_("List"_())))),
+                        namespaced("GetPersistentTableIfSymbol"_)("rightInput"_)),
+                    1))));
   }
 
   void loadDataLoadingOperators() {
     DefineFunction(
         "Load"_, {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("from"_, "Blank"_("String"_))},
         "CompoundExpression"_(
-            "Set"_(
-                "Database"_("relation"_),
-                "Map"_("Function"_("tuple"_, "Association"_("Thread"_(
-                                                 "Rule"_("Schema"_("relation"_), "tuple"_)))),
-                       "Normal"_("SemanticImport"_("from"_, "Rule"_("Delimiters", "List"_("|")))))),
+            "Set"_("Database"_("relation"_),
+                   "Map"_("Function"_("tuple"_,
+                                      "Association"_("Thread"_("Rule"_(
+                                          "Map"_("First"_, "Schema"_("relation"_)), "tuple"_)))),
+                          "Normal"_("SemanticImport"_(
+                              "from"_,
+                              "Map"_("Function"_(
+                                         "type"_,
+                                         "Replace"_("Extract"_("type"_, 2),
+                                                    "List"_( //
+                                                        "Rule"_(namespaced("INTEGER"_), "Integer"),
+                                                        "Rule"_(namespaced("CHAR"_), "String"),
+                                                        "Rule"_(namespaced("VARCHAR"_), "String"),
+                                                        "Rule"_(namespaced("DECIMAL"_), "Number"),
+                                                        "Rule"_(namespaced("DATE"_), "Date")))),
+                                     "Schema"_("relation"_)),
+                              "Rule"_("Delimiters", "List"_("|")), "Rule"_("HeaderLines"_, 0))))),
             "Null"_));
   }
 
@@ -334,17 +410,22 @@ struct EngineImplementation {
     DefineFunction(
         "CreateTable"_,
         {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("attributes"_, "BlankSequence"_())},
-        "CompoundExpression"_("Set"_("Database"_("relation"_), "List"_()),
-                              "Set"_("Schema"_("relation"_), "List"_("attributes"_))),
+        "CompoundExpression"_(
+            "Set"_("Database"_("relation"_), "List"_()),
+            "Set"_("Schema"_("relation"_),
+                   "Map"_("Function"_("a"_, "If"_("SameQ"_(namespaced("List"_), "Head"_("a"_)),
+                                                  "a"_, "List"_("a"_))),
+                          "List"_("attributes"_)))),
         {"HoldFirst"_});
 
     DefineFunction(
         "InsertInto"_,
         {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("tuple"_, "BlankSequence"_())},
-        "CompoundExpression"_("AppendTo"_("Database"_("relation"_),
-                                          "Association"_("Thread"_(
-                                              "Rule"_("Schema"_("relation"_), "List"_("tuple"_))))),
-                              "Null"_),
+        "CompoundExpression"_(
+            "AppendTo"_("Database"_("relation"_),
+                        "Association"_("Thread"_(
+                            "Rule"_("Map"_("First"_, "Schema"_("relation"_)), "List"_("tuple"_))))),
+            "Null"_),
         {"HoldFirst"_});
   }
 
@@ -387,6 +468,8 @@ struct EngineImplementation {
         }) {
       evalWithoutNamespace("Set"_(namespaced(Symbol(it)), Symbol("System`" + it)));
     }
+    evalWithoutNamespace("Set"_(namespaced("Date"_), "System`DateObject"_));
+    evalWithoutNamespace("Set"_(namespaced("StringContains"_), "System`StringContainsQ"_));
 
     DefineFunction("Function"_,
                    {"Pattern"_("arg"_, "Blank"_()), "Pattern"_("definition"_, "Blank"_())},

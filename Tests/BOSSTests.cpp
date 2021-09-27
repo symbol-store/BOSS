@@ -99,12 +99,13 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine,
     }
 
     SECTION("Aggregation") {
-      REQUIRE(eval("Group"_("Customer"_, "Function"_(0), "Count"_)) == "List"_("List"_(3)));
+      REQUIRE(eval("Group"_("Customer"_, "Function"_(0), "Count"_)) == "List"_("List"_(3, 0)));
+      REQUIRE(eval("Group"_("Customer"_, "Count"_)) == "List"_("List"_(3)));
       REQUIRE(
           eval("Group"_(("Select"_("Customer"_,
                                    "Function"_("tuple"_, "StringContainsQ"_(
                                                              "Madden", "Column"_("tuple"_, 2))))),
-                        "Function"_(0), "Count"_)) == "List"_("List"_(1)));
+                        "Function"_(0), "Count"_)) == "List"_("List"_(1, 0)));
     }
 
     SECTION("Join") {
