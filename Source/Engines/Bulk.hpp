@@ -78,6 +78,7 @@ public:
 
 class Engine : public boss::Engine {
   static OperatorDirectory& getOperatorDirectory();
+
 public:
   Engine(Engine&) = delete;
   Engine& operator=(Engine&) = delete;
