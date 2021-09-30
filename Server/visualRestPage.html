@@ -34,39 +34,6 @@
 
     <script>
 
-        // K: function to make the data a csv
-        // function csvify(data) {
-        //     //substitute racket characters with csv characters
-
-        //     //divide header from data
-        //     arr = data.split(";");
-
-        //     //on header:
-        //     //insert ,
-        //     arr[0] = arr[0].replaceAll(") (", ",");
-        //     //strip parenthesis
-        //     arr[0] = arr[0].replaceAll("((", "");
-        //     arr[0] = arr[0].replaceAll("))", "");
-        //     //strip racket chars
-        //     arr[0] = arr[0].replaceAll("$0", "_");
-
-        //     //on data:
-        //     //insert \n
-        //     arr[1] = arr[1].replaceAll(") (", "\n");
-        //     //insert comas
-        //     arr[1] = arr[1].replaceAll(" ", ",");
-        //     //strip double quotes
-        //     arr[1] = arr[1].replaceAll("\"", "");
-        //     //strip parenthesis
-        //     arr[1] = arr[1].replaceAll("((", "");
-        //     arr[1] = arr[1].replaceAll("))", "");
-
-        //     console.log("arr 0 : " + arr[0]);
-        //     console.log("arr 1 : " + arr[1]);
-        //     data = arr[0] + "\n" + arr[1];
-        //     return data;
-        // }
-
         let url = "";
         //function to be called from a button
         function renderRestData() {
@@ -80,10 +47,6 @@
                 // res.text().then((data) => {
                 res.json().then((data) => {
                     console.log("data is " + JSON.stringify(data));
-
-                    // data = csvify(data);
-                    // data = d3.csvParse(data);
-
                     d3Print(data, url);
                 });
             });
@@ -213,14 +176,6 @@
                 .attr("transform",
                     "translate(" + margin.left + "," + margin.top + ")");
 
-            // Add X axis
-            // var x = d3.scaleLinear()
-            //     .domain([0, d3.max(data, function (d) { return +d.ts + 1; })])
-            //     .range([0, width]);
-            // svg.append("g")
-            //     .attr("transform", "translate(0," + height + ")")
-            //     .call(d3.axisBottom(x));
-
             // Add X axis --> it is a date format
             var x = d3.scaleTime()
                 .domain(d3.extent(data, function (d) { return d.ts; }))
@@ -248,10 +203,6 @@
                     .y(function (d) { return y(parseFloat(d.soc_pct)) })
                 );
         }
-
-
-
-
 
     </script>
 </body>
