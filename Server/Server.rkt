@@ -34,7 +34,9 @@
 (require web-server/servlet-env
          web-server/servlet
          threading
-         web-server/dispatch)
+         web-server/dispatch
+         ; K: needed to dispatch files
+         web-server/configuration/responders)
 
 ;K: racket component to embed html pages https://docs.racket-lang.org/web-server/templates.html
 (require web-server/templates)
@@ -242,6 +244,9 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [("rest" (string-arg) ...) #:method "get" rest-explain]
    ; K: REST feeded page
    [("rest-feeded-page") rest-feeded-page]
+   ; K: static file dispatch
+   ; files have to be in /usr/share/racket/pkgs/web-server-lib/web-server/default-web-root/htdocs
+   [("d3.min.js") (λ (_) (file-response 200 #"OK" "d3.min.js"))]
    [((string-arg) ...) explain]
    ))
 
