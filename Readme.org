@@ -9,11 +9,19 @@
   8.0 onward so you need to compile it with the right flags. I used
   [[https://gist.github.com/little-big-h/e024b33174d29f98967a5444124d4eb9][this]]
   file as minimal-racket brew recipe.
+
+*** Wolfram Engine
+If you are using the Wolfram engine, you have to:
+- install Wolfram Engine;
+- authenticate to Wolfram;
+- initialise subrepositories:
+: git submodule init
+: git submodule update
   
 *** MacOS
 : brew install python3-numpy
 : see instructions
-If you are using the Wolfram engine, you first have to authenticate to Wolfram.
+
 From the root project folder (BOSS):
 : cmake -DCMAKE_BUILD_TYPE=Debug -BDebug && cd Debug
 : OR
@@ -23,7 +31,6 @@ From the root project folder (BOSS):
 
 *** Linux Debian/Ubuntu
 : apt install cmake clang-11 clang-tidy-11 clang-format-11 swig4.0 libpython3-dev python3-numpy racket
-If you are using the Wolfram engine, you first have to authenticate to Wolfram.
 From the root project folder (BOSS):
 : mkdir build && cd build
 : cmake -DRacket_ROOT="/usr" -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_BUILD_TYPE=Debug ..
