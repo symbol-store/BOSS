@@ -59,6 +59,7 @@ from the root project folder (BOSS):
 : python3 Tests/TestPython.py
 
 *** Racket server
+: raco pkg install --deps search-auto threading
 from your build folder:
 : racket -tm ../Server/Server.rkt
 using any browser, browse to http://localhost:8000
