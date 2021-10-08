@@ -193,8 +193,8 @@ all lists (excluding the root), thus stacking another operator on top of the que
    '(h1 "Examples")
 
    '(list
-     (li (a ((href "Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "Simple Projection Query"))
-     (li (a ((href "Customer/:::/Select/:/Where/:/Equal/FirstName/\"Holger\"/:::/Group/Count")) "Simple Aggregation Query"))
+     (li (a ((href "legacy/Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "Simple Projection Query"))
+     (li (a ((href "legacy/Customer/:::/Select/:/Where/:/Equal/FirstName/\"Holger\"/:::/Group/Count")) "Simple Aggregation Query"))
      ; K: just an example page to play with
      (li (a ((href "kpage")) "K Page"))
      ))
@@ -206,13 +206,13 @@ all lists (excluding the root), thus stacking another operator on top of the que
    '(h1 "K Page")
    "This is K Page!"
    '(list
-     (li (a ((href "NumbersTable/:/Project/:/As/x/xnumber/y/ynumber/desc/description")) "The Numbers Table"))
-     (li (a ((href "Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "The Customer Table"))
+     (li (a ((href "legacy/NumbersTable/:/Project/:/As/x/xnumber/y/ynumber/desc/description")) "The Numbers Table"))
+     (li (a ((href "legacy/Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "The Customer Table"))
      )
    '(h1 "Brill Data")
    '(list
-     (li (a ((href "BatteryDataMOD/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/VBat_V/VBat_V/IBat_A/IBat_A/TBat_degC/TBat_degC/TPwr_degC/TPwr_degC/RBat_ohm/RBat_ohm/currentThroughput_kAh/currentThroughput_kAh/currentThroughput_Ah/currentThroughput_Ah/energyThroughput_kWh/energyThroughput_kWh/energyThroughput_Wh/energyThroughput_Wh/PBat_W/PBat_W/soh_pct/soh_pct/soc_pct/soc_pct/capacity_Ah/capacity_Ah/energyCapacityWh/energyCapacityWh/Rbat_ohm/Rbat_ohm")) "MOD Table"))
-     (li (a ((href "BatteryDataMSTR/:/Project/:/As/id/id/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "MSTR Table"))
+     (li (a ((href "legacy/BatteryDataMOD/:/Project/:/As/id/id/modId/modId/battId/battId/groupId/groupId/ts/ts/VBat_V/VBat_V/IBat_A/IBat_A/TBat_degC/TBat_degC/TPwr_degC/TPwr_degC/RBat_ohm/RBat_ohm/currentThroughput_kAh/currentThroughput_kAh/currentThroughput_Ah/currentThroughput_Ah/energyThroughput_kWh/energyThroughput_kWh/energyThroughput_Wh/energyThroughput_Wh/PBat_W/PBat_W/soh_pct/soh_pct/soc_pct/soc_pct/capacity_Ah/capacity_Ah/energyCapacityWh/energyCapacityWh/Rbat_ohm/Rbat_ohm")) "MOD Table"))
+     (li (a ((href "legacy/BatteryDataMSTR/:/Project/:/As/id/id/battId/battId/groupId/groupId/ts/ts/Vsys_V/Vsys_V/Vsysout_V/Vsysout_V/Isys_A/Isys_A/Psys_W/Psys_W/soh_pct/soh_pct/soc_pct/soc_pct")) "MSTR Table"))
      )
    '(h1 "Brill Data w/ REST interface")
    '(list
@@ -244,10 +244,8 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [("rest" (string-arg) ...) #:method "get" rest-explain]
    ; K: REST feeded page
    [("rest-feeded-page") rest-feeded-page]
-   ; K: static file dispatch
-   ; files have to be in /usr/share/racket/pkgs/web-server-lib/web-server/default-web-root/htdocs
-   [("d3.min.js") (λ (_) (file-response 200 #"OK" "d3.min.js"))]
-   [((string-arg) ...) explain]
+   ; K: api divided in "legacy" and "rest" so that racket can serve static files
+   [("legacy" (string-arg) ...) explain]
    ))
 
 (CreateTable Customer FirstName LastName age)
@@ -304,4 +302,5 @@ all lists (excluding the root), thus stacking another operator on top of the que
                  #:servlet-regexp #rx""
                  #:listen-ip #f
                  #:command-line? #t
+                 #:extra-files-paths (list (build-path 'up "Server/htdocs"))
                  ))
