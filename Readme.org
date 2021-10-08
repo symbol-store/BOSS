@@ -33,11 +33,11 @@ From the root project folder (BOSS):
 : apt install cmake clang-11 clang-tidy-11 clang-format-11 swig4.0 libpython3-dev python3-numpy racket
 From the root project folder (BOSS):
 : mkdir build && cd build
-: cmake -DRacket_ROOT="/usr" -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_BUILD_TYPE=Debug ..
+: cmake -DCMAKE_BUILD_TYPE=Debug ..
 : OR
-: cmake -DRacket_ROOT="/usr" -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_BUILD_TYPE=Release ..
+: cmake -DCMAKE_BUILD_TYPE=Release ..
 : OR
-: cmake -DRacket_ROOT="/usr" -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+: cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
 
 *** Windows 10
 on Windows 10 you can either use the WSL with the Linux Debian/Ubuntu configurations, or set up a Docker container.
