@@ -1,4 +1,5 @@
 #include "Bulk.hpp"
+#include "../BOSS.hpp"
 
 namespace boss::engines::bulk {
 
@@ -7,6 +8,9 @@ OperatorDirectory& Engine::getOperatorDirectory() {
   return operatorDirectory;
 }
 
+extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
+  return new BOSSExpression{.delegate = Engine().evaluate(e->delegate)};
+};
 boss::Expression Engine::evaluate(Expression const& e) {
   return std::visit(
       boss::utilities::overload(
@@ -24,7 +28,7 @@ boss::Expression Engine::evaluate(Expression const& e) {
             }
             return (*getOperatorDirectory().at({name, typeID}))(args);
           },
-          [](auto& expression /*unused*/) { return boss::Expression(expression); }),
+          [](auto& expression) { return boss::Expression(expression); }),
       e);
 }
 } // namespace boss::engines::bulk

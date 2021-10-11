@@ -104,8 +104,10 @@ list(APPEND AllBackends WolframBOSS)
 
 # Bulk BOSS
 add_library(BulkBOSS STATIC Source/Engines/Bulk.cpp ${ImplementationFiles})
+add_library(Bulk MODULE Source/Engines/Bulk.cpp ${ImplementationFiles})
 
 list(APPEND AllBackends BulkBOSS)
+list(APPEND AllTargets Bulk)
 
 ############################ Backends Common Properties ############################
 

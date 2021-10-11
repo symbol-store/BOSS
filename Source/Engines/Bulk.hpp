@@ -38,6 +38,11 @@ namespace boss::engines::bulk {
 class Op {
 public:
   virtual boss::Expression operator()(ExpressionArguments const& args) = 0;
+  Op() = default;
+  Op(Op&&) = default;
+  Op(Op const&) = delete;
+  Op& operator=(Op&&) = default;
+  Op& operator=(Op const&) = delete;
   virtual ~Op() = default;
 };
 
@@ -54,7 +59,6 @@ public:
                               std::index_sequence<I...> /*unused*/) {
     return ((Subclass<AcceptableTypes...>&)*this)((std::get<AcceptableTypes>(args.at(I)))...);
   };
-  ~Operator() override = default;
 };
 
 class OperatorDirectory : public std::map<std::pair<std::string, size_t>, std::unique_ptr<Op>> {

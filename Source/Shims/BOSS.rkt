@@ -158,4 +158,5 @@
   '(Schema input)
   '(Assuming input assumption ...)
   '(Top input predicate number)
+  '(EvaluateInEngine pathToLibrary expression)
   )

@@ -1,20 +1,44 @@
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "Utilities.hpp"
 #include <algorithm>
 #include <cstring>
+#include <dlfcn.h>
 #include <iostream>
 #include <iterator>
 #include <ostream>
 #include <sstream>
+#include <variant>
 extern "C" {
-struct BOSSExpression {
-  boss::Expression delegate;
-};
-struct BOSSSymbol {
-  boss::Symbol delegate;
-};
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
+  if(auto result =
+         std::visit(boss::utilities::overload(
+                        [](boss::ComplexExpression const& e) -> optional<boss::Expression> {
+                          std::cout << "!!!" << std::endl;
+                          if(e.getHead() == boss::Symbol("EvaluateInEngine")) {
+                            return std::visit(
+                                [library = dlopen(get<std::string>(e.getArguments().at(0)).c_str(),
+                                                  RTLD_LAZY)](auto const& e) {
+                                  auto* sym = dlsym(library, "evaluate");
+                                  auto wrapper = BOSSExpression{.delegate = e};
+                                  auto* r = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
+                                      sym)(&wrapper);
+                                  auto result = r->delegate;
+                                  free(r); // NOLINT
+                                  return result;
+                                },
+                                e.getArguments().at(1));
+                          }
+                          return {};
+                        },
+                        [](auto& /*e*/) -> optional<boss::Expression> {
+                          std::cout << "???" << std::endl;
+                          return {};
+                        }),
+                    arg->delegate)) {
+    return new BOSSExpression{.delegate = *result};
+  };
   static boss::engines::wolfram::Engine engine;
   return new BOSSExpression{.delegate = engine.evaluate(arg->delegate)};
 };

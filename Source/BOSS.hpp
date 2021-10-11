@@ -3,11 +3,15 @@
 #include "Engines/Wolfram.hpp"
 
 extern "C" {
-struct BOSSSymbol;
+struct BOSSSymbol {
+  boss::Symbol delegate;
+};
 BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i);
 char const* symbolToNewString(BOSSSymbol const* arg);
 
-struct BOSSExpression;
+struct BOSSExpression {
+  boss::Expression delegate;
+};
 BOSSExpression* intToNewBOSSExpression(int i);
 BOSSExpression* floatToNewBOSSExpression(float i);
 BOSSExpression* stringToNewBOSSExpression(char const* i);
