@@ -110,7 +110,7 @@
                        )
         )))
 
-;funtion returning data on get
+;function returning data on get
 (define (rest-explain req operators)
   (if (equal? (last operators) "RunNativeFunction")
       (let ((plan #`(~> #,@(unflatten
