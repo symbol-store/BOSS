@@ -110,7 +110,7 @@
                        )
         )))
 
-;K: explain funtion returning data on get
+;funtion returning data on get
 (define (rest-explain req operators)
   (if (equal? (last operators) "RunNativeFunction")
       (let ((plan #`(~> #,@(unflatten
@@ -148,7 +148,7 @@
 
         )))
 
-;K: jsonifier
+;given racket schema and data, it returns a JSON string
 (define (jsonify schema data)
 (string-replace 
   (string-append "["
