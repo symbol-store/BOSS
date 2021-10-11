@@ -37,9 +37,7 @@ public:
   using ArgumentTypesT = variant<tuple<int, int>, tuple<float, float>>;
   template <typename T1, typename T2> bool operator()(T1 t1, T2 t2) { return t1 > t2; }
 };
-namespace {
 static boss::engines::bulk::Engine::Register<Greater> const r("Greater");
-}
 
 template <typename... ArgumentTypes>
 class Plus : public boss::engines::bulk::Operator<Plus, ArgumentTypes...> {
@@ -47,9 +45,7 @@ public:
   using ArgumentTypesT = variant<tuple<int, int>, tuple<float, float>, tuple<int, int, int>>;
   auto operator()(ArgumentTypes... args) { return (args + ...); }
 };
-namespace {
 static boss::engines::bulk::Engine::Register<Plus> const r1("Plus");
-}
 
 template <typename... ArgumentTypes>
 class StringJoin : public boss::engines::bulk::Operator<StringJoin, ArgumentTypes...> {
@@ -57,9 +53,7 @@ public:
   using ArgumentTypesT = variant<tuple<string, string>, tuple<string, string, string>>;
   auto operator()(ArgumentTypes... args) { return (args + ...); }
 };
-namespace {
 static boss::engines::bulk::Engine::Register<StringJoin> const r2("StringJoin");
-}
 
 template <typename... ArgumentTypes>
 class Sym : public boss::engines::bulk::Operator<Sym, ArgumentTypes...> {
@@ -67,6 +61,4 @@ public:
   using ArgumentTypesT = variant<tuple<string>>;
   auto operator()(string const& name) { return boss::Symbol(name); }
 };
-namespace {
 static boss::engines::bulk::Engine::Register<Sym> const r3("Symbol");
-}
