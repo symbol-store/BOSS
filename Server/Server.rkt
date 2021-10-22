@@ -4,6 +4,7 @@
 
 (require threading)
 (require racket/list)
+(require macro-debugger/expand)
 (require "../Source/Shims/BOSS.rkt")
 (define (unflatten l)
   (foldl
@@ -77,33 +78,24 @@
   )
 
 (define (explain req operators)
-  (if (equal? (last operators) "RunNativeFunction")
-      (let ((plan #`(~> #,@(unflatten
-                            (map (lambda (op) (read (open-input-string op)))
-                                 operators)))))
-        (embed-in-page '(h1 "Result")
-                       `(pre ,(format "~a" (eval plan)) )
-                       '(hr)
-                       `(pre ,(format "~a" (syntax->datum plan)))
-                       )
+  (let ((plan (expand-only #`(~> #,@(unflatten (map
+                                                (lambda (op) (read (open-input-string op))) operators)))
+                           (list #'~>)))
+        (schema (expand-only  #`( ~> #,@(unflatten
+                                         (map
+                                          (lambda (op) (read (open-input-string op)))
+                                          operators))
+                                     Schema)
+                              (list #'~>)))
         )
 
-
-      (let ((plan #`(~> #,@(unflatten (map
-                                       (lambda (op) (read (open-input-string op))) operators))))
-            (schema #`(~> #,@(unflatten
-                              (map
-                               (lambda (op) (read (open-input-string op)))
-                               operators))
-                          Schema))
-            )
-
-        (embed-in-page '(h1 "Result")
-                       (list->html-table (eval plan) (eval schema))
-                       '(hr)
-                       `(pre ,(format "~a" (syntax->datum plan)))
-                       )
-        )))
+    (embed-in-page '(h1 "Result")
+                   (list->html-table (eval #`(EvaluateInEngine "libWolframBOSS.so" #,plan))
+                                     (eval #`(EvaluateInEngine "libWolframBOSS.so" #,schema)))
+                   '(hr)
+                   `(pre ,(format "~a" (syntax->datum (expand-only plan (list #'~>)))))
+                   )
+    ))
 
 (define (index req)
   (embed-in-page
@@ -127,11 +119,12 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [("") index]
    [((string-arg) ...) explain]
    ))
-
-(CreateTable Customer FirstName LastName age)
-(InsertInto  Customer "Holger" "German" 38)
-(InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
-(InsertInto  Customer "Hubert" "Frenchman" 34)
+(EvaluateInEngine
+ "libWolframBOSS.so"
+ (CreateTable Customer FirstName LastName age)
+ (InsertInto  Customer "Holger" "German" 38)
+ (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
+ (InsertInto  Customer "Hubert" "Frenchman" 34))
 
 
 (provide main)
