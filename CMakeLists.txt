@@ -208,6 +208,7 @@ foreach (Target IN LISTS AllTargets)
   target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Target} rt)
+    target_link_libraries(${Target} dl)
   endif() 
 endforeach()
 
