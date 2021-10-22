@@ -117,6 +117,17 @@ using Expression = DefaultExpressionSystem::Expression;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 
 } // namespace boss
+
+namespace std {
+template <>
+struct variant_size<boss::ExpressionWithAdditionalCustomAtoms<>>
+    : variant_size<boss::ExpressionWithAdditionalCustomAtoms<>::SuperType> {};
+
+template <std::size_t I>
+struct variant_alternative<I, boss::ExpressionWithAdditionalCustomAtoms<>>
+    : variant_alternative<I, boss::ExpressionWithAdditionalCustomAtoms<>::SuperType> {};
+} // namespace std
+
 bool operator==(boss::Expression const& r1, boss::Expression const& r2);
 static bool operator!=(boss::Expression const& r1, boss::Expression const& r2) {
   return !(r1 == r2);
