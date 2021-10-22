@@ -21,11 +21,16 @@ public:
                 result[boss::Symbol("EvaluateInEngine")] = [this](auto const& e) {
                   auto const& libraryPath = std::get<std::string>(e.getArguments().at(0));
                   if(libraries.count(libraryPath) == 0) {
-                    if(auto* sym = dlsym(dlopen(libraryPath.c_str(), RTLD_LAZY), "evaluate")) {
-                      libraries.emplace(libraryPath, sym);
+                    if(auto library = dlopen(libraryPath.c_str(), RTLD_LAZY)) {
+                      if(auto* sym = dlsym(library, "evaluate")) {
+                        libraries.emplace(libraryPath, sym);
+                      } else {
+                        throw std::runtime_error("library \"" + libraryPath +
+                                                 "\" does not provide an evaluate function");
+                      }
                     } else {
                       throw std::runtime_error("library \"" + libraryPath +
-                                               "\" does not provide an evaluate function");
+                                               "\" could not be loaded");
                     }
                   }
                   // for (auto& it : {})
