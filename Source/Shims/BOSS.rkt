@@ -51,7 +51,7 @@
      (gcExpression
       (newComplexExpression head (length arguments)
                             (list->cblock (map convert-to-boss-expression arguments) _pointer)))]
-    [(and i (? integer?)) (gcExpression (intToNewExpression i))]
+    [(and i (? exact-integer?)) (gcExpression (intToNewExpression i))]
     [(and f (? real?)) (gcExpression (floatToNewExpression f))]
     [(and s (? string?)) (gcExpression (stringToNewExpression s))]
     [(and s (? symbol?))

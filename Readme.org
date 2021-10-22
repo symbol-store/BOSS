@@ -9,11 +9,20 @@
   8.0 onward so you need to compile it with the right flags. I used
   [[https://gist.github.com/little-big-h/e024b33174d29f98967a5444124d4eb9][this]]
   file as minimal-racket brew recipe.
+
+*** Wolfram Engine
+If you are using the Wolfram engine, you have to:
+- install Wolfram Engine;
+- authenticate to Wolfram;
+- initialise subrepositories:
+: git submodule init
+: git submodule update
   
 *** MacOS
 : brew install python3-numpy
 : see instructions
 
+From the root project folder (BOSS):
 : cmake -DCMAKE_BUILD_TYPE=Debug -BDebug && cd Debug
 : OR
 : cmake -DCMAKE_BUILD_TYPE=Release -BRelease && cd Release
@@ -21,21 +30,39 @@
 : cmake -DRacket_ROOT="/Applications/Racket v7.9" .
 
 *** Linux Debian/Ubuntu
-: apt install cmake swig4.0 libpython3-dev python3-numpy racket
-
-: cmake -DCMAKE_BUILD_TYPE=Debug -BDebug && cd Debug
+: apt install cmake clang-11 clang-tidy-11 clang-format-11 swig4.0 libpython3-dev python3-numpy racket
+From the root project folder (BOSS):
+: mkdir build && cd build
+: cmake -DCMAKE_BUILD_TYPE=Debug ..
 : OR
-: cmake -DCMAKE_BUILD_TYPE=Release -BRelease && cd Release
+: cmake -DCMAKE_BUILD_TYPE=Release ..
+: OR
+: cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
 
-: cmake -DRacket_ROOT="/usr" -DCMAKE_CXX_COMPILER=clang++-12 \
-:           -DCMAKE_CXX_FLAGS="-std=c++17 -stdlib=libc++"
+*** Windows 10
+on Windows 10 you can either use the WSL with the Linux Debian/Ubuntu configurations, or set up a Docker container.
+
+*** Docker container
+Pull the proper container from https://github.com/little-big-h/BuildEnvironment
+: docker pull ghcr.io/little-big-h/buildenvironment/wolframbased:latest
+Run it
+: docker run -ti -p 8000:8000  --name mybosscontainer ghcr.io/little-big-h/buildenvironment/wolframbased:latest
+Follow configuration/building/running steps for Linux Debian/Ubuntu (packages should all be installed already).
 
 ** Building
+from your build folder:
 : cmake --build .
 
 ** Running
 *** Python example
-: python3 ../Tests/TestPython.py
+from the root project folder (BOSS):
+: python3 Tests/TestPython.py
+
+*** Racket server
+: raco pkg install --deps search-auto threading
+from your build folder:
+: racket -tm ../Server/Server.rkt
+using any browser, browse to http://localhost:8000
 
 *** Racket example
 #+begin_src racket :exports both :tangle yes :main no :cache no
