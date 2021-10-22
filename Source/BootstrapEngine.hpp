@@ -25,12 +25,14 @@ public:
                       if(auto* sym = dlsym(library, "evaluate")) {
                         libraries.emplace(libraryPath, sym);
                       } else {
-                        throw std::runtime_error("library \"" + libraryPath +
-                                                 "\" does not provide an evaluate function");
+
+                        throw std::runtime_error(
+                            "library \"" + libraryPath +
+                            "\" does not provide an evaluate function: " + dlerror());
                       }
                     } else {
                       throw std::runtime_error("library \"" + libraryPath +
-                                               "\" could not be loaded");
+                                               "\" could not be loaded: " + dlerror());
                     }
                   }
                   // for (auto& it : {})
