@@ -17,7 +17,7 @@ public:
                     std::unordered_map<boss::Symbol, std::function<boss::Expression(
                                                          boss::ComplexExpression const&)>>();
                 result[boss::Symbol("EvaluateInEngine")] = [](auto const& e) {
-                  auto libraryPath = std::get<std::string>(e.getArguments().at(0));
+                  auto const& libraryPath = std::get<std::string>(e.getArguments().at(0));
                   return std::visit(
                       [libraryPath,
                        library = dlopen(libraryPath.c_str(), RTLD_LAZY)](auto const& e) {
