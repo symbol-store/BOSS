@@ -1,5 +1,6 @@
 #pragma once
 #include "Utilities.hpp"
+#include <functional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -11,6 +12,7 @@ class Symbol {
 public:
   explicit Symbol(std::string const& name) : name(name){};
   std::string const& getName() const { return name; };
+  inline bool operator==(boss::Symbol const& s2) const { return getName() == s2.getName(); };
 };
 
 template <typename T, typename... Args> struct variant_amend;
@@ -118,4 +120,9 @@ using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 bool operator==(boss::Expression const& r1, boss::Expression const& r2);
 static bool operator!=(boss::Expression const& r1, boss::Expression const& r2) {
   return !(r1 == r2);
+};
+template <> struct std::hash<boss::Symbol> {
+  std::size_t operator()(boss::Symbol const& s) const noexcept {
+    return std::hash<std::string>{}(s.getName());
+  }
 };

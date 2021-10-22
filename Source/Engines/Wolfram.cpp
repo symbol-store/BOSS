@@ -1,6 +1,7 @@
 #include <cstring>
 #include <spdlog/common.h>
 #ifdef WSINTERFACE
+#include "../BOSS.hpp"
 #include "../ExpressionUtilities.hpp"
 #include "Wolfram.hpp"
 #include "spdlog/cfg/env.h"
@@ -538,5 +539,10 @@ Engine::~Engine() { delete &impl; }
 
 boss::Expression Engine::evaluate(Expression const& e) { return impl.evaluate(e); }
 } // namespace boss::engines::wolfram
+
+extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
+  static auto engine = boss::engines::wolfram::Engine();
+  return new BOSSExpression{.delegate = engine.evaluate(e->delegate)};
+};
 
 #endif // WSINTERFACE

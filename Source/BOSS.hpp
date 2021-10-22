@@ -1,6 +1,6 @@
 #pragma once
-#include "Engines/Bulk.hpp"
-#include "Engines/Wolfram.hpp"
+#include "Engine.hpp"
+#include "Expression.hpp"
 
 extern "C" {
 struct BOSSSymbol {

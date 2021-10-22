@@ -1,9 +1,9 @@
-#include <variant>
-#define CATCH_CONFIG_MAIN
+#define CATCH_CONFIG_RUNNER
 #include "../Source/BOSS.hpp"
+#include "../Source/BootstrapEngine.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include <catch2/catch.hpp>
-#ifdef WSINTERFACE
+#include <variant>
 using boss::Expression;
 using std::get;
 using std::string;
@@ -11,22 +11,12 @@ using boss::utilities::operator""_;
 using Catch::Generators::random;
 using Catch::Generators::take;
 
-template <typename Engine> Engine& getEngine();
-template <> boss::engines::wolfram::Engine& getEngine<boss::engines::wolfram::Engine>() {
-  static boss::engines::wolfram::Engine e;
-  return e;
-};
+static std::vector<string> librariesToTest{};
 
-template <> boss::engines::bulk::Engine& getEngine<boss::engines::bulk::Engine>() {
-  static boss::engines::bulk::Engine e;
-  return e;
-};
-
-TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine,
-                   boss::engines::bulk::Engine) { // NOLINT
-  auto& engine = getEngine<TestType>();
-  auto eval = [&engine](boss::Expression const& expression) mutable {
-    return engine.evaluate(expression);
+TEST_CASE("Basics", "[basics]") { // NOLINT
+  boss::BootstrapEngine engine = {};
+  auto eval = [&](boss::Expression const& expression) mutable {
+    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
   };
 
   SECTION("Addition") {
@@ -207,19 +197,12 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine,
   }
 }
 
-TEMPLATE_TEST_CASE("WolframSpecifics", "[wolfram]", boss::engines::wolfram::Engine) { // NOLINT
-  using ExpressionBuilder =
-      boss::utilities::ExtensibleExpressionBuilder<boss::engines::wolfram::WolframExpressionSystem>;
-
-  auto& engine = getEngine<TestType>();
-  auto eval = [&engine](boss::engines::wolfram::Expression const& expression) mutable {
-    return engine.evaluate(expression);
-  };
-
-  SECTION("AdditionOfVector") {
-    CHECK(get<int>(eval(ExpressionBuilder("Apply")("Plus"_, std::vector<int>{2, 3, 4}))) ==
-          9); // NOLINT
+int main(int argc, char* argv[]) {
+  Catch::Session session;
+  session.cli(session.cli() | Catch::clara::Opt(librariesToTest, "library")["--library"]);
+  int returnCode = session.applyCommandLine(argc, argv);
+  if(returnCode != 0) {
+    return returnCode;
   }
+  return session.run();
 }
-
-#endif // WSINTERFACE
