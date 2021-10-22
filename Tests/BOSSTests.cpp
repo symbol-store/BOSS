@@ -11,7 +11,8 @@ using boss::utilities::operator""_;
 using Catch::Generators::random;
 using Catch::Generators::take;
 
-static std::vector<string> librariesToTest{};
+static std::vector<string>
+    librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 TEST_CASE("Basics", "[basics]") { // NOLINT
   boss::BootstrapEngine engine = {};
