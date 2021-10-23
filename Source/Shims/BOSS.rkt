@@ -4,7 +4,7 @@
          ffi/unsafe
          (rename-in racket/contract [-> -->]))
 
-(define libBoss (ffi-lib "libBOSS"))
+(define libBoss (ffi-lib "lib/libBOSS"))
 
 (define symbolToNewString
   (get-ffi-obj "bossSymbolToNewString" libBoss (_fun _pointer -> _string))

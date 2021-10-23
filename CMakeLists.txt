@@ -212,14 +212,15 @@ foreach (Target IN LISTS AllTargets)
   endif() 
 endforeach()
 
-install(TARGETS BOSS LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib)
-install(FILES
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp
- DESTINATION include/BOSS)
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engines/Wolfram.hpp DESTINATION include/BOSS/Engines)
+
+#################################### Install ###################################
+set_target_properties(BOSS PROPERTIES PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp")
+
+install(TARGETS BOSS LIBRARY)
+install(TARGETS WolframBOSS LIBRARY DESTINATION lib)
+install(TARGETS BOSS PUBLIC_HEADER)
+install(FILES Source/Shims/BOSS.rkt Server/Server.rkt TYPE BIN)
+
+
 
 
