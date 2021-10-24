@@ -43,21 +43,19 @@ jobs:
       run: |
         mkdir ${{ matrix.build-type }}
         cd ${{ matrix.build-type }}
-        cmake -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
+        cmake -DCMAKE_INSTALL_PREFIX=../install -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
         cd ..
     - name: build
       run: cmake --build ${{ matrix.build-type }} -- -j $(nproc)
+    - name: install
+      run: cmake --build ${{ matrix.build-type }} --target install
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.build-type }}
         retention-days: 1
         path: |
-          ${{ matrix.build-type }}
-          !${{ matrix.build-type }}/deps
-          !${{ matrix.build-type }}/CMakeFiles
-          !${{ matrix.build-type }}/catch2-prefix
-          !${{ matrix.build-type }}/googlebenchmark-prefix
+          install
     needs: [format-check]
 
   test:
