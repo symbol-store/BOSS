@@ -541,8 +541,12 @@ boss::Expression Engine::evaluate(Expression const& e) { return impl.evaluate(e)
 } // namespace boss::engines::wolfram
 
 extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
+  static std::mutex m;
+  m.lock();
   static auto engine = boss::engines::wolfram::Engine();
-  return new BOSSExpression{.delegate = engine.evaluate(e->delegate)};
+  auto* r = new BOSSExpression{.delegate = engine.evaluate(e->delegate)};
+  m.unlock();
+  return r;
 };
 
 #endif // WSINTERFACE
