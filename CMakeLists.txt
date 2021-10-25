@@ -216,12 +216,12 @@ endforeach()
 #################################### Install ###################################
 set_target_properties(BOSS PROPERTIES PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp")
 
-install(TARGETS BOSS LIBRARY)
+install(TARGETS BOSS LIBRARY DESTINATION lib)
 set_target_properties(WolframBOSS PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 install(TARGETS WolframBOSS LIBRARY DESTINATION lib)
-install(TARGETS Tests RUNTIME)
-install(TARGETS BOSS PUBLIC_HEADER)
-install(FILES Source/Shims/BOSS.rkt Server/Server.rkt TYPE BIN)
+install(TARGETS Tests RUNTIME DESTINATION bin)
+install(TARGETS BOSS PUBLIC_HEADER DESTINATION include)
+install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 
 
 
