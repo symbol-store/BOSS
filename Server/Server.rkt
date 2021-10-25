@@ -110,6 +110,7 @@ all lists (excluding the root), thus stacking another operator on top of the que
    '(list
      (li (a ((href "Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "Simple Projection Query"))
      (li (a ((href "Customer/:::/Select/:/Where/:/Equal/FirstName/\"Holger\"/:::/Group/Count")) "Simple Aggregation Query"))
+     (li (a ((href "\"libBOSSMQTTEngine.so\"/:/EvaluateInEngine/:/StartMQTTServer")) "Start MQTT (make sure the library is installed)"))
      ))
   )
 
