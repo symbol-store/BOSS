@@ -160,3 +160,9 @@
   '(Top input predicate number)
   '(EvaluateInEngine pathToLibrary expression ...)
   )
+
+(provide main)
+(define (main . expressions)
+  (for ([expression expressions])
+    (printf "~s" (eval (read (open-input-string expression)))))
+  )

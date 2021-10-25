@@ -1,6 +1,7 @@
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "Utilities.hpp"
+#include <algorithm>
 #include <dlfcn.h>
 #include <unordered_map>
 
@@ -13,7 +14,11 @@ public:
   boss::Expression evaluate(boss::Expression const& e) {
     return std::visit(
         boss::utilities::overload(
-            [this](boss::ComplexExpression const& e) -> boss::Expression {
+            [this](boss::ComplexExpression const& eIn) -> boss::Expression {
+              auto arguments = eIn.getArguments();
+              std::transform(arguments.begin(), arguments.end(), arguments.begin(),
+                             [&](auto const& e) { return evaluate(e); });
+              auto e = boss::ComplexExpression(eIn.getHead(), arguments);
               static auto const a = [this] {
                 auto result =
                     std::unordered_map<boss::Symbol, std::function<boss::Expression(
@@ -63,7 +68,7 @@ public:
                 };
                 return std::move(result);
               }();
-              return a.at(e.getHead())(e);
+              return (a.count(e.getHead()) == 0) ? e : a.at(e.getHead())(e);
             },
             [](auto& e) -> boss::Expression { return e; }),
         e);
