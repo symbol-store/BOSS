@@ -88,10 +88,9 @@
                                      Schema)
                               (list #'~>)))
         )
-
     (embed-in-page '(h1 "Result")
-                   (list->html-table (eval #`(EvaluateInEngine "libWolframBOSS.dylib" #,plan))
-                                     (eval #`(EvaluateInEngine "libWolframBOSS.dylib" #,schema)))
+                   (list->html-table (eval #`(EvaluateInEngine "libWolframBOSS.so" #,plan))
+                                     (eval #`(EvaluateInEngine "libWolframBOSS.so" #,schema)))
                    '(hr)
                    `(pre ,(format "~a" (syntax->datum (expand-only plan (list #'~>)))))
                    )
@@ -120,7 +119,7 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [((string-arg) ...) explain]
    ))
 (EvaluateInEngine
- "libWolframBOSS.dylib"
+ "libWolframBOSS.so"
  (CreateTable Customer FirstName LastName age)
  (InsertInto  Customer "Holger" "German" 38)
  (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
