@@ -4,12 +4,22 @@
 #include <algorithm>
 #include <dlfcn.h>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace boss {
 class BootstrapEngine : public boss::Engine {
-  std::unordered_map<std::string, void*> libraries;
+  struct LibraryAndEvaluateFunction {
+    void *library, *evaluateFunction;
+  };
+  std::unordered_map<std::string, LibraryAndEvaluateFunction> libraries;
 
 public:
+  ~BootstrapEngine() {
+    for(const auto& [name, library] : libraries) {
+      dlclose(library.library);
+    }
+  }
+
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   boss::Expression evaluate(boss::Expression const& e) {
     return std::visit(
@@ -26,9 +36,10 @@ public:
                 result[boss::Symbol("EvaluateInEngine")] = [this](auto const& e) {
                   auto const& libraryPath = std::get<std::string>(e.getArguments().at(0));
                   if(libraries.count(libraryPath) == 0) {
-                    if(auto library = dlopen(libraryPath.c_str(), RTLD_LAZY)) {
+                    auto* n = libraryPath.c_str();
+                    if(auto library = dlopen(n, RTLD_LAZY)) {
                       if(auto* sym = dlsym(library, "evaluate")) {
-                        libraries.emplace(libraryPath, sym);
+                        libraries.emplace(libraryPath, LibraryAndEvaluateFunction{library, sym});
                       } else {
                         throw std::runtime_error(
                             "library \"" + libraryPath +
@@ -39,7 +50,7 @@ public:
                                                "\" could not be loaded: " + dlerror());
                     }
                   }
-                  auto process = [sym = libraries.at(libraryPath)](auto const& e) {
+                  auto process = [sym = libraries.at(libraryPath).evaluateFunction](auto const& e) {
                     auto wrapper = BOSSExpression{.delegate = e};
                     auto* r = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(sym)(&wrapper);
                     auto result = r->delegate;
