@@ -19,6 +19,10 @@ public:
       dlclose(library.library);
     }
   }
+  BootstrapEngine(BootstrapEngine const&) = delete;
+  BootstrapEngine(BootstrapEngine&&) = default;
+  BootstrapEngine& operator=(BootstrapEngine const&) = delete;
+  BootstrapEngine& operator=(BootstrapEngine&&) = default;
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   boss::Expression evaluate(boss::Expression const& e) {
