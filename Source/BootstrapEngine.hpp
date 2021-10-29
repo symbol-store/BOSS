@@ -42,7 +42,7 @@ public:
                   auto const& libraryPath = std::get<std::string>(e.getArguments().at(0));
                   if(libraries.count(libraryPath) == 0) {
                     auto* n = libraryPath.c_str();
-                    if(auto library = dlopen(n, RTLD_LAZY)) {
+                    if(auto library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) {
                       if(auto* sym = dlsym(library, "evaluate")) {
                         libraries.emplace(libraryPath, LibraryAndEvaluateFunction{library, sym});
                       } else {
