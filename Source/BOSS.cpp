@@ -91,9 +91,10 @@ size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
 }
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
   auto args = std::get<boss::ComplexExpression>(arg->delegate).getArguments();
-  auto* result = new BOSSExpression*[args.size()];
+  auto* result = new BOSSExpression*[args.size() + 1];
   std::transform(begin(args), end(args), result,
                  [](auto const& arg) { return new BOSSExpression{.delegate = arg}; });
+  result[args.size()] = nullptr;
   return result;
 }
 
@@ -101,6 +102,9 @@ void freeBOSSExpression(BOSSExpression* e) {
   delete e; // NOLINT
 }
 void freeBOSSArguments(BOSSExpression** e) {
+  for(auto i = 0U; e[i] != nullptr; i++) {
+    delete e[i];
+  }
   delete[] e; // NOLINT
 }
 void freeBOSSSymbol(BOSSSymbol* s) {
