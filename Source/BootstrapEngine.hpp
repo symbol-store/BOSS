@@ -30,7 +30,6 @@ public:
                       if(auto* sym = dlsym(library, "evaluate")) {
                         libraries.emplace(libraryPath, sym);
                       } else {
-
                         throw std::runtime_error(
                             "library \"" + libraryPath +
                             "\" does not provide an evaluate function: " + dlerror());
@@ -40,12 +39,11 @@ public:
                                                "\" could not be loaded: " + dlerror());
                     }
                   }
-                  // for (auto& it : {})
                   auto process = [sym = libraries.at(libraryPath)](auto const& e) {
                     auto wrapper = BOSSExpression{.delegate = e};
                     auto* r = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(sym)(&wrapper);
                     auto result = r->delegate;
-                    free(r); // NOLINT
+                    freeBOSSExpression(r); // NOLINT
                     return result;
                   };
                   for(auto it = next(e.getArguments().begin()); it != prev(e.getArguments().end());
