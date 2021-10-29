@@ -221,6 +221,7 @@ set_target_properties(WolframBOSS PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 install(TARGETS WolframBOSS LIBRARY DESTINATION lib)
 install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
+install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 
 
 
