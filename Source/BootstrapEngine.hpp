@@ -54,18 +54,6 @@ public:
                   }
                   return std::visit(process, e.getArguments().back());
                 };
-                result[boss::Symbol("Plus")] = [](auto const& e) {
-                  return std::visit(boss::utilities::overload(
-                                        [e](int a) -> boss::Expression {
-                                          for(auto it = next(e.getArguments().begin());
-                                              it != e.getArguments().end(); ++it) {
-                                            a += std::get<decltype(a)>(*it);
-                                          }
-                                          return a;
-                                        },
-                                        [](auto const& e) -> boss::Expression { return e; }),
-                                    e.getArguments().at(0));
-                };
                 return std::move(result);
               }();
               return (a.count(e.getHead()) == 0) ? e : a.at(e.getHead())(e);
