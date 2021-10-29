@@ -19,6 +19,7 @@ public:
       dlclose(library.library);
     }
   }
+  BootstrapEngine() = default;
   BootstrapEngine(BootstrapEngine const&) = delete;
   BootstrapEngine(BootstrapEngine&&) = default;
   BootstrapEngine& operator=(BootstrapEngine const&) = delete;
