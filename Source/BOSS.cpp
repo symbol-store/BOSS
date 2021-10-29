@@ -100,6 +100,9 @@ BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
 void freeBOSSExpression(BOSSExpression* e) {
   delete e; // NOLINT
 }
+void freeBOSSArguments(BOSSExpression** e) {
+  delete e; // NOLINT
+}
 void freeBOSSSymbol(BOSSSymbol* s) {
   delete s; // NOLINT
 }

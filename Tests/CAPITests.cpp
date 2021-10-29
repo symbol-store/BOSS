@@ -15,5 +15,6 @@ TEST_CASE("Build Expression", "[api]") {
   freeBOSSExpression(res);
   freeBOSSExpression(input[0]);
   freeBOSSExpression(input[1]);
+  freeBOSSArguments(result);
   CHECK(secondArgument == 4);
 }

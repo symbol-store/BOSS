@@ -37,5 +37,6 @@ BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg);
 
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg);
 void freeBOSSExpression(BOSSExpression* e);
+void freeBOSSArguments(BOSSExpression** e) ;
 void freeBOSSSymbol(BOSSSymbol* s);
 }
