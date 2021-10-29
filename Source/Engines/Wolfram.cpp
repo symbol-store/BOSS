@@ -542,10 +542,9 @@ boss::Expression Engine::evaluate(Expression const& e) { return impl.evaluate(e)
 
 extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
   static std::mutex m;
-  m.lock();
+  std::lock_guard lock(m);
   static auto engine = boss::engines::wolfram::Engine();
   auto* r = new BOSSExpression{.delegate = engine.evaluate(e->delegate)};
-  m.unlock();
   return r;
 };
 
