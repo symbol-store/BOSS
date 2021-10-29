@@ -152,3 +152,22 @@ jobs:
         path: core*
     needs: [build]
 
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build-type: [Release, Debug]
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: ${{ matrix.build-type }}
+          path: ${{ matrix.build-type }}
+      - name: Set env.BRANCH
+        run: echo "BRANCH=$(echo $GITHUB_REF | cut -d'/' -f 3)" >> $GITHUB_ENV
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ matrix.build-type }}
+          name: ${{ matrix.build-type }}-${{ env.BRANCH }}
+    needs: [test]
