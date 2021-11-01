@@ -171,11 +171,11 @@ jobs:
       - name: list files
         run: find .
       - name: create tarball
-        run: tar --strip-components=1 -czf ${{ matrix.build-type }}.tar.gz ${{ matrix.build-type }}
+        run: tar --strip-components=1 -czf `uname`-${{ matrix.build-type }}.tar.gz ${{ matrix.build-type }}
       - name: Upload Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ matrix.build-type }}.tar.gz
-          name: ${{ matrix.build-type }}-${{ steps.vars.outputs.short_ref }}
+          name: ${{ steps.vars.outputs.short_ref }}
     needs: [test]
