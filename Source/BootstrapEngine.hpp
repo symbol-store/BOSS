@@ -3,6 +3,8 @@
 #include "Utilities.hpp"
 #include <algorithm>
 #include <dlfcn.h>
+#include <iterator>
+#include <numeric>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -11,67 +13,88 @@ class BootstrapEngine : public boss::Engine {
   struct LibraryAndEvaluateFunction {
     void *library, *evaluateFunction;
   };
-  std::unordered_map<std::string, LibraryAndEvaluateFunction> libraries;
+  struct LibraryCache : private std::unordered_map<std::string, LibraryAndEvaluateFunction> {
+    auto at(std::string const& libraryPath) {
+      if(count(libraryPath) == 0) {
+        const auto* n = libraryPath.c_str();
+        if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
+          if(auto* sym = dlsym(library, "evaluate")) {
+            emplace(libraryPath, LibraryAndEvaluateFunction{library, sym});
+          } else {
+            throw std::runtime_error("library \"" + libraryPath +
+                                     "\" does not provide an evaluate function: " + dlerror());
+          }
+        } else {
+          throw std::runtime_error("library \"" + libraryPath +
+                                   "\" could not be loaded: " + dlerror());
+        }
+      };
+      return unordered_map::at(libraryPath);
+    }
+    ~LibraryCache() {
+      for(const auto& [name, library] : *this) {
+        dlclose(library.library);
+      }
+    }
+
+    LibraryCache() = default;
+    LibraryCache(LibraryCache const&) = delete;
+    LibraryCache(LibraryCache&&) = delete;
+    LibraryCache& operator=(LibraryCache const&) = delete;
+    LibraryCache& operator=(LibraryCache&&) = delete;
+
+  } libraries;
 
 public:
-  ~BootstrapEngine() {
-    for(const auto& [name, library] : libraries) {
-      dlclose(library.library);
-    }
-  }
   BootstrapEngine() = default;
+  ~BootstrapEngine() = default;
   BootstrapEngine(BootstrapEngine const&) = delete;
-  BootstrapEngine(BootstrapEngine&&) = default;
+  BootstrapEngine(BootstrapEngine&&) = delete;
   BootstrapEngine& operator=(BootstrapEngine const&) = delete;
-  BootstrapEngine& operator=(BootstrapEngine&&) = default;
+  BootstrapEngine& operator=(BootstrapEngine&&) = delete;
+
+  auto evaluateArguments(boss::ComplexExpression const& eIn) {
+    auto evaluatedArguments = decltype(eIn.getArguments()){};
+    std::transform(begin(eIn.getArguments()), end(eIn.getArguments()),
+                   std::back_inserter(evaluatedArguments),
+                   [&](auto const& e) { return evaluate(e); });
+    return boss::ComplexExpression(eIn.getHead(), evaluatedArguments);
+  }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   boss::Expression evaluate(boss::Expression const& e) {
     return std::visit(
         boss::utilities::overload(
             [this](boss::ComplexExpression const& eIn) -> boss::Expression {
-              auto arguments = eIn.getArguments();
-              std::transform(arguments.begin(), arguments.end(), arguments.begin(),
-                             [&](auto const& e) { return evaluate(e); });
-              auto e = boss::ComplexExpression(eIn.getHead(), arguments);
-              static auto const a = [this] {
-                auto result =
+              auto e = evaluateArguments(eIn);
+              static auto const registeredOperators = [this] {
+                auto registeredOperators =
                     std::unordered_map<boss::Symbol, std::function<boss::Expression(
                                                          boss::ComplexExpression const&)>>();
-                result[boss::Symbol("EvaluateInEngine")] = [this](auto const& e) {
-                  auto const& libraryPath = std::get<std::string>(e.getArguments().at(0));
-                  if(libraries.count(libraryPath) == 0) {
-                    auto* n = libraryPath.c_str();
-                    if(auto library =
-                           dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
-                      if(auto* sym = dlsym(library, "evaluate")) {
-                        libraries.emplace(libraryPath, LibraryAndEvaluateFunction{library, sym});
-                      } else {
-                        throw std::runtime_error(
-                            "library \"" + libraryPath +
-                            "\" does not provide an evaluate function: " + dlerror());
-                      }
-                    } else {
-                      throw std::runtime_error("library \"" + libraryPath +
-                                               "\" could not be loaded: " + dlerror());
-                    }
-                  }
-                  auto process = [sym = libraries.at(libraryPath).evaluateFunction](auto const& e) {
-                    auto wrapper = BOSSExpression{.delegate = e};
-                    auto* r = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(sym)(&wrapper);
-                    auto result = r->delegate;
-                    freeBOSSExpression(r); // NOLINT
-                    return result;
-                  };
-                  for(auto it = next(e.getArguments().begin()); it != prev(e.getArguments().end());
-                      ++it) {
-                    std::visit(process, *it);
-                  }
-                  return std::visit(process, e.getArguments().back());
+                registeredOperators[boss::Symbol("EvaluateInEngine")] =
+                    [this](auto const& e) -> boss::Expression {
+                  return std::accumulate(
+                      begin(e.getArguments()), end(e.getArguments()), boss::Expression(0),
+                      [processArgumentInEngine =
+                           [sym = libraries.at(std::get<std::string>(e.getArguments().at(0)))
+                                      .evaluateFunction](auto const& e) {
+                             auto wrapper = BOSSExpression{.delegate = e};
+                             auto* r = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(sym)(
+                                 &wrapper);
+                             auto result = r->delegate;
+                             freeBOSSExpression(r); // NOLINT
+                             return result;
+                           }](auto const&, /* we evaluate all arguments but only return the last
+                                             result */
+                              auto const& argument) -> boss::Expression {
+                        return std::visit(processArgumentInEngine, argument);
+                      });
                 };
-                return std::move(result);
+                return std::move(registeredOperators);
               }();
-              return (a.count(e.getHead()) == 0) ? e : a.at(e.getHead())(e);
+              return (registeredOperators.count(e.getHead()) == 0)
+                         ? e
+                         : registeredOperators.at(e.getHead())(e);
             },
             [](auto& e) -> boss::Expression { return e; }),
         e);
