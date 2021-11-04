@@ -84,8 +84,9 @@ public:
                              auto result = r->delegate;
                              freeBOSSExpression(r); // NOLINT
                              return result;
-                           }](auto const&, /* we evaluate all arguments but only return the last
+                           }](auto const& /* we evaluate all arguments but only return the last
                                              result */
+                              ,
                               auto const& argument) -> boss::Expression {
                         return std::visit(processArgumentInEngine, argument);
                       });
