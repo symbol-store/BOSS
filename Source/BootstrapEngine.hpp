@@ -88,7 +88,7 @@ public:
                                              result */
                               ,
                               auto const& argument) -> boss::Expression {
-                        return std::visit(processArgumentInEngine, argument);
+                        return std::visit(processArgumentInEngine, (boss::Expression::SuperType const&)argument);
                       });
                 };
                 return std::move(registeredOperators);
@@ -98,7 +98,7 @@ public:
                          : registeredOperators.at(e.getHead())(e);
             },
             [](auto& e) -> boss::Expression { return e; }),
-        e);
+        (boss::Expression::SuperType const&)e);
   }
 };
 
