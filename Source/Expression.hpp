@@ -91,8 +91,8 @@ public:
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
   ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
-  ComplexExpressionWithAdditionalCustomAtoms(
-      ComplexExpressionWithAdditionalCustomAtoms const&) = default;
+  ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
+      default;
   ComplexExpressionWithAdditionalCustomAtoms&
   operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = default;
   ComplexExpressionWithAdditionalCustomAtoms&
