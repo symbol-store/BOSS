@@ -45,7 +45,7 @@ jobs:
       run: |
         mkdir ${{ matrix.build-type }}
         cd ${{ matrix.build-type }}
-        cmake -DCMAKE_INSTALL_PREFIX=../install -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
+        CXX=clang++-11 CC=clang-11 cmake -DCMAKE_INSTALL_PREFIX=../install -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
         cd ..
     - name: build
       run: cmake --build ${{ matrix.build-type }} -- -j $(nproc)
