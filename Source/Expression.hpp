@@ -13,6 +13,7 @@ public:
   explicit Symbol(std::string const& name) : name(name){};
   std::string const& getName() const { return name; };
   inline bool operator==(boss::Symbol const& s2) const { return getName() == s2.getName(); };
+  inline bool operator!=(boss::Symbol const& s2) const { return getName() != s2.getName(); };
 };
 
 template <typename T, typename... Args> struct variant_amend;
@@ -57,6 +58,20 @@ public:
                 o)) {}
   ~ExpressionWithAdditionalCustomAtoms() = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
+
+  template <typename T>
+  std::enable_if_t<!std::is_same_v<T, ExpressionWithAdditionalCustomAtoms>, bool>
+  operator==(T const& other) const {
+    if(!std::holds_alternative<T>(*this)) {
+      return false;
+    }
+    return std::get<T>(*this) == other;
+  }
+  template <typename T>
+  std::enable_if_t<!std::is_same_v<T, ExpressionWithAdditionalCustomAtoms>, bool>
+  operator!=(T const& other) const {
+    return !(*this == other);
+  }
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = default;
   ExpressionWithAdditionalCustomAtoms&
   operator=(ExpressionWithAdditionalCustomAtoms const&) = default;
@@ -91,6 +106,21 @@ public:
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
   ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
+
+  bool operator==(ComplexExpressionWithAdditionalCustomAtoms const& other) const {
+    if(getHead() != other.getHead() || getArguments().size() != other.getArguments().size()) {
+      return false;
+    }
+    for(auto i = 0u; i < getArguments().size(); i++) {
+      if(getArguments()[i] != other.getArguments()[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+  bool operator!=(ComplexExpressionWithAdditionalCustomAtoms const& other) const {
+    return !(*this == other);
+  }
   ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
       default;
   ComplexExpressionWithAdditionalCustomAtoms&
@@ -127,10 +157,6 @@ struct variant_alternative<I, boss::ExpressionWithAdditionalCustomAtoms<>>
     : variant_alternative<I, boss::ExpressionWithAdditionalCustomAtoms<>::SuperType> {};
 } // namespace std
 
-bool operator==(boss::Expression const& r1, boss::Expression const& r2);
-static bool operator!=(boss::Expression const& r1, boss::Expression const& r2) {
-  return !(r1 == r2);
-};
 template <> struct std::hash<boss::Symbol> {
   std::size_t operator()(boss::Symbol const& s) const noexcept {
     return std::hash<std::string>{}(s.getName());
