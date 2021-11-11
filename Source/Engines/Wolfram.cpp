@@ -148,7 +148,7 @@ struct EngineImplementation {
                      }
                      console << "]";
                    }),
-               (Expression::SuperType const&)expression);
+               expression);
   }
 
   boss::Expression readExpressionFromLink() const {

@@ -11,6 +11,7 @@ class Symbol {
 
 public:
   explicit Symbol(std::string const& name) : name(name){};
+  explicit Symbol(std::string&& name) : name(std::move(name)){};
   std::string const& getName() const { return name; };
   inline bool operator==(boss::Symbol const& s2) const { return getName() == s2.getName(); };
   inline bool operator!=(boss::Symbol const& s2) const { return getName() != s2.getName(); };
@@ -48,11 +49,11 @@ public:
                 [](ComplexExpressionWithAdditionalCustomAtoms<T...>&& unpacked)
                     -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
                   return ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
-                      std::move(unpacked));
+                      std::forward<decltype(unpacked)>(unpacked));
                 },
                 [](auto&& unpacked) {
                   return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
-                      std::move(unpacked));
+                      std::forward<decltype(unpacked)>(unpacked));
                 }),
             (typename variant_amend<AtomicExpressionWithAdditionalCustomAtoms<T...>,
                                     ComplexExpressionWithAdditionalCustomAtoms<T...>>::type &&)
@@ -88,9 +89,9 @@ public:
   }
 
 private:
-  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = default;
+  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = default; // NOLINT
   ExpressionWithAdditionalCustomAtoms&
-  operator=(ExpressionWithAdditionalCustomAtoms const&) = default;
+  operator=(ExpressionWithAdditionalCustomAtoms const&) = default; // NOLINT
 };
 
 template <typename... AdditionalCustomAtoms>
@@ -135,7 +136,7 @@ public:
     if(getHead() != other.getHead() || getArguments().size() != other.getArguments().size()) {
       return false;
     }
-    for(auto i = 0u; i < getArguments().size(); i++) {
+    for(auto i = 0U; i < getArguments().size(); i++) {
       if(getArguments()[i] != other.getArguments()[i]) {
         return false;
       }
@@ -181,13 +182,37 @@ using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 } // namespace boss
 
 namespace std {
-template <>
-struct variant_size<boss::ExpressionWithAdditionalCustomAtoms<>>
-    : variant_size<boss::ExpressionWithAdditionalCustomAtoms<>::SuperType> {};
-
-template <std::size_t I>
-struct variant_alternative<I, boss::ExpressionWithAdditionalCustomAtoms<>>
-    : variant_alternative<I, boss::ExpressionWithAdditionalCustomAtoms<>::SuperType> {};
+template <typename... AdditionalCustomAtoms>
+struct variant_size<typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
+    : variant_size<
+          typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>::SuperType> {
+};
+template <std::size_t I, typename... AdditionalCustomAtoms>
+struct variant_alternative<
+    I, typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
+    : variant_alternative<I, typename boss::ExpressionWithAdditionalCustomAtoms<
+                                 AdditionalCustomAtoms...>::SuperType> {};
+template <typename Func, typename... AdditionalCustomAtoms>
+auto visit(Func&& func,
+           typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& e) {
+  return visit(
+      std::forward<Func>(func),
+      (typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>::SuperType&)e);
+};
+template <typename Func, typename... AdditionalCustomAtoms>
+auto visit(Func&& func,
+           typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& e) {
+  return visit(std::forward<Func>(func), (typename boss::ExpressionWithAdditionalCustomAtoms<
+                                             AdditionalCustomAtoms...>::SuperType const&)e);
+};
+template <typename Func, typename... AdditionalCustomAtoms>
+auto visit(Func&& func,
+           typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& e) {
+  return visit(
+      std::forward<Func>(func),
+      (typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>::SuperType &&)
+          std::move(e));
+};
 } // namespace std
 
 template <> struct std::hash<boss::Symbol> {

@@ -102,12 +102,12 @@ class BootstrapEngine : public boss::Engine {
                                             ,
                                             auto&& argument) -> boss::Expression {
                    return std::visit(processArgumentInEngine,
-                                     (boss::Expression::SuperType &&) std::move(argument));
+                                     std::forward<decltype(argument)>(argument));
                  });
            }},
           {boss::Symbol("SetDefaultEngine"), [this](auto&& expression) -> boss::Expression {
              defaultEngine = std::get<std::string>(
-                 std::get<boss::ComplexExpression>((boss::Expression::SuperType const&)expression)
+                 std::get<boss::ComplexExpression>(std::forward<decltype(argument)>(argument))
                      .getArguments()
                      .at(0));
              return "okay";
@@ -150,7 +150,7 @@ public:
                                              evaluateArguments(std::move(unevaluatedE)));
                           },
                           [](auto&& e) -> boss::Expression { return e; }),
-                      (boss::Expression::SuperType &&) std::move(wrappedE));
+                      std::forward<boss::Expression>(wrappedE));
   }
 };
 

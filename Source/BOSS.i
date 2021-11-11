@@ -108,7 +108,7 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
               return scheme_apply(scheme_builtin_value("list"), arguments.size(),
                                   arguments.data());
             }),
-        (Expression::SuperType const&) expression);
+        expression);
   };
   $result = convert($1);
 }
@@ -126,7 +126,7 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
         } else {
           return SWIG_Python_NewPointerObj(self, (void*)new Expression(arg), expressionDesc, SWIG_POINTER_OWN);
         }
-      }, (Expression::SuperType const&) expression);
+      }, expression);
     }
 %}
 

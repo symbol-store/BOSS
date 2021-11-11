@@ -32,7 +32,7 @@ public:
   template <typename T>
   std::enable_if_t<std::is_rvalue_reference_v<T&&>, typename ExpressionSystem::Expression>
   convertConstCharToStringAndOnToExpression(T&& v) const {
-    return typename ExpressionSystem::Expression(std::move(v));
+    return typename ExpressionSystem::Expression(std::forward<T>(v));
   }
 
   template <typename... Ts>
@@ -41,8 +41,8 @@ public:
     argList.reserve(sizeof...(Ts));
     (
         [this, &argList](auto&& arg) {
-          argList.emplace_back(
-              convertConstCharToStringAndOnToExpression<decltype(arg)>(std::move(arg)));
+          argList.emplace_back(convertConstCharToStringAndOnToExpression<decltype(arg)>(
+              std::forward<decltype(arg)>(arg)));
         }(std::move(args)),
         ...);
     return typename ExpressionSystem::ComplexExpression(s, std::move(argList));
@@ -105,6 +105,6 @@ static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing
                  [&](std::string const& value) { out << "\"" << value << "\""; },
                  [&](bool value) { out << (value ? "True" : "False"); },
                  [&](auto value) { out << value; }),
-             (boss::Expression::SuperType const&)thing);
+             thing);
   return out;
 }

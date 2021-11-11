@@ -41,5 +41,5 @@ Expression evaluate(Expression const& arg) {
   case NoEngine:
     break;
   }
-  return arg; // do nothing
+  return arg.copy(); // do nothing
 }
