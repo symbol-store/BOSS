@@ -17,8 +17,9 @@ static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 TEST_CASE("Basics", "[basics]") { // NOLINT
-  auto eval = [engine = boss::BootstrapEngine()](boss::Expression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
+  auto engine = boss::BootstrapEngine();
+  auto eval = [&engine](boss::Expression const& expression) mutable {
+    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression.copy()));
   };
 
   SECTION("Addition") {
