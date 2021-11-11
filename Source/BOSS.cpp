@@ -17,31 +17,28 @@ extern "C" {
 
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
   static boss::BootstrapEngine engine;
-  return new BOSSExpression{.delegate = engine.evaluate(arg->delegate)};
-};
-BOSSExpression* intToNewBOSSExpression(int i) {
-  return new BOSSExpression{.delegate = boss::Expression(i)};
-}
-BOSSExpression* floatToNewBOSSExpression(float i) {
-  return new BOSSExpression{.delegate = boss::Expression(i)};
-}
-BOSSExpression* stringToNewBOSSExpression(char const* i) {
-  return new BOSSExpression{.delegate = boss::Expression(i)};
-}
-BOSSExpression* bossSymbolNameToNewBOSSExpression(char const* i) {
-  return new BOSSExpression{.delegate = boss::Expression(boss::Symbol(i))};
+  return new BOSSExpression{engine.evaluate(arg->delegate.copy())};
 }
 
-BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i) {
-  return new BOSSSymbol{.delegate = boss::Symbol(i)};
+BOSSExpression* intToNewBOSSExpression(int i) { return new BOSSExpression{boss::Expression(i)}; }
+BOSSExpression* floatToNewBOSSExpression(float i) {
+  return new BOSSExpression{boss::Expression(i)};
 }
+BOSSExpression* stringToNewBOSSExpression(char const* i) {
+  return new BOSSExpression{boss::Expression(i)};
+}
+BOSSExpression* bossSymbolNameToNewBOSSExpression(char const* i) {
+  return new BOSSExpression{boss::Expression(boss::Symbol(i))};
+}
+
+BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i) { return new BOSSSymbol{boss::Symbol(i)}; }
 
 BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                                          BOSSExpression* arguments[]) {
-  auto args = std::vector<boss::Expression>();
+  auto args = boss::ExpressionArguments();
   std::transform(arguments, arguments + cardinality, std::back_insert_iterator(args),
-                 [](auto const* a) { return a->delegate; });
-  return new BOSSExpression{.delegate = boss::ComplexExpression(head->delegate, args)};
+                 [](auto const* a) { return a->delegate.copy(); });
+  return new BOSSExpression{boss::ComplexExpression(head->delegate, std::move(args))};
 }
 
 char const* bossSymbolToNewString(BOSSSymbol const* arg) {
@@ -84,16 +81,16 @@ char const* getNewSymbolNameFromBOSSExpression(BOSSExpression const* arg) {
 }
 
 BOSSSymbol* getHeadFromBOSSExpression(BOSSExpression const* arg) {
-  return new BOSSSymbol{.delegate = std::get<boss::ComplexExpression>(arg->delegate).getHead()};
+  return new BOSSSymbol{std::get<boss::ComplexExpression>(arg->delegate).getHead()};
 }
 size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
   return std::get<boss::ComplexExpression>(arg->delegate).getArguments().size();
 }
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
-  auto args = std::get<boss::ComplexExpression>(arg->delegate).getArguments();
+  auto const& args = std::get<boss::ComplexExpression>(arg->delegate).getArguments();
   auto* result = new BOSSExpression*[args.size() + 1];
   std::transform(begin(args), end(args), result,
-                 [](auto const& arg) { return new BOSSExpression{.delegate = arg}; });
+                 [](auto const& arg) { return new BOSSExpression{arg.copy()}; });
   result[args.size()] = nullptr;
   return result;
 }

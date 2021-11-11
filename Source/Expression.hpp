@@ -42,22 +42,25 @@ public:
   using SuperType::SuperType;
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<T...> const& o) noexcept
+      ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
       : SuperType(std::visit(
             utilities::overload(
-                [](ComplexExpressionWithAdditionalCustomAtoms<T...> const& unpacked)
+                [](ComplexExpressionWithAdditionalCustomAtoms<T...>&& unpacked)
                     -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
                   return ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
-                      unpacked);
+                      std::move(unpacked));
                 },
-                [](auto const& unpacked) {
-                  return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(unpacked);
+                [](auto&& unpacked) {
+                  return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
+                      std::move(unpacked));
                 }),
             (typename variant_amend<AtomicExpressionWithAdditionalCustomAtoms<T...>,
-                                    ComplexExpressionWithAdditionalCustomAtoms<T...>>::type const&)
-                o)) {}
+                                    ComplexExpressionWithAdditionalCustomAtoms<T...>>::type &&)
+                std::move(o))) {}
   ~ExpressionWithAdditionalCustomAtoms() = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
+  ExpressionWithAdditionalCustomAtoms&
+  operator=(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 
   template <typename T>
   std::enable_if_t<!std::is_same_v<T, ExpressionWithAdditionalCustomAtoms>, bool>
@@ -72,11 +75,22 @@ public:
   operator!=(T const& other) const {
     return !(*this == other);
   }
+
+  ExpressionWithAdditionalCustomAtoms copy() const {
+    using ComplexExpression = ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+    return std::visit(
+        boss::utilities::overload(
+            [](auto const& val) -> ExpressionWithAdditionalCustomAtoms { return val; },
+            [](ComplexExpression const& val) -> ExpressionWithAdditionalCustomAtoms {
+              return ComplexExpression(val.copy());
+            }),
+        (ExpressionWithAdditionalCustomAtoms::SuperType const&)*this);
+  }
+
+private:
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = default;
   ExpressionWithAdditionalCustomAtoms&
   operator=(ExpressionWithAdditionalCustomAtoms const&) = default;
-  ExpressionWithAdditionalCustomAtoms&
-  operator=(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 };
 
 template <typename... AdditionalCustomAtoms>
@@ -91,21 +105,31 @@ private:
 public:
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       Symbol const& head,
-      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& arguments)
-      : head(head), arguments(arguments){};
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
+      : head(head), arguments(std::move(arguments)){};
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
-      ComplexExpressionWithAdditionalCustomAtoms<T...> const& other)
-      : head(other.getHead()), arguments(other.getArguments().begin(), other.getArguments().end()) {
+      ComplexExpressionWithAdditionalCustomAtoms<T...>&& other)
+      : head(other.getHead()) {
+    arguments.reserve(other.getArguments().size());
+    for(auto&& arg : other.getArguments()) {
+      arguments.emplace_back(std::move(arg));
+    }
   }
+
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const&
   getArguments() const {
+    return arguments;
+  };
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& getArguments() {
     return arguments;
   };
   Symbol const& getHead() const { return head; };
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
   ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
+  ComplexExpressionWithAdditionalCustomAtoms&
+  operator=(ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 
   bool operator==(ComplexExpressionWithAdditionalCustomAtoms const& other) const {
     if(getHead() != other.getHead() || getArguments().size() != other.getArguments().size()) {
@@ -121,12 +145,21 @@ public:
   bool operator!=(ComplexExpressionWithAdditionalCustomAtoms const& other) const {
     return !(*this == other);
   }
-  ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
-      default;
+
+  ComplexExpressionWithAdditionalCustomAtoms copy() const {
+    ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> copiedArgs;
+    copiedArgs.reserve(arguments.size());
+    for(auto const& arg : arguments) {
+      copiedArgs.emplace_back(arg.copy());
+    }
+    return ComplexExpressionWithAdditionalCustomAtoms(head, std::move(copiedArgs));
+  }
+
+private:
+    ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
+        default;
   ComplexExpressionWithAdditionalCustomAtoms&
   operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = default;
-  ComplexExpressionWithAdditionalCustomAtoms&
-  operator=(ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 };
 
 template <typename... AdditionalCustomAtoms> class ExtensibleExpressionSystem {

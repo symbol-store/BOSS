@@ -16,24 +16,38 @@ public:
    * it explicitly
    */
   template <typename T>
-  typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(
-      std::enable_if_t<std::is_same_v<T, char const*>, T> v) const {
-    return typename ExpressionSystem::Expression(std::string(v));
+  typename ExpressionSystem::Expression
+  convertConstCharToStringAndOnToExpression(T const&& v) const {
+    using Expression = typename ExpressionSystem::Expression;
+    using ComplexExpression = typename ExpressionSystem::ComplexExpression;
+    if constexpr(std::is_same_v<std::decay_t<decltype(v)>, char const*>) {
+      return Expression(std::string(v));
+    } else if constexpr(std::is_same_v<std::decay_t<decltype(v)>, ComplexExpression> ||
+                        std::is_same_v<std::decay_t<decltype(v)>, Expression>) {
+      return Expression(v.copy());
+    } else {
+      return Expression(v);
+    }
   }
-  /**
-   * default overload for conversion
-   */
   template <typename T>
-  typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(
-      std::enable_if_t<!std::is_same_v<T, char const*>, T const&> v) const {
-    return typename ExpressionSystem::Expression(v);
+  std::enable_if_t<std::is_rvalue_reference_v<T&&>, typename ExpressionSystem::Expression>
+  convertConstCharToStringAndOnToExpression(T&& v) const {
+    return typename ExpressionSystem::Expression(std::move(v));
   }
 
   template <typename... Ts>
-  typename ExpressionSystem::ComplexExpression operator()(Ts... args /*a*/) const {
-    return typename ExpressionSystem::ComplexExpression{
-        s, {convertConstCharToStringAndOnToExpression<decltype(args)>(args)...}};
+  typename ExpressionSystem::ComplexExpression operator()(Ts&&... args /*a*/) const {
+    typename ExpressionSystem::ExpressionArguments argList;
+    argList.reserve(sizeof...(Ts));
+    (
+        [this, &argList](auto&& arg) {
+          argList.emplace_back(
+              convertConstCharToStringAndOnToExpression<decltype(arg)>(std::move(arg)));
+        }(std::move(args)),
+        ...);
+    return typename ExpressionSystem::ComplexExpression(s, std::move(argList));
   };
+
   friend typename ExpressionSystem::Expression
   operator|(typename ExpressionSystem::Expression const& expression,
             ExtensibleExpressionBuilder const& builder) {

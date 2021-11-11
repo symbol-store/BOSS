@@ -91,7 +91,7 @@ struct EngineImplementation {
                      console << a;
                      WSPutInteger(link, a);
                    },
-                   [&](std::vector<int> values) {
+                   [&](std::vector<int> const& values) {
                      putExpressionOnLink(ComplexExpression("List"_, {values.begin(), values.end()}),
                                          namespaceIdentifier);
                    },
@@ -181,8 +181,8 @@ struct EngineImplementation {
       for(auto i = 0U; i < numberOfArguments; i++) {
         resultArguments.push_back(readExpressionFromLink());
       }
-      auto result =
-          boss::ComplexExpression(boss::Symbol(removeNamespace(resultHead)), resultArguments);
+      auto result = boss::ComplexExpression(boss::Symbol(removeNamespace(resultHead)),
+                                            std::move(resultArguments));
       WSReleaseSymbol(link, resultHead);
       return result;
     }
@@ -214,16 +214,20 @@ struct EngineImplementation {
   static auto namespaced(Symbol const& name) {
     return ExpressionBuilder(Symbol(DefaultNamespace + name.getName()));
   }
-  static ComplexExpression namespaced(ComplexExpression const& name) {
+  static ComplexExpression namespaced(ComplexExpression&& name) {
     return ComplexExpression(Symbol(DefaultNamespace + name.getHead().getName()),
-                             name.getArguments());
+                             std::move(name.getArguments()));
   }
 
   void evalWithoutNamespace(Expression const& expression) { evaluate(expression, ""); };
 
-  void DefineFunction(Symbol const& name, const vector<Expression>& arguments,
-                      Expression const& definition, vector<Symbol> const& attributes = {}) {
-    evalWithoutNamespace("SetDelayed"_(namespaced(ComplexExpression(name, arguments)), definition));
+  void DefineFunction(Symbol&& name, std::initializer_list<ComplexExpression>&& arguments,
+                      Expression&& definition, vector<Symbol>&& attributes = {}) {
+    ExpressionArguments args;
+    std::transform(arguments.begin(), arguments.end(), back_inserter(args),
+                   [](auto&& arg) { return arg.copy(); });
+    evalWithoutNamespace("SetDelayed"_(
+        namespaced(ComplexExpression(std::move(name), std::move(args))), std::move(definition)));
     for(auto const& it : attributes) {
       evalWithoutNamespace("SetAttributes"_(namespaced(name), it));
     }
