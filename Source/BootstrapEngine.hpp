@@ -14,7 +14,7 @@ class BootstrapEngine : public boss::Engine {
     void *library, *evaluateFunction;
   };
   struct LibraryCache : private std::unordered_map<std::string, LibraryAndEvaluateFunction> {
-    auto at(std::string const& libraryPath) {
+    LibraryAndEvaluateFunction const& at(std::string const& libraryPath) {
       if(count(libraryPath) == 0) {
         const auto* n = libraryPath.c_str();
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
@@ -45,6 +45,30 @@ class BootstrapEngine : public boss::Engine {
 
   } libraries;
 
+  std::unordered_map<boss::Symbol,
+                     std::function<boss::Expression(boss::ComplexExpression const&)>> const
+      registeredOperators = {
+          {boss::Symbol("EvaluateInEngine"), [this](auto const& e) -> boss::Expression {
+             return std::accumulate(
+                 begin(e.getArguments()), end(e.getArguments()), boss::Expression(0),
+                 [processArgumentInEngine =
+                      [sym = libraries.at(std::get<std::string>(e.getArguments().at(0)))
+                                 .evaluateFunction](auto const& e) {
+                        auto wrapper = BOSSExpression{.delegate = e};
+                        auto* r =
+                            reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(sym)(&wrapper);
+                        auto result = r->delegate;
+                        freeBOSSExpression(r); // NOLINT
+                        return result;
+                      }](auto const& /* we evaluate all arguments but only return the last
+                                        result */
+                         ,
+                         auto const& argument) -> boss::Expression {
+                   return std::visit(processArgumentInEngine,
+                                     (boss::Expression::SuperType const&)argument);
+                 });
+           }}};
+
 public:
   BootstrapEngine() = default;
   ~BootstrapEngine() = default;
@@ -63,42 +87,15 @@ public:
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   boss::Expression evaluate(boss::Expression const& e) {
-    return std::visit(
-        boss::utilities::overload(
-            [this](boss::ComplexExpression const& eIn) -> boss::Expression {
-              auto e = evaluateArguments(eIn);
-              static auto const registeredOperators = [this] {
-                auto registeredOperators =
-                    std::unordered_map<boss::Symbol, std::function<boss::Expression(
-                                                         boss::ComplexExpression const&)>>();
-                registeredOperators[boss::Symbol("EvaluateInEngine")] =
-                    [this](auto const& e) -> boss::Expression {
-                  return std::accumulate(
-                      begin(e.getArguments()), end(e.getArguments()), boss::Expression(0),
-                      [processArgumentInEngine =
-                           [sym = libraries.at(std::get<std::string>(e.getArguments().at(0)))
-                                      .evaluateFunction](auto const& e) {
-                             auto wrapper = BOSSExpression{.delegate = e};
-                             auto* r = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(sym)(
-                                 &wrapper);
-                             auto result = r->delegate;
-                             freeBOSSExpression(r); // NOLINT
-                             return result;
-                           }](auto const& /* we evaluate all arguments but only return the last
-                                             result */
-                              ,
-                              auto const& argument) -> boss::Expression {
-                        return std::visit(processArgumentInEngine, (boss::Expression::SuperType const&)argument);
-                      });
-                };
-                return std::move(registeredOperators);
-              }();
-              return (registeredOperators.count(e.getHead()) == 0)
-                         ? e
-                         : registeredOperators.at(e.getHead())(e);
-            },
-            [](auto& e) -> boss::Expression { return e; }),
-        (boss::Expression::SuperType const&)e);
+    return std::visit(boss::utilities::overload(
+                          [this](boss::ComplexExpression const& unevaluatedE) -> boss::Expression {
+                            return (registeredOperators.count(unevaluatedE.getHead()) == 0)
+                                       ? unevaluatedE
+                                       : registeredOperators.at(unevaluatedE.getHead())(
+                                             evaluateArguments(unevaluatedE));
+                          },
+                          [](auto& e) -> boss::Expression { return e; }),
+                      (boss::Expression::SuperType const&)e);
   }
 };
 

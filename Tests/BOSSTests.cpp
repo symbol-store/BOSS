@@ -2,6 +2,7 @@
 #include "../Source/BOSS.hpp"
 #include "../Source/BootstrapEngine.hpp"
 #include "../Source/ExpressionUtilities.hpp"
+#include <arrow/array.h>
 #include <catch2/catch.hpp>
 #include <variant>
 using boss::Expression;
@@ -15,8 +16,7 @@ static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 TEST_CASE("Basics", "[basics]") { // NOLINT
-  boss::BootstrapEngine engine = {};
-  auto eval = [&](boss::Expression const& expression) mutable {
+  auto eval = [engine = boss::BootstrapEngine()](boss::Expression const& expression) mutable {
     return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
   };
 
@@ -195,6 +195,43 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
                            1),
                 1))) == 1);
     }
+  }
+}
+
+TEST_CASE("Arrays", "[arrays]") { // NOLINT
+  auto engine = boss::BootstrapEngine();
+  auto eval = [&engine](boss::Expression const& expression) mutable {
+    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
+  };
+
+  std::vector<int32_t> ints{10, 20, 30, 40, 50}; // NOLINT
+  std::shared_ptr<arrow::Array> arrayPtr(
+      new arrow::Int32Array((long long)ints.size(), arrow::Buffer::Wrap(ints)));
+
+  auto arrayPtrExpr = boss::utilities::arrowArrayToExpression(arrayPtr);
+
+  SECTION("ArrowArrays") {
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 1))) == 10);
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 2))) == 20);
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 3))) == 30);
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 4))) == 40);
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 5))) == 50);
+    CHECK(eval(arrayPtrExpr) == "List"_(10, 20, 30, 40, 50));
+  }
+
+  SECTION("Plus") {
+    CHECK(eval("Plus"_(arrayPtrExpr, arrayPtrExpr)) == "List"_(20, 40, 60, 80, 100));
+    CHECK(eval("Plus"_(arrayPtrExpr, 1)) == "List"_(11, 21, 31, 41, 51));
+  }
+
+  SECTION("Greater") {
+    CHECK(eval("Greater"_(arrayPtrExpr, 25)) == "List"_(false, false, true, true, true));
+    CHECK(eval("Greater"_(45, arrayPtrExpr)) == "List"_(true, true, true, true, false));
+  }
+
+  SECTION("Logic") {
+    CHECK(eval("And"_("Greater"_(arrayPtrExpr, 25), "Greater"_(45, arrayPtrExpr))) ==
+          "List"_(false, false, true, true, false));
   }
 }
 
