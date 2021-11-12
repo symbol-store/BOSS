@@ -17,7 +17,7 @@
 
 #define STRINGIFY(x) #x        // NOLINT
 #define STRING(x) STRINGIFY(x) // NOLINT
-
+namespace nasty = boss::utilities::nasty;
 namespace boss::engines::wolfram {
 using ExpressionBuilder = boss::utilities::ExtensibleExpressionBuilder<WolframExpressionSystem>;
 static ExpressionBuilder operator""_(const char* name, size_t /*unused*/) {
@@ -123,7 +123,7 @@ struct EngineImplementation {
                   (headName == namespaceIdentifier + "ArrowArrayPtr")
                       ? [expression] {
                           vector<Expression> result;
-                          auto const& arrowArray = utilities::reconstructArrowArray(
+                          auto const& arrowArray = nasty::reconstructArrowArray(
                               std::get<int>(expression.getArguments().at(0)),
                               std::get<int>(expression.getArguments().at(1)));
                           auto int64_array = std::static_pointer_cast<arrow::Int32Array>(arrowArray);
