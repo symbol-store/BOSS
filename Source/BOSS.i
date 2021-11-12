@@ -114,35 +114,36 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
 }
 #elif defined(SWIGPYTHON)
 %inline %{
-    PyObject * createPythonPointerObj(PyObject * self, Expression expression, 
+    PyObject * createPythonPointerObj(PyObject * self, Expression&& expression, 
                 swig_type_info * expressionDesc, 
                 swig_type_info * complexExpressionDesc) {
-      return std::visit([&self, &expressionDesc, &complexExpressionDesc](auto const& arg) -> PyObject * {
+      return std::visit([&self, &expressionDesc, &complexExpressionDesc](auto&& arg) -> PyObject * {
         using argType = std::decay_t<decltype(arg)>;
         if constexpr(std::is_same_v<argType, ComplexExpression>) {
-          return SWIG_Python_NewPointerObj(self, (void*)new ComplexExpression(arg), complexExpressionDesc, SWIG_POINTER_OWN);
+          return SWIG_Python_NewPointerObj(self, (void*)new ComplexExpression(std::forward<decltype(arg)>(arg)), complexExpressionDesc, SWIG_POINTER_OWN);
         } else if constexpr(std::is_same_v<argType, boss::Symbol>) {
-          return SWIG_Python_NewPointerObj(self, (void*)new ComplexExpression("Symbol"_, {arg.getName()}), complexExpressionDesc, SWIG_POINTER_OWN);
+          ExpressionArguments args;
+          args.emplace_back(arg.getName());
+          return SWIG_Python_NewPointerObj(self, (void*)new ComplexExpression("Symbol"_, std::move(args)), complexExpressionDesc, SWIG_POINTER_OWN);
         } else {
           return SWIG_Python_NewPointerObj(self, (void*)new Expression(arg), expressionDesc, SWIG_POINTER_OWN);
         }
-      }, expression);
+      }, std::move(expression));
     }
 %}
 
 %typemap(out) Expression {
-  Expression expression = Expression($1);
-  if(auto * boolVal = std::get_if<bool>(&expression)) {
+  if(auto * boolVal = std::get_if<bool>(&$1)) {
     $result = PyBool_FromLong((long)*boolVal);
-  } else if(auto * intVal = std::get_if<int>(&expression)) {
+  } else if(auto * intVal = std::get_if<int>(&$1)) {
     $result = PyInt_FromLong((long)*intVal);
-  } else if(auto * floatVal = std::get_if<float>(&expression)) {
+  } else if(auto * floatVal = std::get_if<float>(&$1)) {
     $result = PyFloat_FromDouble((double)*floatVal);
-  } else if(auto * strVal = std::get_if<std::string>(&expression)) {
+  } else if(auto * strVal = std::get_if<std::string>(&$1)) {
     $result = PyString_FromString(strVal->c_str());
   } else {
     // handle any other type as a pointer to underline c object
-    $result = createPythonPointerObj($self, expression, $descriptor(Expression *), $descriptor(ComplexExpression *));
+    $result = createPythonPointerObj($self, std::move((Expression&&)$1), $descriptor(Expression *), $descriptor(ComplexExpression *));
   }
 }
 
@@ -162,7 +163,7 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
   } else {
     void * rawPtr = NULL; 
     if (SWIG_IsOK(SWIG_ConvertPtr($input, &rawPtr, $descriptor(ComplexExpression *), 0))) {
-      $1 = new Expression(*(ComplexExpression*)rawPtr);
+      $1 = new Expression(((ComplexExpression*)rawPtr)->copy());
     } else  if (SWIG_IsOK(SWIG_ConvertPtr($input, &rawPtr, $descriptor(Symbol *), 0))) {
       $1 = new Expression(*(Symbol*)rawPtr);
     } else {
@@ -187,32 +188,32 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
    $result = PyInt_FromLong((long)*$1);
 }
 
-%typemap(out) ExpressionArguments const & {
-  auto size = std::distance($1->begin(), $1->end());
+%typemap(out) ExpressionArguments {
+  auto size = $1.size();
   $result = PyList_New(size);
   int index = 0;
-  for(auto it = $1->begin(); it != $1->end(); ++it, ++index) {
-    if(auto * boolVal = std::get_if<bool>(&*it)) {
+  for(auto&& arg : $1) {
+    if(auto * boolVal = std::get_if<bool>(&arg)) {
       PyObject *o = PyBool_FromLong((long)*boolVal);
       PyList_SetItem($result,index,o);
-    } else if(auto * intVal = std::get_if<int>(&*it)) {
+    } else if(auto * intVal = std::get_if<int>(&arg)) {
       PyObject *o = PyInt_FromLong((long)*intVal);
       PyList_SetItem($result,index,o);
-    } else if(auto * floatVal = std::get_if<float>(&*it)) {
+    } else if(auto * floatVal = std::get_if<float>(&arg)) {
       PyObject *o = PyFloat_FromDouble((double)*floatVal);
       PyList_SetItem($result,index,o);
-    } else if(auto * strVal = std::get_if<std::string>(&*it)) {
+    } else if(auto * strVal = std::get_if<std::string>(&arg)) {
       PyObject *o = PyString_FromString(strVal->c_str());
       PyList_SetItem($result,index,o);
     } else {
       // handle any other type as a pointer to underline c object
-      PyObject *o = createPythonPointerObj($self, *it, $descriptor(Expression *), $descriptor(ComplexExpression *));
+      PyObject *o = createPythonPointerObj($self, std::move(arg), $descriptor(Expression *), $descriptor(ComplexExpression *));
       PyList_SetItem($result,index,o);
     }
   }
 }
 
-%typemap(in) ExpressionArguments const & {
+%typemap(in) ExpressionArguments const& {
   if (!PySequence_Check($input)) { // TODO handle PyList too?
     PyErr_SetString(PyExc_ValueError,"Expected a sequence");
     SWIG_fail;
@@ -240,7 +241,7 @@ namespace std {%template(ExpressionArguments) vector<Expression>;}
     } else {
       void * rawPtr = NULL;
       if(SWIG_IsOK(SWIG_ConvertPtr(o, &rawPtr, $descriptor(ComplexExpression *), 0))) {
-        arg.emplace<ComplexExpression>(*(ComplexExpression*)rawPtr);
+        arg.emplace<ComplexExpression>(((ComplexExpression*)rawPtr)->copy());
       } else if(SWIG_IsOK(SWIG_ConvertPtr(o, &rawPtr, $descriptor(Symbol *), 0))) {
         arg.emplace<Symbol>(*(Symbol*)rawPtr);
       } else {
@@ -272,13 +273,13 @@ public:
   Expression(float);
   Expression(std::string);
   Expression(Symbol const&);
-  Expression(ComplexExpression);
+  Expression(ComplexExpression&&);
 };
 
 class ComplexExpression {
 public:
-  ComplexExpression(Symbol const& head, std::vector<Expression> const & arguments);
-  ExpressionArguments const& getArguments() const;
+  ComplexExpression(Symbol const& head, std::vector<Expression>&& arguments);
+  ExpressionArguments getArguments() const;
   std::string const& getHead() const;
 };
 
@@ -316,12 +317,17 @@ public:
   }
 
   ComplexExpression(std::string const& head, ExpressionArguments const& arguments) {
-    ComplexExpression * e = new ComplexExpression(boss::Symbol(head), arguments);
+    auto args = ExpressionArguments();
+    args.reserve(arguments.size());
+    for(auto const& arg : arguments) {
+      args.emplace_back(arg.copy());
+    }
+    ComplexExpression * e = new ComplexExpression(boss::Symbol(head), std::move(args));
     return e;
   }
 
   Expression evaluate() {
-    return evaluate(*$self);
+    return evaluate($self->copy());
   }
   
   Expression operator+(Expression const& other) {

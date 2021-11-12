@@ -16,14 +16,20 @@ public:
    * it explicitly
    */
   template <typename T>
+  typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(
+      std::enable_if_t<std::is_same_v<T, char const*>, T> v) const {
+    return typename ExpressionSystem::Expression(std::string(v));
+  }
+  /**
+   * default overload for conversion
+   */
+  template <typename T>
   typename ExpressionSystem::Expression
   convertConstCharToStringAndOnToExpression(T const&& v) const {
     using Expression = typename ExpressionSystem::Expression;
     using ComplexExpression = typename ExpressionSystem::ComplexExpression;
-    if constexpr(std::is_same_v<std::decay_t<decltype(v)>, char const*>) {
-      return Expression(std::string(v));
-    } else if constexpr(std::is_same_v<std::decay_t<decltype(v)>, ComplexExpression> ||
-                        std::is_same_v<std::decay_t<decltype(v)>, Expression>) {
+    if constexpr(std::is_same_v<std::decay_t<decltype(v)>, ComplexExpression> ||
+                 std::is_same_v<std::decay_t<decltype(v)>, Expression>) {
       return Expression(v.copy());
     } else {
       return Expression(v);
@@ -89,22 +95,24 @@ static std::shared_ptr<arrow::Array> reconstructArrowArray(int first, int second
 static std::ostream& operator<<(std::ostream& out, boss::Symbol const& thing) {
   return out << thing.getName();
 }
+static std::ostream& operator<<(std::ostream& out, boss::ComplexExpression const& e);
 static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing) {
-  std::visit(boss::utilities::overload(
-                 [&](boss::ComplexExpression const& e) {
-                   out << e.getHead() << "[";
-                   if(!e.getArguments().empty()) {
-                     out << e.getArguments().front();
-                     for(auto it = next(e.getArguments().begin()); it != e.getArguments().end();
-                         ++it) {
-                       out << "," << *it;
-                     }
-                   }
-                   out << "]";
-                 },
-                 [&](std::string const& value) { out << "\"" << value << "\""; },
-                 [&](bool value) { out << (value ? "True" : "False"); },
-                 [&](auto value) { out << value; }),
-             thing);
+  std::visit(
+      boss::utilities::overload([&](boss::ComplexExpression const& e) { out << e; },
+                                [&](std::string const& value) { out << "\"" << value << "\""; },
+                                [&](bool value) { out << (value ? "True" : "False"); },
+                                [&](auto value) { out << value; }),
+      thing);
+  return out;
+}
+static std::ostream& operator<<(std::ostream& out, boss::ComplexExpression const& e) {
+  out << e.getHead() << "[";
+  if(!e.getArguments().empty()) {
+    out << e.getArguments().front();
+    for(auto it = next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
+      out << "," << *it;
+    }
+  }
+  out << "]";
   return out;
 }

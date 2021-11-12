@@ -46,8 +46,8 @@ public:
       ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
       : SuperType(std::visit(
             utilities::overload(
-                [](ComplexExpressionWithAdditionalCustomAtoms<T...> &&
-                   unpacked) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+                [](ComplexExpressionWithAdditionalCustomAtoms<T...>&& unpacked)
+                    -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
                   return ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
                 },

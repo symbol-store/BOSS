@@ -1,3 +1,5 @@
+#pragma once
+
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
@@ -9,10 +11,9 @@
 #include <windows.h>
 constexpr static int RTLD_NOW = 0;
 constexpr static int RTLD_NODELETE = 0;
-void* dlopen(LPCSTR lpLibFileName, int /*flags*/) { return LoadLibrary(lpLibFileName); }
-auto dlclose(void* hModule) { return FreeLibrary((HMODULE)hModule); }
-auto dlerror() {
-  // https://stackoverflow.com/a/45565001
+static void* dlopen(LPCSTR lpLibFileName, int /*flags*/) { return LoadLibrary(lpLibFileName); }
+static auto dlclose(void* hModule) { return FreeLibrary((HMODULE)hModule); }
+static auto dlerror() {
   auto errorCode = GetLastError();
   auto psz = LPTSTR(nullptr);
   auto msg = FormatMessage(
@@ -27,7 +28,7 @@ auto dlerror() {
   }
   return std::to_string(errorCode);
 }
-void* dlsym(void* hModule, LPCSTR lpProcName) {
+static void* dlsym(void* hModule, LPCSTR lpProcName) {
   return GetProcAddress((HMODULE)hModule, lpProcName);
 }
 #endif // _WIN32
