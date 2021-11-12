@@ -201,6 +201,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
 TEST_CASE("Arrays", "[arrays]") { // NOLINT
   auto engine = boss::BootstrapEngine();
+  namespace nasty = boss::utilities::nasty;
   auto eval = [&engine](boss::Expression const& expression) mutable {
     return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
   };
@@ -209,7 +210,7 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
   std::shared_ptr<arrow::Array> arrayPtr(
       new arrow::Int32Array((long long)ints.size(), arrow::Buffer::Wrap(ints)));
 
-  auto arrayPtrExpr = boss::utilities::arrowArrayToExpression(arrayPtr);
+  auto arrayPtrExpr = nasty::arrowArrayToExpression(arrayPtr);
   eval("CreateTable"_("Thingy"_, "Value"_));
   eval("AttachColumns"_("Thingy"_, arrayPtrExpr));
 

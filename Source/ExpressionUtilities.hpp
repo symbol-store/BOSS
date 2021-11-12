@@ -46,6 +46,8 @@ static ExpressionBuilder operator""_(const char* name, size_t /*unused*/) {
   return ExpressionBuilder(name);
 };
 
+namespace nasty {
+// the ownership model is unclear -- we really need to fix that
 static boss::ComplexExpression
 arrowArrayToExpression(std::shared_ptr<arrow::Array> const& arrowPtr) {
   union {
@@ -66,6 +68,7 @@ static std::shared_ptr<arrow::Array> reconstructArrowArray(int first, int second
   asInts.second = second; // NOLINT
   return *pointer;        // NOLINT
 }
+} // namespace nasty
 
 } // namespace boss::utilities
 
