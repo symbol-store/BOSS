@@ -16,20 +16,14 @@ public:
    * it explicitly
    */
   template <typename T>
-  typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(
-      std::enable_if_t<std::is_same_v<T, char const*>, T> v) const {
-    return typename ExpressionSystem::Expression(std::string(v));
-  }
-  /**
-   * default overload for conversion
-   */
-  template <typename T>
   typename ExpressionSystem::Expression
   convertConstCharToStringAndOnToExpression(T const&& v) const {
     using Expression = typename ExpressionSystem::Expression;
     using ComplexExpression = typename ExpressionSystem::ComplexExpression;
-    if constexpr(std::is_same_v<std::decay_t<decltype(v)>, ComplexExpression> ||
-                 std::is_same_v<std::decay_t<decltype(v)>, Expression>) {
+    if constexpr(std::is_same_v<std::decay_t<decltype(v)>, char const*>) {
+      return Expression(std::string((char const*)v));
+    } else if constexpr(std::is_same_v<std::decay_t<decltype(v)>, ComplexExpression> ||
+                        std::is_same_v<std::decay_t<decltype(v)>, Expression>) {
       return Expression(v.copy());
     } else {
       return Expression(v);
