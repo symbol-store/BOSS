@@ -11,6 +11,7 @@ using std::string;
 using boss::utilities::operator""_;
 using Catch::Generators::random;
 using Catch::Generators::take;
+using std::vector;
 
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -209,6 +210,8 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
       new arrow::Int32Array((long long)ints.size(), arrow::Buffer::Wrap(ints)));
 
   auto arrayPtrExpr = boss::utilities::arrowArrayToExpression(arrayPtr);
+  eval("CreateTable"_("Thingy"_, "Value"_));
+  eval("AttachColumns"_("Thingy"_, arrayPtrExpr));
 
   SECTION("ArrowArrays") {
     CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 1))) == 10);
@@ -219,19 +222,39 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
     CHECK(eval(arrayPtrExpr) == "List"_(10, 20, 30, 40, 50));
   }
 
+  auto compareColumn = [&eval](boss::Expression const& expression, auto const& results) {
+    for(auto i = 0; i < results.size(); i++) {
+      CHECK(get<typename std::remove_reference_t<decltype(results)>::value_type>(
+                eval("Extract"_("Extract"_(expression, i + 1), 1))) == results[i]);
+    }
+  };
+
   SECTION("Plus") {
-    CHECK(eval("Plus"_(arrayPtrExpr, arrayPtrExpr)) == "List"_(20, 40, 60, 80, 100));
-    CHECK(eval("Plus"_(arrayPtrExpr, 1)) == "List"_(11, 21, 31, 41, 51));
+    compareColumn("Project"_("Thingy"_, "As"_("Result"_, "Plus"_("Value"_, "Value"_))),
+                  vector<int>{20, 40, 60, 80, 100}); // NOLINT(readability-magic-numbers)
+    compareColumn("Project"_("Thingy"_, "As"_("Result"_, "Plus"_("Value"_, 1))),
+                  vector<int>{11, 21, 31, 41, 51}); // NOLINT(readability-magic-numbers)
   }
 
   SECTION("Greater") {
-    CHECK(eval("Greater"_(arrayPtrExpr, 25)) == "List"_(false, false, true, true, true));
-    CHECK(eval("Greater"_(45, arrayPtrExpr)) == "List"_(true, true, true, true, false));
+    compareColumn(
+        "Project"_("Thingy"_,
+                   "As"_("Result"_, "Greater"_("Value"_, 25))), // NOLINT(readability-magic-numbers)
+        vector<bool>{false, false, true, true, true});
+    compareColumn(
+        "Project"_("Thingy"_,
+                   "As"_("Result"_, "Greater"_(45, "Value"_))), // NOLINT(readability-magic-numbers)
+        vector<bool>{true, true, true, true, false});
   }
 
   SECTION("Logic") {
-    CHECK(eval("And"_("Greater"_(arrayPtrExpr, 25), "Greater"_(45, arrayPtrExpr))) ==
-          "List"_(false, false, true, true, false));
+    compareColumn(
+        "Project"_(
+            "Thingy"_,
+            "As"_("Result"_, "And"_("Greater"_("Value"_, 25), // NOLINT(readability-magic-numbers)
+                                    "Greater"_(45, "Value"_)  // NOLINT(readability-magic-numbers)
+                                    ))),
+        vector<bool>{false, false, true, true, false});
   }
 }
 

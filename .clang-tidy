@@ -1,5 +1,5 @@
 ---
-Checks:          'clang-diagnostic-*,clang-analyzer-*,clang-analyzer-*,bugprone-*,cppcoreguidelines-*,darwin-*,hicpp-*,llvm-*,performance-*,portability-*,readability-*,misc-*,-cppcoreguidelines-pro-type-reinterpret-cast,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-owning-memory,-llvm-header-guard,-misc-no-recursion,-llvm-namespace-comment,-readability-convert-member-functions-to-static'
+Checks:          'clang-diagnostic-*,clang-analyzer-*,clang-analyzer-*,bugprone-*,cppcoreguidelines-*,darwin-*,hicpp-*,llvm-*,performance-*,portability-*,readability-*,misc-*,-cppcoreguidelines-pro-type-reinterpret-cast,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-owning-memory,-llvm-header-guard,-misc-no-recursion,-llvm-namespace-comment,-readability-convert-member-functions-to-static,-cppcoreguidelines-avoid-magic-numbers'
 WarningsAsErrors: 'clang-diagnostic-*,clang-analyzer-*,clang-analyzer-*,bugprone-*,cppcoreguidelines-*,darwin-*,hicpp-*,llvm-*,performance-*,portability-*,readability-*,misc-*,-cppcoreguidelines-pro-type-reinterpret-cast,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-owning-memory,-llvm-header-guard,-misc-no-recursion,-llvm-namespace-comment'
 HeaderFilterRegex: './Source/.*'
 AnalyzeTemporaryDtors: false

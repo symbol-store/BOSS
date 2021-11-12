@@ -119,15 +119,29 @@ struct EngineImplementation {
                    },
                    [&](ComplexExpression const& expression) {
                      auto headName = namespaceIdentifier + expression.getHead().getName();
+                     auto const& arguments =
+                  (headName == namespaceIdentifier + "ArrowArrayPtr")
+                      ? [expression] {
+                          vector<Expression> result;
+                          auto const& arrowArray = utilities::reconstructArrowArray(
+                              std::get<int>(expression.getArguments().at(0)),
+                              std::get<int>(expression.getArguments().at(1)));
+                          auto int64_array = std::static_pointer_cast<arrow::Int32Array>(arrowArray);
+                          for(auto i = 0U; i < arrowArray->length(); i++) {
+                            result.push_back({int64_array->Value(i)});
+                          }
+                          return result;
+                      }():expression.getArguments();
                      if(headName == namespaceIdentifier + "list") {
+                       headName = "List";
+                     } else if(headName == namespaceIdentifier + "ArrowArrayPtr") {
                        headName = "List";
                      }
                      console << (headName) << "[";
-                     WSPutFunction(link, (headName).c_str(), (int)expression.getArguments().size());
-                     for(auto it = expression.getArguments().begin();
-                         it != expression.getArguments().end(); ++it) {
+                     WSPutFunction(link, (headName).c_str(), (int)arguments.size());
+                     for(auto it = arguments.begin(); it != arguments.end(); ++it) {
                        auto const& argument = *it;
-                       if(it != expression.getArguments().begin()) {
+                       if(it != arguments.begin()) {
                          console << ", ";
                        }
                        putExpressionOnLink(argument, namespaceIdentifier);
@@ -428,6 +442,18 @@ struct EngineImplementation {
                             "Rule"_("Map"_("First"_, "Schema"_("relation"_)), "List"_("tuple"_))))),
             "Null"_),
         {"HoldFirst"_});
+
+    DefineFunction(
+        "AttachColumns"_,
+        {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("columns"_, "BlankSequence"_())},
+        "CompoundExpression"_(
+            "Map"_("Function"_("tuple"_, "AppendTo"_("Database"_("relation"_),
+                                                     "Association"_("Thread"_("Rule"_(
+                                                         "Map"_("First"_, "Schema"_("relation"_)),
+                                                         "tuple"_))))),
+                   "Thread"_("List"_(("columns"_)))),
+            "Null"_),
+        {"HoldFirst"_});
   }
 
   void loadSymbolicOperators() {
@@ -522,7 +548,7 @@ struct EngineImplementation {
   boss::Expression evaluate(Expression const& e,
                             std::string const& namespaceIdentifier = DefaultNamespace) {
     putExpressionOnLink("Return"_(e), namespaceIdentifier);
-    console << endl;
+    console << ";" << endl;
     WSEndPacket(link);
     int pkt = 0;
     while(((pkt = WSNextPacket(link)) != 0) && (pkt != RETURNPKT)) {

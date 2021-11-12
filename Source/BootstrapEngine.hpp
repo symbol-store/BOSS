@@ -50,7 +50,7 @@ class BootstrapEngine : public boss::Engine {
       registeredOperators = {
           {boss::Symbol("EvaluateInEngine"), [this](auto const& e) -> boss::Expression {
              return std::accumulate(
-                 begin(e.getArguments()), end(e.getArguments()), boss::Expression(0),
+                 next(begin(e.getArguments())), end(e.getArguments()), boss::Expression(0),
                  [processArgumentInEngine =
                       [sym = libraries.at(std::get<std::string>(e.getArguments().at(0)))
                                  .evaluateFunction](auto const& e) {
