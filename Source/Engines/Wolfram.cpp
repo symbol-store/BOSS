@@ -127,14 +127,14 @@ struct EngineImplementation {
                               std::get<int>(expression.getArguments().at(0)),
                               std::get<int>(expression.getArguments().at(1)));
                           auto int64_array = std::static_pointer_cast<arrow::Int32Array>(arrowArray);
+                          result.reserve(arrowArray->length());
                           for(auto i = 0U; i < arrowArray->length(); i++) {
-                            result.push_back({int64_array->Value(i)});
+                            result.emplace_back(int64_array->Value(i));
                           }
                           return result;
                       }():expression.getArguments();
-                     if(headName == namespaceIdentifier + "list") {
-                       headName = "List";
-                     } else if(headName == namespaceIdentifier + "ArrowArrayPtr") {
+                     if(headName == namespaceIdentifier + "list" ||
+                        headName == namespaceIdentifier + "ArrowArrayPtr") {
                        headName = "List";
                      }
                      console << (headName) << "[";
