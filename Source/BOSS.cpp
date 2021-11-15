@@ -11,7 +11,6 @@
 #include <ostream>
 #include <sstream>
 #include <variant>
-using namespace std;
 using namespace boss::utilities;
 extern "C" {
 

@@ -46,8 +46,8 @@ public:
       ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
       : SuperType(std::visit(
             utilities::overload(
-                [](ComplexExpressionWithAdditionalCustomAtoms<T...> &&
-                   unpacked) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+                [](ComplexExpressionWithAdditionalCustomAtoms<T...>&& unpacked)
+                    -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
                   return ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
                 },
@@ -89,7 +89,8 @@ public:
   }
 
 private:
-  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = default; // NOLINT
+  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = // NOLINT
+      default;
   ExpressionWithAdditionalCustomAtoms&
   operator=(ExpressionWithAdditionalCustomAtoms const&) = default; // NOLINT
 };
@@ -157,8 +158,8 @@ public:
   }
 
 private:
-    ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
-        default;
+  ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
+      default;
   ComplexExpressionWithAdditionalCustomAtoms&
   operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = default;
 };

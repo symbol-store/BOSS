@@ -88,8 +88,7 @@ class BootstrapEngine : public boss::Engine {
 
   std::optional<std::string> defaultEngine = {};
 
-  std::unordered_map<boss::Symbol,
-                     std::function<boss::Expression(boss::ComplexExpression const&)>> const
+  std::unordered_map<boss::Symbol, std::function<boss::Expression(boss::ComplexExpression&&)>> const
       registeredOperators = {
           {boss::Symbol("EvaluateInEngine"),
            [this](auto&& e) -> boss::Expression {
@@ -103,7 +102,8 @@ class BootstrapEngine : public boss::Engine {
                return result;
              };
              return std::accumulate(
-                 next(begin(e.getArguments())), end(e.getArguments()), boss::Expression(0),
+                 std::make_move_iterator(e.getArguments().begin()),
+                 std::make_move_iterator(e.getArguments().end()), boss::Expression(0),
                  [&processArgumentInEngine](auto&& /* we evaluate all arguments
                                                    but only return the last result */
                                             ,
@@ -113,10 +113,7 @@ class BootstrapEngine : public boss::Engine {
                  });
            }},
           {boss::Symbol("SetDefaultEngine"), [this](auto&& expression) -> boss::Expression {
-             defaultEngine = std::get<std::string>(
-                 std::get<boss::ComplexExpression>(std::forward<decltype(argument)>(argument))
-                     .getArguments()
-                     .at(0));
+             defaultEngine = std::get<std::string>(std::move(expression.getArguments().at(0)));
              return "okay";
            }}};
   bool isBootstrapCommand(boss::Expression const& expression) {
@@ -151,10 +148,11 @@ public:
                         : e.copy();
     return std::visit(boss::utilities::overload(
                           [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
-                            return (registeredOperators.count(unevaluatedE.getHead()) == 0)
-                                       ? std::move(unevaluatedE)
-                                       : registeredOperators.at(unevaluatedE.getHead())(
-                                             evaluateArguments(std::move(unevaluatedE)));
+                            if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
+                              return std::move(unevaluatedE);
+                            }
+                            auto const& op = registeredOperators.at(unevaluatedE.getHead());
+                            return op(evaluateArguments(std::move(unevaluatedE)));
                           },
                           [](auto&& e) -> boss::Expression { return e; }),
                       std::forward<boss::Expression>(wrappedE));
