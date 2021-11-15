@@ -1,6 +1,7 @@
 #include <cstring>
 #include <spdlog/common.h>
 #ifdef WSINTERFACE
+#include "../BOSS.hpp"
 #include "../ExpressionUtilities.hpp"
 #include "Wolfram.hpp"
 #include "spdlog/cfg/env.h"
@@ -16,7 +17,7 @@
 
 #define STRINGIFY(x) #x        // NOLINT
 #define STRING(x) STRINGIFY(x) // NOLINT
-
+namespace nasty = boss::utilities::nasty;
 namespace boss::engines::wolfram {
 using ExpressionBuilder = boss::utilities::ExtensibleExpressionBuilder<WolframExpressionSystem>;
 static ExpressionBuilder operator""_(const char* name, size_t /*unused*/) {
@@ -58,8 +59,8 @@ private:
 
 struct EngineImplementation {
   constexpr static char const* const DefaultNamespace = "BOSS`";
-  WSENV environment = {};
-  WSLINK link = {};
+  WSENV const environment = {}; // NOLINT(misc-misplaced-const)
+  WSLINK const link = {};       // NOLINT(misc-misplaced-const)
 
   static char const* removeNamespace(char const* symbolName) {
     if(strncmp(DefaultNamespace, symbolName, strlen(DefaultNamespace)) == 0) {
@@ -118,15 +119,29 @@ struct EngineImplementation {
                    },
                    [&](ComplexExpression const& expression) {
                      auto headName = namespaceIdentifier + expression.getHead().getName();
-                     if(headName == namespaceIdentifier + "list") {
+                     auto const& arguments =
+                  (headName == namespaceIdentifier + "ArrowArrayPtr")
+                      ? [expression] {
+                          vector<Expression> result;
+                          auto const& arrowArray = nasty::reconstructArrowArray(
+                              std::get<int>(expression.getArguments().at(0)),
+                              std::get<int>(expression.getArguments().at(1)));
+                          auto int64_array = std::static_pointer_cast<arrow::Int32Array>(arrowArray);
+                          result.reserve(arrowArray->length());
+                          for(auto i = 0U; i < arrowArray->length(); i++) {
+                            result.emplace_back(int64_array->Value(i));
+                          }
+                          return result;
+                      }():expression.getArguments();
+                     if(headName == namespaceIdentifier + "list" ||
+                        headName == namespaceIdentifier + "ArrowArrayPtr") {
                        headName = "List";
                      }
                      console << (headName) << "[";
-                     WSPutFunction(link, (headName).c_str(), (int)expression.getArguments().size());
-                     for(auto it = expression.getArguments().begin();
-                         it != expression.getArguments().end(); ++it) {
+                     WSPutFunction(link, (headName).c_str(), (int)arguments.size());
+                     for(auto it = arguments.begin(); it != arguments.end(); ++it) {
                        auto const& argument = *it;
-                       if(it != expression.getArguments().begin()) {
+                       if(it != arguments.begin()) {
                          console << ", ";
                        }
                        putExpressionOnLink(argument, namespaceIdentifier);
@@ -427,6 +442,18 @@ struct EngineImplementation {
                             "Rule"_("Map"_("First"_, "Schema"_("relation"_)), "List"_("tuple"_))))),
             "Null"_),
         {"HoldFirst"_});
+
+    DefineFunction(
+        "AttachColumns"_,
+        {"Pattern"_("relation"_, "Blank"_()), "Pattern"_("columns"_, "BlankSequence"_())},
+        "CompoundExpression"_(
+            "Map"_("Function"_("tuple"_, "AppendTo"_("Database"_("relation"_),
+                                                     "Association"_("Thread"_("Rule"_(
+                                                         "Map"_("First"_, "Schema"_("relation"_)),
+                                                         "tuple"_))))),
+                   "Thread"_("List"_(("columns"_)))),
+            "Null"_),
+        {"HoldFirst"_});
   }
 
   void loadSymbolicOperators() {
@@ -494,23 +521,28 @@ struct EngineImplementation {
     loadSymbolicOperators();
   };
 
-  EngineImplementation() {
-    environment = WSInitialize(nullptr);
-    if(environment == nullptr) {
-      throw std::runtime_error("could not initialize wstp environment");
-    }
-    auto error = 0;
-    link = WSOpenString(
-        environment,
-        "-linkmode launch -linkname \"" STRING(MATHEMATICA_KERNEL_EXECUTABLE) "\" -wstp", &error);
-    if(error != 0) {
-      throw std::runtime_error("could not open wstp link -- error code: " + to_string(error));
-    }
-  }
+  EngineImplementation()
+      : environment([] {
+          if(auto* environment = WSInitialize(nullptr)) {
+            return environment;
+          }
+          throw std::runtime_error("could not initialize wstp environment");
+        }()),
+        link([this] {
+          auto error = 0;
+          auto* link = WSOpenString(
+              environment,
+              "-linkmode launch -linkname \"" STRING(MATHEMATICA_KERNEL_EXECUTABLE) "\" -wstp",
+              &error);
+          if(error != 0) {
+            throw std::runtime_error("could not open wstp link -- error code: " + to_string(error));
+          }
+          return link;
+        }()) {}
 
   EngineImplementation(EngineImplementation&&) = default;
   EngineImplementation(EngineImplementation const&) = delete;
-  EngineImplementation& operator=(EngineImplementation&&) = default;
+  EngineImplementation& operator=(EngineImplementation&&) = delete;
   EngineImplementation& operator=(EngineImplementation const&) = delete;
 
   ~EngineImplementation() {
@@ -521,7 +553,7 @@ struct EngineImplementation {
   boss::Expression evaluate(Expression const& e,
                             std::string const& namespaceIdentifier = DefaultNamespace) {
     putExpressionOnLink("Return"_(e), namespaceIdentifier);
-    console << endl;
+    console << ";" << endl;
     WSEndPacket(link);
     int pkt = 0;
     while(((pkt = WSNextPacket(link)) != 0) && (pkt != RETURNPKT)) {
@@ -538,5 +570,13 @@ Engine::~Engine() { delete &impl; }
 
 boss::Expression Engine::evaluate(Expression const& e) { return impl.evaluate(e); }
 } // namespace boss::engines::wolfram
+
+extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
+  static std::mutex m;
+  std::lock_guard lock(m);
+  static auto engine = boss::engines::wolfram::Engine();
+  auto* r = new BOSSExpression{.delegate = engine.evaluate(e->delegate)};
+  return r;
+};
 
 #endif // WSINTERFACE

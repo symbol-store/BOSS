@@ -1,26 +1,24 @@
-#include <variant>
-#define CATCH_CONFIG_MAIN
+#define CATCH_CONFIG_RUNNER
 #include "../Source/BOSS.hpp"
+#include "../Source/BootstrapEngine.hpp"
 #include "../Source/ExpressionUtilities.hpp"
+#include <arrow/array.h>
 #include <catch2/catch.hpp>
-#ifdef WSINTERFACE
+#include <variant>
 using boss::Expression;
 using std::get;
 using std::string;
 using boss::utilities::operator""_;
 using Catch::Generators::random;
 using Catch::Generators::take;
+using std::vector;
 
-template <typename Engine> Engine& getEngine();
-template <> boss::engines::wolfram::Engine& getEngine<boss::engines::wolfram::Engine>() {
-  static boss::engines::wolfram::Engine e;
-  return e;
-};
+static std::vector<string>
+    librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NOLINT
-  auto& engine = getEngine<TestType>();
-  auto eval = [&engine](boss::Expression const& expression) mutable {
-    return engine.evaluate(expression);
+TEST_CASE("Basics", "[basics]") { // NOLINT
+  auto eval = [engine = boss::BootstrapEngine()](boss::Expression const& expression) mutable {
+    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
   };
 
   SECTION("Addition") {
@@ -201,19 +199,72 @@ TEMPLATE_TEST_CASE("Basics", "[basics]", boss::engines::wolfram::Engine) { // NO
   }
 }
 
-TEMPLATE_TEST_CASE("WolframSpecifics", "[wolfram]", boss::engines::wolfram::Engine) { // NOLINT
-  using ExpressionBuilder =
-      boss::utilities::ExtensibleExpressionBuilder<boss::engines::wolfram::WolframExpressionSystem>;
-
-  auto& engine = getEngine<TestType>();
-  auto eval = [&engine](boss::engines::wolfram::Expression const& expression) mutable {
-    return engine.evaluate(expression);
+TEST_CASE("Arrays", "[arrays]") { // NOLINT
+  auto engine = boss::BootstrapEngine();
+  namespace nasty = boss::utilities::nasty;
+  auto eval = [&engine](boss::Expression const& expression) mutable {
+    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
   };
 
-  SECTION("AdditionOfVector") {
-    CHECK(get<int>(eval(ExpressionBuilder("Apply")("Plus"_, std::vector<int>{2, 3, 4}))) ==
-          9); // NOLINT
+  std::vector<int32_t> ints{10, 20, 30, 40, 50}; // NOLINT
+  std::shared_ptr<arrow::Array> arrayPtr(
+      new arrow::Int32Array((long long)ints.size(), arrow::Buffer::Wrap(ints)));
+
+  auto arrayPtrExpr = nasty::arrowArrayToExpression(arrayPtr);
+  eval("CreateTable"_("Thingy"_, "Value"_));
+  eval("AttachColumns"_("Thingy"_, arrayPtrExpr));
+
+  SECTION("ArrowArrays") {
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 1))) == 10);
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 2))) == 20);
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 3))) == 30);
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 4))) == 40);
+    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 5))) == 50);
+    CHECK(eval(arrayPtrExpr) == "List"_(10, 20, 30, 40, 50));
+  }
+
+  auto compareColumn = [&eval](boss::Expression const& expression, auto const& results) {
+    for(auto i = 0; i < results.size(); i++) {
+      CHECK(get<typename std::remove_reference_t<decltype(results)>::value_type>(
+                eval("Extract"_("Extract"_(expression, i + 1), 1))) == results[i]);
+    }
+  };
+
+  SECTION("Plus") {
+    compareColumn("Project"_("Thingy"_, "As"_("Result"_, "Plus"_("Value"_, "Value"_))),
+                  vector<int>{20, 40, 60, 80, 100}); // NOLINT(readability-magic-numbers)
+    compareColumn("Project"_("Thingy"_, "As"_("Result"_, "Plus"_("Value"_, 1))),
+                  vector<int>{11, 21, 31, 41, 51}); // NOLINT(readability-magic-numbers)
+  }
+
+  SECTION("Greater") {
+    compareColumn(
+        "Project"_("Thingy"_,
+                   "As"_("Result"_, "Greater"_("Value"_, 25))), // NOLINT(readability-magic-numbers)
+        vector<bool>{false, false, true, true, true});
+    compareColumn(
+        "Project"_("Thingy"_,
+                   "As"_("Result"_, "Greater"_(45, "Value"_))), // NOLINT(readability-magic-numbers)
+        vector<bool>{true, true, true, true, false});
+  }
+
+  SECTION("Logic") {
+    compareColumn(
+        "Project"_(
+            "Thingy"_,
+            "As"_("Result"_, "And"_("Greater"_("Value"_, 25), // NOLINT(readability-magic-numbers)
+                                    "Greater"_(45, "Value"_)  // NOLINT(readability-magic-numbers)
+                                    ))),
+        vector<bool>{false, false, true, true, false});
   }
 }
 
-#endif // WSINTERFACE
+int main(int argc, char* argv[]) {
+  Catch::Session session;
+  session.cli(session.cli() | Catch::clara::Opt(librariesToTest, "library")["--library"]);
+  int returnCode = session.applyCommandLine(argc, argv);
+  if(returnCode != 0) {
+    return returnCode;
+  }
+  return session.run();
+}

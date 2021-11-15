@@ -4,7 +4,7 @@
          ffi/unsafe
          (rename-in racket/contract [-> -->]))
 
-(define libBoss (ffi-lib "libBOSS"))
+(define libBoss (ffi-lib "lib/libBOSS"))
 
 (define symbolToNewString
   (get-ffi-obj "bossSymbolToNewString" libBoss (_fun _pointer -> _string))
@@ -158,4 +158,12 @@
   '(Schema input)
   '(Assuming input assumption ...)
   '(Top input predicate number)
+  '(EvaluateInEngine pathToLibrary expression ...)
+  '(SetDefaultEngine pathToLibrary)
+  )
+
+(provide main)
+(define (main . expressions)
+  (for ([expression expressions])
+    (printf "~s" (eval (read (open-input-string expression)))))
   )

@@ -1,12 +1,17 @@
 #pragma once
-#include "Engines/Wolfram.hpp"
+#include "Engine.hpp"
+#include "Expression.hpp"
 
 extern "C" {
-struct BOSSSymbol;
+struct BOSSSymbol {
+  boss::Symbol delegate;
+};
 BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i);
 char const* symbolToNewString(BOSSSymbol const* arg);
 
-struct BOSSExpression;
+struct BOSSExpression {
+  boss::Expression delegate;
+};
 BOSSExpression* intToNewBOSSExpression(int i);
 BOSSExpression* floatToNewBOSSExpression(float i);
 BOSSExpression* stringToNewBOSSExpression(char const* i);
@@ -32,5 +37,6 @@ BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg);
 
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg);
 void freeBOSSExpression(BOSSExpression* e);
+void freeBOSSArguments(BOSSExpression** e);
 void freeBOSSSymbol(BOSSSymbol* s);
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include "Utilities.hpp"
+#include <functional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -11,6 +12,7 @@ class Symbol {
 public:
   explicit Symbol(std::string const& name) : name(name){};
   std::string const& getName() const { return name; };
+  inline bool operator==(boss::Symbol const& s2) const { return getName() == s2.getName(); };
 };
 
 template <typename T, typename... Args> struct variant_amend;
@@ -55,8 +57,7 @@ public:
                 o)) {}
   ~ExpressionWithAdditionalCustomAtoms() = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
-  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) noexcept =
-      default;
+  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = default;
   ExpressionWithAdditionalCustomAtoms&
   operator=(ExpressionWithAdditionalCustomAtoms const&) = default;
   ExpressionWithAdditionalCustomAtoms&
@@ -90,8 +91,8 @@ public:
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
   ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
-  ComplexExpressionWithAdditionalCustomAtoms(
-      ComplexExpressionWithAdditionalCustomAtoms const&) noexcept = default;
+  ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
+      default;
   ComplexExpressionWithAdditionalCustomAtoms&
   operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = default;
   ComplexExpressionWithAdditionalCustomAtoms&
@@ -115,7 +116,23 @@ using Expression = DefaultExpressionSystem::Expression;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 
 } // namespace boss
+
+namespace std {
+template <>
+struct variant_size<boss::ExpressionWithAdditionalCustomAtoms<>>
+    : variant_size<boss::ExpressionWithAdditionalCustomAtoms<>::SuperType> {};
+
+template <std::size_t I>
+struct variant_alternative<I, boss::ExpressionWithAdditionalCustomAtoms<>>
+    : variant_alternative<I, boss::ExpressionWithAdditionalCustomAtoms<>::SuperType> {};
+} // namespace std
+
 bool operator==(boss::Expression const& r1, boss::Expression const& r2);
 static bool operator!=(boss::Expression const& r1, boss::Expression const& r2) {
   return !(r1 == r2);
+};
+template <> struct std::hash<boss::Symbol> {
+  std::size_t operator()(boss::Symbol const& s) const noexcept {
+    return std::hash<std::string>{}(s.getName());
+  }
 };

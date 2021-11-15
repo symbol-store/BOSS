@@ -1,5 +1,6 @@
 #pragma once
 #include "Expression.hpp"
+#include <arrow/array.h>
 #include <ostream>
 
 namespace boss::utilities {
@@ -44,6 +45,31 @@ using ExpressionBuilder = ExtensibleExpressionBuilder<>;
 static ExpressionBuilder operator""_(const char* name, size_t /*unused*/) {
   return ExpressionBuilder(name);
 };
+
+namespace nasty {
+// the ownership model is unclear -- we really need to fix that
+static boss::ComplexExpression
+arrowArrayToExpression(std::shared_ptr<arrow::Array> const& arrowPtr) {
+  union {
+    std::shared_ptr<arrow::Array> const* pointer;
+    std::pair<int, int> asInts = {0, 0};
+  };
+
+  pointer = &arrowPtr;                                  // NOLINT
+  return "ArrowArrayPtr"_(asInts.first, asInts.second); // NOLINT
+}
+static std::shared_ptr<arrow::Array> reconstructArrowArray(int first, int second) {
+  union {
+    std::shared_ptr<arrow::Array> const* pointer;
+    std::pair<int, int> asInts = {0, 0};
+  };
+
+  asInts.first = first;   // NOLINT
+  asInts.second = second; // NOLINT
+  return *pointer;        // NOLINT
+}
+} // namespace nasty
+
 } // namespace boss::utilities
 
 static std::ostream& operator<<(std::ostream& out, boss::Symbol const& thing) {

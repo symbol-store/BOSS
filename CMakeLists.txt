@@ -32,16 +32,45 @@ set(CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE}" CACHE STRING
 
 include(ExternalProject)
 
+if("${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
+   set(ARROW_BUILD_TYPE "Release")
+ elseif("${CMAKE_BUILD_TYPE}" STREQUAL "Sanitize")
+   set(ARROW_BUILD_TYPE "Debug")
+ else()
+   set(ARROW_BUILD_TYPE ${CMAKE_BUILD_TYPE})
+ endif()
+
 if(WIN32)
-  set(GOOGLEBENCHMARK_USE_LIBCXX NO CACHE BOOL "build google benchmark with libc++")
-else()
+   set(ARROW_STATIC_LIB_NAME "arrow_static")
+   set(ARROW_ADDITIONAL_CMAKE_ARGS -DARROW_MIMALLOC=ON)
+   # use arrow_bundled_dependencies only if MIMALLOC is ON
+   set(ARROW_BUNDLED_DEPENDENCIES "arrow_bundled_dependencies")
+ else()
+   set(ARROW_STATIC_LIB_NAME "arrow")
+   set(ARROW_ADDITIONAL_CMAKE_ARGS -DARROW_JEMALLOC=ON)
+   # use arrow_bundled_dependencies only if JEMALLOC is ON
+   set(ARROW_BUNDLED_DEPENDENCIES "arrow_bundled_dependencies")
+ endif(WIN32)
+
+ ExternalProject_Add(arrow
+   URL https://github.com/apache/arrow/archive/apache-arrow-6.0.0.zip
+   SOURCE_SUBDIR cpp
+   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
+   CMAKE_ARGS -DARROW_BUILD_SHARED=OFF -DARROW_BUILD_STATIC=ON -DARROW_JSON=ON -DARROW_CSV=ON ${ARROW_ADDITIONAL_CMAKE_ARGS} -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps $<IF:$<CONFIG:>,-DCMAKE_BUILD_TYPE=Debug,-DCMAKE_BUILD_TYPE=${ARROW_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} -DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS} -DCMAKE_LINKER=${CMAKE_LINKER} -DARROW_ENABLE_TIMING_TESTS=OFF -DARROW_DEPENDENCY_USE_SHARED=OFF -DARROW_ALTIVEC=OFF -DARROW_BOOST_USE_SHARED=OFF -DARROW_PROTOBUF_USE_SHARED=OFF -DARROW_THRIFT_USE_SHARED=OFF
+   BUILD_BYPRODUCTS  ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_STATIC_LIB_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_BUNDLED_DEPENDENCIES}${CMAKE_STATIC_LIBRARY_SUFFIX}
+ )
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   set(GOOGLEBENCHMARK_USE_LIBCXX YES CACHE BOOL "build google benchmark with libc++")
-endif(WIN32)
+else()
+  set(GOOGLEBENCHMARK_USE_LIBCXX NO CACHE BOOL "build google benchmark with libc++")
+endif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+
 
 ExternalProject_Add(googlebenchmark
 	URL "https://github.com/little-big-h/benchmark/archive/master.zip"
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads
-		CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_GTEST_TESTS=OFF -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DDCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS} -DBENCHMARK_USE_LIBCXX=${GOOGLEBENCHMARK_USE_LIBCXX}
+		CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_GTEST_TESTS=OFF $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DDCMAKE_CXX_FLAGS=${DCMAKE_CXX_FLAGS}
   BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main${CMAKE_STATIC_LIBRARY_SUFFIX}
   )
 
@@ -80,10 +109,10 @@ endif(NOT Python3_FOUND)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-#################################### Backends ####################################
+#################################### Engines ####################################
 
 # Wolfram BOSS
-add_library(WolframBOSS STATIC Source/Engines/Wolfram.cpp ${ImplementationFiles})
+add_library(WolframBOSS MODULE Source/Engines/Wolfram.cpp ${ImplementationFiles})
 if(Mathematica_WSTP_FOUND)
   target_include_directories(WolframBOSS PUBLIC ${Mathematica_INCLUDE_DIRS})
   target_link_libraries(WolframBOSS ${Mathematica_WSTP_LIBRARY})
@@ -99,7 +128,7 @@ if(Mathematica_WSTP_FOUND)
   endif(WIN32)
 endif(Mathematica_WSTP_FOUND)
 
-list(APPEND AllBackends WolframBOSS)
+list(APPEND AllTargets WolframBOSS)
 
 ############################ Backends Common Properties ############################
 
@@ -202,29 +231,35 @@ endif(SWIG_FOUND)
 ############################ Targets Common Properties ############################
 
 foreach (Target IN LISTS AllTargets)
+  add_dependencies(${Target} arrow)
+  target_compile_options(${Target} PUBLIC -DARROW_STATIC)
+  target_link_libraries(${Target} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_STATIC_LIB_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  if(ARROW_BUNDLED_DEPENDENCIES)
+    target_link_libraries(${Target} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_BUNDLED_DEPENDENCIES}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  endif(ARROW_BUNDLED_DEPENDENCIES)
+
   add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
   set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
   target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Target} rt)
+    target_link_libraries(${Target} dl)
   endif() 
-  # Link backends to targets
-  foreach (Target IN LISTS AllTargets)
-    foreach (Backend IN LISTS AllBackends)
-      target_link_libraries(${Target} ${Backend})
-    endforeach()
-  endforeach()
 endforeach()
 
-install(TARGETS BOSS LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib)
-install(FILES
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp
- DESTINATION include/BOSS)
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engines/Wolfram.hpp DESTINATION include/BOSS/Engines)
+
+#################################### Install ###################################
+set_target_properties(BOSS PROPERTIES PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp")
+
+install(TARGETS BOSS LIBRARY DESTINATION lib PUBLIC_HEADER DESTINATION include)
+set_target_properties(WolframBOSS PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
+install(TARGETS WolframBOSS LIBRARY DESTINATION lib)
+install(TARGETS Tests RUNTIME DESTINATION bin)
+install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
+install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
+install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/arrow DESTINATION include)
+
+
 
 

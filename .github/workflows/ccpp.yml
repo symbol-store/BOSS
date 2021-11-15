@@ -3,6 +3,8 @@ name: C/C++ CI
 on:
   push:
     branches: [ '*' ]
+    tags:
+      - '*'
   pull_request:
     branches: [ '*' ]
   workflow_dispatch: {}
@@ -43,21 +45,19 @@ jobs:
       run: |
         mkdir ${{ matrix.build-type }}
         cd ${{ matrix.build-type }}
-        cmake -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_COMPILER:STRING=clang++-11 -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
+        CXX=clang++-11 CC=clang-11 cmake -DCMAKE_INSTALL_PREFIX=../install -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
         cd ..
     - name: build
       run: cmake --build ${{ matrix.build-type }} -- -j $(nproc)
+    - name: install
+      run: cmake --build ${{ matrix.build-type }} --target install
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.build-type }}
         retention-days: 1
         path: |
-          ${{ matrix.build-type }}
-          !${{ matrix.build-type }}/deps
-          !${{ matrix.build-type }}/CMakeFiles
-          !${{ matrix.build-type }}/catch2-prefix
-          !${{ matrix.build-type }}/googlebenchmark-prefix
+          install
     needs: [format-check]
 
   test:
@@ -81,7 +81,7 @@ jobs:
         export TERM=xterm
         ulimit -c unlimited
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
-        chmod +x ./${{ matrix.build-type }}/Tests && ./${{ matrix.build-type }}/Tests
+        chmod +x ./${{ matrix.build-type }}/bin/Tests && ./${{ matrix.build-type }}/bin/Tests --library ./${{ matrix.build-type }}/lib/libWolframBOSS.so
     - name: Upload core dumps
       if: ${{ always() }}
       uses: actions/upload-artifact@v2
@@ -109,7 +109,7 @@ jobs:
       run: |
         export TERM=xterm
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
-        cp Debug/libBOSS.so .
+        cp -r Debug/lib .
         emacs --batch --eval "(require 'org)" --eval '(add-to-list (quote org-babel-tangle-lang-exts) (quote ("racket" . "rkt")))' --eval '(org-babel-tangle-file "Readme.org")'
         racket -f Source/Shims/BOSS.rkt -e "(require 'BOSS)" -f Readme.rkt -e "(require 'Readme)"
     - name: Upload core dumps
@@ -142,7 +142,7 @@ jobs:
       run: |
         export TERM=xterm
         expect -c 'spawn wolframscript' -c 'expect -exact "Wolfram ID: "' -c 'send -- "'"${{ secrets.MATHEMATICA_USERNAME }}"'\r"' -c 'expect -exact "Password: "' -c 'send -- "'"${{ secrets.MATHEMATICA_PASSWORD }}"'\r"' -c 'expect -exact "\[1GIn\[1\]:="' -c 'send -- "Print\[success\]\r"' -c 'expect -exact "\[1GIn\[2\]:="' -c 'send -- "Exit\[\]\r"'
-        cp Debug/libBOSS.so .
+        cp -r Debug/lib .
         racket -f Source/Shims/BOSS.rkt -e "(require 'BOSS)" -f Benchmarks/TPCH/create.rkt -f Benchmarks/TPCH/Q10.rkt
         racket -f Source/Shims/BOSS.rkt -e "(require 'BOSS)" -f Benchmarks/TPCH/create.rkt -e '(Load LINEITEM "/Users/holgerpirk/Projects/BOSS/Benchmarks/Data/TPCH/lineitem.tbl")' -e '(Group LINEITEM Count)'
     - name: Upload potential core dumps
@@ -154,3 +154,28 @@ jobs:
         path: core*
     needs: [build]
 
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build-type: [Release, Debug]
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: ${{ matrix.build-type }}
+          path: ${{ matrix.build-type }}
+      - name: Set output
+        id: vars
+        run: echo ::set-output name=short_ref::${GITHUB_REF#refs/*/}
+      - name: list files
+        run: find .
+      - name: create tarball
+        run: tar --strip-components=1 -czf ${{ runner.os }}-${{ matrix.build-type }}.tar.gz ${{ matrix.build-type }}
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ runner.os }}-${{ matrix.build-type }}.tar.gz
+          name: ${{ steps.vars.outputs.short_ref }}
+    needs: [test]

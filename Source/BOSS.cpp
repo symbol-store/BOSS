@@ -1,21 +1,22 @@
 #include "BOSS.hpp"
+#include "BootstrapEngine.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "Utilities.hpp"
 #include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <iterator>
+#include <optional>
 #include <ostream>
 #include <sstream>
+#include <variant>
+using namespace std;
+using namespace boss::utilities;
 extern "C" {
-struct BOSSExpression {
-  boss::Expression delegate;
-};
-struct BOSSSymbol {
-  boss::Symbol delegate;
-};
+
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
-  static boss::engines::wolfram::Engine engine;
+  static boss::BootstrapEngine engine;
   return new BOSSExpression{.delegate = engine.evaluate(arg->delegate)};
 };
 BOSSExpression* intToNewBOSSExpression(int i) {
@@ -90,14 +91,21 @@ size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
 }
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
   auto args = std::get<boss::ComplexExpression>(arg->delegate).getArguments();
-  auto* result = new BOSSExpression*[args.size()];
+  auto* result = new BOSSExpression*[args.size() + 1];
   std::transform(begin(args), end(args), result,
                  [](auto const& arg) { return new BOSSExpression{.delegate = arg}; });
+  result[args.size()] = nullptr;
   return result;
 }
 
 void freeBOSSExpression(BOSSExpression* e) {
   delete e; // NOLINT
+}
+void freeBOSSArguments(BOSSExpression** e) {
+  for(auto i = 0U; e[i] != nullptr; i++) {
+    delete e[i];
+  }
+  delete[] e; // NOLINT
 }
 void freeBOSSSymbol(BOSSSymbol* s) {
   delete s; // NOLINT
