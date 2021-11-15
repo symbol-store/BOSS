@@ -49,6 +49,7 @@ class BootstrapEngine : public boss::Engine {
   struct LibraryAndEvaluateFunction {
     void *library, *evaluateFunction;
   };
+
   struct LibraryCache : private std::unordered_map<std::string, LibraryAndEvaluateFunction> {
     LibraryAndEvaluateFunction const& at(std::string const& libraryPath) {
       if(count(libraryPath) == 0) {
@@ -78,8 +79,13 @@ class BootstrapEngine : public boss::Engine {
     LibraryCache(LibraryCache&&) = delete;
     LibraryCache& operator=(LibraryCache const&) = delete;
     LibraryCache& operator=(LibraryCache&&) = delete;
+  };
 
-  } libraries;
+  LibraryCache& libraries() {
+    static auto libraries = LibraryCache();
+    return libraries;
+  }
+
   std::optional<std::string> defaultEngine = {};
 
   std::unordered_map<boss::Symbol,
@@ -88,7 +94,7 @@ class BootstrapEngine : public boss::Engine {
           {boss::Symbol("EvaluateInEngine"),
            [this](auto&& e) -> boss::Expression {
              auto sym = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                 libraries.at(std::get<std::string>(e.getArguments().at(0))).evaluateFunction);
+                 libraries().at(std::get<std::string>(e.getArguments().at(0))).evaluateFunction);
              auto processArgumentInEngine = [&sym](auto&& e) {
                auto wrapper = BOSSExpression{std::forward<decltype(e)>(e)};
                auto* r = sym(&wrapper);
