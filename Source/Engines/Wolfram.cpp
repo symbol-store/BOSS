@@ -579,7 +579,7 @@ extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
   static std::mutex m;
   std::lock_guard lock(m);
   static auto engine = boss::engines::wolfram::Engine();
-  auto* r = new BOSSExpression{.delegate = engine.evaluate(e->delegate.copy())};
+  auto* r = new BOSSExpression{engine.evaluate(e->delegate.copy())};
   return r;
 };
 
