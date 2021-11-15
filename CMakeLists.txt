@@ -130,19 +130,6 @@ endif(Mathematica_WSTP_FOUND)
 
 list(APPEND AllTargets WolframBOSS)
 
-############################ Backends Common Properties ############################
-
-foreach (Backend IN LISTS AllBackends)
-  target_link_libraries(${Backend} Threads::Threads)
-  set_target_properties(${Backend} PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  set_target_properties(${Backend} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-  target_include_directories(${Backend} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
-  if(UNIX AND NOT APPLE)
-    target_link_libraries(${Backend} rt)
-  endif()
-  add_dependencies(${Backend} spdlog)
-endforeach()
-
 ############################### Executable Targets ###############################
 
 set(ImplementationFiles Source/BOSS.cpp)
@@ -241,6 +228,9 @@ foreach (Target IN LISTS AllTargets)
   add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
   set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+  if(MSVC)
+    target_compile_options(${Target} PUBLIC "/Zc:__cplusplus")
+  endif()
   target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Target} rt)
