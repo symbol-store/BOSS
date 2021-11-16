@@ -576,12 +576,21 @@ Engine::~Engine() { delete &impl; }
 boss::Expression Engine::evaluate(Expression const& e) { return impl.evaluate(e); }
 } // namespace boss::engines::wolfram
 
+static auto& enginePtr() {
+  static auto engine = std::unique_ptr<boss::engines::wolfram::Engine>();
+  if(!engine) {
+    engine.reset(new boss::engines::wolfram::Engine());
+  }
+  return engine;
+}
+
 extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
   static std::mutex m;
   std::lock_guard lock(m);
-  static auto engine = boss::engines::wolfram::Engine();
-  auto* r = new BOSSExpression{engine.evaluate(e->delegate.clone())};
+  auto* r = new BOSSExpression{enginePtr()->evaluate(e->delegate.clone())};
   return r;
 };
+
+extern "C" void cleanup() { enginePtr().reset(); }
 
 #endif // WSINTERFACE

@@ -12,7 +12,13 @@
 constexpr static int RTLD_NOW = 0;
 constexpr static int RTLD_NODELETE = 0;
 static void* dlopen(LPCSTR lpLibFileName, int /*flags*/) { return LoadLibrary(lpLibFileName); }
-static auto dlclose(void* hModule) { return FreeLibrary((HMODULE)hModule); }
+static auto dlclose(void* hModule) {
+  auto cleanupFunc = GetProcAddress((HMODULE)hModule, "cleanup");
+  if(cleanupFunc != NULL) {
+    (*reinterpret_cast<void (*)()>(cleanupFunc))();
+  }
+  return FreeLibrary((HMODULE)hModule);
+}
 static auto dlerror() {
   auto errorCode = GetLastError();
   auto psz = LPTSTR(nullptr);
@@ -79,12 +85,7 @@ class BootstrapEngine : public boss::Engine {
     LibraryCache(LibraryCache&&) = delete;
     LibraryCache& operator=(LibraryCache const&) = delete;
     LibraryCache& operator=(LibraryCache&&) = delete;
-  };
-
-  LibraryCache& libraries() {
-    static auto libraries = LibraryCache();
-    return libraries;
-  }
+  } libraries;
 
   std::optional<std::string> defaultEngine = {};
 
@@ -93,7 +94,7 @@ class BootstrapEngine : public boss::Engine {
           {boss::Symbol("EvaluateInEngine"),
            [this](auto&& e) -> boss::Expression {
              auto sym = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                 libraries().at(std::get<std::string>(e.getArguments().at(0))).evaluateFunction);
+                 libraries.at(std::get<std::string>(e.getArguments().at(0))).evaluateFunction);
              auto processArgumentInEngine = [&sym](auto&& e) {
                auto wrapper = BOSSExpression{std::forward<decltype(e)>(e)};
                auto* r = sym(&wrapper);
