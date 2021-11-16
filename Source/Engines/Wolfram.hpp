@@ -7,7 +7,7 @@
 #ifdef _WIN32
 extern "C" {
 __declspec(dllexport) BOSSExpression* evaluate(BOSSExpression* e);
-__declspec(dllexport) void cleanup();
+__declspec(dllexport) void reset();
 }
 #endif // _WIN32
 

@@ -591,6 +591,6 @@ extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
   return r;
 };
 
-extern "C" void cleanup() { enginePtr().reset(); }
+extern "C" void reset() { enginePtr().reset(nullptr); }
 
 #endif // WSINTERFACE

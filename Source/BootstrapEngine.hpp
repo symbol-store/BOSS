@@ -13,9 +13,9 @@ constexpr static int RTLD_NOW = 0;
 constexpr static int RTLD_NODELETE = 0;
 static void* dlopen(LPCSTR lpLibFileName, int /*flags*/) { return LoadLibrary(lpLibFileName); }
 static auto dlclose(void* hModule) {
-  auto cleanupFunc = GetProcAddress((HMODULE)hModule, "cleanup");
-  if(cleanupFunc != NULL) {
-    (*reinterpret_cast<void (*)()>(cleanupFunc))();
+  auto resetFunction = GetProcAddress((HMODULE)hModule, "reset");
+  if(resetFunction != NULL) {
+    (*reinterpret_cast<void (*)()>(resetFunction))();
   }
   return FreeLibrary((HMODULE)hModule);
 }
