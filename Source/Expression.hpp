@@ -77,13 +77,13 @@ public:
     return !(*this == other);
   }
 
-  ExpressionWithAdditionalCustomAtoms copy() const {
+  ExpressionWithAdditionalCustomAtoms clone() const {
     using ComplexExpression = ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
     return std::visit(
         boss::utilities::overload(
             [](auto const& val) -> ExpressionWithAdditionalCustomAtoms { return val; },
             [](ComplexExpression const& val) -> ExpressionWithAdditionalCustomAtoms {
-              return ComplexExpression(val.copy());
+              return ComplexExpression(val.clone());
             }),
         (ExpressionWithAdditionalCustomAtoms::SuperType const&)*this);
   }
@@ -148,11 +148,11 @@ public:
     return !(*this == other);
   }
 
-  ComplexExpressionWithAdditionalCustomAtoms copy() const {
+  ComplexExpressionWithAdditionalCustomAtoms clone() const {
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> copiedArgs;
     copiedArgs.reserve(arguments.size());
     for(auto const& arg : arguments) {
-      copiedArgs.emplace_back(arg.copy());
+      copiedArgs.emplace_back(arg.clone());
     }
     return ComplexExpressionWithAdditionalCustomAtoms(head, std::move(copiedArgs));
   }

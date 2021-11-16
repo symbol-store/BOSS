@@ -24,7 +24,7 @@ public:
       return Expression(std::string((char const*)v));
     } else if constexpr(std::is_same_v<std::decay_t<decltype(v)>, ComplexExpression> ||
                         std::is_same_v<std::decay_t<decltype(v)>, Expression>) {
-      return Expression(v.copy());
+      return Expression(v.clone());
     } else {
       return Expression(v);
     }
@@ -92,13 +92,14 @@ static std::ostream& operator<<(std::ostream& out, boss::Symbol const& thing) {
 static std::ostream& operator<<(std::ostream& out, boss::ComplexExpression const& e);
 static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing) {
   std::visit(
-      boss::utilities::overload([&](boss::ComplexExpression const& e) { out << e; },
-                                [&](std::string const& value) { out << "\"" << value << "\""; },
+      boss::utilities::overload([&](std::string const& value) { out << "\"" << value << "\""; },
                                 [&](bool value) { out << (value ? "True" : "False"); },
-                                [&](auto value) { out << value; }),
+                                [&](auto const& value) { out << value; }),
       thing);
   return out;
 }
+// a specialization for complex expressions is needed, or otherwise
+// the complex expression and all its arguments has to be copied to be converted to an Expression
 static std::ostream& operator<<(std::ostream& out, boss::ComplexExpression const& e) {
   out << e.getHead() << "[";
   if(!e.getArguments().empty()) {

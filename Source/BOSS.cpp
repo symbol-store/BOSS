@@ -16,7 +16,7 @@ extern "C" {
 
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
   static boss::BootstrapEngine engine;
-  return new BOSSExpression{engine.evaluate(arg->delegate.copy())};
+  return new BOSSExpression{engine.evaluate(arg->delegate.clone())};
 }
 
 BOSSExpression* intToNewBOSSExpression(int i) { return new BOSSExpression{boss::Expression(i)}; }
@@ -36,7 +36,7 @@ BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                                          BOSSExpression* arguments[]) {
   auto args = boss::ExpressionArguments();
   std::transform(arguments, arguments + cardinality, std::back_insert_iterator(args),
-                 [](auto const* a) { return a->delegate.copy(); });
+                 [](auto const* a) { return a->delegate.clone(); });
   return new BOSSExpression{boss::ComplexExpression(head->delegate, std::move(args))};
 }
 
@@ -89,7 +89,7 @@ BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
   auto const& args = std::get<boss::ComplexExpression>(arg->delegate).getArguments();
   auto* result = new BOSSExpression*[args.size() + 1];
   std::transform(begin(args), end(args), result,
-                 [](auto const& arg) { return new BOSSExpression{arg.copy()}; });
+                 [](auto const& arg) { return new BOSSExpression{arg.clone()}; });
   result[args.size()] = nullptr;
   return result;
 }

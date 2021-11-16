@@ -226,7 +226,7 @@ struct EngineImplementation {
                       Expression&& definition, vector<Symbol>&& attributes = {}) {
     ExpressionArguments args;
     std::transform(arguments.begin(), arguments.end(), back_inserter(args),
-                   [](auto&& arg) { return arg.copy(); });
+                   [](auto&& arg) { return arg.clone(); });
     evalWithoutNamespace(
         "SetDelayed"_(namespaced(ComplexExpression(name, std::move(args))), std::move(definition)));
     for(auto const& it : attributes) {
@@ -580,7 +580,7 @@ extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
   static std::mutex m;
   std::lock_guard lock(m);
   static auto engine = boss::engines::wolfram::Engine();
-  auto* r = new BOSSExpression{engine.evaluate(e->delegate.copy())};
+  auto* r = new BOSSExpression{engine.evaluate(e->delegate.clone())};
   return r;
 };
 

@@ -144,8 +144,8 @@ public:
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   boss::Expression evaluate(boss::Expression const& e, bool isRootExpression = true) {
     auto wrappedE = isRootExpression && defaultEngine.has_value() && !isBootstrapCommand(e)
-                        ? "EvaluateInEngine"_(*defaultEngine, e.copy())
-                        : e.copy();
+                        ? "EvaluateInEngine"_(*defaultEngine, e.clone())
+                        : e.clone();
     return std::visit(boss::utilities::overload(
                           [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
                             if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
