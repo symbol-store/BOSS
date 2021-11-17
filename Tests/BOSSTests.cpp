@@ -6,7 +6,7 @@
 #include <catch2/catch.hpp>
 #include <variant>
 using boss::Expression;
-using std::get;
+using boss::get;
 using std::string;
 using boss::utilities::operator""_;
 using Catch::Generators::random;
@@ -127,9 +127,9 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     eval("CreateTable"_("Customer"_, "ID"_, "FirstName"_, "LastName"_, "BirthYear"_, "Country"_));
     INFO(eval("Length"_("Select"_("Customer"_, "Function"_(true)))));
 
-    REQUIRE(std::get<int>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
+    REQUIRE(get<int>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
     auto const& emptyTable = eval("Select"_("Customer"_, "Function"_(true)));
-    CHECK(std::get<int>(eval("Length"_(emptyTable))) == 0);
+    CHECK(get<int>(eval("Length"_(emptyTable))) == 0);
     eval("InsertInto"_("Customer"_, 1, "John", "McCarthy", 1927, "USA"));  // NOLINT
     eval("InsertInto"_("Customer"_, 2, "Sam", "Madden", 1976, "USA"));     // NOLINT
     eval("InsertInto"_("Customer"_, 3, "Barbara", "Liskov", 1939, "USA")); // NOLINT

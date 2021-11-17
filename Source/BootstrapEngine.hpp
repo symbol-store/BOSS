@@ -58,7 +58,7 @@ class BootstrapEngine : public boss::Engine {
              return std::accumulate(
                  next(begin(e.getArguments())), end(e.getArguments()), boss::Expression(0),
                  [processArgumentInEngine =
-                      [sym = libraries.at(std::get<std::string>(e.getArguments().at(0)))
+                      [sym = libraries.at(boss::get<std::string>(e.getArguments().at(0)))
                                  .evaluateFunction](auto const& e) {
                         auto wrapper = BOSSExpression{.delegate = e};
                         auto* r =
@@ -75,8 +75,8 @@ class BootstrapEngine : public boss::Engine {
                  });
            }},
           {boss::Symbol("SetDefaultEngine"), [this](auto const& expression) -> boss::Expression {
-             defaultEngine = std::get<std::string>(
-                 std::get<boss::ComplexExpression>((boss::Expression::SuperType const&)expression)
+             defaultEngine = boss::get<std::string>(
+                 boss::get<boss::ComplexExpression>(expression)
                      .getArguments()
                      .at(0));
              return "okay";

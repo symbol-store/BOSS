@@ -2,6 +2,8 @@
 #include "Expression.hpp"
 #include <arrow/array.h>
 #include <ostream>
+#include <sstream>
+#include <utility>
 
 namespace boss::utilities {
 template <typename ExpressionSystem = DefaultExpressionSystem> class ExtensibleExpressionBuilder {
@@ -94,3 +96,23 @@ static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing
              (boss::Expression::SuperType const&)thing);
   return out;
 }
+
+namespace boss {
+class bad_variant_access : public std::bad_variant_access {
+  std::string const whatString;
+
+public:
+  explicit bad_variant_access(std::string const& whatString) : whatString(whatString) {}
+  const char* what() const noexcept override { return whatString.c_str(); }
+};
+template <typename T> const T& get(boss::Expression const& v) {
+  try {
+    return std::get<T>(v);
+  } catch(std::bad_variant_access const& e) {
+    std::stringstream s;
+    s << "expected and actual type mismatch in expression \"" << v << "\", expected "
+      << typeid(T).name();
+    throw bad_variant_access(s.str());
+  }
+};
+} // namespace boss
