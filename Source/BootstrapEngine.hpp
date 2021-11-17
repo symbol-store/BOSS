@@ -76,9 +76,7 @@ class BootstrapEngine : public boss::Engine {
            }},
           {boss::Symbol("SetDefaultEngine"), [this](auto const& expression) -> boss::Expression {
              defaultEngine = boss::get<std::string>(
-                 boss::get<boss::ComplexExpression>(expression)
-                     .getArguments()
-                     .at(0));
+                 boss::get<boss::ComplexExpression>(expression).getArguments().at(0));
              return "okay";
            }}};
   bool isBootstrapCommand(boss::Expression const& expression) {
