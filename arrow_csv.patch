@@ -1,0 +1,20 @@
+--- cpp/src/arrow/csv/inference_internal.h	2021-10-01 10:18:10.835171300 +0100
++++ cpp/src/arrow/csv/inference_internal.h	2021-10-01 10:10:32.086523200 +0100
+@@ -112,7 +112,7 @@ class InferStatus {
+       case InferKind::Null:
+         return make_converter(null());
+       case InferKind::Integer:
+-        return make_converter(int64());
++        return make_converter(int32());
+       case InferKind::Boolean:
+         return make_converter(boolean());
+       case InferKind::Date:
+@@ -124,7 +124,7 @@ class InferStatus {
+       case InferKind::TimestampNS:
+         return make_converter(timestamp(TimeUnit::NANO));
+       case InferKind::Real:
+-        return make_converter(float64());
++        return make_converter(float32());
+       case InferKind::Text:
+         return make_converter(utf8());
+       case InferKind::Binary:
