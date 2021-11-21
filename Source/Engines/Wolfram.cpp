@@ -82,73 +82,74 @@ struct EngineImplementation {
   }
 
   void putExpressionOnLink(Expression const& expression, std::string const& namespaceIdentifier) {
-    std::visit(boss::utilities::overload(
-                   [&](bool a) {
-                     console << (a ? "True" : "False");
-                     WSPutSymbol(link, (a ? "True" : "False"));
-                   },
-                   [&](int a) {
-                     console << a;
-                     WSPutInteger(link, a);
-                   },
-                   [&](std::vector<int> values) {
-                     putExpressionOnLink(ComplexExpression("List"_, {values.begin(), values.end()}),
-                                         namespaceIdentifier);
-                   },
-                   [&](char const* a) {
-                     console << a;
-                     WSPutString(link, a);
-                   },
-                   [&](float a) {
-                     console << a;
-                     WSPutFloat(link, a);
-                   },
-                   [&](Symbol const& a) {
-                     auto normalizedName = mangle(a.getName());
-                     auto unnamespacedSymbols = set<string>{"TimeZone"};
-                     auto namespaced =
-                         (unnamespacedSymbols.count(normalizedName) > 0 ? ""
-                                                                        : namespaceIdentifier) +
-                         normalizedName;
-                     console << namespaced;
-                     WSPutSymbol(link, namespaced.c_str());
-                   },
-                   [&](std::string const& a) {
-                     console << "\"" << a << "\"";
-                     WSPutString(link, a.c_str());
-                   },
-                   [&](ComplexExpression const& expression) {
-                     auto headName = namespaceIdentifier + expression.getHead().getName();
-                     auto const& arguments =
-                  (headName == namespaceIdentifier + "ArrowArrayPtr")
-                      ? [expression] {
-                          vector<Expression> result;
-                          auto const& arrowArray = nasty::reconstructArrowArray(
-                              std::get<int>(expression.getArguments().at(0)),
-                              std::get<int>(expression.getArguments().at(1)));
-                          auto int64_array = std::static_pointer_cast<arrow::Int32Array>(arrowArray);
-                          result.reserve(arrowArray->length());
-                          for(auto i = 0U; i < arrowArray->length(); i++) {
-                            result.emplace_back(int64_array->Value(i));
-                          }
-                          return result;
-                      }():expression.getArguments();
-                     if(headName == namespaceIdentifier + "list" ||
-                        headName == namespaceIdentifier + "ArrowArrayPtr") {
-                       headName = "List";
-                     }
-                     console << (headName) << "[";
-                     WSPutFunction(link, (headName).c_str(), (int)arguments.size());
-                     for(auto it = arguments.begin(); it != arguments.end(); ++it) {
-                       auto const& argument = *it;
-                       if(it != arguments.begin()) {
-                         console << ", ";
-                       }
-                       putExpressionOnLink(argument, namespaceIdentifier);
-                     }
-                     console << "]";
-                   }),
-               (Expression::SuperType const&)expression);
+    std::visit(
+        boss::utilities::overload(
+            [&](bool a) {
+              console << (a ? "True" : "False");
+              WSPutSymbol(link, (a ? "True" : "False"));
+            },
+            [&](int a) {
+              console << a;
+              WSPutInteger(link, a);
+            },
+            [&](std::vector<int> const& values) {
+              putExpressionOnLink(ComplexExpression("List"_, {values.begin(), values.end()}),
+                                  namespaceIdentifier);
+            },
+            [&](char const* a) {
+              console << a;
+              WSPutString(link, a);
+            },
+            [&](float a) {
+              console << a;
+              WSPutFloat(link, a);
+            },
+            [&](Symbol const& a) {
+              auto normalizedName = mangle(a.getName());
+              auto unnamespacedSymbols = set<string>{"TimeZone"};
+              auto namespaced =
+                  (unnamespacedSymbols.count(normalizedName) > 0 ? "" : namespaceIdentifier) +
+                  normalizedName;
+              console << namespaced;
+              WSPutSymbol(link, namespaced.c_str());
+            },
+            [&](std::string const& a) {
+              console << "\"" << a << "\"";
+              WSPutString(link, a.c_str());
+            },
+            [&](ComplexExpression const& expression) {
+              auto headName = namespaceIdentifier + expression.getHead().getName();
+              auto convertToList = [&expression] {
+                ExpressionArguments result;
+                auto const& arrowArray =
+                    nasty::reconstructArrowArray(std::get<int>(expression.getArguments().at(0)),
+                                                 std::get<int>(expression.getArguments().at(1)));
+                auto int64_array = std::static_pointer_cast<arrow::Int32Array>(arrowArray);
+                result.reserve(arrowArray->length());
+                for(auto i = 0U; i < arrowArray->length(); i++) {
+                  result.emplace_back(int64_array->Value(i));
+                }
+                return std::move(result);
+              };
+              auto const& arguments = (headName == namespaceIdentifier + "ArrowArrayPtr")
+                                          ? (ExpressionArguments const&)convertToList()
+                                          : expression.getArguments();
+              if(headName == namespaceIdentifier + "list" ||
+                 headName == namespaceIdentifier + "ArrowArrayPtr") {
+                headName = "List";
+              }
+              console << (headName) << "[";
+              WSPutFunction(link, (headName).c_str(), (int)arguments.size());
+              for(auto it = arguments.begin(); it != arguments.end(); ++it) {
+                auto const& argument = *it;
+                if(it != arguments.begin()) {
+                  console << ", ";
+                }
+                putExpressionOnLink(argument, namespaceIdentifier);
+              }
+              console << "]";
+            }),
+        expression);
   }
 
   boss::Expression readExpressionFromLink() const {
@@ -181,8 +182,8 @@ struct EngineImplementation {
       for(auto i = 0U; i < numberOfArguments; i++) {
         resultArguments.push_back(readExpressionFromLink());
       }
-      auto result =
-          boss::ComplexExpression(boss::Symbol(removeNamespace(resultHead)), resultArguments);
+      auto result = boss::ComplexExpression(boss::Symbol(removeNamespace(resultHead)),
+                                            std::move(resultArguments));
       WSReleaseSymbol(link, resultHead);
       return result;
     }
@@ -214,16 +215,20 @@ struct EngineImplementation {
   static auto namespaced(Symbol const& name) {
     return ExpressionBuilder(Symbol(DefaultNamespace + name.getName()));
   }
-  static ComplexExpression namespaced(ComplexExpression const& name) {
+  static ComplexExpression namespaced(ComplexExpression&& name) {
     return ComplexExpression(Symbol(DefaultNamespace + name.getHead().getName()),
-                             name.getArguments());
+                             std::move(name.getArguments()));
   }
 
   void evalWithoutNamespace(Expression const& expression) { evaluate(expression, ""); };
 
-  void DefineFunction(Symbol const& name, const vector<Expression>& arguments,
-                      Expression const& definition, vector<Symbol> const& attributes = {}) {
-    evalWithoutNamespace("SetDelayed"_(namespaced(ComplexExpression(name, arguments)), definition));
+  void DefineFunction(Symbol const& name, std::initializer_list<ComplexExpression>&& arguments,
+                      Expression&& definition, vector<Symbol>&& attributes = {}) {
+    ExpressionArguments args;
+    std::transform(arguments.begin(), arguments.end(), back_inserter(args),
+                   [](auto&& arg) { return arg.clone(); });
+    evalWithoutNamespace(
+        "SetDelayed"_(namespaced(ComplexExpression(name, std::move(args))), std::move(definition)));
     for(auto const& it : attributes) {
       evalWithoutNamespace("SetAttributes"_(namespaced(name), it));
     }
@@ -571,12 +576,21 @@ Engine::~Engine() { delete &impl; }
 boss::Expression Engine::evaluate(Expression const& e) { return impl.evaluate(e); }
 } // namespace boss::engines::wolfram
 
+static auto& enginePtr() {
+  static auto engine = std::unique_ptr<boss::engines::wolfram::Engine>();
+  if(!engine) {
+    engine.reset(new boss::engines::wolfram::Engine());
+  }
+  return engine;
+}
+
 extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
   static std::mutex m;
   std::lock_guard lock(m);
-  static auto engine = boss::engines::wolfram::Engine();
-  auto* r = new BOSSExpression{.delegate = engine.evaluate(e->delegate)};
+  auto* r = new BOSSExpression{enginePtr()->evaluate(e->delegate.clone())};
   return r;
 };
+
+extern "C" void reset() { enginePtr().reset(nullptr); }
 
 #endif // WSINTERFACE

@@ -4,6 +4,13 @@
 #include <string>
 #include <wstp.h>
 
+#ifdef _WIN32
+extern "C" {
+__declspec(dllexport) BOSSExpression* evaluate(BOSSExpression* e);
+__declspec(dllexport) void reset();
+}
+#endif // _WIN32
+
 namespace boss::engines::wolfram {
 using WolframExpressionSystem = ExtensibleExpressionSystem<std::vector<int>>;
 using AtomicExpression = WolframExpressionSystem::AtomicExpression;

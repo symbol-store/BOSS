@@ -17,9 +17,15 @@ static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 TEST_CASE("Basics", "[basics]") { // NOLINT
-  auto eval = [engine = boss::BootstrapEngine()](boss::Expression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
+  auto engine = boss::BootstrapEngine();
+  auto eval = [&engine](boss::Expression&& expression) mutable {
+    return engine.evaluate(
+        "EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), move(expression)));
   };
+
+  SECTION("Atomics") {
+    CHECK(get<int>(eval(9)) == 9); // NOLINT
+  }
 
   SECTION("Addition") {
     CHECK(get<int>(eval("Plus"_(5, 4))) == 9); // NOLINT
@@ -49,11 +55,11 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
   SECTION("Symbols") {
     CHECK(get<boss::Symbol>(eval("Symbol"_((string) "x"))).getName() == "x");
-
-    auto expression = get<boss::ComplexExpression>(eval("UndefinedFunction"_(9))); // NOLINT
+    auto expression = get<boss::ComplexExpression>(
+        eval("UndefinedFunction"_(9))); // NOLINT(readability-magic-numbers)
 
     CHECK(expression.getHead().getName() == "UndefinedFunction");
-    CHECK(get<int>(expression.getArguments()[0]) == 9);
+    CHECK(get<int>(expression.getArguments().at(0)) == 9);
 
     CHECK(get<std::string>(
               get<boss::ComplexExpression>(eval("UndefinedFunction"_((string) "Hello World!")))
@@ -202,7 +208,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 TEST_CASE("Arrays", "[arrays]") { // NOLINT
   auto engine = boss::BootstrapEngine();
   namespace nasty = boss::utilities::nasty;
-  auto eval = [&engine](boss::Expression const& expression) mutable {
+  auto eval = [&engine](auto&& expression) mutable {
     return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
   };
 

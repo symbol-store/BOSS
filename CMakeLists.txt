@@ -95,17 +95,6 @@ find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
 set(CMAKE_MODULE_PATH "${BOSS_SOURCE_DIR}/CMake/Mathematica/CMake/Mathematica" ${CMAKE_MODULE_PATH})
 find_package(Mathematica COMPONENTS WSTP)
 
-find_package(SWIG 3)
-
-set(Racket_ROOT "" CACHE PATH "Where to look for Racket API")
-find_path(Racket_LIB_DIR "mzdyn3m${CMAKE_CXX_OUTPUT_EXTENSION}" HINTS ${Racket_ROOT}/lib ${Racket_ROOT}/lib/racket ${Racket_ROOT}/lib/msvc)
-find_path(Racket_INCLUDE_DIR "escheme.h" HINTS ${Racket_ROOT}/include ${Racket_ROOT}/include/racket)
-
-find_package(Python3 COMPONENTS Interpreter Development NumPy)
-if(NOT Python3_FOUND)
-  find_package(Python3 COMPONENTS Interpreter Development)
-endif(NOT Python3_FOUND)
-
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
@@ -130,22 +119,9 @@ endif(Mathematica_WSTP_FOUND)
 
 list(APPEND AllTargets WolframBOSS)
 
-############################ Backends Common Properties ############################
-
-foreach (Backend IN LISTS AllBackends)
-  target_link_libraries(${Backend} Threads::Threads)
-  set_target_properties(${Backend} PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  set_target_properties(${Backend} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-  target_include_directories(${Backend} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
-  if(UNIX AND NOT APPLE)
-    target_link_libraries(${Backend} rt)
-  endif()
-  add_dependencies(${Backend} spdlog)
-endforeach()
-
 ############################### Executable Targets ###############################
 
-set(ImplementationFiles Source/BOSS.cpp Source/Expression.cpp)
+set(ImplementationFiles Source/BOSS.cpp)
 set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
@@ -177,57 +153,6 @@ target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBR
 
 list(APPEND AllTargets BOSS Tests Benchmarks)
 
-################################# Swig Bindings #################################
-
-set(SwigFiles Source/BOSS.i)
-
-if(SWIG_FOUND)
-  message(VERBOSE "Found Swig files: ${SWIG_USE_FILE}")
-  INCLUDE(${SWIG_USE_FILE})
-  set_source_files_properties(${SwigFiles} PROPERTIES CPLUSPLUS ON)
-
-  if(Python3_FOUND)
-    message(VERBOSE "Found Python include dir: ${Python3_INCLUDE_DIRS}")
-    set_property(SOURCE ${SwigFiles} PROPERTY COMPILE_OPTIONS "-builtin;-O")
-    swig_add_library(PyBOSS TYPE SHARED LANGUAGE python SOURCES ${SwigFiles} ${ImplementationFiles})
-    set_property(TARGET ${SWIG_MODULE_PyBOSS_REAL_NAME} PROPERTY SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
-    target_include_directories(${SWIG_MODULE_PyBOSS_REAL_NAME} SYSTEM PUBLIC ${Python3_INCLUDE_DIRS})
-    target_include_directories(${SWIG_MODULE_PyBOSS_REAL_NAME} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-    set_property(TARGET ${SWIG_MODULE_PyBOSS_REAL_NAME} PROPERTY CXX_CLANG_TIDY "") # no clang-tidy
-    list(APPEND AllTargets ${SWIG_MODULE_PyBOSS_REAL_NAME})
-    if(Python3_NumPy_FOUND)
-      message(VERBOSE "Found Python NumPy include: ${Python3_NumPy_INCLUDE_DIRS}")
-      target_include_directories(${SWIG_MODULE_PyBOSS_REAL_NAME} SYSTEM PUBLIC ${Python3_NumPy_INCLUDE_DIRS})
-    else(Python3_NumPy_FOUND)
-      message(VERBOSE "Couldn't find NumPy. Try executing Python code to find it...")
-      execute_process(COMMAND "${Python3_EXECUTABLE}" "-c"
-        "import numpy; print(numpy.get_include());"
-        RESULT_VARIABLE __result_numpy
-        OUTPUT_VARIABLE __output_numpy
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-      if(${__result_numpy} EQUAL 0)
-        message(VERBOSE "Found Python NumPy include: ${__output_numpy}")
-        target_include_directories(${SWIG_MODULE_PyBOSS_REAL_NAME} SYSTEM PUBLIC ${__output_numpy})
-      endif(${__result_numpy} EQUAL 0)
-    endif(Python3_NumPy_FOUND)
-    if("${Python3_LIBRARIES}" STREQUAL "")
-      message(VERBOSE "Couldn't find Python3_LIBRARY. Try executing python3-config to find the ldflags...")
-      execute_process(COMMAND "${Python3_EXECUTABLE}-config" "--ldflags"
-        RESULT_VARIABLE __result_python3_ldflags
-        OUTPUT_VARIABLE __output_python3_ldflags
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-      if(${__result_python3_ldflags} EQUAL 0)
-        message(VERBOSE "Found Python3 ldflags: ${__output_python3_ldflags}")
-        target_link_options(${SWIG_MODULE_PyBOSS_REAL_NAME} BEFORE PUBLIC ${__output_python3_ldflags})
-      endif(${__result_python3_ldflags} EQUAL 0)
-    else("${Python3_LIBRARIES}" STREQUAL "")
-      message(VERBOSE "Found Python libraries: ${Python3_LIBRARIES}")
-    endif("${Python3_LIBRARIES}" STREQUAL "")
-    target_link_libraries(${SWIG_MODULE_PyBOSS_REAL_NAME} ${Python3_LIBRARIES})
-    message(VERBOSE "Swig Python module: ${SWIG_MODULE_PyBOSS_REAL_NAME}")
-  endif(Python3_FOUND)
-endif(SWIG_FOUND)
-
 ############################ Targets Common Properties ############################
 
 foreach (Target IN LISTS AllTargets)
@@ -241,6 +166,9 @@ foreach (Target IN LISTS AllTargets)
   add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
   set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+  if(MSVC)
+    target_compile_options(${Target} PUBLIC "/Zc:__cplusplus")
+  endif()
   target_include_directories(${Target} SYSTEM PUBLIC ${BOSS_BINARY_DIR}/deps/include)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Target} rt)
