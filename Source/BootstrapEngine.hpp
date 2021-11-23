@@ -94,7 +94,7 @@ class BootstrapEngine : public boss::Engine {
           {boss::Symbol("EvaluateInEngine"),
            [this](auto&& e) -> boss::Expression {
              auto sym = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                 libraries.at(std::get<std::string>(e.getArguments().at(0))).evaluateFunction);
+                 libraries.at(boss::get<std::string>(e.getArguments().at(0))).evaluateFunction);
              auto processArgumentInEngine = [&sym](auto&& e) {
                auto wrapper = BOSSExpression{std::forward<decltype(e)>(e)};
                auto* r = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(sym)(&wrapper);

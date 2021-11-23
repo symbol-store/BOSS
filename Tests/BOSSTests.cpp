@@ -22,6 +22,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     return engine.evaluate(
         "EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), move(expression)));
   };
+  CHECK_THROWS(engine.evaluate("EvaluateInEngine"_(9, 5)));
 
   SECTION("Atomics") {
     CHECK(get<int>(eval(9)) == 9); // NOLINT
