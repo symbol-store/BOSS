@@ -1,6 +1,3 @@
-[submodule "CMake/Mathematica"]
-	path = CMake/Mathematica
-	url = https://github.com/sakra/FindMathematica.git
 [submodule "Benchmarks/Data/TPCH"]
 	path = Benchmarks/Data/TPCH
 	url = ../../little-big-h/TPCH-SF-001.git

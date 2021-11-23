@@ -92,32 +92,9 @@ ExternalProject_Add(spdlog
 set(VTune_DIR "" CACHE PATH "Where to look for VTune installation")
 find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
 
-set(CMAKE_MODULE_PATH "${BOSS_SOURCE_DIR}/CMake/Mathematica/CMake/Mathematica" ${CMAKE_MODULE_PATH})
-find_package(Mathematica COMPONENTS WSTP)
-
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-#################################### Engines ####################################
-
-# Wolfram BOSS
-add_library(WolframBOSS MODULE Source/Engines/Wolfram.cpp ${ImplementationFiles})
-if(Mathematica_WSTP_FOUND)
-  target_include_directories(WolframBOSS PUBLIC ${Mathematica_INCLUDE_DIRS})
-  target_link_libraries(WolframBOSS ${Mathematica_WSTP_LIBRARY})
-  if(UNIX AND NOT APPLE)
-    target_link_libraries(WolframBOSS uuid)
-  endif()
-  if(NOT WIN32)
-    target_link_libraries(WolframBOSS dl)
-  endif(NOT WIN32)
-  target_compile_definitions(WolframBOSS PUBLIC "${Mathematica_WSTP_DEFINITIONS}" "-DMATHEMATICA_KERNEL_EXECUTABLE=${Mathematica_KERNEL_EXECUTABLE}")
-  if(WIN32)
-    add_custom_command(TARGET WolframBOSS POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${Mathematica_WSTP_RUNTIME_LIBRARY_DIRS}/wstp64i4.dll"  $<TARGET_FILE_DIR:WolframBOSS>)
-  endif(WIN32)
-endif(Mathematica_WSTP_FOUND)
-
-list(APPEND AllTargets WolframBOSS)
 
 ############################### Executable Targets ###############################
 
@@ -181,8 +158,6 @@ endforeach()
 set_target_properties(BOSS PROPERTIES PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp")
 
 install(TARGETS BOSS LIBRARY DESTINATION lib PUBLIC_HEADER DESTINATION include)
-set_target_properties(WolframBOSS PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
-install(TARGETS WolframBOSS LIBRARY DESTINATION lib)
 install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
