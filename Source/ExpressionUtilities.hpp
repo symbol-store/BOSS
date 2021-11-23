@@ -1,8 +1,11 @@
 #pragma once
 #include "Expression.hpp"
 #include <arrow/array.h>
+#include <map>
 #include <ostream>
 #include <sstream>
+#include <typeindex>
+#include <typeinfo>
 #include <utility>
 
 namespace boss::utilities {
@@ -134,7 +137,13 @@ template <typename T, typename TInput> auto&& get(TInput&& v) {
     } else {
       s << "valueless by exception";
     }
-    s << "\", expected " << typeid(T).name();
+    static auto typenames = std::map<std::type_index, char const*>{{typeid(int), "int"},
+                                                                   {typeid(Symbol), "Symbol"},
+                                                                   {typeid(bool), "bool"},
+                                                                   {typeid(float), "float"},
+                                                                   {typeid(std::string), "string"}};
+    s << "\", expected "
+      << (typenames.count(typeid(T)) ? typenames.at(typeid(T)) : typeid(T).name());
     throw bad_variant_access(s.str());
   }
 };

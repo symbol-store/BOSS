@@ -12,6 +12,7 @@ using boss::utilities::operator""_;
 using Catch::Generators::random;
 using Catch::Generators::take;
 using std::vector;
+using namespace Catch::Matchers;
 
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -22,7 +23,9 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     return engine.evaluate(
         "EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), move(expression)));
   };
-  CHECK_THROWS(engine.evaluate("EvaluateInEngine"_(9, 5)));
+  CHECK_THROWS_MATCHES(
+      engine.evaluate("EvaluateInEngine"_(9, 5)), boss::bad_variant_access,
+      Message("expected and actual type mismatch in expression \"9\", expected string"));
 
   SECTION("Atomics") {
     CHECK(get<int>(eval(9)) == 9); // NOLINT
