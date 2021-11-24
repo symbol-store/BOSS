@@ -2,6 +2,7 @@
 #include "Utilities.hpp"
 #include <functional>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -28,17 +29,19 @@ template <typename... AdditionalCustomAtoms>
 using AtomicExpressionWithAdditionalCustomAtoms =
     std::variant<bool, int, float, std::string, Symbol, AdditionalCustomAtoms...>;
 
-template <typename... AdditionalCustomAtoms> class ComplexExpressionWithAdditionalCustomAtoms;
+template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
+class ComplexExpressionWithAdditionalCustomAtoms;
 
-template <typename... AdditionalCustomAtoms>
+template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ExpressionWithAdditionalCustomAtoms
-    : public variant_amend<
-          AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
-          ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type {
+    : public variant_amend<AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
+                           ComplexExpressionWithAdditionalCustomAtoms<
+                               StaticArgumentsTuple, AdditionalCustomAtoms...>>::type {
 public:
-  using SuperType = typename variant_amend<
-      AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
-      ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type;
+  using SuperType =
+      typename variant_amend<AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
+                             ComplexExpressionWithAdditionalCustomAtoms<
+                                 StaticArgumentsTuple, AdditionalCustomAtoms...>>::type;
 
   using SuperType::SuperType;
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
@@ -78,7 +81,8 @@ public:
   }
 
   ExpressionWithAdditionalCustomAtoms clone() const {
-    using ComplexExpression = ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+    using ComplexExpression =
+        ComplexExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>;
     return std::visit(
         boss::utilities::overload(
             [](auto const& val) -> ExpressionWithAdditionalCustomAtoms { return val; },
@@ -95,20 +99,36 @@ private:
   operator=(ExpressionWithAdditionalCustomAtoms const&) = default; // NOLINT
 };
 
-template <typename... AdditionalCustomAtoms>
-using ExpressionArgumentsWithAdditionalCustomAtoms =
-    std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>;
+template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
+using ExpressionArgumentsWithAdditionalCustomAtoms = std::vector<
+    ExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>>;
 
-template <typename... AdditionalCustomAtoms> class ComplexExpressionWithAdditionalCustomAtoms {
+template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
+class ComplexExpressionWithAdditionalCustomAtoms {
 private:
   Symbol head;
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments;
+  StaticArgumentsTuple staticArguments{};
+  ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>
+      arguments{};
 
 public:
+  template <size_t... I>
+  static StaticArgumentsTuple
+  convertToTuple(ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple,
+                                                              AdditionalCustomAtoms...>& arguments,
+                 std::index_sequence<I...> /*unused*/) {
+    return {move((arguments).at(I))...};
+  }
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       Symbol const& head,
-      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
-      : head(head), arguments(std::move(arguments)){};
+      ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>&&
+          arguments)
+      : head(head),
+        staticArguments(convertToTuple(
+            arguments, std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>())),
+        arguments(std::move_iterator(
+                      next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
+                  std::move_iterator(end(arguments))){};
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms<T...>&& other)
@@ -119,11 +139,13 @@ public:
     }
   }
 
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const&
+  ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple,
+                                               AdditionalCustomAtoms...> const&
   getArguments() const {
     return arguments;
   };
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& getArguments() {
+  ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>&
+  getArguments() {
     return arguments;
   };
   Symbol const& getHead() const { return head; };
@@ -149,11 +171,13 @@ public:
   }
 
   ComplexExpressionWithAdditionalCustomAtoms clone() const {
-    ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> copiedArgs;
+    ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>
+        copiedArgs;
     copiedArgs.reserve(arguments.size());
     for(auto const& arg : arguments) {
       copiedArgs.emplace_back(arg.clone());
     }
+
     return ComplexExpressionWithAdditionalCustomAtoms(head, std::move(copiedArgs));
   }
 
@@ -167,17 +191,34 @@ private:
 template <typename... AdditionalCustomAtoms> class ExtensibleExpressionSystem {
 public:
   using AtomicExpression = AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
-  using ComplexExpression = ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
-  using Expression = ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
-  using ExpressionArguments =
-      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+  template <typename... StaticArgumentTypes>
+  using ComplexExpressionWithStaticArguments =
+      ComplexExpressionWithAdditionalCustomAtoms<std::tuple<StaticArgumentTypes...>,
+                                                 AdditionalCustomAtoms...>;
+  using ComplexExpression = ComplexExpressionWithStaticArguments<>;
+  template <typename... StaticArgumentTypes>
+  using ExpressionWithStaticArguments =
+      ExpressionWithAdditionalCustomAtoms<std::tuple<StaticArgumentTypes...>,
+                                          AdditionalCustomAtoms...>;
+  using Expression = ExpressionWithStaticArguments<>;
+  template <typename... StaticArgumentTypes>
+  using ExpressionArgumentsWithStaticArguments =
+      ExpressionArgumentsWithAdditionalCustomAtoms<std::tuple<StaticArgumentTypes...>,
+                                                   AdditionalCustomAtoms...>;
+  using ExpressionArguments = ExpressionArgumentsWithStaticArguments<>;
 };
 
 using DefaultExpressionSystem = ExtensibleExpressionSystem<>;
 
 using AtomicExpression = DefaultExpressionSystem::AtomicExpression;
-using ComplexExpression = DefaultExpressionSystem::ComplexExpression;
-using Expression = DefaultExpressionSystem::Expression;
+template <typename... StaticArgumentTypes>
+using ComplexExpressionWithStaticArguments =
+    DefaultExpressionSystem::ComplexExpressionWithStaticArguments<StaticArgumentTypes...>;
+using ComplexExpression = DefaultExpressionSystem::ComplexExpressionWithStaticArguments<>;
+template <typename... StaticArgumentTypes>
+using ExpressionWithStaticArguments =
+    DefaultExpressionSystem::ExpressionWithStaticArguments<StaticArgumentTypes...>;
+using Expression = ExpressionWithStaticArguments<>;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 
 } // namespace boss
