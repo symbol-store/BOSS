@@ -97,7 +97,7 @@ class BootstrapEngine : public boss::Engine {
                  libraries.at(boss::get<std::string>(e.getArguments().at(0))).evaluateFunction);
              auto processArgumentInEngine = [&sym](auto&& e) {
                auto wrapper = BOSSExpression{std::forward<decltype(e)>(e)};
-               auto* r = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(sym)(&wrapper);
+               auto* r = sym(&wrapper);
                auto result = std::move(r->delegate);
                freeBOSSExpression(r); // NOLINT
                return result;
