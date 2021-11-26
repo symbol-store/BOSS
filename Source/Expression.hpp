@@ -46,20 +46,24 @@ public:
   using SuperType::SuperType;
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
+      ExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, T...>&& o) noexcept
       : SuperType(std::visit(
             utilities::overload(
-                [](ComplexExpressionWithAdditionalCustomAtoms<T...>&& unpacked)
-                    -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-                  return ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
+                [](ComplexExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, T...>&&
+                       unpacked) -> ExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple,
+                                                                        AdditionalCustomAtoms...> {
+                  return ComplexExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple,
+                                                                    AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
                 },
                 [](auto&& unpacked) {
-                  return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
+                  return ExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple,
+                                                             AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
                 }),
-            (typename variant_amend<AtomicExpressionWithAdditionalCustomAtoms<T...>,
-                                    ComplexExpressionWithAdditionalCustomAtoms<T...>>::type &&)
+            (typename variant_amend<
+                 AtomicExpressionWithAdditionalCustomAtoms<T...>,
+                 ComplexExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, T...>>::type &&)
                 std::move(o))) {}
   ~ExpressionWithAdditionalCustomAtoms() = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
