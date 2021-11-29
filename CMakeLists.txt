@@ -60,6 +60,29 @@ if(WIN32)
    BUILD_BYPRODUCTS  ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_STATIC_LIB_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_BUNDLED_DEPENDENCIES}${CMAKE_STATIC_LIBRARY_SUFFIX}
  )
 
+# on Windows, expose all the arrow symbols with a .def file to specify the symbols to include in the executable library
+if(WIN32)
+  find_program(POWERSHELL_PATH NAMES powershell)
+  # get the list of all the Arrow .obj files
+  ExternalProject_Add_Step(arrow generateDefObjsList DEPENDEES install
+      WORKING_DIRECTORY <BINARY_DIR>
+      BYPRODUCTS arrow.def.objs
+      COMMAND ${POWERSHELL_PATH} "get-childitem src/arrow/CMakeFiles/arrow_static.dir -recurse | where {$_.extension -eq '.obj'} | % {Write-Output $_.FullName} | Resolve-Path -Relative | % {Write-Output $_.Substring(2)} | out-file -encoding ASCII  -filepath arrow.def.objs")
+  # inspect the symbols and them to the Arrow .def file
+  ExternalProject_Add_Step(arrow generateDef
+      WORKING_DIRECTORY <BINARY_DIR>
+      DEPENDS arrow.def.objs
+      BYPRODUCTS arrow.def
+      COMMAND ${CMAKE_COMMAND} -E rm -f arrow.def && ${CMAKE_COMMAND} -E  __create_def arrow.def arrow.def.objs)
+  # install the def file with the other Arrow dependencies
+  ExternalProject_Add_Step(arrow installDef
+      WORKING_DIRECTORY <BINARY_DIR>
+      DEPENDS arrow.def
+      BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/arrow.def
+      COMMAND ${CMAKE_COMMAND} -E copy arrow.def ${BOSS_BINARY_DIR}/deps/lib/arrow.def)
+  set(ARROW_DEF_FILE ${BOSS_BINARY_DIR}/deps/lib/arrow.def)
+endif(WIN32)
+
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   set(GOOGLEBENCHMARK_USE_LIBCXX YES CACHE BOOL "build google benchmark with libc++")
 else()
@@ -95,12 +118,11 @@ find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-
 ############################### Executable Targets ###############################
 
-set(ImplementationFiles Source/BOSS.cpp)
-set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp)
-set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
+set(ImplementationFiles Source/BOSS.cpp ${ARROW_DEF_FILE})
+set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp ${ARROW_DEF_FILE})
+set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp ${ARROW_DEF_FILE})
 
 # BOSS
 add_library(BOSS SHARED ${ImplementationFiles})
@@ -132,13 +154,34 @@ list(APPEND AllTargets BOSS Tests Benchmarks)
 
 ############################ Targets Common Properties ############################
 
-foreach (Target IN LISTS AllTargets)
+foreach(Target IN LISTS AllTargets)
   add_dependencies(${Target} arrow)
   target_compile_options(${Target} PUBLIC -DARROW_STATIC)
-  target_link_libraries(${Target} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_STATIC_LIB_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  set(ARROW_LIBRARY_FILE ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_STATIC_LIB_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
   if(ARROW_BUNDLED_DEPENDENCIES)
-    target_link_libraries(${Target} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_BUNDLED_DEPENDENCIES}${CMAKE_STATIC_LIBRARY_SUFFIX})
+    set(ARROW_ADDITIONAL_LIBRARY_FILE ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}${ARROW_BUNDLED_DEPENDENCIES}${CMAKE_STATIC_LIBRARY_SUFFIX})
   endif(ARROW_BUNDLED_DEPENDENCIES)
+  # make sure to add all symbols when linking with Arrow library (potentially used by plugins)
+  # also using -E option to expose all symbols with the symbol table when dynamically loading the plugins (https://stackoverflow.com/a/9445178)
+  if(WIN32)
+    target_link_options(${Target} PUBLIC /WHOLEARCHIVE:${ARROW_LIBRARY_FILE})
+    if(ARROW_ADDITIONAL_LIBRARY_FILE)
+	  target_link_options(${Target} PUBLIC /WHOLEARCHIVE:${ARROW_ADDITIONAL_LIBRARY_FILE})
+    endif(ARROW_ADDITIONAL_LIBRARY_FILE)
+    # for Windows, we need to generate an "import library" for the plugins to link against it
+    # since dlls cannot contain any unresolved symbol
+    set_target_properties(${Target} PROPERTIES ENABLE_EXPORTS 1)
+  elseif(APPLE)
+    target_link_options(${Target} PUBLIC -Wl,-E -Wl,-all_load ${ARROW_LIBRARY_FILE} -Wl,-noall_load)
+	if(ARROW_ADDITIONAL_LIBRARY_FILE)
+	  target_link_options(${Target} PUBLIC -Wl,-all_load ${ARROW_ADDITIONAL_LIBRARY_FILE} -Wl,-noall_load)
+    endif(ARROW_ADDITIONAL_LIBRARY_FILE)
+  else()
+    target_link_options(${Target} PUBLIC -Wl,-E -Wl,--whole-archive ${ARROW_LIBRARY_FILE} -Wl,--no-whole-archive)
+	if(ARROW_ADDITIONAL_LIBRARY_FILE)
+      target_link_options(${Target} PUBLIC -Wl,--whole-archive ${ARROW_ADDITIONAL_LIBRARY_FILE} -Wl,--no-whole-archive)
+    endif(ARROW_ADDITIONAL_LIBRARY_FILE)
+  endif()
 
   add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
@@ -157,8 +200,19 @@ endforeach()
 #################################### Install ###################################
 set_target_properties(BOSS PROPERTIES PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp")
 
-install(TARGETS BOSS LIBRARY DESTINATION lib PUBLIC_HEADER DESTINATION include)
+install(TARGETS BOSS PUBLIC_HEADER DESTINATION include)
+if(WIN32)
+  # on Windows, one "import library" for each executable target is needed
+  # to link the plugins without leaving any unresolved symbol in the dll
+  foreach(Target IN LISTS AllTargets)
+    install(FILES ${BOSS_BINARY_DIR}/${Target}.lib DESTINATION lib)
+  endforeach()
+else()
+  # other OS only need to expose the BOSS library
+  install(TARGETS BOSS LIBRARY DESTINATION lib)
+endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
+install(TARGETS Benchmarks RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/arrow DESTINATION include)
