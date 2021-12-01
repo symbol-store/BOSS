@@ -18,3 +18,21 @@ TEST_CASE("Build Expression", "[api]") {
   freeBOSSArguments(result);
   CHECK(secondArgument == 4);
 }
+
+TEST_CASE("Build expression, with strings", "[api]") {
+  auto input = (std::array{stringToNewBOSSExpression("test string")});
+  auto* s = symbolNameToNewBOSSSymbol("UnevaluatedAsNoEngineIsSet");
+  auto* c = newComplexBOSSExpression(s, 1, input.data());
+  auto* res = BOSSEvaluate(c);
+  auto* result = getArgumentsFromBOSSExpression(res);
+  const char* argument1 = getNewStringValueFromBOSSExpression(result[0]);
+  std::string str1 = std::string(argument1);
+  std::string str2 = std::string("test string");
+
+  freeBOSSExpression(c);
+  freeBOSSSymbol(s);
+  freeBOSSExpression(res);
+  freeBOSSExpression(input[0]);
+  freeBOSSArguments(result);
+  CHECK(str1 == str2);
+}

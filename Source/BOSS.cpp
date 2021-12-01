@@ -5,43 +5,43 @@
 #include "Utilities.hpp"
 #include <algorithm>
 #include <cstring>
+#include <exception>
 #include <iostream>
 #include <iterator>
 #include <optional>
 #include <ostream>
 #include <sstream>
 #include <variant>
-using namespace std;
 using namespace boss::utilities;
 extern "C" {
 
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
-  static boss::BootstrapEngine engine;
-  return new BOSSExpression{.delegate = engine.evaluate(arg->delegate)};
+  try {
+    static boss::BootstrapEngine engine;
+    return new BOSSExpression{engine.evaluate(arg->delegate.clone())};
+  } catch(std::exception const& e) {
+    return new BOSSExpression{"ErrorWhenEvaluatingExpression"_(arg->delegate, e.what())};
+  }
 };
-BOSSExpression* intToNewBOSSExpression(int i) {
-  return new BOSSExpression{.delegate = boss::Expression(i)};
-}
+BOSSExpression* intToNewBOSSExpression(int i) { return new BOSSExpression{boss::Expression(i)}; }
 BOSSExpression* floatToNewBOSSExpression(float i) {
-  return new BOSSExpression{.delegate = boss::Expression(i)};
+  return new BOSSExpression{boss::Expression(i)};
 }
 BOSSExpression* stringToNewBOSSExpression(char const* i) {
-  return new BOSSExpression{.delegate = boss::Expression(i)};
+  return new BOSSExpression{boss::Expression(std::string(i))};
 }
 BOSSExpression* bossSymbolNameToNewBOSSExpression(char const* i) {
-  return new BOSSExpression{.delegate = boss::Expression(boss::Symbol(i))};
+  return new BOSSExpression{boss::Expression(boss::Symbol(i))};
 }
 
-BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i) {
-  return new BOSSSymbol{.delegate = boss::Symbol(i)};
-}
+BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i) { return new BOSSSymbol{boss::Symbol(i)}; }
 
 BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                                          BOSSExpression* arguments[]) {
-  auto args = std::vector<boss::Expression>();
+  auto args = boss::ExpressionArguments();
   std::transform(arguments, arguments + cardinality, std::back_insert_iterator(args),
-                 [](auto const* a) { return a->delegate; });
-  return new BOSSExpression{.delegate = boss::ComplexExpression(head->delegate, args)};
+                 [](auto const* a) { return a->delegate.clone(); });
+  return new BOSSExpression{boss::ComplexExpression(head->delegate, std::move(args))};
 }
 
 char const* bossSymbolToNewString(BOSSSymbol const* arg) {
@@ -68,32 +68,32 @@ size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
 }
 
 bool getBoolValueFromBOSSExpression(BOSSExpression const* arg) {
-  return std::get<bool>(arg->delegate);
+  return boss::get<bool>(arg->delegate);
 }
 int getIntValueFromBOSSExpression(BOSSExpression const* arg) {
-  return std::get<int>(arg->delegate);
+  return boss::get<int>(arg->delegate);
 }
 float getFloatValueFromBOSSExpression(BOSSExpression const* arg) {
-  return std::get<float>(arg->delegate);
+  return boss::get<float>(arg->delegate);
 }
 char const* getNewStringValueFromBOSSExpression(BOSSExpression const* arg) {
-  return strdup(std::get<std::string>(arg->delegate).c_str());
+  return strdup(boss::get<std::string>(arg->delegate).c_str());
 }
 char const* getNewSymbolNameFromBOSSExpression(BOSSExpression const* arg) {
-  return strdup(std::get<boss::Symbol>(arg->delegate).getName().c_str());
+  return strdup(boss::get<boss::Symbol>(arg->delegate).getName().c_str());
 }
 
 BOSSSymbol* getHeadFromBOSSExpression(BOSSExpression const* arg) {
-  return new BOSSSymbol{.delegate = std::get<boss::ComplexExpression>(arg->delegate).getHead()};
+  return new BOSSSymbol{boss::get<boss::ComplexExpression>(arg->delegate).getHead()};
 }
 size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
-  return std::get<boss::ComplexExpression>(arg->delegate).getArguments().size();
+  return boss::get<boss::ComplexExpression>(arg->delegate).getArguments().size();
 }
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
-  auto args = std::get<boss::ComplexExpression>(arg->delegate).getArguments();
+  auto const& args = boss::get<boss::ComplexExpression>(arg->delegate).getArguments();
   auto* result = new BOSSExpression*[args.size() + 1];
   std::transform(begin(args), end(args), result,
-                 [](auto const& arg) { return new BOSSExpression{.delegate = arg}; });
+                 [](auto const& arg) { return new BOSSExpression{arg.clone()}; });
   result[args.size()] = nullptr;
   return result;
 }

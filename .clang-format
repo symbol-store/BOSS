@@ -3,6 +3,7 @@ ColumnLimit: 100
 UseTab: Never
 TabWidth: 2
 PointerAlignment: Left
+ReferenceAlignment: Left
 DerivePointerAlignment: false
 SpaceBeforeParens: Never
-#ConstStyle: East
+Standard: c++17

@@ -6,20 +6,30 @@
 #include <catch2/catch.hpp>
 #include <variant>
 using boss::Expression;
-using std::get;
+using boss::get;
 using std::string;
 using boss::utilities::operator""_;
 using Catch::Generators::random;
 using Catch::Generators::take;
 using std::vector;
+using namespace Catch::Matchers;
 
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 TEST_CASE("Basics", "[basics]") { // NOLINT
-  auto eval = [engine = boss::BootstrapEngine()](boss::Expression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
+  auto engine = boss::BootstrapEngine();
+  auto eval = [&engine](boss::Expression&& expression) mutable {
+    return engine.evaluate(
+        "EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), move(expression)));
   };
+  CHECK_THROWS_MATCHES(
+      engine.evaluate("EvaluateInEngine"_(9, 5)), boss::bad_variant_access,
+      Message("expected and actual type mismatch in expression \"9\", expected string"));
+
+  SECTION("Atomics") {
+    CHECK(get<int>(eval(9)) == 9); // NOLINT
+  }
 
   SECTION("Addition") {
     CHECK(get<int>(eval("Plus"_(5, 4))) == 9); // NOLINT
@@ -49,11 +59,11 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
   SECTION("Symbols") {
     CHECK(get<boss::Symbol>(eval("Symbol"_((string) "x"))).getName() == "x");
-
-    auto expression = get<boss::ComplexExpression>(eval("UndefinedFunction"_(9))); // NOLINT
+    auto expression = get<boss::ComplexExpression>(
+        eval("UndefinedFunction"_(9))); // NOLINT(readability-magic-numbers)
 
     CHECK(expression.getHead().getName() == "UndefinedFunction");
-    CHECK(get<int>(expression.getArguments()[0]) == 9);
+    CHECK(get<int>(expression.getArguments().at(0)) == 9);
 
     CHECK(get<std::string>(
               get<boss::ComplexExpression>(eval("UndefinedFunction"_((string) "Hello World!")))
@@ -127,9 +137,9 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     eval("CreateTable"_("Customer"_, "ID"_, "FirstName"_, "LastName"_, "BirthYear"_, "Country"_));
     INFO(eval("Length"_("Select"_("Customer"_, "Function"_(true)))));
 
-    REQUIRE(std::get<int>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
+    REQUIRE(get<int>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
     auto const& emptyTable = eval("Select"_("Customer"_, "Function"_(true)));
-    CHECK(std::get<int>(eval("Length"_(emptyTable))) == 0);
+    CHECK(get<int>(eval("Length"_(emptyTable))) == 0);
     eval("InsertInto"_("Customer"_, 1, "John", "McCarthy", 1927, "USA"));  // NOLINT
     eval("InsertInto"_("Customer"_, 2, "Sam", "Madden", 1976, "USA"));     // NOLINT
     eval("InsertInto"_("Customer"_, 3, "Barbara", "Liskov", 1939, "USA")); // NOLINT
@@ -202,7 +212,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 TEST_CASE("Arrays", "[arrays]") { // NOLINT
   auto engine = boss::BootstrapEngine();
   namespace nasty = boss::utilities::nasty;
-  auto eval = [&engine](boss::Expression const& expression) mutable {
+  auto eval = [&engine](auto&& expression) mutable {
     return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
   };
 
