@@ -1,6 +1,8 @@
 #lang racket
-;; right now, you need to run it (in the directory where you have RacketBOSS.so) like this
-;; racket -tm ..../Server/Server.rkt
+;; install:
+;; make install
+;; run from the install folder:
+;; racket -tm bin/Server.rkt
 
 (require threading)
 (require racket/list)
@@ -94,8 +96,8 @@
                               (list #'~>)))
         )
     (embed-in-page '(h1 "Result")
-                   (list->html-table (eval #`(EvaluateInEngine "libWolframBOSS.so" #,plan))
-                                     (eval #`(EvaluateInEngine "libWolframBOSS.so" #,schema)))
+                   (list->html-table (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,plan))
+                                     (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema)))
                    '(hr)
                    `(pre ,(format "~a" (syntax->datum (expand-only plan (list #'~>)))))
                    )
@@ -181,9 +183,10 @@ all lists (excluding the root), thus stacking another operator on top of the que
    '(h1 "Examples")
 
    '(list
-     (li (a ((href "Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "Simple Projection Query"))
-     (li (a ((href "Customer/:::/Select/:/Where/:/Equal/FirstName/\"Holger\"/:::/Group/Count")) "Simple Aggregation Query"))
-     (li (a ((href "\"libBOSSMQTTEngine.so\"/:/EvaluateInEngine/:/StartMQTTServer")) "Start MQTT (make sure the library is installed)"))
+     (li (a ((href "legacy/Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "Simple Projection Query"))
+     (li (a ((href "legacy/Customer/:::/Select/:/Where/:/Equal/FirstName/\"Holger\"/:::/Group/Count")) "Simple Aggregation Query"))
+     (li (a ((href "rest-example-page")) "REST example page"))
+     (li (a ((href "legacy/\"libBOSSMQTTEngine.so\"/:/EvaluateInEngine/:/StartMQTTServer")) "Start MQTT (make sure the library is installed)"))
      ))
   )
 
@@ -195,7 +198,7 @@ all lists (excluding the root), thus stacking another operator on top of the que
   TEXT/HTML-MIME-TYPE
   '()
   (list (string->bytes/utf-8
-    (include-template "../Server/restExamplePage.html")
+    (include-template "htdocs/restExamplePage.html")
     ))
  )
 )
@@ -209,20 +212,23 @@ all lists (excluding the root), thus stacking another operator on top of the que
    ; api divided in "legacy" and "rest" so that racket can serve static files
    [("legacy" (string-arg) ...) explain]
    ))
+
 (EvaluateInEngine
- "libWolframBOSS.so"
+ "lib/libBOSSWolframEngine.so"
  (CreateTable Customer FirstName LastName age)
  (InsertInto  Customer "Holger" "German" 38)
  (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
  (InsertInto  Customer "Hubert" "Frenchman" 34))
 
 ; just an example XY table to play with
+(EvaluateInEngine
+ "lib/libBOSSWolframEngine.so"
 (CreateTable NumbersTable xnumber ynumber description)
 (InsertInto  NumbersTable 1 3 "desc1")
 (InsertInto  NumbersTable 2 4 "desc2")
 (InsertInto  NumbersTable 3 5 "desc3")
 (InsertInto  NumbersTable 4 7 "desc4")
-(InsertInto  NumbersTable 5 6 "desc5")
+(InsertInto  NumbersTable 5 6 "desc5"))
 
 (provide main)
 (define (main)
@@ -232,5 +238,5 @@ all lists (excluding the root), thus stacking another operator on top of the que
                  #:servlet-regexp #rx""
                  #:listen-ip #f
                  #:command-line? #t
-                 #:extra-files-paths (list (build-path 'up "Server/htdocs"))
+                 #:extra-files-paths (list (build-path "bin/htdocs"))
                  ))

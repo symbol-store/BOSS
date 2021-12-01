@@ -160,6 +160,7 @@ set_target_properties(BOSS PROPERTIES PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}
 install(TARGETS BOSS LIBRARY DESTINATION lib PUBLIC_HEADER DESTINATION include)
 install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
+install(DIRECTORY Server/htdocs DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/arrow DESTINATION include)
 

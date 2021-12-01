@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<html>
+
+<head>
+    <title>REST example page</title>
+</head>
+
+<body>
+    <h1>REST example page</h1>
+
+    <div>Example REST queries:
+        <ul>
+            <li>NumbersTable/:/Project/:/As/x/xnumber/y/ynumber/desc/description</li>
+            <li>Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age</li>
+        </ul>
+    </div>
+
+    <div>
+        <input type="text" id="querybox" name="querybox"></input>
+        <button id="querybutton">fetch & print</button>
+    </div>
+
+    <div id="outputdiv"></div>
+
+    <script type="module">
+        import { setBOSSUrl, setBOSSQueryInterval, BOSSQuery } from "./BOSSQueryClient.js";
+        setBOSSUrl("http://localhost:8000", "rest");
+        setBOSSQueryInterval(2000);
+        document.getElementById('querybutton').addEventListener('click', printRestQueryData);
+
+        function printRestQueryData() {
+            var query = document.getElementById('querybox').value;
+            console.log("query: " + query);
+            BOSSQuery(query).then((data) => {
+                console.log("returned data: " + data);
+                document.getElementById('outputdiv').textContent = data;
+            },
+                (error) => {
+                    document.getElementById('outputdiv').textContent = error;
+                }
+            );
+        }
+
+    </script>
+</body>
+
+</html>
