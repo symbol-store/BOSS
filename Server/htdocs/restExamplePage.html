@@ -24,9 +24,8 @@
     <div id="outputdiv"></div>
 
     <script type="module">
-        import { setBOSSUrl, setBOSSQueryInterval, BOSSQuery } from "./BOSSQueryClient.js";
+        import { setBOSSUrl, BOSSQuery } from "./BOSSQueryClient.js";
         setBOSSUrl("http://localhost:8000", "rest");
-        setBOSSQueryInterval(2000);
         document.getElementById('querybutton').addEventListener('click', printRestQueryData);
 
         function printRestQueryData() {
