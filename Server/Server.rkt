@@ -105,70 +105,91 @@
 
 ;function returning data on get
 (define (rest-explain req operators)
-  (if (equal? (last operators) "RunNativeFunction")
-      (let ((plan #`(~> #,@(unflatten
-                            (map (lambda (op) (read (open-input-string op)))
-                                 operators)))))
-        (response/full
-        200
-        #"OK"
-        (current-seconds)
-        TEXT/HTML-MIME-TYPE
-        '()
-        (list (string->bytes/utf-8 (jsonify (syntax->datum plan) (eval plan) ) ))
-        )
-        )
-
-
-      (let ((plan #`(~> #,@(unflatten (map
-                                       (lambda (op) (read (open-input-string op))) operators))))
-            (schema #`(~> #,@(unflatten
-                              (map
-                               (lambda (op) (read (open-input-string op)))
-                               operators))
-                          Schema))
-            )
-
-        
-        (response/full
-        200
-        #"OK"
-        (current-seconds)
-        TEXT/HTML-MIME-TYPE
-        '()
-        (list (string->bytes/utf-8 (jsonify (eval schema) (eval plan) ) ))
+  (let ((plan
+         (expand-only
+          #`(~> #,@(unflatten
+                    (map
+                     (lambda (op)
+                       (read
+                        (open-input-string op))) operators)))
+          (list #'~>)))
+        (schema
+         (expand-only
+          #`( ~> #,@(unflatten
+                     (map
+                      (lambda (op)
+                        (read
+                         (open-input-string op)))
+                      operators))
+                 Schema)
+          (list #'~>)))
         )
 
-        )))
+    (response/full
+     200
+     #"OK"
+     (current-seconds)
+     TEXT/HTML-MIME-TYPE
+     '()
+     ;;; (list (string->bytes/utf-8 (jsonify (eval schema) (eval plan) ) ))
+     (list (string->bytes/utf-8
+            (jsonify
+             (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema))
+             (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,plan)) 
+             )))
+     )
+    )
+  )
 
 ;given racket schema and data, it returns a JSON string
 (define (jsonify schema data)
-(string-replace 
-  (string-append "["
-                 (let ([json-data (format "~a"
-                                          (map (lambda (record)         
-                                                 (string-append "{\n"
-                                                                (let ([json-record (format "~a"
-                                                                                           (map (lambda (item field)
-                                                                                                  (string-append "\"" (format "~a" (car field)) "\": \"" (format "~a" item) "\",\n" )
-                                                                                                  )
-                                                                                                record
-                                                                                                schema
-                                                                                                )
-                                                                                           )]
-                                                                      )
-                                                                  (substring json-record 1 (- (string-length json-record) 3) )
-                                                                  )               
-                                                                "\n},\n")
-                                                 )
-                                               data
-                                               )
-                                          )]
-                       )
-                   (substring json-data 1 (- (string-length json-data) 3) )
+  (with-handlers
+      ([exn:fail? 
+        (lambda (exn)
+          (displayln (exn-message exn))
+          "[]")
+        ])
+
+    (string-replace
+     (string-append
+      "["
+      (let ([json-data
+             (format
+              "~a"
+              (map (lambda (record)
+                     (string-append
+                      "{\n"
+                      (let ([json-record
+                             (format
+                              "~a"
+                              (map (lambda (item field)
+                                     (string-append
+                                      "\""
+                                      (format
+                                       "~a"
+                                       (car field))
+                                      "\": \""
+                                      (format
+                                       "~a" item) "\",\n" )
+                                     )
+                                   record
+                                   schema
+                                   )
+                              )]
+                            )
+                        (substring json-record 1 (- (string-length json-record) 3) )
+                        )
+                      "\n},\n")
+                     )
+                   data
                    )
-                 "]" )
-"$0" "_" )
+              )]
+            )
+        (substring json-data 1 (- (string-length json-data) 3) )
+        )
+      "]" )
+     "$0" "_" )
+    )
   )
 
 (define (index req)
