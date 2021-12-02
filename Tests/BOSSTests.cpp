@@ -17,8 +17,18 @@ using namespace Catch::Matchers;
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
+TEST_CASE("Expressions", "[expressions]") {
+  int v1 = GENERATE(take(3, random(1, 100)));
+  int v2 = GENERATE(take(3, random(1, 100)));
+  auto const& e = "UnevaluatedPlus"_(v1, v2);
+  CHECK(e.getHead().getName() == "UnevaluatedPlus");
+  CHECK(e.getArguments().at(0) == v1);
+  CHECK(e.getArguments().at(1) == v2);
+}
+
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::BootstrapEngine();
+  REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](boss::Expression&& expression) mutable {
     return engine.evaluate(
         "EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), move(expression)));
@@ -212,6 +222,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 TEST_CASE("Arrays", "[arrays]") { // NOLINT
   auto engine = boss::BootstrapEngine();
   namespace nasty = boss::utilities::nasty;
+  REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
     return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
   };

@@ -2,6 +2,8 @@
 #include "Utilities.hpp"
 #include <functional>
 #include <string>
+#include <tuple>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -32,46 +34,57 @@ using AtomicExpressionWithAdditionalCustomAtoms =
 template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms;
 
-template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
+template <typename... AdditionalCustomAtoms>
 class ExpressionWithAdditionalCustomAtoms
     : public variant_amend<AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
                            ComplexExpressionWithAdditionalCustomAtoms<
-                               StaticArgumentsTuple, AdditionalCustomAtoms...>>::type {
+                               std::tuple<>, AdditionalCustomAtoms...>>::type {
 public:
-  using SuperType =
-      typename variant_amend<AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
-                             ComplexExpressionWithAdditionalCustomAtoms<
-                                 StaticArgumentsTuple, AdditionalCustomAtoms...>>::type;
+  using SuperType = typename variant_amend<
+      AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
+      ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, AdditionalCustomAtoms...>>::type;
 
   using SuperType::SuperType;
-  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
+  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>,
+            typename OtherStaticArgumentsTuple, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, T...>&& o) noexcept
+      ExpressionWithAdditionalCustomAtoms<OtherStaticArgumentsTuple, T...>&& o) noexcept
       : SuperType(std::visit(
             utilities::overload(
-                [](ComplexExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, T...>&&
-                       unpacked) -> ExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple,
-                                                                        AdditionalCustomAtoms...> {
-                  return ComplexExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple,
-                                                                    AdditionalCustomAtoms...>(
+                [](ComplexExpressionWithAdditionalCustomAtoms<T...>&& unpacked)
+                    -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+                  return ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
                 },
                 [](auto&& unpacked) {
-                  return ExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple,
-                                                             AdditionalCustomAtoms...>(
+                  return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
                 }),
-            (typename variant_amend<
-                 AtomicExpressionWithAdditionalCustomAtoms<T...>,
-                 ComplexExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, T...>>::type &&)
+            (typename variant_amend<AtomicExpressionWithAdditionalCustomAtoms<T...>,
+                                    ComplexExpressionWithAdditionalCustomAtoms<T...>>::type &&)
                 std::move(o))) {}
+
   ~ExpressionWithAdditionalCustomAtoms() = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
   ExpressionWithAdditionalCustomAtoms&
   operator=(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 
   template <typename T>
-  std::enable_if_t<!std::is_same_v<T, ExpressionWithAdditionalCustomAtoms>, bool>
+  std::enable_if_t<
+      utilities::isInstanceOfTemplate<std::decay_t<T>, ComplexExpressionWithAdditionalCustomAtoms>::value,
+      bool>
+  operator==(T const& other) const {
+    return std::holds_alternative<boss::ComplexExpressionWithAdditionalCustomAtoms<
+               std::tuple<>, AdditionalCustomAtoms...>>(*this) &&
+           (std::get<boss::ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>,
+                                                                      AdditionalCustomAtoms...>>(
+                *this) == other);
+  }
+
+  template <typename T>
+  std::enable_if_t<boss::utilities::isVariantMember<T, AtomicExpressionWithAdditionalCustomAtoms<
+                                                           AdditionalCustomAtoms...>>::value,
+                   bool>
   operator==(T const& other) const {
     if(!std::holds_alternative<T>(*this)) {
       return false;
@@ -86,7 +99,7 @@ public:
 
   ExpressionWithAdditionalCustomAtoms clone() const {
     using ComplexExpression =
-        ComplexExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>;
+        ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, AdditionalCustomAtoms...>;
     return std::visit(
         boss::utilities::overload(
             [](auto const& val) -> ExpressionWithAdditionalCustomAtoms { return val; },
@@ -103,30 +116,68 @@ private:
   operator=(ExpressionWithAdditionalCustomAtoms const&) = default; // NOLINT
 };
 
-template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
-using ExpressionArgumentsWithAdditionalCustomAtoms = std::vector<
-    ExpressionWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>>;
+template <typename... AdditionalCustomAtoms>
+using ExpressionArgumentsWithAdditionalCustomAtoms =
+    std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>;
 
 template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms {
 private:
   Symbol head;
   StaticArgumentsTuple staticArguments{};
-  ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>
-      arguments{};
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments{};
 
 public:
   template <size_t... I>
   static StaticArgumentsTuple
-  convertToTuple(ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple,
-                                                              AdditionalCustomAtoms...>& arguments,
+  convertToTuple(ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& arguments,
                  std::index_sequence<I...> /*unused*/) {
-    return {move((arguments).at(I))...};
+    return {(std::get<
+             std::remove_reference_t<typename std::tuple_element<I, StaticArgumentsTuple>::type>>(
+        arguments.at(I)))...};
   }
+
+  template <typename T>
+  void cloneIfNecessary(
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& result,
+      ComplexExpressionWithAdditionalCustomAtoms<T, AdditionalCustomAtoms...> const& e) const {
+    result.emplace_back(move(e.clone()));
+  }
+
+  template <typename T,
+            typename = std::enable_if_t<utilities::isVariantMember<
+                T, AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::value>>
+  void
+  cloneIfNecessary(ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& result,
+                   T e) const {
+    result.emplace_back(e);
+  }
+
+  template <size_t... I>
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>
+  convertStaticToDynamicArguments(std::index_sequence<I...> /*unused*/) const {
+    ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> result;
+    result.reserve(sizeof...(I));
+    (cloneIfNecessary(result, std::get<I>(staticArguments)), ...);
+    return result;
+  }
+
+  explicit ComplexExpressionWithAdditionalCustomAtoms(Symbol const& head,
+                                                      StaticArgumentsTuple&& staticArguments)
+      : head(head), staticArguments(move(staticArguments)) {}
+
+  operator ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
+      std::tuple<>, AdditionalCustomAtoms...>() const {
+    return move(ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
+                std::tuple<>, AdditionalCustomAtoms...>(
+        head, convertStaticToDynamicArguments(
+                  std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>())));
+  }
+
+  template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       Symbol const& head,
-      ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>&&
-          arguments)
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
       : head(head),
         staticArguments(convertToTuple(
             arguments, std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>())),
@@ -143,13 +194,14 @@ public:
     }
   }
 
-  ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple,
-                                               AdditionalCustomAtoms...> const&
-  getArguments() const {
-    return arguments;
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getArguments() const {
+    decltype(arguments) result = convertStaticToDynamicArguments(
+        std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>());
+    std::transform(begin(arguments), end(arguments), std::back_inserter(result),
+                   [](auto const& it) { return it.clone(); });
+    return result;
   };
-  ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>&
-  getArguments() {
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& getArguments() {
     return arguments;
   };
   Symbol const& getHead() const { return head; };
@@ -175,8 +227,7 @@ public:
   }
 
   ComplexExpressionWithAdditionalCustomAtoms clone() const {
-    ExpressionArgumentsWithAdditionalCustomAtoms<StaticArgumentsTuple, AdditionalCustomAtoms...>
-        copiedArgs;
+    ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> copiedArgs;
     copiedArgs.reserve(arguments.size());
     for(auto const& arg : arguments) {
       copiedArgs.emplace_back(arg.clone());
@@ -200,16 +251,9 @@ public:
       ComplexExpressionWithAdditionalCustomAtoms<std::tuple<StaticArgumentTypes...>,
                                                  AdditionalCustomAtoms...>;
   using ComplexExpression = ComplexExpressionWithStaticArguments<>;
-  template <typename... StaticArgumentTypes>
-  using ExpressionWithStaticArguments =
-      ExpressionWithAdditionalCustomAtoms<std::tuple<StaticArgumentTypes...>,
-                                          AdditionalCustomAtoms...>;
-  using Expression = ExpressionWithStaticArguments<>;
-  template <typename... StaticArgumentTypes>
-  using ExpressionArgumentsWithStaticArguments =
-      ExpressionArgumentsWithAdditionalCustomAtoms<std::tuple<StaticArgumentTypes...>,
-                                                   AdditionalCustomAtoms...>;
-  using ExpressionArguments = ExpressionArgumentsWithStaticArguments<>;
+  using Expression = ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+  using ExpressionArguments =
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
 };
 
 using DefaultExpressionSystem = ExtensibleExpressionSystem<>;
@@ -219,10 +263,7 @@ template <typename... StaticArgumentTypes>
 using ComplexExpressionWithStaticArguments =
     DefaultExpressionSystem::ComplexExpressionWithStaticArguments<StaticArgumentTypes...>;
 using ComplexExpression = DefaultExpressionSystem::ComplexExpressionWithStaticArguments<>;
-template <typename... StaticArgumentTypes>
-using ExpressionWithStaticArguments =
-    DefaultExpressionSystem::ExpressionWithStaticArguments<StaticArgumentTypes...>;
-using Expression = ExpressionWithStaticArguments<>;
+using Expression = DefaultExpressionSystem::Expression;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 
 } // namespace boss

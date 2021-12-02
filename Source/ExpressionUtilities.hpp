@@ -1,9 +1,12 @@
 #pragma once
 #include "Expression.hpp"
+#include "Utilities.hpp"
 #include <arrow/array.h>
 #include <map>
 #include <ostream>
 #include <sstream>
+#include <tuple>
+#include <type_traits>
 #include <typeindex>
 #include <typeinfo>
 #include <utility>
@@ -40,8 +43,21 @@ public:
     return typename ExpressionSystem::Expression(std::forward<T>(v));
   }
 
+  template <typename Ts>
+  using isAtom = isVariantMember<std::decay_t<Ts>, typename ExpressionSystem::AtomicExpression>;
+  template <typename Ts>
+  using isComplexExpression =
+      isInstanceOfTemplate<Ts, ExpressionSystem::template ComplexExpressionWithStaticArguments>;
+  template <typename Ts>
+  using isStaticArgument = std::disjunction<isComplexExpression<Ts>, isAtom<Ts>>;
+
+  /**
+   * build expression from dynamic arguments
+   */
   template <typename... Ts>
-  typename ExpressionSystem::ComplexExpression operator()(Ts&&... args /*a*/) const {
+  std::enable_if_t<std::disjunction<std::negation<isStaticArgument<Ts>>...>::value,
+                   typename ExpressionSystem::ComplexExpression>
+  operator()(Ts&&... args /*a*/) const {
     typename ExpressionSystem::ExpressionArguments argList;
     argList.reserve(sizeof...(Ts));
     (
@@ -50,7 +66,35 @@ public:
               std::forward<decltype(arg)>(arg)));
         }(std::move(args)),
         ...);
-    return typename ExpressionSystem::ComplexExpression(s, std::move(argList));
+    return move(typename ExpressionSystem::ComplexExpression(s, std::move(argList)));
+  }
+
+  /**
+   * build expression from static arguments, some of which are expressions themselves (passing
+   * arguments by rvalue reference)
+   */
+  template <typename... Ts>
+  std::enable_if_t<
+      std::conjunction<isStaticArgument<Ts>...,
+                       std::disjunction<isComplexExpression<Ts>>...>::value,
+      typename ExpressionSystem::template ComplexExpressionWithStaticArguments<std::decay_t<Ts>...>>
+  operator()(Ts&&... args /*a*/) const {
+    return move(
+        typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
+            std::decay_t<Ts>...>(s, std::tuple<std::decay_t<Ts>...>(std::forward<Ts>(args)...)));
+  };
+
+  /**
+   * build expression from static arguments, all of which are atoms (passing arguments by value)
+   */
+  template <typename... Ts>
+  std::enable_if_t<
+      std::conjunction<isAtom<Ts>...>::value,
+      typename ExpressionSystem::template ComplexExpressionWithStaticArguments<std::decay_t<Ts>...>>
+  operator()(Ts... args /*a*/) const {
+    return move(
+        typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
+            std::decay_t<Ts>...>(s, std::tuple<std::decay_t<Ts>...>(std::forward<Ts>(args)...)));
   };
 
   friend typename ExpressionSystem::Expression
@@ -67,15 +111,16 @@ static ExpressionBuilder operator""_(const char* name, size_t /*unused*/) {
 
 namespace nasty {
 // the ownership model is unclear -- we really need to fix that
-static boss::ComplexExpression
+static boss::ComplexExpressionWithStaticArguments<int, int>
 arrowArrayToExpression(std::shared_ptr<arrow::Array> const& arrowPtr) {
   union {
     std::shared_ptr<arrow::Array> const* pointer;
     std::pair<int, int> asInts = {0, 0};
   };
 
-  pointer = &arrowPtr;                                  // NOLINT
-  return "ArrowArrayPtr"_(asInts.first, asInts.second); // NOLINT
+  pointer = &arrowPtr;                    // NOLINT(cppcoreguidelines-pro-type-union-access)
+  return "ArrowArrayPtr"_(asInts.first,   // NOLINT(cppcoreguidelines-pro-type-union-access)
+                          asInts.second); // NOLINT(cppcoreguidelines-pro-type-union-access)
 }
 static std::shared_ptr<arrow::Array> reconstructArrowArray(int first, int second) {
   union {
@@ -94,7 +139,10 @@ static std::shared_ptr<arrow::Array> reconstructArrowArray(int first, int second
 static std::ostream& operator<<(std::ostream& out, boss::Symbol const& thing) {
   return out << thing.getName();
 }
-static std::ostream& operator<<(std::ostream& out, boss::ComplexExpression const& e);
+template <typename... StaticArguments>
+static std::ostream&
+operator<<(std::ostream& out,
+           boss::ComplexExpressionWithStaticArguments<StaticArguments...> const& e);
 static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing) {
   std::visit(
       boss::utilities::overload([&](std::string const& value) { out << "\"" << value << "\""; },
@@ -103,9 +151,16 @@ static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing
       thing);
   return out;
 }
-// a specialization for complex expressions is needed, or otherwise
-// the complex expression and all its arguments has to be copied to be converted to an Expression
-static std::ostream& operator<<(std::ostream& out, boss::ComplexExpression const& e) {
+
+/**
+ * a specialization for complex expressions is needed. Otherwise the complex
+ * expression and all its arguments have to be copied to be converted to an
+ * Expression
+ */
+template <typename... StaticArguments>
+static std::ostream&
+operator<<(std::ostream& out,
+           boss::ComplexExpressionWithStaticArguments<StaticArguments...> const& e) {
   out << e.getHead() << "[";
   if(!e.getArguments().empty()) {
     out << e.getArguments().front();
