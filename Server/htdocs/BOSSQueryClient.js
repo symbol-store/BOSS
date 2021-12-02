@@ -17,11 +17,11 @@ export function setBOSSUrl(myBOSSServerUrl, myBOSSRestEndPoint) {
 }
 
 export function drawBOSSChart(drawFunction, updateFunction, queryUrl) {
-    BOSSquery(queryUrl).then((data) => {
+    BOSSQuery(queryUrl).then((data) => {
         drawFunction(data);
     }).then(() => {
         setInterval(function () {
-            BOSSquery(queryUrl).then((data) => {
+            BOSSQuery(queryUrl).then((data) => {
                 updateFunction(data);
             });
         }, BOSSQueryInterval);
