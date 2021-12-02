@@ -75,8 +75,8 @@ public:
    */
   template <typename... Ts>
   std::enable_if_t<
-      std::conjunction<isStaticArgument<Ts>...,
-                       std::disjunction<isComplexExpression<Ts>>...>::value,
+      (sizeof...(Ts) > 0) && std::conjunction<isStaticArgument<Ts>...,
+                                              std::disjunction<isComplexExpression<Ts>>...>::value,
       typename ExpressionSystem::template ComplexExpressionWithStaticArguments<std::decay_t<Ts>...>>
   operator()(Ts&&... args /*a*/) const {
     return move(

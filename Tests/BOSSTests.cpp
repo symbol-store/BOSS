@@ -26,6 +26,11 @@ TEST_CASE("Expressions", "[expressions]") {
   CHECK(e.getArguments().at(1) == v2);
 }
 
+TEST_CASE("Expression without arguments", "[expressions]") {
+  auto const& e = "UnevaluatedPlus"_();
+  CHECK(e.getHead().getName() == "UnevaluatedPlus");
+}
+
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
