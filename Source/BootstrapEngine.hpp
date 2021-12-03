@@ -8,6 +8,7 @@
 #ifndef _WIN32
 #include <dlfcn.h>
 #else
+#define NOMINMAX // max macro in minwindef.h interfering with std::max...
 #include <windows.h>
 constexpr static int RTLD_NOW = 0;
 constexpr static int RTLD_NODELETE = 0;

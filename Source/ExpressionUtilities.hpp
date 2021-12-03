@@ -1,12 +1,16 @@
 #pragma once
 #include "Expression.hpp"
-#include <arrow/array.h>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <sstream>
 #include <typeindex>
 #include <typeinfo>
 #include <utility>
+
+namespace arrow {
+class Array;
+}
 
 namespace boss::utilities {
 template <typename ExpressionSystem = DefaultExpressionSystem> class ExtensibleExpressionBuilder {
