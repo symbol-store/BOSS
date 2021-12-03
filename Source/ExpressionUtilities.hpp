@@ -139,11 +139,16 @@ static std::shared_ptr<arrow::Array> reconstructArrowArray(int first, int second
 static std::ostream& operator<<(std::ostream& out, boss::Symbol const& thing) {
   return out << thing.getName();
 }
-template <typename... StaticArguments>
+template <typename... StaticArguments, typename... AdditionalAtoms>
 static std::ostream&
 operator<<(std::ostream& out,
-           boss::ComplexExpressionWithStaticArguments<StaticArguments...> const& e);
-static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing) {
+           boss::ComplexExpressionWithAdditionalCustomAtoms<std::tuple<StaticArguments...>,
+                                                            AdditionalAtoms...> const& e);
+
+template <typename... AdditionalAtoms>
+static std::ostream&
+operator<<(std::ostream& out,
+           boss::ExpressionWithAdditionalCustomAtoms<AdditionalAtoms...> const& thing) {
   std::visit(
       boss::utilities::overload([&](std::string const& value) { out << "\"" << value << "\""; },
                                 [&](bool value) { out << (value ? "True" : "False"); },
@@ -157,10 +162,11 @@ static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing
  * expression and all its arguments have to be copied to be converted to an
  * Expression
  */
-template <typename... StaticArguments>
+template <typename... StaticArguments, typename... AdditionalAtoms>
 static std::ostream&
 operator<<(std::ostream& out,
-           boss::ComplexExpressionWithStaticArguments<StaticArguments...> const& e) {
+           boss::ComplexExpressionWithAdditionalCustomAtoms<std::tuple<StaticArguments...>,
+                                                            AdditionalAtoms...> const& e) {
   out << e.getHead() << "[";
   if(!e.getArguments().empty()) {
     out << e.getArguments().front();

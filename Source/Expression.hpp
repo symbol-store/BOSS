@@ -46,22 +46,24 @@ public:
 
   using SuperType::SuperType;
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>,
-            typename OtherStaticArgumentsTuple, typename... T>
+            typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<OtherStaticArgumentsTuple, T...>&& o) noexcept
+      ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
       : SuperType(std::visit(
             utilities::overload(
-                [](ComplexExpressionWithAdditionalCustomAtoms<T...>&& unpacked)
+                [](ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...>&& unpacked)
                     -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-                  return ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
+                  return ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>,
+                                                                    AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
                 },
                 [](auto&& unpacked) {
                   return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
                 }),
-            (typename variant_amend<AtomicExpressionWithAdditionalCustomAtoms<T...>,
-                                    ComplexExpressionWithAdditionalCustomAtoms<T...>>::type &&)
+            (typename variant_amend<
+                 AtomicExpressionWithAdditionalCustomAtoms<T...>,
+                 ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...>>::type &&)
                 std::move(o))) {}
 
   ~ExpressionWithAdditionalCustomAtoms() = default;
@@ -70,9 +72,9 @@ public:
   operator=(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 
   template <typename T>
-  std::enable_if_t<
-      utilities::isInstanceOfTemplate<std::decay_t<T>, ComplexExpressionWithAdditionalCustomAtoms>::value,
-      bool>
+  std::enable_if_t<utilities::isInstanceOfTemplate<
+                       std::decay_t<T>, ComplexExpressionWithAdditionalCustomAtoms>::value,
+                   bool>
   operator==(T const& other) const {
     return std::holds_alternative<boss::ComplexExpressionWithAdditionalCustomAtoms<
                std::tuple<>, AdditionalCustomAtoms...>>(*this) &&

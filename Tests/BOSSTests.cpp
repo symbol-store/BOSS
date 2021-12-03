@@ -31,6 +31,21 @@ TEST_CASE("Expression without arguments", "[expressions]") {
   CHECK(e.getHead().getName() == "UnevaluatedPlus");
 }
 
+class DummyAtom {
+public:
+  friend std::ostream& operator<<(std::ostream& s, DummyAtom const& /*unused*/) {
+    return s << "dummy";
+  }
+};
+
+TEST_CASE("Expression cast to more general expression system", "[expressions]") {
+  auto a = boss::ExtensibleExpressionSystem<>::Expression("howdie"_());
+  auto b = (boss::ExtensibleExpressionSystem<DummyAtom>::Expression)std::move(a);
+  CHECK(
+      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b).getHead().getName() ==
+      "howdie");
+}
+
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
