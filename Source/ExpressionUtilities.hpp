@@ -71,21 +71,19 @@ static boss::ComplexExpression
 arrowArrayToExpression(std::shared_ptr<arrow::Array> const& arrowPtr) {
   union {
     std::shared_ptr<arrow::Array> const* pointer;
-    std::pair<int, int> asInts = {0, 0};
+    long asLong = {};
   };
 
-  pointer = &arrowPtr;                                  // NOLINT
-  return "ArrowArrayPtr"_(asInts.first, asInts.second); // NOLINT
+  pointer = &arrowPtr;             // NOLINT(cppcoreguidelines-pro-type-union-access)
+  return "ArrowArrayPtr"_(asLong); // NOLINT(cppcoreguidelines-pro-type-union-access)
 }
-static std::shared_ptr<arrow::Array> reconstructArrowArray(int first, int second) {
+static std::shared_ptr<arrow::Array> reconstructArrowArray(long addressAsLong) {
   union {
     std::shared_ptr<arrow::Array> const* pointer;
-    std::pair<int, int> asInts = {0, 0};
+    long address = {};
   };
-
-  asInts.first = first;   // NOLINT
-  asInts.second = second; // NOLINT
-  return *pointer;        // NOLINT
+  address = addressAsLong; // NOLINT(cppcoreguidelines-pro-type-union-access)
+  return *pointer;         // NOLINT
 }
 } // namespace nasty
 
@@ -137,10 +135,10 @@ template <typename T, typename TInput> auto&& get(TInput&& v) {
     } else {
       s << "valueless by exception";
     }
-    static auto typenames = std::map<std::type_index, char const*>{{typeid(int), "int"},
+    static auto typenames = std::map<std::type_index, char const*>{{typeid(long), "long"},
                                                                    {typeid(Symbol), "Symbol"},
                                                                    {typeid(bool), "bool"},
-                                                                   {typeid(float), "float"},
+                                                                   {typeid(double), "double"},
                                                                    {typeid(std::string), "string"}};
     s << "\", expected "
       << (typenames.count(typeid(T)) ? typenames.at(typeid(T)) : typeid(T).name());

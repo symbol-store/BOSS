@@ -26,7 +26,7 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
 
 template <typename... AdditionalCustomAtoms>
 using AtomicExpressionWithAdditionalCustomAtoms =
-    std::variant<bool, int, float, std::string, Symbol, AdditionalCustomAtoms...>;
+    std::variant<bool, long, double, std::string, Symbol, AdditionalCustomAtoms...>;
 
 template <typename... AdditionalCustomAtoms> class ComplexExpressionWithAdditionalCustomAtoms;
 
