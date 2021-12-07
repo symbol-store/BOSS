@@ -28,7 +28,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
       Message("expected and actual type mismatch in expression \"9\", expected string"));
 
   SECTION("Atomics") {
-    CHECK(get<long>(eval(9)) == 9); // NOLINT
+    CHECK(get<long>(eval(boss::Expression(9))) == 9); // NOLINT
   }
 
   SECTION("Addition") {
