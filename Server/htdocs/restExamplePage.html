@@ -11,24 +11,47 @@
 
     <div>Example REST queries:
         <ul>
+            <li>NumbersTable/:/CreateTable/:/xnumber/ynumber/description</li>
+        </ul>
+        <ul>
             <li>NumbersTable/:/Project/:/As/x/xnumber/y/ynumber/desc/description</li>
             <li>Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age</li>
+        </ul>
+        <ul>
+            <li>Customer/:::/Select/:/Where/:/Equal/FirstName/"Holger"/:::/Group/Count</li>
         </ul>
     </div>
 
     <div>
         <input type="text" id="querybox" name="querybox"></input>
         <button id="querybutton">fetch & print</button>
+        <button id="opbutton">operation</button>
     </div>
 
     <div id="outputdiv"></div>
 
     <script type="module">
         import { setBOSSUrl, BOSSQuery } from "./BOSSQueryClient.js";
-        setBOSSUrl("http://localhost:8000", "rest");
+        
         document.getElementById('querybutton').addEventListener('click', printRestQueryData);
+        document.getElementById('opbutton').addEventListener('click', operation);
+
+        function operation() {
+            setBOSSUrl("http://localhost:8000", "rest-op");
+            var query = document.getElementById('querybox').value;
+            console.log("op: " + query);
+            BOSSQuery(query).then((data) => {
+                console.log("returned data: " + data);
+                document.getElementById('outputdiv').textContent = data;
+            },
+                (error) => {
+                    document.getElementById('outputdiv').textContent = error;
+                }
+            );
+        }
 
         function printRestQueryData() {
+            setBOSSUrl("http://localhost:8000", "rest");
             var query = document.getElementById('querybox').value;
             console.log("query: " + query);
             BOSSQuery(query).then((data) => {
