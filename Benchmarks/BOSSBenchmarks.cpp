@@ -19,9 +19,6 @@ bool constexpr VERBOSE_QUERY_OUTPUT = false;
 bool constexpr VERBOSE_QUERY_OUTPUT = true;
 #endif
 
-static std::vector<string>
-    librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-
 void generateStrings(std::vector<string>& lhs, std::vector<string>& rhs, size_t size) {
   auto alphabet = string{"abcdefghijklmnopqrstuvwxyz"};
 
@@ -31,8 +28,11 @@ void generateStrings(std::vector<string>& lhs, std::vector<string>& rhs, size_t 
   auto lhsOffset = 0;
   auto rhsOffset = 0;
   for(int i = 0; i < size; ++i) {
-    auto lhsWordLength = 6 + (i % 5);       // NOLINT
-    auto rhsWordLength = 6 - ((i + 4) % 5); // NOLINT
+    static auto const baseWordSize = 6;
+    static auto const maxAdditionalSize = 5;
+    static auto const leftToRightOffset = 4;
+    auto lhsWordLength = baseWordSize + (i % maxAdditionalSize);
+    auto rhsWordLength = baseWordSize - ((i + leftToRightOffset) % maxAdditionalSize);
     if(lhsOffset + lhsWordLength >= alphabet.length()) {
       lhsOffset = 0;
     }
@@ -52,7 +52,7 @@ static void Addition_Vectors(benchmark::State& state) {
   auto rhs = std::vector<int>(size);
 
   vtune.startSampling("Addition - Vectors");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = std::vector<int>(size);
     for(int i = 0; i < size; ++i) {
       output[i] = lhs[i] + rhs[i];
@@ -68,7 +68,7 @@ static void Comparison_Vectors(benchmark::State& state) {
   auto rhs = std::vector<int>(size);
 
   vtune.startSampling("Comparison - Vectors");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = std::vector<bool>(size);
     for(int i = 0; i < size; ++i) {
       output[i] = lhs[i] < rhs[i];
@@ -84,7 +84,7 @@ static void Logic_Vectors(benchmark::State& state) {
   auto rhs = std::vector<bool>(size);
 
   vtune.startSampling("Logic - Vectors");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = std::vector<bool>(size);
     for(int i = 0; i < size; ++i) {
       output[i] = lhs[i] && rhs[i];
@@ -107,7 +107,7 @@ static void Compound_Vectors(benchmark::State& state) {
   std::function<bool(int, int)> callGreater = functionGreater;
 
   vtune.startSampling("Compound - Vectors");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = std::vector<bool>(size);
     for(int i = 0; i < size; ++i) {
       output[i] = callGreater(callPlus(ints1[i], ints2[i]), ints3[i]) &&
@@ -125,7 +125,7 @@ static void StringContains_Vectors(benchmark::State& state) {
   generateStrings(lhs, rhs, size);
 
   vtune.startSampling("StringContains - Vectors");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = std::vector<bool>(size);
     for(int i = 0; i < size; ++i) {
       output[i] = lhs[i].find(rhs[i]) != string::npos;
@@ -142,7 +142,7 @@ static void StringJoin_Vectors(benchmark::State& state) {
   generateStrings(lhs, rhs, size);
 
   vtune.startSampling("StringJoin - Vectors");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = std::vector<string>(size);
     for(int i = 0; i < size; ++i) {
       output[i] = lhs[i] + rhs[i];
@@ -167,7 +167,7 @@ static void SelectString_Vectors(benchmark::State& state) {
   }
 
   vtune.startSampling("SelectString - Vectors");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     std::vector<std::pair<std::string, std::string>> output;
     output.reserve(size / selectivityFraction);
     for(int i = 0; i < size; ++i) {
@@ -181,7 +181,7 @@ static void SelectString_Vectors(benchmark::State& state) {
 }
 
 static void SelectInt_Vectors(benchmark::State& state) {
-  int toFind = 100; // NOLINT
+  static int const toFind = 100;
 
   auto size = state.range(0);
   auto selectivityFraction = state.range(1); // 1 true for X values
@@ -194,7 +194,7 @@ static void SelectInt_Vectors(benchmark::State& state) {
   }
 
   vtune.startSampling("SelectInt - Vectors");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     std::vector<std::pair<int, int>> output;
     output.reserve(size / selectivityFraction);
     for(int i = 0; i < size; ++i) {
@@ -219,7 +219,7 @@ static void SelectBool_Vectors(benchmark::State& state) {
   }
 
   vtune.startSampling("SelectBool - Vectors");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     std::vector<std::pair<bool, bool>> output;
     output.reserve(size / selectivityFraction);
     for(int i = 0; i < size; ++i) {
@@ -232,10 +232,10 @@ static void SelectBool_Vectors(benchmark::State& state) {
   vtune.stopSampling();
 }
 
-static void Addition_BOSS(benchmark::State& state, int engineIndex) {
+static void Addition_BOSS(benchmark::State& state, std::string const& engineLibrary) {
   auto engine = boss::BootstrapEngine();
   auto eval = [&](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
   auto size = state.range(0);
@@ -253,17 +253,17 @@ static void Addition_BOSS(benchmark::State& state, int engineIndex) {
   auto expr = "Extract"_("Plus"_(lhsArrayExpr, rhsArrayExpr), 1);
 
   vtune.startSampling("Addition - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval(expr);
     benchmark::DoNotOptimize(output);
   }
   vtune.stopSampling();
 }
 
-static void Comparison_BOSS(benchmark::State& state, int engineIndex) {
+static void Comparison_BOSS(benchmark::State& state, std::string const& engineLibrary) {
   auto engine = boss::BootstrapEngine();
   auto eval = [&](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
   auto size = state.range(0);
@@ -281,17 +281,17 @@ static void Comparison_BOSS(benchmark::State& state, int engineIndex) {
   auto expr = "Extract"_("Greater"_(lhsArrayExpr, rhsArrayExpr), 1);
 
   vtune.startSampling("Comparison - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval(expr);
     benchmark::DoNotOptimize(output);
   }
   vtune.stopSampling();
 }
 
-static void Logic_BOSS(benchmark::State& state, int engineIndex) {
+static void Logic_BOSS(benchmark::State& state, std::string const& engineLibrary) {
   auto engine = boss::BootstrapEngine();
   auto eval = [&](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
   auto size = state.range(0);
@@ -330,17 +330,17 @@ static void Logic_BOSS(benchmark::State& state, int engineIndex) {
   auto expr = "Extract"_("And"_(lhsArrayExpr, rhsArrayExpr), 1);
 
   vtune.startSampling("Logic - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval(expr);
     benchmark::DoNotOptimize(output);
   }
   vtune.stopSampling();
 }
 
-static void Compound_BOSS(benchmark::State& state, int engineIndex) {
+static void Compound_BOSS(benchmark::State& state, std::string const& engineLibrary) {
   auto engine = boss::BootstrapEngine();
   auto eval = [&](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
   auto size = state.range(0);
@@ -364,17 +364,17 @@ static void Compound_BOSS(benchmark::State& state, int engineIndex) {
                          1);
 
   vtune.startSampling("Compound - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval(expr);
     benchmark::DoNotOptimize(output);
   }
   vtune.stopSampling();
 }
 
-static void StringContains_BOSS(benchmark::State& state, int engineIndex) {
+static void StringContains_BOSS(benchmark::State& state, std::string const& engineLibrary) {
   auto engine = boss::BootstrapEngine();
   auto eval = [&](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
   auto size = state.range(0);
@@ -414,17 +414,17 @@ static void StringContains_BOSS(benchmark::State& state, int engineIndex) {
   auto expr = "Extract"_("StringContainsQ"_(lhsArrayExpr, rhsArrayExpr), 1);
 
   vtune.startSampling("StringContains - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval(expr);
     benchmark::DoNotOptimize(output);
   }
   vtune.stopSampling();
 }
 
-static void StringJoin_BOSS(benchmark::State& state, int engineIndex) {
+static void StringJoin_BOSS(benchmark::State& state, std::string const& engineLibrary) {
   auto engine = boss::BootstrapEngine();
   auto eval = [&](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
   auto size = state.range(0);
@@ -464,17 +464,17 @@ static void StringJoin_BOSS(benchmark::State& state, int engineIndex) {
   auto expr = "Extract"_("StringJoin"_(lhsArrayExpr, rhsArrayExpr), 1);
 
   vtune.startSampling("StringJoin - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval(expr);
     benchmark::DoNotOptimize(output);
   }
   vtune.stopSampling();
 }
 
-static void SelectString_BOSS(benchmark::State& state, int engineIndex) {
+static void SelectString_BOSS(benchmark::State& state, std::string const& engineLibrary) {
   auto engine = boss::BootstrapEngine();
   auto eval = [&](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
   std::string toFind = "found";
@@ -529,20 +529,20 @@ static void SelectString_BOSS(benchmark::State& state, int engineIndex) {
       1);
 
   vtune.startSampling("SelectString - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval(expr);
     benchmark::DoNotOptimize(output);
   }
   vtune.stopSampling();
 }
 
-static void SelectInt_BOSS(benchmark::State& state, int engineIndex) {
+static void SelectInt_BOSS(benchmark::State& state, std::string const& engineLibrary) {
   auto engine = boss::BootstrapEngine();
   auto eval = [&](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
-  int toFind = 100; // NOLINT
+  static int const toFind = 100;
 
   auto size = state.range(0);
   auto selectivityFraction = state.range(1); // 1 true for X values
@@ -573,17 +573,17 @@ static void SelectInt_BOSS(benchmark::State& state, int engineIndex) {
       1);
 
   vtune.startSampling("SelectInt - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval(expr);
     benchmark::DoNotOptimize(output);
   }
   vtune.stopSampling();
 }
 
-static void SelectBool_BOSS(benchmark::State& state, int engineIndex) {
+static void SelectBool_BOSS(benchmark::State& state, std::string const& engineLibrary) {
   auto engine = boss::BootstrapEngine();
   auto eval = [&](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
   auto size = state.range(0);
@@ -633,7 +633,7 @@ static void SelectBool_BOSS(benchmark::State& state, int engineIndex) {
       "Column"_("Select"_("Booleans"_, "Function"_("tuple"_, "Column"_("tuple"_, 1))), 1), 1);
 
   vtune.startSampling("SelectBool - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval(expr);
     benchmark::DoNotOptimize(output);
   }
@@ -657,20 +657,21 @@ static auto& persistentEnginePtr() {
   return engine;
 }
 
-static auto& initEngine_TPCH(int engineIndex, size_t size, bool lineitemOnly) {
-  static auto lastEngineIndex = engineIndex;
+static auto& initEngine_TPCH(std::string const& engineLibrary, size_t size, bool lineitemOnly) {
+  static auto lastEngineLibrary = engineLibrary;
   static auto lastSize = size;
   static auto lastLineitemOnly = lineitemOnly;
-  if(engineIndex != lastEngineIndex || size != lastSize || lastLineitemOnly != lineitemOnly ||
+  if(engineLibrary != lastEngineLibrary || size != lastSize || lastLineitemOnly != lineitemOnly ||
      !persistentEnginePtr()) {
     lastSize = size;
     lastLineitemOnly = lineitemOnly;
+    lastEngineLibrary = engineLibrary;
     persistentEnginePtr().reset();
     persistentEnginePtr() = std::make_unique<boss::BootstrapEngine>();
 
     auto& engine = *persistentEnginePtr();
-    auto eval = [&engine, &engineIndex](boss::ComplexExpression const& expression) mutable {
-      return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+    auto eval = [&engine, &engineLibrary](boss::ComplexExpression const& expression) mutable {
+      return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
     };
 
     if(!lineitemOnly) {
@@ -717,29 +718,22 @@ static auto& initEngine_TPCH(int engineIndex, size_t size, bool lineitemOnly) {
 };
 
 enum DB_ENGINE { MONETDB, DUCKDB, BOSS_ENGINES_START };
-std::vector<string> DBEngineNames = {"MonetDB", "DuckDB", "BOSS"};
+static auto const DBEngineNames = std::vector<string>{"MonetDB", "DuckDB", "BOSS"};
 
 enum TPCH_QUERIES { TPCH_Q1 = 1, TPCH_Q3 = 3, TPCH_Q6 = 6, TPCH_Q9 = 9, TPCH_Q18 = 18 };
 
-static auto const where = [](auto const& condition) { return "Function"_("tuple"_, condition); };
-static auto const col = [](auto const& columnSymbol) {
-  return "Column"_("tuple"_, "IndexOf"_("Columns"_("tuple"_), columnSymbol));
-};
-static auto const as = [](auto const&... projected) {
-  return "Function"_("tuple"_, "List"_(projected...));
-};
-
-static void TPCH6_BOSS(benchmark::State& state, int dataSize, int engineIndex, bool Q1Q6only) {
-  auto& engine = initEngine_TPCH(engineIndex, dataSize, Q1Q6only);
-  auto eval = [&engine, &engineIndex](boss::ComplexExpression const& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(librariesToTest[engineIndex], expression));
+static void TPCH6_BOSS(benchmark::State& state, int dataSize, std::string const& engineLibrary,
+                       bool Q1Q6only) {
+  auto& engine = initEngine_TPCH(engineLibrary, dataSize, Q1Q6only);
+  auto eval = [&engine, &engineLibrary](boss::ComplexExpression const& expression) mutable {
+    return engine.evaluate("EvaluateInEngine"_(engineLibrary, expression));
   };
 
   auto const queryQ6 = "Group"_(
       "Project"_("Select"_("LINEITEM"_,
                            "Where"_("And"_(
-                               "Less"_("L_QUANTITY"_, 24), "GreaterEqual"_("L_DISCOUNT"_, 0.05f),
-                               "GreaterEqual"_(0.07f, "L_DISCOUNT"_),
+                               "Less"_("L_QUANTITY"_, 24), "GreaterEqual"_("L_DISCOUNT"_, 0.05F),
+                               "GreaterEqual"_(0.07F, "L_DISCOUNT"_),
                                "Greater"_("DateObject"_("1995-01-01"), "L_SHIPDATE"_),
                                "GreaterEqual"_("L_SHIPDATE"_, "DateObject"_("1994-01-01"))))),
                  "As"_("revenue"_, "Times"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_))),
@@ -750,7 +744,7 @@ static void TPCH6_BOSS(benchmark::State& state, int dataSize, int engineIndex, b
   }
 
   vtune.startSampling("TPC-H 6 - BOSS");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto output = eval("Extract"_("Extract"_(queryQ6, 1), 1));
     benchmark::DoNotOptimize(output);
   }
@@ -767,8 +761,8 @@ static void TPCH6_monetdb(benchmark::State& state, int dataSize, bool Q1Q6only) 
                  "    lineitem "s
                  "where "s
                  "    l_shipdate >= date '1994-01-01' "s
-                 "    and l_shipdate < date '1994-01-01' + interval '1' year "s
-                 "    and l_discount between .06 - 0.01 and .06 + 0.01 "s
+                 "    and l_shipdate < date '1995-01-01'"s
+                 "    and l_discount between 0.05 and 0.07"s
                  "    and l_quantity < 24;"s;
 
   if constexpr(VERBOSE_QUERY_OUTPUT) {
@@ -779,7 +773,7 @@ static void TPCH6_monetdb(benchmark::State& state, int dataSize, bool Q1Q6only) 
   }
 
   vtune.startSampling("TPC-H 6 - MonetDB");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     monetdb_query(connection, queryQ6.data(), 1, &result, NULL, NULL);
     benchmark::DoNotOptimize(result);
   }
@@ -805,12 +799,15 @@ static void TPCH6_duckdb(benchmark::State& state, int dataSize, bool Q1Q6only) {
   }
 
   vtune.startSampling("TPC-H 6 - DuckDB");
-  for(auto _ : state) {
+  for(auto _ : state) { // NOLINT
     auto result = queryQ6->Execute();
     benchmark::DoNotOptimize(result);
   }
   vtune.stopSampling();
 }
+
+static std::vector<string>
+    librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 static void TPCH_test(benchmark::State& state, int query, int dataSize, int engine, bool Q1Q6only) {
   static auto lastEngine = engine;
@@ -833,18 +830,28 @@ static void TPCH_test(benchmark::State& state, int query, int dataSize, int engi
   switch(engine) {
   case MONETDB:
     switch(query) {
+    case TPCH_Q1:
+    case TPCH_Q3:
+      break;
     case TPCH_Q6:
       TPCH6_monetdb(state, dataSize, Q1Q6only);
       break;
+    case TPCH_Q9:
+    case TPCH_Q18:
     default:
       break;
     }
     break;
   case DUCKDB:
     switch(query) {
+    case TPCH_Q1:
+    case TPCH_Q3:
+      break;
     case TPCH_Q6:
       TPCH6_duckdb(state, dataSize, Q1Q6only);
       break;
+    case TPCH_Q9:
+    case TPCH_Q18:
     default:
       break;
     }
@@ -853,9 +860,14 @@ static void TPCH_test(benchmark::State& state, int query, int dataSize, int engi
     if(engine >= BOSS_ENGINES_START) {
       auto engineIndex = engine - BOSS_ENGINES_START;
       switch(query) {
-      case TPCH_Q6:
-        TPCH6_BOSS(state, dataSize, engineIndex, Q1Q6only);
+      case TPCH_Q1:
+      case TPCH_Q3:
         break;
+      case TPCH_Q6:
+        TPCH6_BOSS(state, dataSize, librariesToTest[engineIndex], Q1Q6only);
+        break;
+      case TPCH_Q9:
+      case TPCH_Q18:
       default:
         break;
       }
@@ -864,43 +876,79 @@ static void TPCH_test(benchmark::State& state, int query, int dataSize, int engi
   }
 }
 
-#define REGISTER_BENCHMARK_FOR_ALL_ENGINES(func, rangeCall, ...)                                   \
-  benchmark::RegisterBenchmark(#func "Vectors", func##Vectors)->rangeCall(__VA_ARGS__);            \
-  for(int i = 0; i < librariesToTest.size(); ++i) {                                                \
-    auto testName = #func "BOSS/" + librariesToTest[i];                                            \
-    benchmark::RegisterBenchmark(testName.c_str(), func##BOSS, i)->rangeCall(__VA_ARGS__);         \
+template <typename... Args>
+benchmark::internal::Benchmark* RegisterBenchmarkNolint([[maybe_unused]] Args... args) {
+#ifdef __clang_analyzer__
+  // There is not way to disable clang-analyzer-cplusplus.NewDeleteLeaks
+  // even though it is perfectly safe. Let's just please clang analyzer.
+  return nullptr;
+#else
+  return benchmark::RegisterBenchmark(args...);
+#endif
+}
+
+template <typename Func0, typename Func1>
+void RegisterForAllEngines(std::string const& name, Func0&& funcVectors, Func1&& funcBOSS,
+                           int minRange, int maxRange) {
+  auto nameTestVectors = name + "/Vectors";
+  RegisterBenchmarkNolint(nameTestVectors.c_str(), funcVectors)->Range(minRange, maxRange);
+  for(auto const& bossLibraryName : librariesToTest) {
+    auto nameTestBOSS = name + "/";
+    nameTestBOSS += bossLibraryName;
+    RegisterBenchmarkNolint(nameTestBOSS.c_str(), funcBOSS, bossLibraryName)
+        ->Range(minRange, maxRange);
   }
+}
+
+template <typename Func0, typename Func1>
+void RegisterForAllEngines(std::string const& name, Func0&& funcVectors, Func1&& funcBOSS,
+                           int minRange, int maxRange, int minSelectivity, int maxSelectivity) {
+  auto nameTestVectors = name + "/Vectors";
+  RegisterBenchmarkNolint(nameTestVectors.c_str(), funcVectors)
+      ->Ranges({{minRange, maxRange}, {minSelectivity, maxSelectivity}});
+  for(auto const& bossLibraryName : librariesToTest) {
+    auto nameTestBOSS = name + "/";
+    nameTestBOSS += bossLibraryName;
+    RegisterBenchmarkNolint(nameTestBOSS.c_str(), funcBOSS, bossLibraryName)
+        ->Ranges({{minRange, maxRange}, {minSelectivity, maxSelectivity}});
+  }
+}
 
 int main(int argc, char** argv) {
   // read custom arguments
   bool Q1Q6only = false;
   for(int i = 0; i < argc; ++i) {
-    if(std::string("--Q1Q6only").compare(argv[i]) == 0) {
+    if(std::string("--Q1Q6only") == argv[i]) {
       Q1Q6only = true;
-    } else if(std::string("--library").compare(argv[i]) == 0) {
+    } else if(std::string("--library") == argv[i]) {
       if(++i < argc) {
         librariesToTest.emplace_back(argv[i]);
       }
     }
   }
   // register basic benchmarks
-  static int const minSize = 1U << 10U;
-  static int const maxSize = 1U << 27U;
-  REGISTER_BENCHMARK_FOR_ALL_ENGINES(Addition_, Range, minSize, maxSize);
-  REGISTER_BENCHMARK_FOR_ALL_ENGINES(Comparison_, Range, minSize, maxSize);
-  REGISTER_BENCHMARK_FOR_ALL_ENGINES(Logic_, Range, minSize, maxSize);
-  REGISTER_BENCHMARK_FOR_ALL_ENGINES(Compound_, Range, minSize, maxSize);
-  REGISTER_BENCHMARK_FOR_ALL_ENGINES(StringContains_, Range, minSize, maxSize);
-  REGISTER_BENCHMARK_FOR_ALL_ENGINES(StringJoin_, Range, minSize, maxSize);
-  REGISTER_BENCHMARK_FOR_ALL_ENGINES(SelectString_, Ranges, {{minSize, maxSize}, {1, maxSize}});
-  REGISTER_BENCHMARK_FOR_ALL_ENGINES(SelectInt_, Ranges, {{minSize, maxSize}, {1, maxSize}});
-  REGISTER_BENCHMARK_FOR_ALL_ENGINES(SelectBool_, Ranges, {{minSize, maxSize}, {1, maxSize}});
+  static auto const minSize = 1U << 10U;
+  static auto const maxSize = 1U << 27U;
+  RegisterForAllEngines("Addition", Addition_Vectors, Addition_BOSS, minSize, maxSize);
+  RegisterForAllEngines("Comparison", Comparison_Vectors, Comparison_BOSS, minSize, maxSize);
+  RegisterForAllEngines("Logic", Logic_Vectors, Logic_BOSS, minSize, maxSize);
+  RegisterForAllEngines("Compound", Compound_Vectors, Compound_BOSS, minSize, maxSize);
+  RegisterForAllEngines("StringContains", StringContains_Vectors, StringContains_BOSS, minSize,
+                        maxSize);
+  RegisterForAllEngines("StringJoin", StringJoin_Vectors, StringJoin_BOSS, minSize, maxSize);
+  RegisterForAllEngines("SelectBool", SelectBool_Vectors, SelectBool_BOSS, minSize, maxSize, 1,
+                        maxSize);
+  RegisterForAllEngines("SelectInt", SelectInt_Vectors, SelectInt_BOSS, minSize, maxSize, 1,
+                        maxSize);
+  RegisterForAllEngines("SelectString", SelectString_Vectors, SelectString_BOSS, minSize, maxSize,
+                        1, maxSize);
   // register TPC-H benchmarks
   for(int dataSize : std::vector<int>{1, 10, 100, 1000, 2000, 5000, 10000, 100000}) {
     for(int engine = 0; engine < BOSS_ENGINES_START + librariesToTest.size(); ++engine) {
       for(int query :
-          Q1Q6only ? std::vector<int>{/*TPCH_Q1, */ TPCH_Q6}
-                   : std::vector<int>{/*TPCH_Q1, TPCH_Q3, */ TPCH_Q6 /*, TPCH_Q9, TPCH_Q18*/}) {
+          Q1Q6only
+              ? std::vector<int>{/*TPCH_Q1,*/ TPCH_Q6}                                     // NOLINT
+              : std::vector<int>{/*TPCH_Q1, TPCH_Q3,*/ TPCH_Q6 /*, TPCH_Q9, TPCH_Q18*/}) { // NOLINT
         std::ostringstream testName;
         testName << "TPCH_Q" << query << "/";
         if(engine < BOSS_ENGINES_START) {
@@ -908,9 +956,9 @@ int main(int argc, char** argv) {
         } else {
           testName << librariesToTest[engine - BOSS_ENGINES_START];
         }
-        testName << "/" << dataSize << "MB/";
-        benchmark::RegisterBenchmark(testName.str().c_str(), TPCH_test, query, dataSize, engine,
-                                     Q1Q6only);
+        testName << "/" << dataSize << "MB";
+        RegisterBenchmarkNolint(testName.str().c_str(), TPCH_test, query, dataSize, engine,
+                                Q1Q6only);
       }
     }
   }
