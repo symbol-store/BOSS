@@ -732,10 +732,10 @@ static void TPCH6_BOSS(benchmark::State& state, int dataSize, std::string const&
   auto const queryQ6 = "Group"_(
       "Project"_("Select"_("LINEITEM"_,
                            "Where"_("And"_(
-                               "Less"_("L_QUANTITY"_, 24), "GreaterEqual"_("L_DISCOUNT"_, 0.05F),
-                               "GreaterEqual"_(0.07F, "L_DISCOUNT"_),
+                               "Greater"_(24, "L_QUANTITY"_), "Greater"_("L_DISCOUNT"_, 0.0499F),
+                               "Greater"_(0.07001F, "L_DISCOUNT"_),
                                "Greater"_("DateObject"_("1995-01-01"), "L_SHIPDATE"_),
-                               "GreaterEqual"_("L_SHIPDATE"_, "DateObject"_("1994-01-01"))))),
+                               "Greater"_("L_SHIPDATE"_, "DateObject"_("1993-12-31"))))),
                  "As"_("revenue"_, "Times"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_))),
       "Sum"_("revenue"_));
 
