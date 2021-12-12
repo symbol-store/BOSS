@@ -141,6 +141,45 @@
     )
   )
 
+;function performing operation
+(define (rest-op-explain req operators)
+  (let ((plan
+         (expand-only
+          #`(~> #,@(unflatten
+                    (map
+                     (lambda (op)
+                       (read
+                        (open-input-string op))) operators)))
+          (list #'~>)))
+        (schema
+         (expand-only
+          #`( ~> #,@(unflatten
+                     (map
+                      (lambda (op)
+                        (read
+                         (open-input-string op)))
+                      operators))
+                 Schema)
+          (list #'~>)))
+        )
+
+    (response/full
+     200
+     #"OK"
+     (current-seconds)
+     TEXT/HTML-MIME-TYPE
+     '()
+     ;;; (list (string->bytes/utf-8 (jsonify (eval schema) (eval plan) ) ))
+     (list (string->bytes/utf-8
+            (jsonify
+            "none"
+            ;;;  (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema))
+             (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,plan)) 
+             )))
+     )
+    )
+  )
+
 ;given racket schema and data, it returns a JSON string
 (define (jsonify schema data)
   (with-handlers
@@ -229,6 +268,7 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [("") index]
    ; REST interface to BOSS (https://lisp.sh/crud-web-api-in-racket/)
    [("rest" (string-arg) ...) #:method "get" rest-explain]
+   [("rest-op" (string-arg) ...) #:method "get" rest-op-explain]
    [("rest-example-page") rest-example-page]
    ; api divided in "legacy" and "rest" so that racket can serve static files
    [("legacy" (string-arg) ...) explain]
