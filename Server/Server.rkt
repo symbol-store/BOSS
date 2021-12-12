@@ -105,6 +105,16 @@
 
 ;function returning data on get
 (define (rest-explain req operators)
+  ;jsonify need to evaluate the query twice.
+  ;mod is true if this is a modifying query. If it is, only eval once.
+  (define string-query (format "~a" operators))
+  (define mod 
+    (or 
+     (string-contains? string-query "CreateTable")
+     (string-contains? string-query "InsertInto")
+     )
+    )
+
   (let ((plan
          (expand-only
           #`(~> #,@(unflatten
@@ -125,43 +135,25 @@
           (list #'~>)))
         )
 
-    (response/full
-     200
-     #"OK"
-     (current-seconds)
-     TEXT/HTML-MIME-TYPE
-     '()
-     ;;; (list (string->bytes/utf-8 (jsonify (eval schema) (eval plan) ) ))
-     (list (string->bytes/utf-8
-            (jsonify
-             (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema))
-             (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,plan)) 
-             )))
-     )
-    )
-  )
+    ;eval twice only if it's a non modifying query
+    (when mod (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema)) )
 
-;function performing operation
-(define (rest-op-explain req operators)
-  (let ((plan
-         (expand-only
-          #`(~> #,@(unflatten
-                    (map
-                     (lambda (op)
-                       (read
-                        (open-input-string op))) operators)))
-          (list #'~>)))
-        (schema
-         (expand-only
-          #`( ~> #,@(unflatten
-                     (map
-                      (lambda (op)
-                        (read
-                         (open-input-string op)))
-                      operators))
-                 Schema)
-          (list #'~>)))
-        )
+    (define res
+      (if mod
+          (
+           string-append
+           "[{\"query\":\""
+           string-query
+           "\",\"executed\":\"yes\"}]"
+                                       
+           )
+
+          (jsonify
+           (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema))
+           (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,plan)) 
+           )
+          )
+      )
 
     (response/full
      200
@@ -169,16 +161,13 @@
      (current-seconds)
      TEXT/HTML-MIME-TYPE
      '()
-     ;;; (list (string->bytes/utf-8 (jsonify (eval schema) (eval plan) ) ))
      (list (string->bytes/utf-8
-            (jsonify
-            "none"
-            ;;;  (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema))
-             (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,plan)) 
-             )))
+            res
+            ))
      )
     )
   )
+
 
 ;given racket schema and data, it returns a JSON string
 (define (jsonify schema data)
