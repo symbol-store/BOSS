@@ -257,7 +257,6 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [("") index]
    ; REST interface to BOSS (https://lisp.sh/crud-web-api-in-racket/)
    [("rest" (string-arg) ...) #:method "get" rest-explain]
-   [("rest-op" (string-arg) ...) #:method "get" rest-op-explain]
    [("rest-example-page") rest-example-page]
    ; api divided in "legacy" and "rest" so that racket can serve static files
    [("legacy" (string-arg) ...) explain]
