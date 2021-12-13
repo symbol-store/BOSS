@@ -269,16 +269,6 @@ all lists (excluding the root), thus stacking another operator on top of the que
  (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
  (InsertInto  Customer "Hubert" "Frenchman" 34))
 
-; just an example XY table to play with
-(EvaluateInEngine
- "lib/libBOSSWolframEngine.so"
-(CreateTable NumbersTable xnumber ynumber description)
-(InsertInto  NumbersTable 1 3 "desc1")
-(InsertInto  NumbersTable 2 4 "desc2")
-(InsertInto  NumbersTable 3 5 "desc3")
-(InsertInto  NumbersTable 4 7 "desc4")
-(InsertInto  NumbersTable 5 6 "desc5"))
-
 (provide main)
 (define (main)
   (serve/servlet start
