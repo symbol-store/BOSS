@@ -1,9 +1,9 @@
 #pragma once
 #include "Utilities.hpp"
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <string>
-#include <cstdint>
 #include <variant>
 #include <vector>
 
@@ -28,7 +28,7 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
 
 template <typename... AdditionalCustomAtoms>
 using AtomicExpressionWithAdditionalCustomAtoms =
-  std::variant<bool, std::int64_t, std::double_t, std::string, Symbol, AdditionalCustomAtoms...>;
+    std::variant<bool, std::int64_t, std::double_t, std::string, Symbol, AdditionalCustomAtoms...>;
 
 template <typename... AdditionalCustomAtoms> class ComplexExpressionWithAdditionalCustomAtoms;
 
@@ -43,8 +43,10 @@ public:
       ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type;
 
   using SuperType::SuperType;
-  explicit ExpressionWithAdditionalCustomAtoms(int v) noexcept : ExpressionWithAdditionalCustomAtoms(long(v)) {}
-  explicit ExpressionWithAdditionalCustomAtoms(float v) noexcept : ExpressionWithAdditionalCustomAtoms(double(v)) {}
+  explicit ExpressionWithAdditionalCustomAtoms(int v) noexcept
+      : ExpressionWithAdditionalCustomAtoms(long(v)) {}
+  explicit ExpressionWithAdditionalCustomAtoms(float v) noexcept
+      : ExpressionWithAdditionalCustomAtoms(double(v)) {}
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
       ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
