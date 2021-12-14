@@ -55,8 +55,10 @@ char const* bossSymbolToNewString(BOSSSymbol const* arg) {
  */
 size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
   static_assert(std::is_same_v<bool, std::variant_alternative_t<0, boss::Expression::SuperType>>);
-  static_assert(std::is_same_v<long, std::variant_alternative_t<1, boss::Expression::SuperType>>);
-  static_assert(std::is_same_v<double, std::variant_alternative_t<2, boss::Expression::SuperType>>);
+  static_assert(
+      std::is_same_v<std::int64_t, std::variant_alternative_t<1, boss::Expression::SuperType>>);
+  static_assert(
+      std::is_same_v<std::double_t, std::variant_alternative_t<2, boss::Expression::SuperType>>);
   static_assert(
       std::is_same_v<std::string, std::variant_alternative_t<3, boss::Expression::SuperType>>);
   static_assert(
@@ -70,11 +72,11 @@ size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
 bool getBoolValueFromBOSSExpression(BOSSExpression const* arg) {
   return boss::get<bool>(arg->delegate);
 }
-long getLongValueFromBOSSExpression(BOSSExpression const* arg) {
-  return boss::get<long>(arg->delegate);
+std::int64_t getLongValueFromBOSSExpression(BOSSExpression const* arg) {
+  return boss::get<std::int64_t>(arg->delegate);
 }
-double getDoubleValueFromBOSSExpression(BOSSExpression const* arg) {
-  return boss::get<double>(arg->delegate);
+std::double_t getDoubleValueFromBOSSExpression(BOSSExpression const* arg) {
+  return boss::get<std::double_t>(arg->delegate);
 }
 char const* getNewStringValueFromBOSSExpression(BOSSExpression const* arg) {
   return strdup(boss::get<std::string>(arg->delegate).c_str());

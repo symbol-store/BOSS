@@ -1,7 +1,9 @@
 #pragma once
 #include "Utilities.hpp"
+#include <cmath>
 #include <functional>
 #include <string>
+#include <cstdint>
 #include <variant>
 #include <vector>
 
@@ -26,7 +28,7 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
 
 template <typename... AdditionalCustomAtoms>
 using AtomicExpressionWithAdditionalCustomAtoms =
-    std::variant<bool, long, double, std::string, Symbol, AdditionalCustomAtoms...>;
+  std::variant<bool, std::int64_t, std::double_t, std::string, Symbol, AdditionalCustomAtoms...>;
 
 template <typename... AdditionalCustomAtoms> class ComplexExpressionWithAdditionalCustomAtoms;
 

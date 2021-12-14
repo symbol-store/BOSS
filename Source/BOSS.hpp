@@ -26,8 +26,8 @@ BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
 size_t getBOSSExpressionTypeID(BOSSExpression const* arg);
 
 bool getBoolValueFromBOSSExpression(BOSSExpression const* arg);
-long getLongValueFromBOSSExpression(BOSSExpression const* arg);
-double getDoubleValueFromBOSSExpression(BOSSExpression const* arg);
+std::int64_t getLongValueFromBOSSExpression(BOSSExpression const* arg);
+std::double_t getDoubleValueFromBOSSExpression(BOSSExpression const* arg);
 char const* getNewStringValueFromBOSSExpression(BOSSExpression const* arg);
 char const* getNewSymbolNameFromBOSSExpression(BOSSExpression const* arg);
 

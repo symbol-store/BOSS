@@ -23,7 +23,7 @@
                                            r))))
 
 
-(define longToNewExpression (get-ffi-obj "longToNewBOSSExpression" libBoss (_fun _long  -> _pointer)))
+(define longToNewExpression (get-ffi-obj "longToNewBOSSExpression" libBoss (_fun _int64  -> _pointer)))
 (define doubleToNewExpression
   (get-ffi-obj "doubleToNewBOSSExpression" libBoss (_fun _double  -> _pointer)))
 (define stringToNewExpression
@@ -79,7 +79,7 @@
 (define getBoolValueFromExpression (get-ffi-obj "getBoolValueFromBOSSExpression" libBoss
                                                 (_fun _pointer -> _bool)))
 (define getLongValueFromExpression (get-ffi-obj "getLongValueFromBOSSExpression" libBoss
-                                               (_fun _pointer -> _long)))
+                                               (_fun _pointer -> _int64)))
 (define getDoubleValueFromExpression (get-ffi-obj "getDoubleValueFromBOSSExpression" libBoss
                                                  (_fun _pointer -> _double)))
 (define getStringValueFromExpression (get-ffi-obj "getNewStringValueFromBOSSExpression" libBoss

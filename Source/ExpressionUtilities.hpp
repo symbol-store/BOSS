@@ -1,7 +1,9 @@
 #pragma once
 #include "Expression.hpp"
 #include <arrow/array.h>
+#include <cstdint>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <sstream>
 #include <typeindex>
@@ -69,21 +71,14 @@ namespace nasty {
 // the ownership model is unclear -- we really need to fix that
 static boss::ComplexExpression
 arrowArrayToExpression(std::shared_ptr<arrow::Array> const& arrowPtr) {
-  union {
-    std::shared_ptr<arrow::Array> const* pointer;
-    long asLong = {};
-  };
-
-  pointer = &arrowPtr;             // NOLINT(cppcoreguidelines-pro-type-union-access)
-  return "ArrowArrayPtr"_(asLong); // NOLINT(cppcoreguidelines-pro-type-union-access)
+  static_assert(sizeof(void*) == sizeof(std::int64_t),
+                "pointers are not 64-bit -- this might break in funky ways");
+  return "ArrowArrayPtr"_(reinterpret_cast<std::int64_t>(&arrowPtr));
 }
-static std::shared_ptr<arrow::Array> reconstructArrowArray(long addressAsLong) {
-  union {
-    std::shared_ptr<arrow::Array> const* pointer;
-    long address = {};
-  };
-  address = addressAsLong; // NOLINT(cppcoreguidelines-pro-type-union-access)
-  return *pointer;         // NOLINT
+static std::shared_ptr<arrow::Array> reconstructArrowArray(std::int64_t addressAsLong) {
+  static_assert(sizeof(void*) == sizeof(std::int64_t),
+                "pointers are not 64-bit -- this might break in funky ways");
+  return *reinterpret_cast<std::shared_ptr<arrow::Array> const*>(addressAsLong);
 }
 } // namespace nasty
 
