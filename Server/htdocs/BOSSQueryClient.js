@@ -1,40 +1,33 @@
 //JS module retrieving data from BOSS
 //it manages UrlQueries and support graphic queries
 
-var BOSSServerUrl = "";
-var BOSSRestEndPoint = "";
-var BOSSRestUrl = "";
-
-var BOSSQueryInterval = 0;
-
-export function setBOSSQueryInterval(myBOSSQueryInterval) {
-    BOSSQueryInterval = myBOSSQueryInterval;
-}
-export function setBOSSUrl(myBOSSServerUrl, myBOSSRestEndPoint) {
-    BOSSServerUrl = myBOSSServerUrl;
-    BOSSRestEndPoint = myBOSSRestEndPoint;
-    BOSSRestUrl = BOSSServerUrl + "/" + BOSSRestEndPoint + "/";
+export class BOSSConnectionConfig{
+    constructor(myBOSSServerUrl, myBOSSRestEndPoint) {
+        this.BOSSServerUrl = myBOSSServerUrl;
+        this.BOSSRestEndPoint = myBOSSRestEndPoint;
+        this.BOSSRestUrl = this.BOSSServerUrl + "/" + this.BOSSRestEndPoint + "/";
+    }
 }
 
-export function drawBOSSChart(drawFunction, updateFunction, queryUrl) {
-    BOSSQuery(queryUrl).then((data) => {
+export function drawBOSSChart(drawFunction, updateFunction, queryUrl, queryInterval, config) {
+    BOSSQuery(queryUrl, config).then((data) => {
         drawFunction(data);
     }).then(() => {
         setInterval(function () {
-            BOSSQuery(queryUrl).then((data) => {
+            BOSSQuery(queryUrl, config).then((data) => {
                 updateFunction(data);
             });
-        }, BOSSQueryInterval);
+        }, queryInterval);
     });
 }
 
-export async function BOSSQuery(urlQuery) {
+export async function BOSSQuery(urlQuery, config) {
     if (urlQuery == "") {
         return new Promise((resolve, reject) => {
             reject("empty urlQuery.");
         });
     }
-    var url = BOSSRestUrl + urlQuery;
+    var url = config.BOSSRestUrl + urlQuery;
     return new Promise((resolve, reject) => {
         fetch(url).then((res) => {
             res.json().then((data) => {

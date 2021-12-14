@@ -7,7 +7,13 @@
 (require threading)
 (require racket/list)
 (require macro-debugger/expand)
+(require web-server/servlet-env
+         web-server/servlet
+         web-server/templates
+         web-server/dispatch
+         web-server/configuration/responders)
 (require "BOSS.rkt")
+
 (define (unflatten l)
   (foldl
    (lambda (op plan)
@@ -34,16 +40,6 @@
    '()
    l))
 
-(require web-server/servlet-env
-         web-server/servlet
-         threading
-         web-server/dispatch
-         ;needed to dispatch files
-         web-server/configuration/responders)
-
-;racket component to embed html pages https://docs.racket-lang.org/web-server/templates.html
-(require web-server/templates)
-
 (define (list->html-table data schema)
   `(div ((style "overflow-x: auto; overflow-y: auto; height:100%;"))
         (table
@@ -62,8 +58,6 @@
             data)
          ))
   )
-
-
 
 (define (embed-in-page . nested)
   (response/xexpr
@@ -84,7 +78,7 @@
    )
   )
 
-(define (explain req operators)
+(define (html-table-handler req operators)
   (let ((plan (expand-only #`(~> #,@(unflatten (map
                                                 (lambda (op) (read (open-input-string op))) operators)))
                            (list #'~>)))
@@ -103,12 +97,10 @@
                    )
     ))
 
-;function returning data on get
-(define (rest-explain req operators)
-  ;jsonify need to evaluate the query twice.
-  ;mod is true if this is a modifying query. If it is, only eval once.
+(define (rest-handler req operators)
+  ;jsonify needs evaluation of schema and plan, which is not ok for modifying queries
   (define string-query (format "~a" operators))
-  (define mod 
+  (define is-modifying-query 
     (or 
      (string-contains? string-query "CreateTable")
      (string-contains? string-query "InsertInto")
@@ -135,11 +127,10 @@
           (list #'~>)))
         )
 
-    ;eval twice only if it's a non modifying query
-    (when mod (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema)) )
+    (when is-modifying-query (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema)) )
 
-    (define res
-      (if mod
+    (define json-response
+      (if is-modifying-query
           (
            string-append
            "[{\"query\":\""
@@ -162,7 +153,7 @@
      TEXT/HTML-MIME-TYPE
      '()
      (list (string->bytes/utf-8
-            res
+            json-response
             ))
      )
     )
@@ -232,10 +223,10 @@ all lists (excluding the root), thus stacking another operator on top of the que
    '(h1 "Examples")
 
    '(list
-     (li (a ((href "legacy/Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "Simple Projection Query"))
-     (li (a ((href "legacy/Customer/:::/Select/:/Where/:/Equal/FirstName/\"Holger\"/:::/Group/Count")) "Simple Aggregation Query"))
+     (li (a ((href "html-table/Customer/:/Project/:/As/Name/FirstName/Last/LastName/Age/age")) "Simple Projection Query"))
+     (li (a ((href "html-table/Customer/:::/Select/:/Where/:/Equal/FirstName/\"Holger\"/:::/Group/Count")) "Simple Aggregation Query"))
      (li (a ((href "rest-example-page")) "REST example page"))
-     (li (a ((href "legacy/\"libBOSSMQTTEngine.so\"/:/EvaluateInEngine/:/StartMQTTServer")) "Start MQTT (make sure the library is installed)"))
+     (li (a ((href "html-table/\"libBOSSMQTTEngine.so\"/:/EvaluateInEngine/:/StartMQTTServer")) "Start MQTT (make sure the library is installed)"))
      ))
   )
 
@@ -256,10 +247,10 @@ all lists (excluding the root), thus stacking another operator on top of the que
   (dispatch-rules
    [("") index]
    ; REST interface to BOSS (https://lisp.sh/crud-web-api-in-racket/)
-   [("rest" (string-arg) ...) #:method "get" rest-explain]
+   [("rest" (string-arg) ...) #:method "get" rest-handler]
    [("rest-example-page") rest-example-page]
-   ; api divided in "legacy" and "rest" so that racket can serve static files
-   [("legacy" (string-arg) ...) explain]
+   ; api divided in "html-table" and "rest" so that racket can serve static files
+   [("html-table" (string-arg) ...) html-table-handler]
    ))
 
 (EvaluateInEngine

@@ -31,15 +31,15 @@
     <div id="outputdiv"></div>
 
     <script type="module">
-        import { setBOSSUrl, BOSSQuery } from "./BOSSQueryClient.js";
+        import { BOSSConnectionConfig, BOSSQuery } from "./BOSSQueryClient.js";
         
         document.getElementById('querybutton').addEventListener('click', printRestQueryData);
 
         function printRestQueryData() {
-            setBOSSUrl("http://localhost:8000", "rest");
+            const config = new BOSSConnectionConfig("http://localhost:8000", "rest");
             var query = document.getElementById('querybox').value;
             console.log("query: " + query);
-            BOSSQuery(query).then((data) => {
+            BOSSQuery(query, config).then((data) => {
                 console.log("returned data: " + data);
                 document.getElementById('outputdiv').textContent = data;
             },
