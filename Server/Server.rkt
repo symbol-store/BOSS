@@ -166,7 +166,7 @@
      (make-hasheq              
       (map
        (lambda (item field)
-         (cons (car field) (~a item))
+         (cons (string->symbol(~a(car field))) (~a item))
          )
        record
        schema
@@ -179,7 +179,14 @@
 
 (define (jsonify schema data)
   (define my-jsexpr (listsToJsexpr schema data))
-  (write-json my-jsexpr)
+  (define result
+    (with-output-to-string
+      (λ ()
+        (string-trim (~a (write-json my-jsexpr)) "#<void>")
+        )
+      )
+    )
+  result
   )
 
 (define (index req)
