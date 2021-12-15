@@ -7,6 +7,7 @@
 (require threading)
 (require racket/list)
 (require macro-debugger/expand)
+(require json)
 (require web-server/servlet-env
          web-server/servlet
          web-server/templates
@@ -159,56 +160,26 @@
     )
   )
 
+(define (listsToJsexpr schema data)
+  (map
+   (lambda (record)
+     (make-hasheq              
+      (map
+       (lambda (item field)
+         (cons (car field) (~a item))
+         )
+       record
+       schema
+       )
+      )
+     )
+   data
+   )
+  )
 
-;given racket schema and data, it returns a JSON string
 (define (jsonify schema data)
-  (with-handlers
-      ([exn:fail? 
-        (lambda (exn)
-          (displayln (exn-message exn))
-          "[]")
-        ])
-
-    (string-replace
-     (string-append
-      "["
-      (let ([json-data
-             (format
-              "~a"
-              (map (lambda (record)
-                     (string-append
-                      "{\n"
-                      (let ([json-record
-                             (format
-                              "~a"
-                              (map (lambda (item field)
-                                     (string-append
-                                      "\""
-                                      (format
-                                       "~a"
-                                       (car field))
-                                      "\": \""
-                                      (format
-                                       "~a" item) "\",\n" )
-                                     )
-                                   record
-                                   schema
-                                   )
-                              )]
-                            )
-                        (substring json-record 1 (- (string-length json-record) 3) )
-                        )
-                      "\n},\n")
-                     )
-                   data
-                   )
-              )]
-            )
-        (substring json-data 1 (- (string-length json-data) 3) )
-        )
-      "]" )
-     "$0" "_" )
-    )
+  (define my-jsexpr (listsToJsexpr schema data))
+  (write-json my-jsexpr)
   )
 
 (define (index req)
