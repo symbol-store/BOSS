@@ -328,6 +328,17 @@ public:
 
   ArgumentWrapper<true, AdditionalAtoms...> front() const { return at(0); }
 
+  ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> operator[](size_t i) const {
+    if constexpr(std::tuple_size_v < StaticArgumentsContainer >> 0) {
+      if(i < std::tuple_size_v<StaticArgumentsContainer>) {
+        return getStaticArgument(
+            i, std::make_index_sequence<std::tuple_size_v<StaticArgumentsContainer>>());
+      }
+    }
+    return arguments[i - std::tuple_size_v<StaticArgumentsContainer>];
+  }
+
+
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> at(size_t i) const {
     if constexpr(std::tuple_size_v < StaticArgumentsContainer >> 0) {
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
