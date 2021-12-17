@@ -26,6 +26,21 @@ TEST_CASE("Expressions", "[expressions]") {
   CHECK(e.getArguments().at(1) == v2);
 }
 
+TEST_CASE("Expression Transformation", "[expressions]") {
+  auto v1 = GENERATE(take(3, random(1, 100)));
+  auto v2 = GENERATE(take(3, random(1, 100)));
+  auto e = "UnevaluatedPlus"_(v1, v2);
+  REQUIRE(*begin(e.getArguments()) == v1);
+  boss::std::get<int>(*begin(e.getArguments()))++;
+  REQUIRE(*begin(e.getArguments()) == v1 + 1);
+  std::transform(std::make_move_iterator(begin(e.getArguments())),
+                 std::make_move_iterator(end(e.getArguments())), e.getArguments().begin(),
+                 [](auto&& e) { return get<int>(e) + 1; });
+
+  CHECK(e.getArguments().at(0) == v1 + 2);
+  CHECK(e.getArguments().at(1) == v2 + 1);
+}
+
 TEST_CASE("Expression without arguments", "[expressions]") {
   auto const& e = "UnevaluatedPlus"_();
   CHECK(e.getHead().getName() == "UnevaluatedPlus");
@@ -40,10 +55,10 @@ public:
 
 TEST_CASE("Expression cast to more general expression system", "[expressions]") {
   auto a = boss::ExtensibleExpressionSystem<>::Expression("howdie"_());
-  auto b = (boss::ExtensibleExpressionSystem<DummyAtom>::Expression)std::move(a);
-  CHECK(
-      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b).getHead().getName() ==
-      "howdie");
+  auto b = (boss::ExtensibleExpressionSystem<DummyAtom const>::Expression)std::move(a);
+  CHECK(get<boss::ExtensibleExpressionSystem<DummyAtom const>::ComplexExpression>(b)
+            .getHead()
+            .getName() == "howdie");
 }
 
 TEST_CASE("Basics", "[basics]") { // NOLINT
@@ -97,7 +112,8 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
     CHECK(get<std::string>(
               get<boss::ComplexExpression>(eval("UndefinedFunction"_((string) "Hello World!")))
-                  .getArguments()[0]) == "Hello World!");
+                  .getArguments()
+                  .at(0)) == "Hello World!");
   }
 
   SECTION("Interpolation") {

@@ -145,6 +145,11 @@ operator<<(std::ostream& out,
            boss::ComplexExpressionWithAdditionalCustomAtoms<std::tuple<StaticArguments...>,
                                                             AdditionalAtoms...> const& e);
 
+template <bool ConstWrappee, typename... AdditionalCustomAtoms>
+::std::ostream&
+operator<<(::std::ostream& stream,
+           boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& argument);
+
 template <typename... AdditionalAtoms>
 static std::ostream&
 operator<<(std::ostream& out,
@@ -170,12 +175,21 @@ operator<<(std::ostream& out,
   out << e.getHead() << "[";
   if(!e.getArguments().empty()) {
     out << e.getArguments().front();
-    for(auto it = next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
+    for(auto it = std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
       out << "," << *it;
     }
   }
   out << "]";
   return out;
+}
+
+template <bool ConstWrappee, typename... AdditionalCustomAtoms>
+::std::ostream&
+operator<<(::std::ostream& stream,
+           boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& argument) {
+  return std::visit(
+      [&stream](auto&& argument) -> auto& { return stream << argument.get(); },
+      argument.getArgument());
 }
 
 namespace boss {

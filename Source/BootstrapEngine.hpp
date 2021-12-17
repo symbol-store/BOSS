@@ -103,15 +103,13 @@ class BootstrapEngine : public boss::Engine {
                return result;
              };
              return std::accumulate(
-                 std::make_move_iterator(
-                     next(e.getArguments().begin())), // Note: first argument is the engine path
+                 std::make_move_iterator(std::next(
+                     e.getArguments().begin())), // Note: first argument is the engine path
                  std::make_move_iterator(e.getArguments().end()), boss::Expression(0),
-                 [&processArgumentInEngine](auto&& /* we evaluate all arguments
-                                                   but only return the last result */
-                                            ,
-                                            auto&& argument) -> boss::Expression {
-                   return std::visit(processArgumentInEngine,
-                                     std::forward<decltype(argument)>(argument));
+                 [&processArgumentInEngine](
+                     auto&&, /* we evaluate all arguments but only return the last result */
+                     auto&& argument) -> boss::Expression {
+                   return processArgumentInEngine(std::forward<decltype(argument)>(argument));
                  });
            }},
           {boss::Symbol("SetDefaultEngine"), [this](auto&& expression) -> boss::Expression {
@@ -137,9 +135,9 @@ public:
   BootstrapEngine& operator=(BootstrapEngine&&) = delete;
 
   auto evaluateArguments(boss::ComplexExpression&& expr) {
-    std::transform(std::make_move_iterator(expr.getArguments().begin()),
-                   std::make_move_iterator(expr.getArguments().end()), begin(expr.getArguments()),
-                   [&](auto&& e) { return evaluate(e, false); });
+    std::transform(std::make_move_iterator(begin(expr.getArguments())),
+                   std::make_move_iterator(end(expr.getArguments())), begin(expr.getArguments()),
+                   [&](auto&& e) { return evaluate(std::forward<decltype(e)>(e), false); });
     return std::move(expr);
   }
 

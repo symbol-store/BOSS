@@ -22,4 +22,20 @@ template <class, template <class...> class> struct isInstanceOfTemplate : public
 template <class... Ts, template <class...> class U>
 struct isInstanceOfTemplate<U<Ts...>, U> : public std::true_type {};
 
+template <template <typename...> typename NewWrapper, typename... Args>
+struct rewrap_variant_arguments;
+
+template <template <typename...> typename NewWrapper, typename... Args>
+struct rewrap_variant_arguments<NewWrapper, std::variant<Args...>> {
+  using type = std::variant<NewWrapper<Args>...>;
+};
+
+template <template <typename...> typename NewWrapper, typename... Args>
+struct rewrap_variant_arguments_and_add_const;
+
+template <template <typename...> typename NewWrapper, typename... Args>
+struct rewrap_variant_arguments_and_add_const<NewWrapper, std::variant<Args...>> {
+  using type = std::variant<NewWrapper<Args const>...>;
+};
+
 } // namespace boss::utilities
