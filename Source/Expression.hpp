@@ -181,23 +181,19 @@ public:
     return *this;
   }
 
+
+  /**
+   * Only allow (move-)conversion to Expressions if the wrapper is non-const
+   */
+  template <bool Enable = !ConstWrappee,
+            typename = typename std::enable_if<Enable>::type>
   operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>() && {
+  ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>() && {
     return std::move(std::visit(
         [](auto&& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-          if constexpr(std::is_same_v<
-                           std::decay_t<decltype(e)>,
-                           ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
-            return std::forward<decltype(e)>(e);
-          } else if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
-                                                              std::reference_wrapper>::value) {
-            if constexpr(!std::is_const_v<typename std::decay_t<decltype(e)>::type>) {
+          if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
+                                                       std::reference_wrapper>::value) {
               return std::move(e.get());
-            } else {
-              // todo: terrible
-              throw std::runtime_error("nooo");
-            }
-
           } else {
             return e;
           }
@@ -337,7 +333,6 @@ public:
     }
     return arguments[i - std::tuple_size_v<StaticArgumentsContainer>];
   }
-
 
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> at(size_t i) const {
     if constexpr(std::tuple_size_v < StaticArgumentsContainer >> 0) {
@@ -528,7 +523,22 @@ get(boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper
 };
 template <typename T, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
 T& get(boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
-  return std::get<std::reference_wrapper<T>>(wrapper.getArgument()).get();
+  return std::visit(
+      [](auto& argument) -> T& {
+        if constexpr(std::is_same_v<std::decay_t<decltype(argument)>, std::reference_wrapper<T>>) {
+          return argument.get();
+        } else if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(argument)>,
+                                                            std::reference_wrapper>::value &&
+                            utilities::isInstanceOfTemplate<
+                                std::decay_t<decltype(argument.get())>,
+                                boss::ExpressionWithAdditionalCustomAtoms>::value) {
+          T& v = std::get<T>(argument.get());
+          return v;
+        } else {
+          throw std::bad_variant_access();
+        }
+      },
+      wrapper.getArgument());
 }
 
 template <typename Func, auto ConstWrappee = false, typename... AdditionalCustomAtoms>

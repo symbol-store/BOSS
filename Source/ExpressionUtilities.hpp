@@ -203,7 +203,11 @@ public:
 
 template <typename T, typename TInput> auto&& get(TInput&& v) {
   try {
-    return std::move(std::get<T>(std::forward<TInput>(v)));
+    if constexpr(std::is_rvalue_reference_v<decltype(v)>) {
+      return std::move(std::get<T>(std::forward<TInput>(v)));
+    } else {
+      return std::get<T>(std::forward<TInput>(v));
+    }
   } catch(std::bad_variant_access const& e) {
     std::stringstream s;
     s << "expected and actual type mismatch in expression \"";
