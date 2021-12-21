@@ -120,6 +120,8 @@ find_package(Threads REQUIRED)
 
 ############################### Executable Targets ###############################
 
+set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
 set(ImplementationFiles Source/BOSS.cpp ${ARROW_DEF_FILE})
 set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp ${ARROW_DEF_FILE})
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp ${ARROW_DEF_FILE})
