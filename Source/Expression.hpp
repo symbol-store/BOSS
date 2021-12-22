@@ -449,7 +449,7 @@ public:
   }
 
   ExpressionArgumentsWithAdditionalCustomAtomsWrapper<decltype(staticArguments) const, true,
-                                                      AdditionalCustomAtoms const...>
+                                                      AdditionalCustomAtoms...>
   getArguments() const {
     return {staticArguments, arguments};
   }
