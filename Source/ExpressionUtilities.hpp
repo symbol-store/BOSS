@@ -201,12 +201,57 @@ public:
   const char* what() const noexcept override { return whatString.c_str(); }
 };
 
-template <typename T, typename TInput> auto&& get(TInput&& v) {
+template <typename T, typename TInput> decltype(auto) get(TInput&& v) {
   try {
     if constexpr(std::is_rvalue_reference_v<decltype(v)>) {
       return std::move(std::get<T>(std::forward<TInput>(v)));
+    } else if constexpr(std::is_lvalue_reference_v<decltype(v)>) {
+      return std::visit(
+          [](auto& unwrapped) -> std::conditional_t<
+                                  std::is_const_v<std::remove_reference_t<decltype(v)>> ||
+                                      isConstArgumentWrapper<std::remove_reference_t<decltype(v)>>,
+                                  T const&, T&> {
+            if constexpr(std::is_same_v<std::decay_t<decltype(unwrapped)>, std::decay_t<T>>) {
+              return unwrapped;
+            } else if constexpr(std::is_same_v<std::decay_t<decltype(unwrapped)>,
+                                               std::decay_t<std::reference_wrapper<T>>>) {
+              return unwrapped.get();
+            } else if constexpr(utilities::isInstanceOfTemplate<
+                                    decltype(v),
+                                    boss::ExpressionWithAdditionalCustomAtoms>::value) {
+              return std::get<T>(unwrapped);
+            } else if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(unwrapped)>,
+                                                                std::reference_wrapper>::value) {
+              if constexpr(utilities::isInstanceOfTemplate<
+                               std::decay_t<decltype(unwrapped.get())>,
+                               boss::ExpressionWithAdditionalCustomAtoms>::value) {
+                return std::get<T>(unwrapped.get());
+              }
+            }
+            throw std::bad_variant_access();
+          },
+          std::forward<TInput>(v));
     } else {
-      return std::get<T>(std::forward<TInput>(v));
+      return std::visit(
+          [](auto&& unwrapped) {
+            if constexpr(std::is_same_v<std::decay_t<decltype(unwrapped)>, std::decay_t<T>>) {
+              if constexpr(utilities::isInstanceOfTemplate<
+                               decltype(unwrapped),
+                               boss::ExpressionWithAdditionalCustomAtoms>::value ||
+                           utilities::isInstanceOfTemplate<
+                               std::decay_t<decltype(unwrapped)>,
+                               boss::ComplexExpressionWithAdditionalCustomAtoms>::value) {
+                return unwrapped.clone();
+              }
+              return unwrapped;
+            } else if constexpr(utilities::isInstanceOfTemplate<
+                                    decltype(v),
+                                    boss::ExpressionWithAdditionalCustomAtoms>::value) {
+              return std::get<T>(std::forward<TInput>(unwrapped));
+            }
+            throw std::bad_variant_access();
+          },
+          std::forward<TInput>(v));
     }
   } catch(std::bad_variant_access const& e) {
     std::stringstream s;
