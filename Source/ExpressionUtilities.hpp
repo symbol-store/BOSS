@@ -1,7 +1,9 @@
 #pragma once
 #include "Expression.hpp"
 #include <arrow/array.h>
+#include <cstdint>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <sstream>
 #include <typeindex>
@@ -69,23 +71,14 @@ namespace nasty {
 // the ownership model is unclear -- we really need to fix that
 static boss::ComplexExpression
 arrowArrayToExpression(std::shared_ptr<arrow::Array> const& arrowPtr) {
-  union {
-    std::shared_ptr<arrow::Array> const* pointer;
-    std::pair<int, int> asInts = {0, 0};
-  };
-
-  pointer = &arrowPtr;                                  // NOLINT
-  return "ArrowArrayPtr"_(asInts.first, asInts.second); // NOLINT
+  static_assert(sizeof(void*) == sizeof(std::int64_t),
+                "pointers are not 64-bit -- this might break in funky ways");
+  return "ArrowArrayPtr"_(reinterpret_cast<std::int64_t>(&arrowPtr));
 }
-static std::shared_ptr<arrow::Array> reconstructArrowArray(int first, int second) {
-  union {
-    std::shared_ptr<arrow::Array> const* pointer;
-    std::pair<int, int> asInts = {0, 0};
-  };
-
-  asInts.first = first;   // NOLINT
-  asInts.second = second; // NOLINT
-  return *pointer;        // NOLINT
+static std::shared_ptr<arrow::Array> reconstructArrowArray(std::int64_t addressAsLong) {
+  static_assert(sizeof(void*) == sizeof(std::int64_t),
+                "pointers are not 64-bit -- this might break in funky ways");
+  return *reinterpret_cast<std::shared_ptr<arrow::Array> const*>(addressAsLong);
 }
 } // namespace nasty
 
@@ -137,10 +130,10 @@ template <typename T, typename TInput> auto&& get(TInput&& v) {
     } else {
       s << "valueless by exception";
     }
-    static auto typenames = std::map<std::type_index, char const*>{{typeid(int), "int"},
+    static auto typenames = std::map<std::type_index, char const*>{{typeid(long), "long"},
                                                                    {typeid(Symbol), "Symbol"},
                                                                    {typeid(bool), "bool"},
-                                                                   {typeid(float), "float"},
+                                                                   {typeid(double), "double"},
                                                                    {typeid(std::string), "string"}};
     s << "\", expected "
       << (typenames.count(typeid(T)) ? typenames.at(typeid(T)) : typeid(T).name());

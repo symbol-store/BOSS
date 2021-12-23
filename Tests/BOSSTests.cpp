@@ -28,15 +28,15 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
       Message("expected and actual type mismatch in expression \"9\", expected string"));
 
   SECTION("Atomics") {
-    CHECK(get<int>(eval(9)) == 9); // NOLINT
+    CHECK(get<std::int64_t>(eval(boss::Expression(9))) == 9); // NOLINT
   }
 
   SECTION("Addition") {
-    CHECK(get<int>(eval("Plus"_(5, 4))) == 9); // NOLINT
-    CHECK(get<int>(eval("Plus"_(5, 2, 2))) == 9);
-    CHECK(get<int>(eval("Plus"_(5, 2, 2))) == 9);
-    CHECK(get<int>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
-    CHECK(get<int>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
+    CHECK(get<std::int64_t>(eval("Plus"_(5, 4))) == 9); // NOLINT
+    CHECK(get<std::int64_t>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<std::int64_t>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<std::int64_t>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
+    CHECK(get<std::int64_t>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
   }
 
   SECTION("Strings") {
@@ -44,11 +44,11 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
           "howdie world");
   }
 
-  SECTION("Floats") {
+  SECTION("Doubles") {
     auto const twoAndAHalf = 2.5F;
     auto const two = 2.0F;
     auto const quantum = 0.001F;
-    CHECK(std::fabs(get<float>(eval("Plus"_(twoAndAHalf, twoAndAHalf))) - two * twoAndAHalf) <
+    CHECK(std::fabs(get<double>(eval("Plus"_(twoAndAHalf, twoAndAHalf))) - two * twoAndAHalf) <
           quantum);
   }
 
@@ -63,7 +63,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
         eval("UndefinedFunction"_(9))); // NOLINT(readability-magic-numbers)
 
     CHECK(expression.getHead().getName() == "UndefinedFunction");
-    CHECK(get<int>(expression.getArguments().at(0)) == 9);
+    CHECK(get<std::int64_t>(expression.getArguments().at(0)) == 9);
 
     CHECK(get<std::string>(
               get<boss::ComplexExpression>(eval("UndefinedFunction"_((string) "Hello World!")))
@@ -137,16 +137,16 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     eval("CreateTable"_("Customer"_, "ID"_, "FirstName"_, "LastName"_, "BirthYear"_, "Country"_));
     INFO(eval("Length"_("Select"_("Customer"_, "Function"_(true)))));
 
-    REQUIRE(get<int>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
+    REQUIRE(get<std::int64_t>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
     auto const& emptyTable = eval("Select"_("Customer"_, "Function"_(true)));
-    CHECK(get<int>(eval("Length"_(emptyTable))) == 0);
+    CHECK(get<std::int64_t>(eval("Length"_(emptyTable))) == 0);
     eval("InsertInto"_("Customer"_, 1, "John", "McCarthy", 1927, "USA"));  // NOLINT
     eval("InsertInto"_("Customer"_, 2, "Sam", "Madden", 1976, "USA"));     // NOLINT
     eval("InsertInto"_("Customer"_, 3, "Barbara", "Liskov", 1939, "USA")); // NOLINT
     INFO("Select"_("Customer"_, "Function"_(true)));
     CHECK(eval("Length"_("Select"_("Customer"_, "Function"_(true)))) == Expression(3));
     auto const& fullTable = eval("Select"_("Customer"_, "Function"_(true)));
-    CHECK(get<int>(eval("Length"_(fullTable))) == 3);
+    CHECK(get<std::int64_t>(eval("Length"_(fullTable))) == 3);
     CHECK(get<std::string>(eval("Extract"_("Extract"_("Select"_("Customer"_, "Function"_(true)), 2),
                                            3))) == "Madden");
 
@@ -154,15 +154,15 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
       auto const& sam = eval("Select"_(
           "Customer"_,
           "Function"_("List"_("tuple"_), "StringContainsQ"_("Madden", "Column"_("tuple"_, 3)))));
-      CHECK(get<int>(eval("Length"_(sam))) == 1);
+      CHECK(get<std::int64_t>(eval("Length"_(sam))) == 1);
       auto const& samRow = eval("Extract"_(sam, 1));
-      CHECK(get<int>(eval("Length"_(samRow))) == 5);
+      CHECK(get<std::int64_t>(eval("Length"_(samRow))) == 5);
       CHECK(get<string>(eval("Extract"_(samRow, 2))) == "Sam");
       CHECK(get<string>(eval("Extract"_(samRow, 3))) == "Madden");
       auto const& none = eval("Select"_("Customer"_, "Function"_(false)));
-      CHECK(get<int>(eval("Length"_(none))) == 0);
+      CHECK(get<std::int64_t>(eval("Length"_(none))) == 0);
       auto const& all = eval("Select"_("Customer"_, "Function"_(true)));
-      CHECK(get<int>(eval("Length"_(all))) == 3);
+      CHECK(get<std::int64_t>(eval("Length"_(all))) == 3);
       auto const& johnRow = eval("Extract"_(all, 1));
       auto const& barbaraRow = eval("Extract"_(all, 3));
       CHECK(get<string>(eval("Extract"_(johnRow, 2))) == "John");
@@ -174,7 +174,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
           "Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
       INFO("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
       INFO(fullnames);
-      CHECK(get<int>(eval("Length"_(fullnames))) == 3);
+      CHECK(get<std::int64_t>(eval("Length"_(fullnames))) == 3);
       auto const& firstNames = eval("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_)));
       INFO(eval("Extract"_("Extract"_(fullnames, 1), 1)));
       CHECK(get<string>(eval("Extract"_("Extract"_(firstNames, 1), 1))) ==
@@ -198,8 +198,8 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     SECTION("Aggregation") {
       auto const& countRows = eval("Group"_("Customer"_, "Function"_(0), "Count"_));
       INFO("countRows=" << countRows << "\n" << eval("Extract"_("Extract"_(countRows, 1))));
-      CHECK(get<int>(eval("Extract"_("Extract"_(countRows, 1), 1))) == 3);
-      CHECK(get<int>(eval("Extract"_(
+      CHECK(get<std::int64_t>(eval("Extract"_("Extract"_(countRows, 1), 1))) == 3);
+      CHECK(get<std::int64_t>(eval("Extract"_(
                 "Extract"_("Group"_(("Select"_("Customer"_, "Where"_("StringContainsQ"_(
                                                                 "Madden", "LastName"_)))),
                                     "Function"_(0), "Count"_),
@@ -216,20 +216,20 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
     return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
   };
 
-  std::vector<int32_t> ints{10, 20, 30, 40, 50}; // NOLINT
+  std::vector<int64_t> ints{10, 20, 30, 40, 50}; // NOLINT
   std::shared_ptr<arrow::Array> arrayPtr(
-      new arrow::Int32Array((long long)ints.size(), arrow::Buffer::Wrap(ints)));
+      new arrow::Int64Array((long long)ints.size(), arrow::Buffer::Wrap(ints)));
 
   auto arrayPtrExpr = nasty::arrowArrayToExpression(arrayPtr);
   eval("CreateTable"_("Thingy"_, "Value"_));
   eval("AttachColumns"_("Thingy"_, arrayPtrExpr));
 
   SECTION("ArrowArrays") {
-    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 1))) == 10);
-    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 2))) == 20);
-    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 3))) == 30);
-    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 4))) == 40);
-    CHECK(get<int>(eval("Extract"_(arrayPtrExpr, 5))) == 50);
+    CHECK(get<std::int64_t>(eval("Extract"_(arrayPtrExpr, 1))) == 10);
+    CHECK(get<std::int64_t>(eval("Extract"_(arrayPtrExpr, 2))) == 20);
+    CHECK(get<std::int64_t>(eval("Extract"_(arrayPtrExpr, 3))) == 30);
+    CHECK(get<std::int64_t>(eval("Extract"_(arrayPtrExpr, 4))) == 40);
+    CHECK(get<std::int64_t>(eval("Extract"_(arrayPtrExpr, 5))) == 50);
     CHECK(eval(arrayPtrExpr) == "List"_(10, 20, 30, 40, 50));
   }
 
@@ -242,9 +242,9 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
 
   SECTION("Plus") {
     compareColumn("Project"_("Thingy"_, "As"_("Result"_, "Plus"_("Value"_, "Value"_))),
-                  vector<int>{20, 40, 60, 80, 100}); // NOLINT(readability-magic-numbers)
+                  vector<std::int64_t>{20, 40, 60, 80, 100}); // NOLINT(readability-magic-numbers)
     compareColumn("Project"_("Thingy"_, "As"_("Result"_, "Plus"_("Value"_, 1))),
-                  vector<int>{11, 21, 31, 41, 51}); // NOLINT(readability-magic-numbers)
+                  vector<std::int64_t>{11, 21, 31, 41, 51}); // NOLINT(readability-magic-numbers)
   }
 
   SECTION("Greater") {

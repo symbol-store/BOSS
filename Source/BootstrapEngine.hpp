@@ -105,7 +105,7 @@ class BootstrapEngine : public boss::Engine {
              return std::accumulate(
                  std::make_move_iterator(
                      next(e.getArguments().begin())), // Note: first argument is the engine path
-                 std::make_move_iterator(e.getArguments().end()), boss::Expression(0),
+                 std::make_move_iterator(e.getArguments().end()), boss::Expression(0L),
                  [&processArgumentInEngine](auto&& /* we evaluate all arguments
                                                    but only return the last result */
                                             ,

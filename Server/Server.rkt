@@ -20,7 +20,8 @@
    (lambda (op plan)
      (define (append-to-deepest-list l element)
        (if (and (not (empty? l)) (list? (last l)))
-           (if (equal? (first element) '::)
+           (if (and (equal? (first element) '::)
+                    (or (empty? (last l)) (not (list? (last (last l))))))
                (append l '(::))
 
                (list-update l
