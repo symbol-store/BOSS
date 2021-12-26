@@ -1,17 +1,18 @@
+#!/usr/bin/env racket -tm
 #lang racket
-;; right now, you need to run it (in the directory where you have RacketBOSS.so) like this
-;; racket -tm ..../Server/Server.rkt
-
 (require threading)
 (require racket/list)
 (require macro-debugger/expand)
 (require "BOSS.rkt")
+(define library-path (make-parameter null))
+
 (define (unflatten l)
   (foldl
    (lambda (op plan)
      (define (append-to-deepest-list l element)
        (if (and (not (empty? l)) (list? (last l)))
-           (if (equal? (first element) '::)
+           (if (and (equal? (first element) '::)
+                    (or (empty? (last l)) (not (list? (last (last l))))))
                (append l '(::))
 
                (list-update l
@@ -89,8 +90,8 @@
                               (list #'~>)))
         )
     (embed-in-page '(h1 "Result")
-                   (list->html-table (eval #`(EvaluateInEngine "libWolframBOSS.so" #,plan))
-                                     (eval #`(EvaluateInEngine "libWolframBOSS.so" #,schema)))
+                   (list->html-table (eval #`(EvaluateInEngine #,(library-path) #,plan))
+                                     (eval #`(EvaluateInEngine #,(library-path) #,schema)))
                    '(hr)
                    `(pre ,(format "~a" (syntax->datum (expand-only plan (list #'~>)))))
                    )
@@ -119,16 +120,25 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [("") index]
    [((string-arg) ...) explain]
    ))
-(EvaluateInEngine
- "libWolframBOSS.so"
- (CreateTable Customer FirstName LastName age)
- (InsertInto  Customer "Holger" "German" 38)
- (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
- (InsertInto  Customer "Hubert" "Frenchman" 34))
 
+
+(require racket/cmdline)
+(command-line #:once-each
+              ["--library" path "path to the boss engine implementation" (library-path path)]
+              #:usage-help
+              "run me like this:"
+              ""
+              "  Server.rkt -- --library ./path/to/your/default/engine/library" )
 
 (provide main)
-(define (main)
+(define (main . args)
+  (eval #`
+   (EvaluateInEngine
+    #,(library-path)
+    (CreateTable Customer FirstName LastName age)
+    (InsertInto  Customer "Holger" "German" 38)
+    (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
+    (InsertInto  Customer "Hubert" "Frenchman" 34)))
   (serve/servlet start
                  #:stateless? #t
                  #:servlet-path "/"

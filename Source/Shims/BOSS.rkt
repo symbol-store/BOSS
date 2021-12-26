@@ -3,8 +3,14 @@
          racket/trace
          ffi/unsafe
          (rename-in racket/contract [-> -->]))
+(require setup/dirs)
+(require racket/runtime-path)
 
-(define libBoss (ffi-lib "lib/libBOSS"))
+(define-runtime-path boss-lib-directory "../lib")
+(define libBoss
+  (ffi-lib "libBOSS"
+           #:get-lib-dirs
+           (lambda () (append (get-lib-search-dirs) (list boss-lib-directory)))))
 
 (define symbolToNewString
   (get-ffi-obj "bossSymbolToNewString" libBoss (_fun _pointer -> _string))
@@ -23,9 +29,9 @@
                                            r))))
 
 
-(define intToNewExpression (get-ffi-obj "intToNewBOSSExpression" libBoss (_fun _int  -> _pointer)))
-(define floatToNewExpression
-  (get-ffi-obj "floatToNewBOSSExpression" libBoss (_fun _float  -> _pointer)))
+(define longToNewExpression (get-ffi-obj "longToNewBOSSExpression" libBoss (_fun _int64  -> _pointer)))
+(define doubleToNewExpression
+  (get-ffi-obj "doubleToNewBOSSExpression" libBoss (_fun _double  -> _pointer)))
 (define stringToNewExpression
   (get-ffi-obj "stringToNewBOSSExpression" libBoss (_fun _string  -> _pointer)))
 (define symbolNameToNewExpression
@@ -51,8 +57,8 @@
      (gcExpression
       (newComplexExpression head (length arguments)
                             (list->cblock (map convert-to-boss-expression arguments) _pointer)))]
-    [(and i (? exact-integer?)) (gcExpression (intToNewExpression i))]
-    [(and f (? real?)) (gcExpression (floatToNewExpression f))]
+    [(and i (? exact-integer?)) (gcExpression (longToNewExpression i))]
+    [(and f (? real?)) (gcExpression (doubleToNewExpression f))]
     [(and s (? string?)) (gcExpression (stringToNewExpression s))]
     [(and s (? symbol?))
      (if (string-contains? (symbol->string s) ":")
@@ -72,16 +78,16 @@
     )
   )
 
-(define bossTypeID (_enum '(bool int float string symbol complexExpression))
+(define bossTypeID (_enum '(bool long double string symbol complexExpression))
   )
 
 (define getTypeID (get-ffi-obj "getBOSSExpressionTypeID" libBoss (_fun _pointer -> bossTypeID)))
 (define getBoolValueFromExpression (get-ffi-obj "getBoolValueFromBOSSExpression" libBoss
                                                 (_fun _pointer -> _bool)))
-(define getIntValueFromExpression (get-ffi-obj "getIntValueFromBOSSExpression" libBoss
-                                               (_fun _pointer -> _int)))
-(define getFloatValueFromExpression (get-ffi-obj "getFloatValueFromBOSSExpression" libBoss
-                                                 (_fun _pointer -> _float)))
+(define getLongValueFromExpression (get-ffi-obj "getLongValueFromBOSSExpression" libBoss
+                                               (_fun _pointer -> _int64)))
+(define getDoubleValueFromExpression (get-ffi-obj "getDoubleValueFromBOSSExpression" libBoss
+                                                 (_fun _pointer -> _double)))
 (define getStringValueFromExpression (get-ffi-obj "getNewStringValueFromBOSSExpression" libBoss
                                                   (_fun _pointer -> _string)))
 (define getHeadFromExpression (get-ffi-obj "getHeadFromBOSSExpression" libBoss
@@ -98,8 +104,8 @@
 (define (convert-from-boss-expression x)
   (case (getTypeID x)
     ['bool (getBoolValueFromExpression x)]
-    ['int (getIntValueFromExpression x)]
-    ['float (getFloatValueFromExpression x)]
+    ['long (getLongValueFromExpression x)]
+    ['double (getDoubleValueFromExpression x)]
     ['string (let ([r (getStringValueFromExpression x)])
                r) ]
     ['symbol (getSymbolNameFromExpression x)]

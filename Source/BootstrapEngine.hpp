@@ -95,21 +95,18 @@ class BootstrapEngine : public boss::Engine {
            [this](auto&& e) -> boss::Expression {
              auto sym = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
                  libraries.at(boss::get<std::string>(e.getArguments().at(0))).evaluateFunction);
-             auto processArgumentInEngine = [&sym](auto&& e) {
-               auto wrapper = BOSSExpression{std::forward<decltype(e)>(e)};
-               auto* r = sym(&wrapper);
-               auto result = std::move(r->delegate);
-               freeBOSSExpression(r); // NOLINT
-               return result;
-             };
              return std::accumulate(
                  std::make_move_iterator(std::next(
                      e.getArguments().begin())), // Note: first argument is the engine path
-                 std::make_move_iterator(e.getArguments().end()), boss::Expression(0),
-                 [&processArgumentInEngine](
-                     auto&&, /* we evaluate all arguments but only return the last result */
-                     auto&& argument) -> boss::Expression {
-                   return processArgumentInEngine(std::forward<decltype(argument)>(argument));
+                 std::make_move_iterator(e.getArguments().end()), boss::Expression(0L),
+                 [sym](auto&& /* unused */, /* we evaluate all arguments but
+                                               only return the last result */
+                       auto&& argument) -> boss::Expression {
+                   auto wrapper = BOSSExpression{std::forward<decltype(argument)>(argument)};
+                   auto* r = sym(&wrapper);
+                   auto result = std::move(r->delegate);
+                   freeBOSSExpression(r); // NOLINT
+                   return result;
                  });
            }},
           {boss::Symbol("SetDefaultEngine"), [this](auto&& expression) -> boss::Expression {

@@ -1,5 +1,7 @@
 #pragma once
 #include "Utilities.hpp"
+#include <cmath>
+#include <cstdint>
 #include <functional>
 #include <iterator>
 #include <string>
@@ -30,7 +32,7 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
 
 template <typename... AdditionalCustomAtoms>
 using AtomicExpressionWithAdditionalCustomAtoms =
-    std::variant<bool, int, float, std::string, Symbol, AdditionalCustomAtoms...>;
+    std::variant<bool, std::int64_t, std::double_t, std::string, Symbol, AdditionalCustomAtoms...>;
 
 template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms;
@@ -46,8 +48,11 @@ public:
       ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, AdditionalCustomAtoms...>>::type;
 
   using SuperType::SuperType;
-  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>,
-            typename... T>
+  explicit ExpressionWithAdditionalCustomAtoms(int v) noexcept
+      : ExpressionWithAdditionalCustomAtoms(long(v)) {}
+  explicit ExpressionWithAdditionalCustomAtoms(float v) noexcept
+      : ExpressionWithAdditionalCustomAtoms(double(v)) {}
+  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
       ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
       : SuperType(std::visit(
