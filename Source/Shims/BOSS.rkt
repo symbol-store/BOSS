@@ -3,8 +3,14 @@
          racket/trace
          ffi/unsafe
          (rename-in racket/contract [-> -->]))
+(require setup/dirs)
+(require racket/runtime-path)
 
-(define libBoss (ffi-lib "lib/libBOSS"))
+(define-runtime-path boss-lib-directory "../lib")
+(define libBoss
+  (ffi-lib "libBOSS"
+           #:get-lib-dirs
+           (lambda () (append (get-lib-search-dirs) (list boss-lib-directory)))))
 
 (define symbolToNewString
   (get-ffi-obj "bossSymbolToNewString" libBoss (_fun _pointer -> _string))

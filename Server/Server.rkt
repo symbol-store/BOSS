@@ -1,9 +1,5 @@
+#!/usr/bin/env racket -tm
 #lang racket
-;; install:
-;; make install
-;; run from the install folder:
-;; racket -tm bin/Server.rkt
-
 (require threading)
 (require racket/list)
 (require macro-debugger/expand)
@@ -14,6 +10,7 @@
          web-server/dispatch
          web-server/configuration/responders)
 (require "BOSS.rkt")
+(define library-path (make-parameter null))
 
 (define (unflatten l)
   (foldl
@@ -92,8 +89,8 @@
                               (list #'~>)))
         )
     (embed-in-page '(h1 "Result")
-                   (list->html-table (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,plan))
-                                     (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema)))
+                   (list->html-table (eval #`(EvaluateInEngine #,(library-path) #,plan))
+                                     (eval #`(EvaluateInEngine #,(library-path) #,schema)))
                    '(hr)
                    `(pre ,(format "~a" (syntax->datum (expand-only plan (list #'~>)))))
                    )
@@ -232,15 +229,24 @@ all lists (excluding the root), thus stacking another operator on top of the que
    [("html-table" (string-arg) ...) html-table-handler]
    ))
 
-(EvaluateInEngine
- "lib/libBOSSWolframEngine.so"
- (CreateTable Customer FirstName LastName age)
- (InsertInto  Customer "Holger" "German" 38)
- (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
- (InsertInto  Customer "Hubert" "Frenchman" 34))
+
+(require racket/cmdline)
+(command-line #:once-each
+              ["--library" path "path to the boss engine implementation" (library-path path)]
+              #:usage-help
+              "run me like this:"
+              ""
+              "  Server.rkt -- --library ./path/to/your/default/engine/library" )
 
 (provide main)
-(define (main)
+(define (main . args)
+  (eval #`
+   (EvaluateInEngine
+    #,(library-path)
+    (CreateTable Customer FirstName LastName age)
+    (InsertInto  Customer "Holger" "German" 38)
+    (InsertInto  Customer "Dude" "Englishman" (Interpolate FirstName))
+    (InsertInto  Customer "Hubert" "Frenchman" 34)))
   (serve/servlet start
                  #:stateless? #t
                  #:servlet-path "/"
