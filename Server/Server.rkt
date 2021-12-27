@@ -126,7 +126,7 @@
           (list #'~>)))
         )
 
-    (when is-modifying-query (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema)) )
+    (when is-modifying-query (eval #`(EvaluateInEngine #,(library-path) #,schema)) )
 
     (define json-response
       (if is-modifying-query
@@ -139,8 +139,8 @@
            )
 
           (jsonify
-           (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,schema))
-           (eval #`(EvaluateInEngine "lib/libBOSSWolframEngine.so" #,plan)) 
+           (eval #`(EvaluateInEngine #,(library-path) #,schema))
+           (eval #`(EvaluateInEngine #,(library-path) #,plan)) 
            )
           )
       )
