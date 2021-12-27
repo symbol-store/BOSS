@@ -1,7 +1,7 @@
 //JS module retrieving data from BOSS
 //it manages UrlQueries and support graphic queries
 
-export class BOSSConnectionConfig{
+export class BOSSConnectionConfig {
     constructor(myBOSSServerUrl, myBOSSRestEndPoint) {
         this.BOSSServerUrl = myBOSSServerUrl;
         this.BOSSRestEndPoint = myBOSSRestEndPoint;
@@ -24,7 +24,11 @@ export function drawBOSSChart(drawFunction, updateFunction, queryUrl, queryInter
 export async function BOSSQuery(urlQuery, config) {
     if (urlQuery == "") {
         return new Promise((resolve, reject) => {
-            reject("empty urlQuery.");
+            var data = [{
+                "query": urlQuery,
+                "executed": "no"
+            }]
+            reject(JSON.stringify(data));
         });
     }
     var url = config.BOSSRestUrl + urlQuery;
@@ -35,7 +39,11 @@ export async function BOSSQuery(urlQuery, config) {
                 resolve(data);
             },
                 () => {
-                    reject("request failed.");
+                    var data = [{
+                        "query": urlQuery,
+                        "executed": "no"
+                    }]
+                    reject(JSON.stringify(data));
                 }
             );
         });
