@@ -18,8 +18,8 @@ static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 TEST_CASE("Expressions", "[expressions]") {
-  int v1 = GENERATE(take(3, random(1, 100)));
-  int v2 = GENERATE(take(3, random(1, 100)));
+  auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+  auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto const& e = "UnevaluatedPlus"_(v1, v2);
   CHECK(e.getHead().getName() == "UnevaluatedPlus");
   CHECK(e.getArguments().at(0) == v1);
@@ -27,8 +27,8 @@ TEST_CASE("Expressions", "[expressions]") {
 }
 
 TEST_CASE("Expression Transformation", "[expressions]") {
-  auto v1 = GENERATE(take(3, random(1, 100)));
-  auto v2 = GENERATE(take(3, random(1, 100)));
+  auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+  auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto e = "UnevaluatedPlus"_(v1, v2);
   REQUIRE(*begin(e.getArguments()) == v1);
   boss::std::get<std::int64_t>(*begin(e.getArguments()))++;
