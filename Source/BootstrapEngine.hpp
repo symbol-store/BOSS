@@ -95,19 +95,18 @@ class BootstrapEngine : public boss::Engine {
            [this](auto&& e) -> boss::Expression {
              auto sym = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
                  libraries.at(boss::get<std::string>(e.getArguments().at(0))).evaluateFunction);
-             return std::accumulate(
+             std::for_each(
                  std::make_move_iterator(std::next(
                      e.getArguments().begin())), // Note: first argument is the engine path
-                 std::make_move_iterator(e.getArguments().end()), boss::Expression(0L),
-                 [sym](auto&& /* unused */, /* we evaluate all arguments but
-                                               only return the last result */
-                       auto&& argument) -> boss::Expression {
+                 std::make_move_iterator(std::prev(e.getArguments().end())), [sym](auto&& argument) {
                    auto wrapper = BOSSExpression{std::forward<decltype(argument)>(argument)};
-                   auto* r = sym(&wrapper);
-                   auto result = std::move(r->delegate);
-                   freeBOSSExpression(r); // NOLINT
-                   return result;
+                   freeBOSSExpression(sym(&wrapper));
                  });
+             auto wrapper = BOSSExpression{*e.getArguments().end()};
+             auto* r = sym(&wrapper);
+             auto result = std::move(r->delegate);
+             freeBOSSExpression(r); // NOLINT
+             return std::move(result);
            }},
           {boss::Symbol("SetDefaultEngine"), [this](auto&& expression) -> boss::Expression {
              defaultEngine = boss::get<std::string>(std::move(expression.getArguments().at(0)));
@@ -140,7 +139,7 @@ public:
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   boss::Expression evaluate(boss::Expression const& e, bool isRootExpression = true) {
-    auto wrappedE = isRootExpression && defaultEngine.has_value() && !isBootstrapCommand(e)
+    auto&& wrappedE = isRootExpression && defaultEngine.has_value() && !isBootstrapCommand(e)
                         ? "EvaluateInEngine"_(*defaultEngine, e.clone())
                         : e.clone();
     return std::visit(boss::utilities::overload(

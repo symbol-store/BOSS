@@ -328,7 +328,7 @@ public:
   Iterator<IsConstWrapper> end() const { return {*this, size()}; }
 
   template <size_t... I>
-  ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>
+  constexpr ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>
   getStaticArgument(size_t i, std::index_sequence<I...> /*unused*/) const {
     static_assert(sizeof...(I) > 0, "???");
     auto result = ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>(std::get<0>(staticArguments));
@@ -342,13 +342,18 @@ public:
     return std::move(result);
   }
 
+  template <size_t... I>
+  constexpr ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> getStaticArgument(size_t i) const {
+    return getStaticArgument(
+        i, std::make_index_sequence<std::tuple_size_v<StaticArgumentsContainer>>());
+  }
+
   ArgumentWrapper<true, AdditionalAtoms...> front() const { return at(0); }
 
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> operator[](size_t i) const {
     if constexpr(std::tuple_size_v < StaticArgumentsContainer >> 0) {
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
-        return getStaticArgument(
-            i, std::make_index_sequence<std::tuple_size_v<StaticArgumentsContainer>>());
+        return getStaticArgument(i);
       }
     }
     return arguments[i - std::tuple_size_v<StaticArgumentsContainer>];
@@ -357,8 +362,7 @@ public:
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> at(size_t i) const {
     if constexpr(std::tuple_size_v < StaticArgumentsContainer >> 0) {
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
-        return getStaticArgument(
-            i, std::make_index_sequence<std::tuple_size_v<StaticArgumentsContainer>>());
+        return getStaticArgument(i);
       }
     }
     return arguments.at(i - std::tuple_size_v<StaticArgumentsContainer>);
