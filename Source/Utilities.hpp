@@ -5,7 +5,7 @@
 
 namespace boss::utilities {
 template <class... Fs> struct overload : Fs... {
-  template <class... Ts> explicit overload(Ts&&... ts) : Fs{std::forward<Ts>(ts)}... {}
+  explicit overload(Fs&&... ts) : Fs{std::forward<Fs>(ts)}...{}
   using Fs::operator()...;
 };
 
