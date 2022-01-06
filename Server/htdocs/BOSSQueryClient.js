@@ -13,7 +13,22 @@ export function drawBOSSChart(drawFunction, updateFunction, queryUrl, queryInter
     BOSSQuery(queryUrl, config).then((data) => {
         drawFunction(data);
     }).then(() => {
-        setInterval(function () {
+        return setInterval(function () {
+            BOSSQuery(queryUrl, config).then((data) => {
+                updateFunction(data);
+            });
+        }, queryInterval);
+    });
+}
+
+export function drawBOSSChartFromElementId(drawFunction, updateFunction, elementId, getQuery, queryInterval, config) {
+    let queryUrl = getQuery(elementId);
+    BOSSQuery(queryUrl, config).then((data) => {
+        drawFunction(data);
+    }).then(() => {
+        return setInterval(function () {
+            let queryUrl = getQuery(elementId);
+            console.log(queryUrl);
             BOSSQuery(queryUrl, config).then((data) => {
                 updateFunction(data);
             });
