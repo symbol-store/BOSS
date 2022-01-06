@@ -252,7 +252,8 @@ public:
             typename = std::enable_if_t<std::disjunction<
                 utilities::isVariantMember<std::reference_wrapper<T>, WrappeeType>,
                 utilities::isVariantMember<std::reference_wrapper<const T>, WrappeeType>>::value>>
-  ArgumentWrapper(T& argument) : argument(argument) {} // NOLINT(hicpp-explicit-conversions)
+  ArgumentWrapper(T& argument) // NOLINT(hicpp-explicit-conversions)
+      : argument(std::reference_wrapper(argument)) {}
   bool valueless_by_exception() const { return argument.valueless_by_exception(); }
 
   auto at(size_t i) {
