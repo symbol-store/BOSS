@@ -61,6 +61,15 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
             .getName() == "howdie");
 }
 
+TEST_CASE("Complex Expressions with Spans") {
+  auto input = GENERATE(take(3, chunk(5, random(1LL, 1000LL))));
+  auto vectorExpression = "duh"_(boss::Span(vector(input)));
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(0) == input.at(0));
+    CHECK(vectorExpression.getArguments()[0] == input[0]);
+  }
+}
+
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());

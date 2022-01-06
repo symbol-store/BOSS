@@ -1,9 +1,12 @@
 #pragma once
 #include "Utilities.hpp"
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <iterator>
+#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -28,6 +31,41 @@ template <typename T, typename... Args> struct variant_amend;
 template <typename... Args0, typename... Args1>
 struct variant_amend<std::variant<Args0...>, Args1...> {
   using type = std::variant<Args0..., Args1...>;
+};
+
+template <typename Scalar> struct Span {
+private: // state
+  std::vector<Scalar> adaptee = {};
+  Scalar* begin = nullptr;
+  Scalar* end = nullptr;
+
+public: // surface
+  size_t size() const { return end - begin; }
+  constexpr Scalar const& operator[](size_t i) const { return begin[i]; }
+  constexpr Scalar& operator[](size_t i) { return begin[i]; }
+
+  constexpr Scalar const& at(size_t i) const {
+    assert(i < end - begin);
+    return (*this)[i];
+  }
+  constexpr Scalar& at(size_t i) {
+    assert(i < end - begin);
+    return (*this)[i];
+  }
+  explicit Span(std::vector<Scalar>&& adaptee)
+      : adaptee(adaptee), begin(this->adaptee.data()),
+        end(this->adaptee.data() + this->adaptee.size()) {}
+
+  bool operator==(Span const& other) const { return begin == other.begin; }
+
+  Span() noexcept = default;
+  Span(Span&&) noexcept = default;
+  Span(Span const&) = delete;
+  Span& operator=(Span&&) noexcept = default;
+  Span& operator=(Span const&) = delete;
+  ~Span() = default;
+
+  friend std::ostream& operator<<(std::ostream& s, Span const& span) { return s << span.size; }
 };
 
 template <typename... AdditionalCustomAtoms>
@@ -127,6 +165,9 @@ private:
 template <typename... AdditionalCustomAtoms>
 using ExpressionArgumentsWithAdditionalCustomAtoms =
     std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>;
+
+template <typename... AdditionalCustomAtoms>
+using ExpressionSpanArgumentsWithAdditionalCustomAtoms = std::vector<Span<std::int64_t>>;
 
 template <bool ConstWrappee = false, typename... AdditionalCustomAtoms> class ArgumentWrapper;
 template <typename... AdditionalCustomAtoms>
@@ -274,11 +315,17 @@ class ExpressionArgumentsWithAdditionalCustomAtomsWrapper {
                          ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> const,
                          ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>>;
   DynamicArgumentsContainer& arguments;
+  using SpanArgumentsContainer =
+      std::conditional_t<IsConstWrapper,
+                         ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> const,
+                         ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>>;
+  SpanArgumentsContainer& spanArguments;
 
 public:
   ExpressionArgumentsWithAdditionalCustomAtomsWrapper(StaticArgumentsContainer& staticArguments,
-                                                      DynamicArgumentsContainer& arguments)
-      : staticArguments(staticArguments), arguments(arguments) {}
+                                                      DynamicArgumentsContainer& arguments,
+                                                      SpanArgumentsContainer& spanArguments)
+      : staticArguments(staticArguments), arguments(arguments), spanArguments(spanArguments) {}
 
   size_t size() const { return std::tuple_size_v<StaticArgumentsContainer> + arguments.size(); }
   bool empty() const { return size() == 0; }
@@ -355,17 +402,39 @@ public:
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
         return getStaticArgument(i);
       }
+    } else if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
+      return arguments[i - std::tuple_size_v<StaticArgumentsContainer>];
+    } else {
+      auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
+      for(auto& spanArgument : spanArguments) {
+        if(i >= argumentPrefixScan && i < argumentPrefixScan + spanArgument.size()) {
+          return spanArgument[i - argumentPrefixScan];
+        }
+        argumentPrefixScan += spanArgument.size();
+      }
     }
-    return arguments[i - std::tuple_size_v<StaticArgumentsContainer>];
+    __builtin_unreachable();
   }
 
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> at(size_t i) const {
-    if constexpr(std::tuple_size_v < StaticArgumentsContainer >> 0) {
+    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) > 0) {
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
         return getStaticArgument(i);
       }
+    } else if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
+      return arguments.at(i - std::tuple_size_v<StaticArgumentsContainer>);
+    } else {
+      auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
+      for(auto& spanArgument : spanArguments) {
+        if(i >= argumentPrefixScan && i < argumentPrefixScan + spanArgument.size()) {
+          return spanArgument.at(i - argumentPrefixScan);
+        }
+        argumentPrefixScan += spanArgument.size();
+      }
     }
-    return arguments.at(i - std::tuple_size_v<StaticArgumentsContainer>);
+    throw std::out_of_range((std::stringstream() << "Expression"
+                                                 << " has no argument with index " << i)
+                                .str());
   }
 
   operator // NOLINT(hicpp-explicit-conversions)
@@ -382,6 +451,7 @@ private:
   Symbol head;
   StaticArgumentsTuple staticArguments{};
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments{};
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments{};
 
 public:
   template <size_t... I>
@@ -417,6 +487,11 @@ public:
     (cloneIfNecessary(result, std::get<I>(staticArguments)), ...);
     return result;
   }
+
+  explicit ComplexExpressionWithAdditionalCustomAtoms(
+      Symbol const& head,
+      ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& spanArguments)
+      : head(head), spanArguments(std::move(spanArguments)) {}
 
   explicit ComplexExpressionWithAdditionalCustomAtoms(Symbol const& head,
                                                       StaticArgumentsTuple&& staticArguments)
@@ -454,13 +529,13 @@ public:
   ExpressionArgumentsWithAdditionalCustomAtomsWrapper<decltype(staticArguments), false,
                                                       AdditionalCustomAtoms...>
   getArguments() {
-    return {staticArguments, arguments};
+    return {staticArguments, arguments, spanArguments};
   }
 
   ExpressionArgumentsWithAdditionalCustomAtomsWrapper<decltype(staticArguments) const, true,
                                                       AdditionalCustomAtoms...>
   getArguments() const {
-    return {staticArguments, arguments};
+    return {staticArguments, arguments, spanArguments};
   }
 
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& getDynamicArguments() {
@@ -516,6 +591,8 @@ public:
   using Expression = ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
   using ExpressionArguments =
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+  using ExpressionSpanArguments =
+      ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
 };
 
 using DefaultExpressionSystem = ExtensibleExpressionSystem<>;
@@ -527,6 +604,7 @@ using ComplexExpressionWithStaticArguments =
 using ComplexExpression = DefaultExpressionSystem::ComplexExpressionWithStaticArguments<>;
 using Expression = DefaultExpressionSystem::Expression;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
+using ExpressionSpanArguments = DefaultExpressionSystem::ExpressionSpanArguments;
 
 namespace std {
 

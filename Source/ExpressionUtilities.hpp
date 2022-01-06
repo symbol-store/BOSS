@@ -52,12 +52,17 @@ public:
       isInstanceOfTemplate<Ts, ExpressionSystem::template ComplexExpressionWithStaticArguments>;
   template <typename Ts>
   using isStaticArgument = std::disjunction<isComplexExpression<Ts>, isAtom<Ts>>;
+  template <typename T> using isSpanArgument = isInstanceOfTemplate<T, Span>;
+
+  template <typename T>
+  using isDynamicArgument =
+      std::conjunction<std::negation<isStaticArgument<T>>, std::negation<isSpanArgument<T>>>;
 
   /**
    * build expression from dynamic arguments
    */
   template <typename... Ts>
-  std::enable_if_t<std::disjunction<std::negation<isStaticArgument<Ts>>...>::value,
+  std::enable_if_t<std::disjunction<isDynamicArgument<Ts>...>::value,
                    typename ExpressionSystem::ComplexExpression>
   operator()(Ts&&... args /*a*/) const {
     typename ExpressionSystem::ExpressionArguments argList;
@@ -68,6 +73,21 @@ public:
               std::forward<decltype(arg)>(arg)));
         }(std::move(args)),
         ...);
+    return move(typename ExpressionSystem::ComplexExpression(s, std::move(argList)));
+  }
+
+  /**
+   * build expression from span arguments
+   */
+  template <typename... Ts>
+  std::enable_if_t<std::disjunction<isSpanArgument<Ts>...>::value,
+                   typename ExpressionSystem::ComplexExpression>
+  operator()(Ts&&... args /*a*/) const {
+    typename ExpressionSystem::ExpressionSpanArguments argList;
+    argList.reserve(sizeof...(Ts));
+    ([this, &argList](auto&& arg) { argList.emplace_back(std::forward<decltype(arg)>(arg)); }(
+         std::move(args)),
+     ...);
     return move(typename ExpressionSystem::ComplexExpression(s, std::move(argList)));
   }
 
