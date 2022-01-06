@@ -738,3 +738,11 @@ template <> struct std::hash<boss::Symbol> {
     return std::hash<std::string>{}(s.getName());
   }
 };
+namespace std {
+template <typename... AdditionalCustomAtoms>
+struct variant_size<typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
+    : variant_size<
+          typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>::SuperType> {
+};
+
+} // namespace std
