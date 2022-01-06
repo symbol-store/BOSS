@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.10)
 project(BOSS)
 
+########################### C++ Compiler Requirements ###########################
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "8.0")
+    message(FATAL_ERROR "Your GCC version has this bug which affects this project: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68177")
+  endif()
+endif()
+
+
 ############################## Custom build modes ###############################
 
 set(CMAKE_CXX_FLAGS_SANITIZE "-fno-omit-frame-pointer -fsanitize=address,signed-integer-overflow,null,alignment,bounds,function,return,vla-bound -O0 -g"
