@@ -167,7 +167,9 @@ using ExpressionArgumentsWithAdditionalCustomAtoms =
     std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>;
 
 template <typename... AdditionalCustomAtoms>
-using ExpressionSpanArgumentsWithAdditionalCustomAtoms = std::vector<Span<std::int64_t>>;
+using ExpressionSpanArgumentsWithAdditionalCustomAtoms =
+    std::vector<std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
+                             Span<Symbol>, Span<AdditionalCustomAtoms>...>>;
 
 template <bool ConstWrappee = false, typename... AdditionalCustomAtoms> class ArgumentWrapper;
 template <typename... AdditionalCustomAtoms>
@@ -399,10 +401,18 @@ public:
     } else {
       auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
       for(auto& spanArgument : spanArguments) {
-        if(i >= argumentPrefixScan && i < argumentPrefixScan + spanArgument.size()) {
-          return spanArgument[i - argumentPrefixScan];
+        if(i >= argumentPrefixScan &&
+           i < argumentPrefixScan +
+                   std::visit([](auto&& spanArgument) { return spanArgument.size(); },
+                              spanArgument)) {
+          return std::visit(
+              [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
+                return spanArgument[i - argumentPrefixScan];
+              },
+              spanArgument);
         }
-        argumentPrefixScan += spanArgument.size();
+        argumentPrefixScan +=
+            std::visit([](auto&& spanArgument) { return spanArgument.size(); }, spanArgument);
       }
     }
     __builtin_unreachable();
@@ -418,10 +428,16 @@ public:
     } else {
       auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
       for(auto& spanArgument : spanArguments) {
-        if(i >= argumentPrefixScan && i < argumentPrefixScan + spanArgument.size()) {
-          return spanArgument.at(i - argumentPrefixScan);
+        if(i >= argumentPrefixScan &&
+           i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
+          return std::visit(
+              [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
+                return spanArgument.at(i - argumentPrefixScan);
+              },
+              spanArgument);
         }
-        argumentPrefixScan += spanArgument.size();
+        argumentPrefixScan +=
+            std::visit([](auto&& spanArgument) { return spanArgument.size(); }, spanArgument);
       }
     }
     throw std::out_of_range((std::stringstream() << "Expression"

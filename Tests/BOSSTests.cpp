@@ -11,6 +11,7 @@ using std::string;
 using boss::utilities::operator""_;
 using Catch::Generators::random;
 using Catch::Generators::take;
+using Catch::Generators::values;
 using std::vector;
 using namespace Catch::Matchers;
 
@@ -61,8 +62,20 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
             .getName() == "howdie");
 }
 
-TEST_CASE("Complex Expressions with Spans") {
-  auto input = GENERATE(take(3, chunk(5, random(1LL, 1000LL))));
+TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,
+                   std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
+  auto vectorExpression = "duh"_(boss::Span(vector(input)));
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(0) == input.at(0));
+    CHECK(vectorExpression.getArguments()[0] == input[0]);
+  }
+}
+
+TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, boss::Symbol) {
+  using std::literals::string_literals::operator""s;
+  auto input =
+      GENERATE(take(3, chunk(5, values({"a"s, "b"s, "c"s, "d"s, "e"s, "f"s, "g"s, "h"s}))));
   auto vectorExpression = "duh"_(boss::Span(vector(input)));
   for(auto i = 0U; i < input.size(); i++) {
     CHECK(vectorExpression.getArguments().at(0) == input.at(0));
