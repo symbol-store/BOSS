@@ -440,9 +440,7 @@ public:
             std::visit([](auto&& spanArgument) { return spanArgument.size(); }, spanArgument);
       }
     }
-    throw std::out_of_range((std::stringstream() << "Expression"
-                                                 << " has no argument with index " << i)
-                                .str());
+    throw std::out_of_range("Expression has no argument with index " + std::to_string(i));
   }
 
   operator // NOLINT(hicpp-explicit-conversions)
