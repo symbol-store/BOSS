@@ -377,16 +377,8 @@ public:
   template <size_t... I>
   constexpr ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>
   getStaticArgument(size_t i, std::index_sequence<I...> /*unused*/) const {
-    static_assert(sizeof...(I) > 0, "???");
-    auto result = ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>(std::get<0>(staticArguments));
-    (
-        [&] {
-          if(I == i) {
-            result = std::get<I>(staticArguments);
-          }
-        }(),
-        ...);
-    return std::move(result);
+    return std::move(std::array<ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>, sizeof...(I)>{
+        std::get<I>(staticArguments)...}[i]);
   }
 
   template <size_t... I>
