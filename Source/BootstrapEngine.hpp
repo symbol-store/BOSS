@@ -98,11 +98,12 @@ class BootstrapEngine : public boss::Engine {
              std::for_each(
                  std::make_move_iterator(std::next(
                      e.getArguments().begin())), // Note: first argument is the engine path
-                 std::make_move_iterator(std::prev(e.getArguments().end())), [sym](auto&& argument) {
+                 std::make_move_iterator(std::prev(e.getArguments().end())),
+                 [sym](auto&& argument) {
                    auto wrapper = BOSSExpression{std::forward<decltype(argument)>(argument)};
                    freeBOSSExpression(sym(&wrapper));
                  });
-             auto wrapper = BOSSExpression{*e.getArguments().end()};
+             auto wrapper = BOSSExpression{*std::prev(e.getArguments().end())};
              auto* r = sym(&wrapper);
              auto result = std::move(r->delegate);
              freeBOSSExpression(r); // NOLINT
@@ -140,8 +141,8 @@ public:
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   boss::Expression evaluate(boss::Expression const& e, bool isRootExpression = true) {
     auto&& wrappedE = isRootExpression && defaultEngine.has_value() && !isBootstrapCommand(e)
-                        ? "EvaluateInEngine"_(*defaultEngine, e.clone())
-                        : e.clone();
+                          ? "EvaluateInEngine"_(*defaultEngine, e.clone())
+                          : e.clone();
     return std::visit(boss::utilities::overload(
                           [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
                             if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
