@@ -87,8 +87,14 @@ static std::shared_ptr<arrow::Array> reconstructArrowArray(std::int64_t addressA
 static std::ostream& operator<<(std::ostream& out, boss::Symbol const& thing) {
   return out << thing.getName();
 }
-static std::ostream& operator<<(std::ostream& out, boss::ComplexExpression const& e);
-static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing) {
+template <typename... AdditionalCustomAtoms>
+static std::ostream&
+operator<<(std::ostream& out,
+           boss::ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& e);
+template <typename... AdditionalCustomAtoms>
+static std::ostream&
+operator<<(std::ostream& out,
+           boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& thing) {
   std::visit(
       boss::utilities::overload([&](std::string const& value) { out << "\"" << value << "\""; },
                                 [&](bool value) { out << (value ? "True" : "False"); },
@@ -98,7 +104,10 @@ static std::ostream& operator<<(std::ostream& out, boss::Expression const& thing
 }
 // a specialization for complex expressions is needed, or otherwise
 // the complex expression and all its arguments has to be copied to be converted to an Expression
-static std::ostream& operator<<(std::ostream& out, boss::ComplexExpression const& e) {
+template <typename... AdditionalCustomAtoms>
+static std::ostream&
+operator<<(std::ostream& out,
+           boss::ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& e) {
   out << e.getHead() << "[";
   if(!e.getArguments().empty()) {
     out << e.getArguments().front();
