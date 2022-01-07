@@ -1,6 +1,5 @@
 #pragma once
 #include "Utilities.hpp"
-#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -45,12 +44,16 @@ public: // surface
   constexpr Scalar& operator[](size_t i) { return begin[i]; }
 
   constexpr Scalar const& at(size_t i) const {
-    assert((begin + i) < end);
-    return (*this)[i];
+    if(begin + i < end) {
+      return (*this)[i];
+    }
+    throw std::out_of_range("Span has no element with index " + std::to_string(i));
   }
   constexpr Scalar& at(size_t i) {
-    assert((begin + i) < end);
-    return (*this)[i];
+    if(begin + i < end) {
+      return (*this)[i];
+    }
+    throw std::out_of_range("Span has no element with index " + std::to_string(i));
   }
   explicit Span(std::vector<Scalar>&& adaptee)
       : adaptee(adaptee), begin(this->adaptee.data()),
