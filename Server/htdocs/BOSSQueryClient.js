@@ -28,7 +28,6 @@ export function drawBOSSChartFromElementId(drawFunction, updateFunction, element
     }).then(() => {
         return setInterval(function () {
             let queryUrl = getQuery(elementId);
-            console.log(queryUrl);
             BOSSQuery(queryUrl, config).then((data) => {
                 updateFunction(data);
             });
