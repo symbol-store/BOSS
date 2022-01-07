@@ -385,6 +385,7 @@ public:
   template <size_t... I>
   constexpr ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>
   getStaticArgument(size_t i, std::index_sequence<I...> /*unused*/) const {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
     return std::move(std::array<ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>, sizeof...(I)>{
         std::get<I>(staticArguments)...}[i]);
   }

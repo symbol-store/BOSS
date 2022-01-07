@@ -62,6 +62,7 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
       "howdie");
 }
 
+// NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
@@ -72,6 +73,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
   }
 }
 
+// NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, boss::Symbol) {
   using std::literals::string_literals::operator""s;
   auto input =
