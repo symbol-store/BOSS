@@ -368,6 +368,9 @@ public:
       i++;
       return before;
     }
+    std::ptrdiff_t operator-(Iterator const& other) const{
+      return i - other.i;
+    }
 
     boss::ArgumentWrapper<IsConstIterator, AdditionalAtoms...> operator*() const {
       return container.at(i);
