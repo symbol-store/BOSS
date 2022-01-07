@@ -211,8 +211,8 @@ endforeach()
 #################################### Install ###################################
 set_target_properties(BOSS PROPERTIES PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp")
 
-install(TARGETS BOSS PUBLIC_HEADER DESTINATION include)
 if(WIN32)
+  install(TARGETS BOSS PUBLIC_HEADER DESTINATION include)
   # on Windows, one "import library" for each executable target is needed
   # to link the plugins without leaving any unresolved symbol in the dll
   foreach(Target IN LISTS AllTargets)
@@ -220,7 +220,7 @@ if(WIN32)
   endforeach()
 else()
   # other OS only need to expose the BOSS library
-  install(TARGETS BOSS LIBRARY DESTINATION lib)
+  install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
 install(TARGETS Benchmarks RUNTIME DESTINATION bin)
