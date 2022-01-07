@@ -44,12 +44,14 @@ public: // surface
   constexpr Scalar& operator[](size_t i) { return begin[i]; }
 
   constexpr Scalar const& at(size_t i) const {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
     if(begin + i < end) {
       return (*this)[i];
     }
     throw std::out_of_range("Span has no element with index " + std::to_string(i));
   }
   constexpr Scalar& at(size_t i) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
     if(begin + i < end) {
       return (*this)[i];
     }
