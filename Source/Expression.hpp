@@ -45,11 +45,11 @@ public: // surface
   constexpr Scalar& operator[](size_t i) { return begin[i]; }
 
   constexpr Scalar const& at(size_t i) const {
-    assert(i < end - begin);
+    assert((begin + i) < end);
     return (*this)[i];
   }
   constexpr Scalar& at(size_t i) {
-    assert(i < end - begin);
+    assert((begin + i) < end);
     return (*this)[i];
   }
   explicit Span(std::vector<Scalar>&& adaptee)
