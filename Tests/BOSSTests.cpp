@@ -56,10 +56,10 @@ public:
 
 TEST_CASE("Expression cast to more general expression system", "[expressions]") {
   auto a = boss::ExtensibleExpressionSystem<>::Expression("howdie"_());
-  auto b = (boss::ExtensibleExpressionSystem<DummyAtom const>::Expression)std::move(a);
-  CHECK(get<boss::ExtensibleExpressionSystem<DummyAtom const>::ComplexExpression>(b)
-            .getHead()
-            .getName() == "howdie");
+  auto b = (boss::ExtensibleExpressionSystem<DummyAtom>::Expression)std::move(a);
+  CHECK(
+      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b).getHead().getName() ==
+      "howdie");
 }
 
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,

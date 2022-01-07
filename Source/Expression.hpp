@@ -700,6 +700,12 @@ struct variant_size<typename boss::ExpressionWithAdditionalCustomAtoms<Additiona
           typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>::SuperType> {
 };
 
+template <typename... AdditionalCustomAtoms>
+struct variant_size<
+    const typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
+    : variant_size<const typename boss::ExpressionWithAdditionalCustomAtoms<
+          AdditionalCustomAtoms...>::SuperType> {};
+
 template <std::size_t I, typename... AdditionalCustomAtoms> struct variant_alternative;
 template <std::size_t I, typename... AdditionalCustomAtoms>
 struct variant_alternative<
@@ -744,5 +750,16 @@ struct variant_size<typename boss::ExpressionWithAdditionalCustomAtoms<Additiona
     : variant_size<
           typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>::SuperType> {
 };
+template <typename... AdditionalCustomAtoms>
+struct variant_size<
+    const typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
+    : variant_size<const typename boss::ExpressionWithAdditionalCustomAtoms<
+          AdditionalCustomAtoms...>::SuperType> {};
+
+template <std::size_t I, typename... AdditionalCustomAtoms>
+struct variant_alternative<
+    I, typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
+    : variant_alternative<I, typename boss::ExpressionWithAdditionalCustomAtoms<
+                                 AdditionalCustomAtoms...>::SuperType> {};
 
 } // namespace std
