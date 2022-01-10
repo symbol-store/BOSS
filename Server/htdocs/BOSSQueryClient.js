@@ -13,24 +13,33 @@ export function drawBOSSChart(drawFunction, updateFunction, queryUrl, queryInter
     BOSSQuery(queryUrl, config).then((data) => {
         drawFunction(data);
     }).then(() => {
-        return setInterval(function () {
+        return setTimeout(function update() {
             BOSSQuery(queryUrl, config).then((data) => {
                 updateFunction(data);
-            });
+            }).then(() => {
+                setTimeout(update(), queryInterval);
+            })
         }, queryInterval);
     });
 }
 
 export function drawBOSSChartFromElementId(drawFunction, updateFunction, elementId, getQuery, queryInterval, config) {
     let queryUrl = getQuery(elementId);
+    let oldQuery = queryUrl;
     BOSSQuery(queryUrl, config).then((data) => {
         drawFunction(data);
     }).then(() => {
-        return setInterval(function () {
+        return setTimeout(function update() {
             let queryUrl = getQuery(elementId);
+            if (oldQuery != queryUrl) {
+                drawBOSSChartFromElementId(drawFunction, updateFunction, elementId, getQuery, queryInterval, config);
+                return;
+            }
             BOSSQuery(queryUrl, config).then((data) => {
                 updateFunction(data);
-            });
+            }).then(() => {
+                setTimeout(update(), queryInterval);
+            })
         }, queryInterval);
     });
 }
