@@ -116,3 +116,14 @@ void freeBOSSString(char* s) {
   std::free(reinterpret_cast<void*>(s)); // NOLINT
 }
 }
+
+namespace boss {
+Expression evaluate(Expression const& expr) {
+  auto* e = new BOSSExpression{expr.clone()};
+  auto* result = BOSSEvaluate(e);
+  auto output = std::move(result->delegate);
+  freeBOSSExpression(result);
+  freeBOSSExpression(e);
+  return output;
+}
+} // namespace boss

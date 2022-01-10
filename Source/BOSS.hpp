@@ -41,3 +41,7 @@ void freeBOSSArguments(BOSSExpression** e);
 void freeBOSSSymbol(BOSSSymbol* s);
 void freeBOSSString(char* s);
 }
+
+namespace boss {
+Expression evaluate(Expression const& e);
+}
