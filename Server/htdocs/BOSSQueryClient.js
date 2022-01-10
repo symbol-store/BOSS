@@ -23,7 +23,7 @@ export function drawBOSSChart(drawFunction, updateFunction, queryUrl, queryInter
     });
 }
 
-export function drawBOSSChartFromElementId(drawFunction, updateFunction, elementId, getQuery, queryInterval, config) {
+export function drawBOSSChartFromElementId(drawFunction, updateFunction, errorFunction, elementId, getQuery, queryInterval, config) {
     let queryUrl = getQuery(elementId);
     let oldQuery = queryUrl;
     BOSSQuery(queryUrl, config).then((data) => {
@@ -32,15 +32,19 @@ export function drawBOSSChartFromElementId(drawFunction, updateFunction, element
         return setTimeout(function update() {
             let queryUrl = getQuery(elementId);
             if (oldQuery != queryUrl) {
-                drawBOSSChartFromElementId(drawFunction, updateFunction, elementId, getQuery, queryInterval, config);
+                drawBOSSChartFromElementId(drawFunction, updateFunction, errorFunction, elementId, getQuery, queryInterval, config);
                 return;
             }
             BOSSQuery(queryUrl, config).then((data) => {
                 updateFunction(data);
             }).then(() => {
                 setTimeout(update(), queryInterval);
-            })
+            }).catch((data) => {
+                errorFunction(data, elementId);
+            });
         }, queryInterval);
+    }).catch((data) => {
+        errorFunction(data, elementId);
     });
 }
 
@@ -48,27 +52,41 @@ export async function BOSSQuery(urlQuery, config) {
     if (urlQuery == "") {
         return new Promise((resolve, reject) => {
             var data = [{
-                "query": urlQuery,
-                "executed": "no"
+                'query': urlQuery,
+                'executed': 'no'
             }]
             reject(JSON.stringify(data));
         });
     }
     var url = config.BOSSRestUrl + urlQuery;
     return new Promise((resolve, reject) => {
-        fetch(url).then((res) => {
-            res.json().then((data) => {
-                data = JSON.stringify(data);
-                resolve(data);
-            },
-                () => {
-                    var data = [{
-                        "query": urlQuery,
-                        "executed": "no"
-                    }]
-                    reject(JSON.stringify(data));
-                }
-            );
-        });
+        fetch(url)
+            .then((res) => {
+                res.json().then((data) => {
+                    if (res.ok) {
+                        data = JSON.stringify(data);
+                        resolve(data);
+                    } else {
+                        throw Error(res.statusText);
+                    }
+                },
+                    () => {
+                        var data = [{
+                            'query': urlQuery,
+                            'executed': 'no',
+                            'response': res.statusText
+                        }]
+                        reject(JSON.stringify(data));
+                    }
+                );
+            })
+            .catch(function (error) {
+                var data = [{
+                    'query': urlQuery,
+                    'executed': 'no',
+                    'response': error
+                }]
+                reject(JSON.stringify(data));
+            });
     });
 }
