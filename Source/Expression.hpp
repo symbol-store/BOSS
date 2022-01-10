@@ -348,7 +348,7 @@ public:
         typename boss::ArgumentWrapper<IsConstIterator, AdditionalAtoms...>::WrappeeType;
 
     std::conditional_t<IsConstIterator, ExpressionArgumentsWithAdditionalCustomAtomsWrapper const,
-                       ExpressionArgumentsWithAdditionalCustomAtomsWrapper const>& container;
+                       ExpressionArgumentsWithAdditionalCustomAtomsWrapper const> container;
     size_t i;
     Iterator next() {
       auto n = *this;
@@ -454,7 +454,7 @@ public:
   }
 
   operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() {
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() const {
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
     std::copy(std::begin(*this), std::end(*this), back_inserter(result));
     return std::move(result);
