@@ -112,4 +112,7 @@ void freeBOSSArguments(BOSSExpression** e) {
 void freeBOSSSymbol(BOSSSymbol* s) {
   delete s; // NOLINT
 }
+void freeBOSSString(const char* s) {
+  delete s; // NOLINT
+}
 }

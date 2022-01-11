@@ -31,6 +31,7 @@ TEST_CASE("Build expression, with strings", "[api]") {
 
   freeBOSSExpression(c);
   freeBOSSSymbol(s);
+  freeBOSSString(argument1);
   freeBOSSExpression(res);
   freeBOSSExpression(input[0]);
   freeBOSSArguments(result);
