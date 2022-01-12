@@ -399,7 +399,7 @@ public:
         i, std::make_index_sequence<std::tuple_size_v<StaticArgumentsContainer>>());
   }
 
-  ArgumentWrapper<true, AdditionalAtoms...> front() const { return at(0); }
+  ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> front() const { return at(0); }
 
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> operator[](size_t i) const {
     if constexpr(std::tuple_size_v < StaticArgumentsContainer >> 0) {
@@ -433,22 +433,22 @@ public:
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
         return getStaticArgument(i);
       }
-    } else if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
+    }
+    if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
       return arguments.at(i - std::tuple_size_v<StaticArgumentsContainer>);
-    } else {
-      auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
-      for(auto& spanArgument : spanArguments) {
-        if(i >= argumentPrefixScan &&
-           i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
-          return std::visit(
-              [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
-                return spanArgument.at(i - argumentPrefixScan);
-              },
-              spanArgument);
-        }
-        argumentPrefixScan +=
-            std::visit([](auto&& spanArgument) { return spanArgument.size(); }, spanArgument);
+    }
+    auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
+    for(auto& spanArgument : spanArguments) {
+      if(i >= argumentPrefixScan &&
+         i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
+        return std::visit(
+            [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
+              return spanArgument.at(i - argumentPrefixScan);
+            },
+            spanArgument);
       }
+      argumentPrefixScan +=
+          std::visit([](auto&& spanArgument) { return spanArgument.size(); }, spanArgument);
     }
     throw std::out_of_range("Expression has no argument with index " + std::to_string(i));
   }
@@ -507,11 +507,28 @@ public:
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       Symbol const& head,
       ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& spanArguments)
-      : head(head), spanArguments(std::move(spanArguments)) {}
+      : ComplexExpressionWithAdditionalCustomAtoms(head, {}, {}, std::move(spanArguments)) {}
 
-  explicit ComplexExpressionWithAdditionalCustomAtoms(Symbol const& head,
-                                                      StaticArgumentsTuple&& staticArguments)
-      : head(head), staticArguments(move(staticArguments)) {}
+  explicit ComplexExpressionWithAdditionalCustomAtoms(
+      Symbol const& head, StaticArgumentsTuple&& staticArguments,
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments = {},
+      ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& spanArguments =
+          {})
+      : head(head), staticArguments(std::move(staticArguments)), arguments(std::move(arguments)),
+        spanArguments(std::move(spanArguments)) {}
+
+  template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
+  explicit ComplexExpressionWithAdditionalCustomAtoms(
+      Symbol const& head,
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
+      : ComplexExpressionWithAdditionalCustomAtoms(
+            head,
+            convertToTuple(
+                arguments,
+                std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
+            {std::move_iterator(
+                 next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
+             std::move_iterator(end(arguments))}){};
 
   operator ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
       std::tuple<>, AdditionalCustomAtoms...>() const {
@@ -521,16 +538,6 @@ public:
                   std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>())));
   }
 
-  template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
-  explicit ComplexExpressionWithAdditionalCustomAtoms(
-      Symbol const& head,
-      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
-      : head(head),
-        staticArguments(convertToTuple(
-            arguments, std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>())),
-        arguments(std::move_iterator(
-                      next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
-                  std::move_iterator(end(arguments))){};
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms<T...>&& other)
