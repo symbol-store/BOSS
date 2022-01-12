@@ -12,7 +12,7 @@ char const* symbolToNewString(BOSSSymbol const* arg);
 struct BOSSExpression {
   boss::Expression delegate;
 };
-BOSSExpression* longToNewBOSSExpression(long i);
+BOSSExpression* longToNewBOSSExpression(int64_t i);
 BOSSExpression* doubleToNewBOSSExpression(double i);
 BOSSExpression* stringToNewBOSSExpression(char const* i);
 BOSSExpression* symbolNameToNewBOSSExpression(char const* i);

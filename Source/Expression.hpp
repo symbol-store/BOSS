@@ -43,10 +43,10 @@ public:
       ComplexExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type;
 
   using SuperType::SuperType;
-  explicit ExpressionWithAdditionalCustomAtoms(int v) noexcept
-      : ExpressionWithAdditionalCustomAtoms(long(v)) {}
-  explicit ExpressionWithAdditionalCustomAtoms(float v) noexcept
-      : ExpressionWithAdditionalCustomAtoms(double(v)) {}
+  explicit ExpressionWithAdditionalCustomAtoms(int32_t v) noexcept
+      : ExpressionWithAdditionalCustomAtoms(int64_t(v)) {}
+  explicit ExpressionWithAdditionalCustomAtoms(float_t v) noexcept
+      : ExpressionWithAdditionalCustomAtoms(double_t(v)) {}
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
       ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
