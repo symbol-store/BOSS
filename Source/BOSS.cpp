@@ -78,7 +78,7 @@ std::int64_t getLongValueFromBOSSExpression(BOSSExpression const* arg) {
 std::double_t getDoubleValueFromBOSSExpression(BOSSExpression const* arg) {
   return boss::get<std::double_t>(arg->delegate);
 }
-char const* getNewStringValueFromBOSSExpression(BOSSExpression const* arg) {
+char* getNewStringValueFromBOSSExpression(BOSSExpression const* arg) {
   return strdup(boss::get<std::string>(arg->delegate).c_str());
 }
 char const* getNewSymbolNameFromBOSSExpression(BOSSExpression const* arg) {
@@ -112,7 +112,7 @@ void freeBOSSArguments(BOSSExpression** e) {
 void freeBOSSSymbol(BOSSSymbol* s) {
   delete s; // NOLINT
 }
-void freeBOSSString(const char* s) {
-  delete s; // NOLINT
+void freeBOSSString(char* s) {
+  std::free(reinterpret_cast<void*>(s)); // NOLINT
 }
 }

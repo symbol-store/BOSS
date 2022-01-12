@@ -28,7 +28,7 @@ size_t getBOSSExpressionTypeID(BOSSExpression const* arg);
 bool getBoolValueFromBOSSExpression(BOSSExpression const* arg);
 std::int64_t getLongValueFromBOSSExpression(BOSSExpression const* arg);
 std::double_t getDoubleValueFromBOSSExpression(BOSSExpression const* arg);
-char const* getNewStringValueFromBOSSExpression(BOSSExpression const* arg);
+char* getNewStringValueFromBOSSExpression(BOSSExpression const* arg);
 char const* getNewSymbolNameFromBOSSExpression(BOSSExpression const* arg);
 
 BOSSSymbol* getHeadFromBOSSExpression(BOSSExpression const* arg);
@@ -39,5 +39,5 @@ BOSSExpression* BOSSEvaluate(BOSSExpression const* arg);
 void freeBOSSExpression(BOSSExpression* e);
 void freeBOSSArguments(BOSSExpression** e);
 void freeBOSSSymbol(BOSSSymbol* s);
-void freeBOSSString(const char* s);
+void freeBOSSString(char* s);
 }
