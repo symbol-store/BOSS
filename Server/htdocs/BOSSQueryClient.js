@@ -9,13 +9,13 @@ export class BOSSConnectionConfig {
     }
 }
 
-export function drawBOSSChart(drawFunction, updateFunction, queryUrl, queryInterval, config) {
+export function drawBOSSChart(drawFunction, updateFunction, queryUrl, queryInterval, config, drawParams = "") {
     BOSSQuery(queryUrl, config).then((data) => {
-        drawFunction(data);
+        drawFunction(data, drawParams);
     }).then(() => {
         return setTimeout(function update() {
             BOSSQuery(queryUrl, config).then((data) => {
-                updateFunction(data);
+                updateFunction(data, drawParams);
             }).then(() => {
                 setTimeout(update(), queryInterval);
             })
@@ -23,11 +23,11 @@ export function drawBOSSChart(drawFunction, updateFunction, queryUrl, queryInter
     });
 }
 
-export function drawBOSSChartFromElementId(drawFunction, updateFunction, errorFunction, elementId, getQuery, queryInterval, config) {
+export function drawBOSSChartFromElementId(drawFunction, updateFunction, errorFunction, elementId, getQuery, queryInterval, config, drawParams = "") {
     let queryUrl = getQuery(elementId);
     let oldQuery = queryUrl;
     BOSSQuery(queryUrl, config).then((data) => {
-        drawFunction(data);
+        drawFunction(data, drawParams);
     }).then(() => {
         return setTimeout(function update() {
             let queryUrl = getQuery(elementId);
@@ -36,7 +36,7 @@ export function drawBOSSChartFromElementId(drawFunction, updateFunction, errorFu
                 return;
             }
             BOSSQuery(queryUrl, config).then((data) => {
-                updateFunction(data);
+                updateFunction(data, drawParams);
             }).then(() => {
                 setTimeout(update(), queryInterval);
             }).catch((data) => {
