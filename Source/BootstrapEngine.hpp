@@ -5,11 +5,10 @@
 #include "ExpressionUtilities.hpp"
 #include "Utilities.hpp"
 
-#include <filesystem>
-
 #ifndef _WIN32
 #include <dlfcn.h>
 #else
+#include <filesystem>
 #include <windows.h>
 constexpr static int RTLD_NOW = 0;
 constexpr static int RTLD_NODELETE = 0;
