@@ -5,13 +5,24 @@
 #include "ExpressionUtilities.hpp"
 #include "Utilities.hpp"
 
+#include <filesystem>
+
 #ifndef _WIN32
 #include <dlfcn.h>
 #else
 #include <windows.h>
 constexpr static int RTLD_NOW = 0;
 constexpr static int RTLD_NODELETE = 0;
-static void* dlopen(LPCSTR lpLibFileName, int /*flags*/) { return LoadLibrary(lpLibFileName); }
+static void* dlopen(LPCSTR lpLibFileName, int /*flags*/) {
+  auto filepath = std::filesystem::path(lpLibFileName);
+  if(filepath.is_absolute()) {
+    return LoadLibraryEx(lpLibFileName, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+  } else {
+    auto absFilepath = std::filesystem::absolute(filepath);
+    LPCSTR lpAbsFileName = absFilepath.string().c_str();
+    return LoadLibraryEx(lpAbsFileName, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+  }
+}
 static auto dlclose(void* hModule) {
   auto resetFunction = GetProcAddress((HMODULE)hModule, "reset");
   if(resetFunction != NULL) {
@@ -21,16 +32,16 @@ static auto dlclose(void* hModule) {
 }
 static auto dlerror() {
   auto errorCode = GetLastError();
-  auto psz = LPTSTR(nullptr);
-  auto msg = FormatMessage(
-      FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_ALLOCATE_BUFFER,
-      NULL, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), psz, 0, NULL);
+  LPSTR pBuffer = NULL;
+  auto msg = FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS |
+                               FORMAT_MESSAGE_ALLOCATE_BUFFER,
+                           NULL, errorCode, 0, (LPSTR)&pBuffer, 0, NULL);
   if(msg > 0) {
     // Assign buffer to smart pointer with custom deleter so that memory gets released
     // in case String's constructor throws an exception.
     auto deleter = [](void* p) { ::LocalFree(p); };
-    std::unique_ptr<TCHAR, decltype(deleter)> ptrBuffer(psz, deleter);
-    return std::string(ptrBuffer.get(), msg);
+    std::unique_ptr<TCHAR, decltype(deleter)> ptrBuffer(pBuffer, deleter);
+    return "(" + std::to_string(errorCode) + ") " + std::string(ptrBuffer.get(), msg);
   }
   return std::to_string(errorCode);
 }
