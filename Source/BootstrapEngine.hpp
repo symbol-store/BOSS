@@ -17,8 +17,8 @@ static void* dlopen(LPCSTR lpLibFileName, int /*flags*/) {
   if(filepath.is_absolute()) {
     return LoadLibraryEx(lpLibFileName, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
   } else {
-    auto absFilepath = std::filesystem::absolute(filepath);
-    LPCSTR lpAbsFileName = absFilepath.string().c_str();
+    auto absFilepath = std::filesystem::absolute(filepath).string();
+    LPCSTR lpAbsFileName = absFilepath.c_str();
     return LoadLibraryEx(lpAbsFileName, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
   }
 }
