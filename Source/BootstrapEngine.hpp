@@ -13,6 +13,12 @@
 constexpr static int RTLD_NOW = 0;
 constexpr static int RTLD_NODELETE = 0;
 static void* dlopen(LPCSTR lpLibFileName, int /*flags*/) {
+  void* libraryPtr = LoadLibrary(lpLibFileName);
+  if(libraryPtr != nullptr) {
+    return libraryPtr;
+  }
+  // if it failed to load the standard way (searching dependent dlls in the exe path)
+  // try one more time, with loading the dependent dlls from the dll path
   auto filepath = std::filesystem::path(lpLibFileName);
   if(filepath.is_absolute()) {
     return LoadLibraryEx(lpLibFileName, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
