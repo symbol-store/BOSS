@@ -35,33 +35,35 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
 template <typename Scalar> struct Span {
 private: // state
   std::vector<Scalar> adaptee = {};
-  Scalar* begin = nullptr;
-  Scalar* end = nullptr;
+  Scalar* _begin = nullptr;
+  Scalar* _end = nullptr;
 
 public: // surface
-  size_t size() const { return end - begin; }
-  constexpr Scalar const& operator[](size_t i) const { return begin[i]; }
-  constexpr Scalar& operator[](size_t i) { return begin[i]; }
+  size_t size() const { return _end - _begin; }
+  constexpr Scalar const& operator[](size_t i) const { return _begin[i]; }
+  constexpr Scalar& operator[](size_t i) { return _begin[i]; }
+  auto begin() const { return _begin; }
+  auto end() const { return _end; }
 
   constexpr Scalar const& at(size_t i) const {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
-    if(begin + i < end) {
+    if(_begin + i < _end) {
       return (*this)[i];
     }
     throw std::out_of_range("Span has no element with index " + std::to_string(i));
   }
   constexpr Scalar& at(size_t i) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
-    if(begin + i < end) {
+    if(_begin + i < _end) {
       return (*this)[i];
     }
     throw std::out_of_range("Span has no element with index " + std::to_string(i));
   }
   explicit Span(std::vector<Scalar>&& adaptee)
-      : adaptee(adaptee), begin(this->adaptee.data()),
-        end(this->adaptee.data() + this->adaptee.size()) {}
+      : adaptee(adaptee), _begin(this->adaptee.data()),
+        _end(this->adaptee.data() + this->adaptee.size()) {}
 
-  bool operator==(Span const& other) const { return begin == other.begin; }
+  bool operator==(Span const& other) const { return _begin == other._begin; }
 
   Span() noexcept = default;
   Span(Span&&) noexcept = default;
@@ -348,7 +350,8 @@ public:
         typename boss::ArgumentWrapper<IsConstIterator, AdditionalAtoms...>::WrappeeType;
 
     std::conditional_t<IsConstIterator, ExpressionArgumentsWithAdditionalCustomAtomsWrapper const,
-                       ExpressionArgumentsWithAdditionalCustomAtomsWrapper const> container;
+                       ExpressionArgumentsWithAdditionalCustomAtomsWrapper const>
+        container;
     size_t i;
     Iterator next() {
       auto n = *this;
@@ -368,9 +371,7 @@ public:
       i++;
       return before;
     }
-    std::ptrdiff_t operator-(Iterator const& other) const{
-      return i - other.i;
-    }
+    std::ptrdiff_t operator-(Iterator const& other) const { return i - other.i; }
 
     boss::ArgumentWrapper<IsConstIterator, AdditionalAtoms...> operator*() const {
       return container.at(i);
@@ -564,6 +565,10 @@ public:
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& getDynamicArguments() {
     return arguments;
   };
+
+  auto const& getStaticArguments() const { return staticArguments; }
+  auto const& getSpanArguments() const { return spanArguments; }
+
   Symbol const& getHead() const { return head; };
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
   ComplexExpressionWithAdditionalCustomAtoms(

@@ -1,3 +1,4 @@
+#include <numeric>
 #define CATCH_CONFIG_RUNNER
 #include "../Source/BOSS.hpp"
 #include "../Source/BootstrapEngine.hpp"
@@ -338,6 +339,21 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
                                     ))),
         vector<bool>{false, false, true, true, false});
   }
+}
+
+TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t,
+                   std::double_t) {
+  auto engine = boss::BootstrapEngine();
+  REQUIRE(!librariesToTest.empty());
+  auto eval = [&engine](auto&& expression) mutable {
+    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
+  };
+
+  auto input = GENERATE(take(3, chunk(50, random<TestType>(1, 1000))));
+  auto sum = std::reduce(begin(input), end(input));
+
+  auto vectorExpression = "Plus"_(boss::Span(vector(input)));
+  CHECK(eval(move(vectorExpression)) == sum);
 }
 
 int main(int argc, char* argv[]) {
