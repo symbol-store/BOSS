@@ -17,7 +17,7 @@ export function drawBOSSChart(drawFunction, updateFunction, queryUrl, queryInter
             BOSSQuery(queryUrl, config).then((data) => {
                 updateFunction(data, drawParams);
             }).then(() => {
-                setTimeout(update(), queryInterval);
+                setTimeout(update, queryInterval);
             })
         }, queryInterval);
     });
@@ -38,7 +38,7 @@ export function drawBOSSChartFromElementId(drawFunction, updateFunction, errorFu
             BOSSQuery(queryUrl, config).then((data) => {
                 updateFunction(data, drawParams);
             }).then(() => {
-                setTimeout(update(), queryInterval);
+                setTimeout(update, queryInterval);
             }).catch((data) => {
                 errorFunction(data, elementId);
             });
