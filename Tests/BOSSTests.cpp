@@ -351,7 +351,7 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   };
 
   auto input = GENERATE(take(3, chunk(50, random<TestType>(1, 1000))));
-  auto sum = std::accumulate(begin(input), end(input), 0);
+  auto sum = std::accumulate(begin(input), end(input), TestType());
 
   CHECK(get<long>(eval("Plus"_(boss::Span(vector(input))))) == sum);
 }
