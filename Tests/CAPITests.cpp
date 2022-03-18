@@ -25,7 +25,7 @@ TEST_CASE("Build expression, with strings", "[api]") {
   auto* c = newComplexBOSSExpression(s, 1, input.data());
   auto* res = BOSSEvaluate(c);
   auto* result = getArgumentsFromBOSSExpression(res);
-  char* argument1 = getNewStringValueFromBOSSExpression(result[0]);
+  auto* argument1 = getNewStringValueFromBOSSExpression(result[0]);
   std::string str1 = std::string(argument1);
   std::string str2 = std::string("test string");
 
