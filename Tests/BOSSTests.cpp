@@ -341,6 +341,7 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
   }
 }
 
+// NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::double_t) {
   auto engine = boss::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
@@ -351,8 +352,7 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   auto input = GENERATE(take(3, chunk(50, random<TestType>(1, 1000))));
   auto sum = std::reduce(begin(input), end(input));
 
-  auto vectorExpression = "Plus"_(boss::Span(vector(input)));
-  CHECK(eval(move(vectorExpression)) == sum);
+  CHECK(eval("Plus"_(boss::Span(vector(input)))) == sum);
 }
 
 int main(int argc, char* argv[]) {
