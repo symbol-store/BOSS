@@ -362,6 +362,10 @@ public:
       i++;
       return *this;
     }
+    Iterator operator--() {
+      i--;
+      return *this;
+    }
     Iterator& operator+=(difference_type n) {
       i += n;
       return *this;
@@ -369,6 +373,11 @@ public:
     Iterator operator++(int) {
       auto before = *this;
       i++;
+      return before;
+    }
+    Iterator operator--(int) {
+      auto before = *this;
+      i--;
       return before;
     }
     std::ptrdiff_t operator-(Iterator const& other) const { return i - other.i; }

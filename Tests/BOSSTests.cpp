@@ -341,8 +341,7 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
   }
 }
 
-TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t,
-                   std::double_t) {
+TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::double_t) {
   auto engine = boss::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
