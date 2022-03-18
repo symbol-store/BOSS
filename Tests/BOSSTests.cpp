@@ -5,6 +5,7 @@
 #include "../Source/ExpressionUtilities.hpp"
 #include <arrow/array.h>
 #include <catch2/catch.hpp>
+#include <numeric>
 #include <variant>
 using boss::Expression;
 using boss::get;
