@@ -26,24 +26,26 @@ public:
    * it explicitly
    */
   template <typename T>
-  typename ExpressionSystem::Expression
-  convertConstCharToStringAndOnToExpression(T const&& v) const {
+  typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {
     using Expression = typename ExpressionSystem::Expression;
     using ComplexExpression = typename ExpressionSystem::ComplexExpression;
     if constexpr(std::is_same_v<std::decay_t<decltype(v)>, char const*>) {
       return Expression(std::string((char const*)v));
     } else if constexpr(std::is_same_v<std::decay_t<decltype(v)>, ComplexExpression> ||
                         std::is_same_v<std::decay_t<decltype(v)>, Expression>) {
+      if constexpr(std::is_rvalue_reference_v<T> && !std::is_const_v<std::remove_reference_t<T>>) {
+        return Expression(std::move(v));
+      }
       return Expression(v.clone());
     } else {
       return Expression(v);
     }
   }
-  template <typename T>
-  std::enable_if_t<std::is_rvalue_reference_v<T&&>, typename ExpressionSystem::Expression>
-  convertConstCharToStringAndOnToExpression(T&& v) const {
-    return typename ExpressionSystem::Expression(std::forward<T>(v));
-  }
+  // template <typename T>
+  // std::enable_if_t<std::is_rvalue_reference_v<T&&>, typename ExpressionSystem::Expression>
+  // convertConstCharToStringAndOnToExpression(T&& v) const {
+  //   return typename ExpressionSystem::Expression(std::forward<T>(v));
+  // }
 
   template <typename Ts>
   using isAtom = isVariantMember<std::decay_t<Ts>, typename ExpressionSystem::AtomicExpression>;
@@ -195,12 +197,25 @@ operator<<(std::ostream& out,
   return out;
 }
 
+template <typename, typename, bool> struct Wow;
+
 template <bool ConstWrappee, typename... AdditionalCustomAtoms>
 ::std::ostream&
 operator<<(::std::ostream& stream,
            boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& argument) {
   return std::visit(
-      [&stream](auto&& argument) -> auto& { return stream << argument.get(); },
+      [&stream](auto&& argument) -> auto& {
+        if constexpr(std::disjunction_v<std::is_same<std::decay_t<decltype(argument)>,
+                                                     std::vector<bool>::reference>,
+                                        std::is_same<std::decay_t<decltype(argument)>,
+                                                     std::vector<bool>::const_reference>,
+                                        std::is_same<std::decay_t<decltype(argument)>,
+                                                     std::vector<bool const>::reference>>) {
+          return stream << (bool)argument;
+        } else {
+          return stream << argument.get();
+        }
+      },
       argument.getArgument());
 }
 

@@ -35,39 +35,41 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
 template <typename Scalar> struct Span {
 private: // state
   std::vector<Scalar> adaptee = {};
-  Scalar* _begin = nullptr;
-  Scalar* _end = nullptr;
+  typename std::vector<Scalar>::iterator _begin = nullptr;
+  typename std::vector<Scalar>::iterator _end = nullptr;
 
 public: // surface
   size_t size() const { return _end - _begin; }
-  constexpr Scalar const& operator[](size_t i) const { return _begin[i]; }
-  constexpr Scalar& operator[](size_t i) { return _begin[i]; }
+  constexpr auto operator[](size_t i) const -> decltype(auto) { return *(_begin + i); }
+  constexpr auto operator[](size_t i) -> decltype(auto) { return *(_begin + i); }
   auto begin() const { return _begin; }
   auto end() const { return _end; }
 
-  constexpr Scalar const& at(size_t i) const {
+  constexpr auto at(size_t i) const -> decltype(auto) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
     if(_begin + i < _end) {
       return (*this)[i];
     }
     throw std::out_of_range("Span has no element with index " + std::to_string(i));
   }
-  constexpr Scalar& at(size_t i) {
+  constexpr auto at(size_t i) -> decltype(auto) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
     if(_begin + i < _end) {
       return (*this)[i];
     }
     throw std::out_of_range("Span has no element with index " + std::to_string(i));
   }
+  /**
+   * for some reason, the span takes ownership of the adaptee. That seems weird to me.
+   */
   explicit Span(std::vector<Scalar>&& adaptee)
-      : adaptee(adaptee), _begin(this->adaptee.data()),
-        _end(this->adaptee.data() + this->adaptee.size()) {}
+      : adaptee(adaptee), _begin(this->adaptee.begin()), _end(this->adaptee.end()) {}
 
   bool operator==(Span const& other) const { return _begin == other._begin; }
 
   Span() noexcept = default;
   Span(Span&&) noexcept = default;
-  Span(Span const&) = delete;
+  Span(Span<Scalar> const& other) : Span((std::vector<Scalar>)other.adaptee){};
   Span& operator=(Span&&) noexcept = default;
   Span& operator=(Span const&) = delete;
   ~Span() = default;
@@ -184,6 +186,7 @@ using ArgumentWrappeeType = typename variant_amend<
     typename utilities::rewrap_variant_arguments<
         std::reference_wrapper,
         AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type,
+    std::vector<bool>::reference,
     std::reference_wrapper<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>>::type;
 
 template <typename... AdditionalCustomAtoms>
@@ -191,6 +194,7 @@ using ConstArgumentWrappeeType = typename variant_amend<
     typename utilities::rewrap_variant_arguments_and_add_const<
         std::reference_wrapper,
         AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type,
+    std::vector<bool>::const_reference,
     std::reference_wrapper<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const>>::
     type;
 
@@ -255,12 +259,24 @@ public:
         std::move(argument)));
   }
 
-  template <typename T,
-            typename = std::enable_if_t<std::disjunction<
-                utilities::isVariantMember<std::reference_wrapper<T>, WrappeeType>,
-                utilities::isVariantMember<std::reference_wrapper<const T>, WrappeeType>>::value>>
+  template <
+      typename T,
+      typename = std::enable_if_t<std::conjunction<
+          std::negation<utilities::isVariantMember<std::reference_wrapper<const T>, WrappeeType>>,
+          utilities::isVariantMember<std::reference_wrapper<T>, WrappeeType>>::value>>
   ArgumentWrapper(T& argument) // NOLINT(hicpp-explicit-conversions)
-      : argument(std::reference_wrapper(argument)) {}
+      : argument(std::ref(argument)) {}
+  template <typename T,
+            typename = std::enable_if_t<std::conjunction<
+                std::negation<utilities::isVariantMember<std::reference_wrapper<T>, WrappeeType>>,
+                utilities::isVariantMember<std::reference_wrapper<const T>, WrappeeType>>::value>>
+  ArgumentWrapper(T const& argument) // NOLINT(hicpp-explicit-conversions)
+      : argument(std::cref(argument)) {}
+  template <typename T,
+            typename = std::enable_if_t<std::is_same_v<T, std::vector<bool>::reference>>>
+  ArgumentWrapper(T&& argument) // NOLINT(hicpp-explicit-conversions)
+      : argument(argument) {}
+
   bool valueless_by_exception() const { return argument.valueless_by_exception(); }
 
   auto at(size_t i) {
@@ -268,16 +284,39 @@ public:
   }
 
   auto clone() const {
-    return std::visit(
-        [](auto const& a) {
-          if constexpr(utilities::isInstanceOfTemplate<
-                           typename std::decay_t<typename std::decay_t<decltype(a)>::type>,
-                           ExpressionWithAdditionalCustomAtoms>::value) {
-            return a.get().clone();
-          } else {
-            return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(a);
-          }
+    static auto unwrap = utilities::overload( // technical debt
+        [](bool b) { return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b); },
+        [](long long const b) {
+          return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
         },
+        [](double const b) {
+          return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
+        },
+        [](std::string b) {
+          return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
+        },
+        [](boss::Symbol b) {
+          return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
+        },
+        [](auto const& b) {
+          return b.clone();
+        });
+    return std::visit(
+        utilities::overload(
+
+            [](auto const& a) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+              if constexpr(utilities::isInstanceOfTemplate<
+                               std::decay_t<decltype(a)>,
+                               ExpressionWithAdditionalCustomAtoms>::value) {
+                return a.get().clone();
+              }
+              if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(a)>,
+                                                           std::reference_wrapper>::value) {
+                return unwrap(a.get());
+              } else {
+                return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(a);
+              }
+            }),
         argument);
   }
 
@@ -297,8 +336,11 @@ public:
       return std::holds_alternative<std::reference_wrapper<std::decay_t<T>>>(argument) &&
              std::get<std::reference_wrapper<std::decay_t<T>>>(argument).get() == other;
     } else if constexpr(otherIsArgumentWrapper) {
-      return std::visit([this](auto&& argument) { return *this == argument.get(); },
-                        other.getArgument());
+      return std::visit(
+          utilities::overload(
+              [this](std::vector<bool>::const_reference argument) { return *this == argument; },
+              [this](auto&& argument) { return *this == argument.get(); }),
+          other.getArgument());
     } else {
       return false;
     }
@@ -453,6 +495,11 @@ public:
          i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
         return std::visit(
             [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
+              if constexpr(std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                          std::vector<bool>::reference>) {
+                return std::vector<bool>::reference(spanArgument.at(i - argumentPrefixScan));
+              }
+
               return spanArgument.at(i - argumentPrefixScan);
             },
             spanArgument);
@@ -554,7 +601,11 @@ public:
       : head(other.getHead()) {
     arguments.reserve(other.getArguments().size());
     for(auto&& arg : other.getArguments()) {
-      std::visit([this](auto&& arg) { arguments.emplace_back(std::move(arg.get())); },
+      std::visit(utilities::overload(
+                     [this](std::vector<bool>::reference&& arg) {
+                       arguments.emplace_back(std::move(arg));
+                     },
+                     [this](auto&& arg) { arguments.emplace_back(std::move(arg.get())); }),
                  std::move(arg.getArgument()));
     }
   }
@@ -571,7 +622,8 @@ public:
     return {staticArguments, arguments, spanArguments};
   }
 
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& getDynamicArguments() {
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const&
+  getDynamicArguments() const {
     return arguments;
   };
 
@@ -602,12 +654,24 @@ public:
 
   ComplexExpressionWithAdditionalCustomAtoms clone() const {
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> copiedArgs;
-    copiedArgs.reserve(arguments.size());
-    for(auto const& arg : arguments) {
+    ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> newSpanArguments;
+    static_assert(std::tuple_size_v<decltype(staticArguments)> == 0);
+    // auto scalarArgs =
+    //     ExpressionArgumentsWithAdditionalCustomAtomsWrapper<decltype(staticArguments), false,
+    //                                                         AdditionalCustomAtoms...>(
+    //         staticArguments, arguments, spanArguments);
+    // copiedArgs.reserve(scalarArgs.size());
+    for(auto const& arg : getDynamicArguments()) {
       copiedArgs.emplace_back(arg.clone());
     }
 
-    return ComplexExpressionWithAdditionalCustomAtoms(head, std::move(copiedArgs));
+    newSpanArguments.reserve(spanArguments.size());
+    for(auto const& arg : spanArguments) {
+      std::visit([&](auto&& arg) { return newSpanArguments.emplace_back(arg); }, arg);
+    }
+
+    return ComplexExpressionWithAdditionalCustomAtoms(head, {}, std::move(copiedArgs),
+                                                      std::move(newSpanArguments));
   }
 
 private:
@@ -677,6 +741,13 @@ T& get(boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrap
       [](auto& argument) -> T& {
         if constexpr(std::is_same_v<std::decay_t<decltype(argument)>, std::reference_wrapper<T>>) {
           return argument.get();
+        } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                           std::vector<bool>::reference>) {
+          if constexpr(std::is_same_v<std::decay_t<T>, std::vector<bool>::reference>) {
+
+            return argument;
+          }
+          throw std::bad_variant_access();
         } else if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(argument)>,
                                                             std::reference_wrapper>::value &&
                             utilities::isInstanceOfTemplate<
