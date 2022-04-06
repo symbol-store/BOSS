@@ -23,7 +23,9 @@ BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
     return new BOSSExpression{"ErrorWhenEvaluatingExpression"_(arg->delegate, e.what())};
   }
 };
-BOSSExpression* longToNewBOSSExpression(long i) { return new BOSSExpression{boss::Expression(i)}; }
+BOSSExpression* longToNewBOSSExpression(int64_t i) {
+  return new BOSSExpression{boss::Expression(i)};
+}
 BOSSExpression* doubleToNewBOSSExpression(double i) {
   return new BOSSExpression{boss::Expression(i)};
 }
@@ -116,3 +118,14 @@ void freeBOSSString(char* s) {
   std::free(reinterpret_cast<void*>(s)); // NOLINT
 }
 }
+
+namespace boss {
+Expression evaluate(Expression const& expr) {
+  auto* e = new BOSSExpression{expr.clone()};
+  auto* result = BOSSEvaluate(e);
+  auto output = std::move(result->delegate);
+  freeBOSSExpression(result);
+  freeBOSSExpression(e);
+  return output;
+}
+} // namespace boss

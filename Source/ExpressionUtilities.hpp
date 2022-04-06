@@ -288,10 +288,10 @@ template <typename T, typename TInput> decltype(auto) get(TInput&& v) {
     } else {
       s << "valueless by exception";
     }
-    static auto typenames = std::map<std::type_index, char const*>{{typeid(long), "long"},
+    static auto typenames = std::map<std::type_index, char const*>{{typeid(int64_t), "long"},
                                                                    {typeid(Symbol), "Symbol"},
                                                                    {typeid(bool), "bool"},
-                                                                   {typeid(double), "double"},
+                                                                   {typeid(double_t), "double"},
                                                                    {typeid(std::string), "string"}};
     s << "\", expected "
       << (typenames.count(typeid(T)) ? typenames.at(typeid(T)) : typeid(T).name());

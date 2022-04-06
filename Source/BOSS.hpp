@@ -12,7 +12,7 @@ char const* symbolToNewString(BOSSSymbol const* arg);
 struct BOSSExpression {
   boss::Expression delegate;
 };
-BOSSExpression* longToNewBOSSExpression(long i);
+BOSSExpression* longToNewBOSSExpression(int64_t i);
 BOSSExpression* doubleToNewBOSSExpression(double i);
 BOSSExpression* stringToNewBOSSExpression(char const* i);
 BOSSExpression* symbolNameToNewBOSSExpression(char const* i);
@@ -40,4 +40,8 @@ void freeBOSSExpression(BOSSExpression* e);
 void freeBOSSArguments(BOSSExpression** e);
 void freeBOSSSymbol(BOSSSymbol* s);
 void freeBOSSString(char* s);
+}
+
+namespace boss {
+Expression evaluate(Expression const& e);
 }
