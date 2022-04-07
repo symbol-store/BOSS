@@ -721,6 +721,12 @@ T const& get(ArgumentWrapper<true, AdditionalCustomAtoms...> const& wrapper) {
             return std::get<T>(wrappee.get());
           }
           throw std::bad_variant_access();
+        } else if constexpr(std::is_same_v<std::decay_t<decltype(wrappee)>,
+                                           std::vector<bool>::reference>) {
+          if constexpr(is_same_v<bool, T>) {
+            return wrappee;
+          }
+          throw std::bad_variant_access();
         } else {
           return get<T>(wrappee);
         }
