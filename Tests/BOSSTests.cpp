@@ -69,9 +69,22 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto vectorExpression = "duh"_(boss::Span(vector(input)));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
-    CHECK(vectorExpression.getArguments().at(0) == input.at(0));
-    CHECK(vectorExpression.getArguments()[0] == input[0]);
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", std::int64_t,
+                   std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
+  auto vectorExpression = "duh"_(boss::Span(vector(input)));
+  auto clonedVectorExpression = vectorExpression.clone();
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(clonedVectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
   }
 }
 

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <iterator>
+#include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -377,7 +378,13 @@ public:
                                                       SpanArgumentsContainer& spanArguments)
       : staticArguments(staticArguments), arguments(arguments), spanArguments(spanArguments) {}
 
-  size_t size() const { return std::tuple_size_v<StaticArgumentsContainer> + arguments.size(); }
+  size_t size() const {
+    return std::tuple_size_v<StaticArgumentsContainer> + arguments.size() +
+           std::accumulate(
+               spanArguments.begin(), spanArguments.end(), 0, [](auto soFar, auto& thisOne) {
+                 return soFar + std::visit([](auto&& thisOne) { return thisOne.size(); }, thisOne);
+               });
+  }
   bool empty() const { return size() == 0; }
 
   template <bool IsConstIterator> struct Iterator {
