@@ -34,7 +34,7 @@ public:
     } else if constexpr(std::is_same_v<std::decay_t<decltype(v)>, ComplexExpression> ||
                         std::is_same_v<std::decay_t<decltype(v)>, Expression>) {
       if constexpr(std::is_rvalue_reference_v<T> && !std::is_const_v<std::remove_reference_t<T>>) {
-        return Expression(std::move(v));
+        return Expression(std::forward<T>(v));
       }
       return Expression(v.clone());
     } else {

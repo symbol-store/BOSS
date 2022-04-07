@@ -286,10 +286,10 @@ public:
   auto clone() const {
     static auto unwrap = utilities::overload( // technical debt
         [](bool b) { return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b); },
-        [](long long const b) {
+        [](std::int64_t b) {
           return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
         },
-        [](double const b) {
+        [](std::double_t const b) {
           return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
         },
         [](std::string b) {
