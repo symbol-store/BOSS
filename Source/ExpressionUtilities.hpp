@@ -208,9 +208,7 @@ operator<<(::std::ostream& stream,
         if constexpr(std::disjunction_v<std::is_same<std::decay_t<decltype(argument)>,
                                                      std::vector<bool>::reference>,
                                         std::is_same<std::decay_t<decltype(argument)>,
-                                                     std::vector<bool>::const_reference>,
-                                        std::is_same<std::decay_t<decltype(argument)>,
-                                                     std::vector<bool const>::reference>>) {
+                                                     std::vector<bool>::const_reference>>) {
           return stream << (bool)argument;
         } else {
           return stream << argument.get();

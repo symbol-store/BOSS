@@ -298,9 +298,7 @@ public:
         [](boss::Symbol b) {
           return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
         },
-        [](auto const& b) {
-          return b.clone();
-        });
+        [](auto const& b) { return b.clone(); });
     return std::visit(
         utilities::overload(
 
@@ -862,5 +860,32 @@ struct variant_alternative<
     I, typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
     : variant_alternative<I, typename boss::ExpressionWithAdditionalCustomAtoms<
                                  AdditionalCustomAtoms...>::SuperType> {};
+
+#ifdef __clang__
+
+#elif __GNUC__
+namespace __detail {
+namespace __variant {
+template <typename... CustomAtoms>
+struct _Extra_visit_slot_needed<
+    std::__detail::__variant::__deduce_visit_result<void>,
+    const boss::ExpressionWithAdditionalCustomAtoms<CustomAtoms...>&> // NOLINT
+{
+  template <typename> struct _Variant_never_valueless : false_type {}; // NOLINT
+  static constexpr bool value = false;
+};
+
+template <typename... CustomAtoms>
+struct _Extra_visit_slot_needed<
+    std::__detail::__variant::__deduce_visit_result<void>,
+    const boss::ExpressionWithAdditionalCustomAtoms<CustomAtoms...>> // NOLINT
+{
+  template <typename> struct _Variant_never_valueless : false_type {}; // NOLINT
+  static constexpr bool value = false;
+};
+
+} // namespace __variant
+} // namespace __detail
+#endif
 
 } // namespace std
