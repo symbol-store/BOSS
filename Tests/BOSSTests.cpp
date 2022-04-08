@@ -367,7 +367,12 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   auto input = GENERATE(take(3, chunk(50, random<TestType>(1, 1000))));
   auto sum = std::accumulate(begin(input), end(input), TestType());
 
-  CHECK(get<std::int64_t>(eval("Plus"_(boss::Span(vector(input))))) == sum);
+  if constexpr(std::is_same_v<TestType, std::double_t>) {
+    CHECK(get<std::double_t>(eval("Plus"_(boss::Span(vector(input))))) ==
+          Catch::Detail::Approx((std::double_t)sum));
+  } else {
+    CHECK(get<TestType>(eval("Plus"_(boss::Span(vector(input))))) == sum);
+  }
 }
 
 int main(int argc, char* argv[]) {
