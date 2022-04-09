@@ -64,6 +64,9 @@ from your build folder:
 : racket -tm ../Server/Server.rkt
 using any browser, browse to http://localhost:8000
 
+*** Racket repl
+see https://asciinema.org/a/LNIfPhRGfQCxpqEtYPcgKBexZ
+
 *** Racket example
 #+begin_src racket :exports both :tangle yes :main no :cache no
   #lang racket
