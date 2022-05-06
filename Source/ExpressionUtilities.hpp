@@ -90,7 +90,7 @@ public:
     ([this, &argList](auto&& arg) { argList.emplace_back(std::forward<decltype(arg)>(arg)); }(
          std::move(args)),
      ...);
-    return move(typename ExpressionSystem::ComplexExpression(s, std::move(argList)));
+    return move(typename ExpressionSystem::ComplexExpression(s, {}, {}, std::move(argList)));
   }
 
   /**

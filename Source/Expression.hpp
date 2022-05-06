@@ -177,9 +177,15 @@ using ExpressionArgumentsWithAdditionalCustomAtoms =
     std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>;
 
 template <typename... AdditionalCustomAtoms>
-using ExpressionSpanArgumentsWithAdditionalCustomAtoms =
-    std::vector<std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
-                             Span<Symbol>, Span<AdditionalCustomAtoms>...>>;
+class ExpressionSpanArgumentsWithAdditionalCustomAtoms
+    : public std::vector<
+          std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
+                       Span<Symbol>, Span<AdditionalCustomAtoms>...>> {
+public:
+  using std::vector<
+      std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
+                   Span<Symbol>, Span<AdditionalCustomAtoms>...>>::vector;
+};
 
 template <bool ConstWrappee = false, typename... AdditionalCustomAtoms> class ArgumentWrapper;
 template <typename... AdditionalCustomAtoms>
@@ -260,6 +266,55 @@ public:
         std::move(argument)));
   }
 
+  /**
+   * we allow conversion to Expression value only for lvalues (to disambiguate
+   * from conversion to rvalue)
+   */
+  operator // NOLINT(hicpp-explicit-conversions)
+      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>() & {
+#pragma message("this is a shim and should be removed")
+    return std::visit(
+        [](auto& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+          if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
+                                                       std::reference_wrapper>::value) {
+            if constexpr(utilities::isInstanceOfTemplate<
+                             std::decay_t<decltype(e.get())>,
+                             ExpressionWithAdditionalCustomAtoms>::value) {
+              return e.get().clone();
+            } else {
+              return e.get();
+            }
+          } else {
+            return e;
+          }
+        },
+        argument);
+  }
+
+  /**
+   * we allow conversion to rvalue Expression only for rvalues
+   */
+  operator // NOLINT(hicpp-explicit-conversions)
+      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&&() && {
+#pragma message("this is a shim and should be removed")
+    return std::visit(
+        [](auto& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& {
+          if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
+                                                       std::reference_wrapper>::value) {
+            if constexpr(utilities::isInstanceOfTemplate<
+                             std::decay_t<decltype(e.get())>,
+                             ExpressionWithAdditionalCustomAtoms>::value) {
+              return e.get().clone();
+            } else {
+              return e.get();
+            }
+          } else {
+            return e;
+          }
+        },
+        argument);
+  }
+
   template <
       typename T,
       typename = std::enable_if_t<std::conjunction<
@@ -285,21 +340,14 @@ public:
   }
 
   auto clone() const {
-    static auto unwrap = utilities::overload( // technical debt
-        [](bool b) { return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b); },
-        [](std::int64_t b) {
-          return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
-        },
-        [](std::double_t const b) {
-          return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
-        },
-        [](std::string b) {
-          return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
-        },
-        [](boss::Symbol b) {
-          return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
-        },
-        [](auto const& b) { return b.clone(); });
+    static auto unwrap = [](auto const& b) {
+      if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(b)>,
+                                                   ExpressionWithAdditionalCustomAtoms>::value) {
+        return b.clone();
+      } else {
+        return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
+      }
+    };
     return std::visit(
         utilities::overload(
 
@@ -408,6 +456,11 @@ public:
     Iterator operator++() {
       i++;
       return *this;
+    }
+    Iterator operator+(int i) {
+      auto result = *this;
+      result.i += i;
+      return result;
     }
     Iterator operator--() {
       i--;
@@ -521,6 +574,11 @@ public:
     std::copy(std::begin(*this), std::end(*this), back_inserter(result));
     return std::move(result);
   }
+
+  template <typename T> void emplace_back(T t) {
+    assert(spanArguments.size() == 0);
+    arguments.emplace_back(t);
+  }
 };
 
 template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
@@ -566,12 +624,7 @@ public:
     return result;
   }
 
-  explicit ComplexExpressionWithAdditionalCustomAtoms(
-      Symbol const& head,
-      ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& spanArguments)
-      : ComplexExpressionWithAdditionalCustomAtoms(head, {}, {}, std::move(spanArguments)) {}
-
-  explicit ComplexExpressionWithAdditionalCustomAtoms(
+  ComplexExpressionWithAdditionalCustomAtoms(
       Symbol const& head, StaticArgumentsTuple&& staticArguments,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments = {},
       ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& spanArguments =
@@ -774,6 +827,58 @@ T& get(boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrap
       wrapper.getArgument());
 }
 
+template <typename T, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
+T* get_if(boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const* wrapper) {
+  return std::visit(
+      [](auto& argument) -> T& {
+        if constexpr(std::is_same_v<std::decay_t<decltype(argument)>, std::reference_wrapper<T>>) {
+          return &argument.get();
+        } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                           std::vector<bool>::reference>) {
+          if constexpr(std::is_same_v<std::decay_t<T>, std::vector<bool>::reference>) {
+
+            return &argument;
+          }
+          return nullptr;
+        } else if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(argument)>,
+                                                            std::reference_wrapper>::value &&
+                            utilities::isInstanceOfTemplate<
+                                std::decay_t<decltype(argument.get())>,
+                                boss::ExpressionWithAdditionalCustomAtoms>::value) {
+          return std::get_if<T>(argument.get());
+        } else {
+          return nullptr;
+        }
+      },
+      wrapper->getArgument());
+}
+
+template <typename T, typename... AdditionalCustomAtoms>
+T* get_if(boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const* wrapper) {
+  return std::visit(
+      [](auto& argument) -> T& {
+        if constexpr(std::is_same_v<std::decay_t<decltype(argument)>, std::reference_wrapper<T>>) {
+          return &argument.get();
+        } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                           std::vector<bool>::reference>) {
+          if constexpr(std::is_same_v<std::decay_t<T>, std::vector<bool>::reference>) {
+
+            return &argument;
+          }
+          return nullptr;
+        } else if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(argument)>,
+                                                            std::reference_wrapper>::value &&
+                            utilities::isInstanceOfTemplate<
+                                std::decay_t<decltype(argument.get())>,
+                                boss::ExpressionWithAdditionalCustomAtoms>::value) {
+          return std::get_if<T>(argument.get());
+        } else {
+          return nullptr;
+        }
+      },
+      *wrapper);
+}
+
 template <typename Func, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
 decltype(auto) visit(Func&& func,
                      boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...>&& wrapper) {
@@ -793,6 +898,22 @@ decltype(auto) visit(Func&& func,
 template <typename Func, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
 decltype(auto) visit(Func&& func,
                      boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...>& wrapper) {
+  return visit(
+      [&](auto& unwrapped) {
+        if constexpr(is_same_v<
+                         std::remove_reference_t<decltype(unwrapped)>,
+                         boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
+          return std::visit(std::forward<Func>(func), unwrapped);
+        } else {
+          return std::forward<Func>(func)(unwrapped);
+        }
+      },
+      wrapper.getArgument());
+}
+
+template <typename Func, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
+decltype(auto) visit(Func&& func,
+                     boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
   return visit(
       [&](auto& unwrapped) {
         if constexpr(is_same_v<
