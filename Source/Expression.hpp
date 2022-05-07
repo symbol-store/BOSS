@@ -271,8 +271,8 @@ public:
    * from conversion to rvalue)
    */
   operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>() & {
-#pragma message("this is a shim and should be removed")
+      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&() & {
+    // this is a shim and should be removed
     return std::visit(
         [](auto& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
           if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
@@ -295,24 +295,18 @@ public:
    * we allow conversion to rvalue Expression only for rvalues
    */
   operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&&() && {
-#pragma message("this is a shim and should be removed")
+      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>() && {
+    // this is a shim and should be removed
     return std::visit(
-        [](auto& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& {
+        [](auto&& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
           if constexpr(utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
                                                        std::reference_wrapper>::value) {
-            if constexpr(utilities::isInstanceOfTemplate<
-                             std::decay_t<decltype(e.get())>,
-                             ExpressionWithAdditionalCustomAtoms>::value) {
-              return e.get().clone();
-            } else {
-              return e.get();
-            }
+            return std::move(e.get());
           } else {
             return e;
           }
         },
-        argument);
+        std::move(argument));
   }
 
   template <
