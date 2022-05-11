@@ -226,7 +226,7 @@ private:
 
 public:
   WrappeeType& getArgument() & { return argument; };
-  WrappeeType&& getArgument() && { return argument; };
+  WrappeeType getArgument() && { return std::move(argument); };
   WrappeeType const& getArgument() const& { return argument; };
 
   operator // NOLINT(hicpp-explicit-conversions)
@@ -309,6 +309,11 @@ public:
         std::move(argument));
   }
 
+  /**
+   * ArgumentWrappers wrap statically typed references to atomic types or references to dynamically
+   * typed boss expressions. The provide a unified (dynamically-typed, visitor-based) interface to
+   * them these types.
+   */
   template <
       typename T,
       typename = std::enable_if_t<std::conjunction<
@@ -875,48 +880,22 @@ T* get_if(boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> co
 
 template <typename Func, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
 decltype(auto) visit(Func&& func,
-                     boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...>&& wrapper) {
-  return visit(
-      [&](auto&& unwrapped) {
-        if constexpr(is_same_v<
-                         std::remove_reference_t<decltype(unwrapped)>,
-                         boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
-          return std::visit(std::forward<Func>(func), unwrapped);
-        } else {
-          return std::forward<Func>(func)(unwrapped);
-        }
-      },
-      wrapper.getArgument());
-}
-
-template <typename Func, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
-decltype(auto) visit(Func&& func,
-                     boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...>& wrapper) {
-  return visit(
-      [&](auto& unwrapped) {
-        if constexpr(is_same_v<
-                         std::remove_reference_t<decltype(unwrapped)>,
-                         boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
-          return std::visit(std::forward<Func>(func), unwrapped);
-        } else {
-          return std::forward<Func>(func)(unwrapped);
-        }
-      },
-      wrapper.getArgument());
-}
-
-template <typename Func, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
-decltype(auto) visit(Func&& func,
                      boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
   return visit(
-      [&](auto& unwrapped) {
-        if constexpr(is_same_v<
-                         std::remove_reference_t<decltype(unwrapped)>,
-                         boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
+      [&](auto&& unwrapped) {
+        if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(unwrapped)>,
+                                                           std::reference_wrapper>::value) {
+          if constexpr(std::is_same_v<
+                           std::remove_reference_t<decltype(unwrapped.get())>,
+                           boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
+            return std::visit(std::forward<Func>(func), unwrapped.get());
+          }
+        } else if constexpr(std::is_same_v<std::remove_reference_t<decltype(unwrapped)>,
+                                           boss::ExpressionWithAdditionalCustomAtoms<
+                                               AdditionalCustomAtoms...>>) {
           return std::visit(std::forward<Func>(func), unwrapped);
-        } else {
-          return std::forward<Func>(func)(unwrapped);
         }
+        return std::forward<Func>(func)(unwrapped);
       },
       wrapper.getArgument());
 }
