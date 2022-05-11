@@ -291,41 +291,44 @@ see https://asciinema.org/a/LNIfPhRGfQCxpqEtYPcgKBexZ
 Here is an example of a fairly simple engine that only interprets a single expression: (Plus v1 v2)
 #+NAME: api
 #+begin_src C++ :exports code :tangle no :main no :cache no 
+  #include <Algorithm.hpp>
   #include <BOSS.hpp>
-  #include <Expression.hpp>
-  #include <Utilities.hpp>
 
   using namespace std;
-  using namespace boss::std;
-  using namespace boss;
+  using namespace boss::algorithm;
 
-  auto evaluate(boss::Expression&& expression) {
+  namespace boss::storage::git {
+  boss::Expression evaluate(boss::Expression&& e) {
     return visit(
         [](auto&& e) -> boss::Expression {
-          if constexpr(boss::utilities::isInstanceOfTemplate<
-                           decay_t<decltype(e)>,
-                           boss::ComplexExpressionWithAdditionalCustomAtoms>::value) {
+          if constexpr(isComplexExpression<decltype(e)>) {
             if(e.getHead() == Symbol("Plus")) {
-              auto result = 0L;
-              for(auto&& ita : e.getArguments()) {
-                visit(
-                    [&result](auto&& arg) {
-                      if constexpr(is_same_v<decay_t<decltype(arg)>, long long>) {
-                        result += arg;
-                      }
-                    },
-                    ita);
-              }
-              return result;
+              return visitTransformAccumulate(
+                  e.getArguments(),
+                  [](auto&& arg) -> boss::Expression {
+                    if constexpr(isComplexExpression<decltype(arg)>) {
+                      return evaluate(std::move(arg));
+                    } else {
+                      return std::forward<decltype(arg)>(arg);
+                    }
+                  },
+                  0L,
+                  [](auto&& state, auto&& arg) {
+                    if constexpr(is_same_v<decay_t<decltype(arg)>, long long>) {
+                      state += arg;
+                    }
+                    return state;
+                  });
             }
           }
           return forward<decltype(e)>(e);
         },
-        move(expression));
+        move(e));
   }
+  } // namespace boss::storage::git
 
   extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
-    return new BOSSExpression{.delegate = evaluate(move(e->delegate))};
+    return new BOSSExpression{.delegate = boss::storage::git::evaluate(::std::move(e->delegate))};
   };
 #+end_src
 

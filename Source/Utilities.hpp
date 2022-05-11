@@ -1,11 +1,12 @@
 #pragma once
 
+#include "Expression.hpp"
 #include <utility>
 #include <variant>
 
 namespace boss::utilities {
 template <class... Fs> struct overload : Fs... {
-  explicit overload(Fs&&... ts) : Fs{std::forward<Fs>(ts)}...{}
+  explicit overload(Fs&&... ts) : Fs{std::forward<Fs>(ts)}... {}
   using Fs::operator()...;
 };
 
@@ -21,6 +22,9 @@ template <class, template <class...> class> struct isInstanceOfTemplate : public
 
 template <class... Ts, template <class...> class U>
 struct isInstanceOfTemplate<U<Ts...>, U> : public std::true_type {};
+
+template <class... Ts, template <class...> class U>
+struct isInstanceOfTemplate<const U<Ts...>, U> : public std::true_type {};
 
 template <template <typename...> typename NewWrapper, typename... Args>
 struct rewrap_variant_arguments;

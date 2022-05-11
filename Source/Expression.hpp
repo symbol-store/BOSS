@@ -84,6 +84,10 @@ using AtomicExpressionWithAdditionalCustomAtoms =
 
 template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms;
+template <typename T>
+inline constexpr bool isComplexExpression =
+    boss::utilities::isInstanceOfTemplate<std::decay_t<T>,
+                                          boss::ComplexExpressionWithAdditionalCustomAtoms>::value;
 
 template <typename... AdditionalCustomAtoms>
 class ExpressionWithAdditionalCustomAtoms
@@ -889,13 +893,16 @@ decltype(auto) visit(Func&& func,
                            std::remove_reference_t<decltype(unwrapped.get())>,
                            boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
             return std::visit(std::forward<Func>(func), unwrapped.get());
+          } else {
+            return std::forward<Func>(func)(unwrapped.get());
           }
         } else if constexpr(std::is_same_v<std::remove_reference_t<decltype(unwrapped)>,
                                            boss::ExpressionWithAdditionalCustomAtoms<
                                                AdditionalCustomAtoms...>>) {
           return std::visit(std::forward<Func>(func), unwrapped);
+        } else {
+          return std::forward<Func>(func)(unwrapped);
         }
-        return std::forward<Func>(func)(unwrapped);
       },
       wrapper.getArgument());
 }
