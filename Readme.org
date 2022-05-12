@@ -302,26 +302,27 @@ Here is an example of a fairly simple engine that only interprets a single expre
     return visit(
         [](auto&& e) -> boss::Expression {
           if constexpr(isComplexExpression<decltype(e)>) {
+            boss::ExpressionArguments args = e.getArguments();
+            visitTransform(args, [](auto&& arg) -> boss::Expression {
+              if constexpr(isComplexExpression<decltype(arg)>) {
+                return evaluate(std::move(arg));
+              } else {
+                return std::forward<decltype(arg)>(arg);
+              }
+            });
             if(e.getHead() == Symbol("Plus")) {
-              return visitTransformAccumulate(
-                  e.getArguments(),
-                  [](auto&& arg) -> boss::Expression {
-                    if constexpr(isComplexExpression<decltype(arg)>) {
-                      return evaluate(std::move(arg));
-                    } else {
-                      return std::forward<decltype(arg)>(arg);
-                    }
-                  },
-                  0L,
-                  [](auto&& state, auto&& arg) {
-                    if constexpr(is_same_v<decay_t<decltype(arg)>, long long>) {
-                      state += arg;
-                    }
-                    return state;
-                  });
+              return visitAccumulate(move(args), 0L, [](auto&& state, auto&& arg) {
+                if constexpr(is_same_v<decay_t<decltype(arg)>, long long>) {
+                  state += arg;
+                }
+                return state;
+              });
+            } else {
+              return boss::ComplexExpression(e.getHead(), {}, std::move(args), {});
             }
+          } else {
+            return forward<decltype(e)>(e);
           }
-          return forward<decltype(e)>(e);
         },
         move(e));
   }
