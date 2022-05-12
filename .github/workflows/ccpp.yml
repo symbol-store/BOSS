@@ -28,7 +28,7 @@ jobs:
         exit $(git status -s | wc -l)
 
   build:
-    runs-on: self-hosted
+    runs-on: [self-hosted, X64]
     strategy:
       matrix:
         build-type: [Release, Debug, Sanitize]
