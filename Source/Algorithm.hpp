@@ -14,8 +14,10 @@ template <typename Container, typename Init, typename Visitor>
 auto visitAccumulate(Container c, Init i, Visitor v) {
   return ::std::accumulate(c.begin(), c.end(), i, [&v](auto&& state, auto&& item) {
     return boss::std::visit(
-        [&state, &v](auto&& item) { return v(::std::forward<decltype(state)>(state), item); },
-        item);
+        [&state, &v](auto&& item) {
+          return v(::std::forward<decltype(state)>(state), std::forward<decltype(item)>(item));
+        },
+        std::forward<decltype(item)>(item));
   });
 }
 
@@ -24,14 +26,16 @@ auto visitTransformAccumulate(Container c, TransformVisitor t, Init i, Accumulat
   return ::std::accumulate(c.begin(), c.end(), i, [&v, &t](auto&& state, auto&& item) {
     return boss::std::visit(
         [&state, &v](auto&& item) { return v(::std::forward<decltype(state)>(state), item); },
-        boss::std::visit([&t](auto&& item) { return t(item); }, item));
+        boss::std::visit([&t](auto&& item) { return t(std::forward<decltype(item)>(item)); },
+                         std::forward<decltype(item)>(item)));
   });
 }
 
 template <typename Container, typename TransformVisitor>
 auto visitTransform(Container& c, TransformVisitor t) {
   return ::std::transform(c.begin(), c.end(), c.begin(), [&t](auto&& item) {
-    return boss::std::visit([&t](auto&& item) { return t(item); }, item);
+    return boss::std::visit([&t](auto&& item) { return t(std::forward<decltype(item)>(item)); },
+                            std::forward<decltype(item)>(item));
   });
 }
 
