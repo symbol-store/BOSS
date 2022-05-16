@@ -164,8 +164,8 @@
   '(Schema input)
   '(Assuming input assumption ...)
   '(Top input predicate number)
-  '(EvaluateInEngine pathToLibrary expression ...)
-  '(SetDefaultEngine pathToLibrary)
+  '(EvaluateInEngines enginePipelineLibraryPathList expression ...)
+  '(SetDefaultEnginePipeline pathToLibrary ...)
   )
 
 (provide main)
