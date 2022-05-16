@@ -4,6 +4,7 @@
 #include "../Source/BootstrapEngine.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include <arrow/array.h>
+#include <arrow/builder.h>
 #include <catch2/catch.hpp>
 #include <numeric>
 #include <variant>
@@ -67,8 +68,33 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,
                    std::double_t) {
-  auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
-  auto vectorExpression = "duh"_(boss::Span(vector(input)));
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto v = vector<TestType>(input);
+  auto s = boss::Span<TestType>(std::move(v));
+  auto vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans",
+                   "[spans][arrow]", // std::int64_t,
+                   std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  std::conditional_t<std::is_same_v<TestType, std::int64_t>, arrow::Int64Builder,
+                     arrow::DoubleBuilder>
+      builder;
+  auto status = builder.AppendValues(begin(input), end(input));
+  auto thingy = builder.Finish().ValueOrDie();
+  auto* v = thingy->data()->template GetMutableValues<TestType>(1);
+  // (std::int64_t*)thingy.get();
+  auto s = boss::Span<TestType>(
+      v, thingy->length(),
+      [keeper = new std::shared_ptr<arrow::Array>(thingy)](void*) { delete keeper; });
+  auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
     CHECK(vectorExpression.getArguments().at(i) == input.at(i));

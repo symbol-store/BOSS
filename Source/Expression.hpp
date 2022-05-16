@@ -35,9 +35,13 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
 
 template <typename Scalar> struct Span {
 private: // state
-  std::vector<Scalar> adaptee = {};
-  typename std::vector<Scalar>::iterator _begin = nullptr;
-  typename std::vector<Scalar>::iterator _end = nullptr;
+  void* adapteePayload = {};
+  std::function<void(void*)> destructor;
+
+  std::conditional_t<std::is_same_v<Scalar, bool>, std::vector<bool>::iterator, Scalar*> _begin =
+      nullptr;
+  std::conditional_t<std::is_same_v<Scalar, bool>, std::vector<bool>::iterator, Scalar*> _end =
+      nullptr;
 
 public: // surface
   size_t size() const { return _end - _begin; }
@@ -64,16 +68,45 @@ public: // surface
    * for some reason, the span takes ownership of the adaptee. That seems weird to me.
    */
   explicit Span(std::vector<Scalar>&& adaptee)
-      : adaptee(adaptee), _begin(this->adaptee.begin()), _end(this->adaptee.end()) {}
+      : adapteePayload(new std::vector<Scalar>(move(adaptee))), _begin([this]() {
+          if constexpr(std::is_same_v<Scalar, bool>) {
+            return static_cast<std::vector<Scalar>*>(this->adapteePayload)->begin();
+          } else {
+            return static_cast<std::vector<Scalar>*>(this->adapteePayload)->data();
+          }
+        }()),
+        _end(_begin + static_cast<std::vector<Scalar>*>(this->adapteePayload)->size()),
+        destructor([](void* v) { delete static_cast<std::vector<Scalar>*>(v); }) {}
+
+  explicit Span(Scalar* begin, size_t size, std::function<void(void*)> destructor)
+      : _begin(begin), _end(begin + size), destructor(std::move(destructor)) {}
 
   bool operator==(Span const& other) const { return _begin == other._begin; }
 
   Span() noexcept = default;
-  Span(Span&&) noexcept = default;
-  Span(Span<Scalar> const& other) : Span((std::vector<Scalar>)other.adaptee){};
+  Span(Span&& other) noexcept
+      : adapteePayload(other.adapteePayload), _begin(other._begin), _end(other._end),
+        destructor(move(other.destructor)) {
+    other.adapteePayload = nullptr;
+    other.destructor = [](void*) {};
+  };
+
+  Span(Span<Scalar> const& other)
+      : adapteePayload(
+            new std::vector<Scalar>(*static_cast<std::vector<Scalar>*>(other.adapteePayload))),
+        _begin([this]() {
+          if constexpr(std::is_same_v<Scalar, bool>) {
+            return static_cast<std::vector<Scalar>*>(this->adapteePayload)->begin();
+          } else {
+            return static_cast<std::vector<Scalar>*>(this->adapteePayload)->data();
+          }
+        }()),
+        _end(_begin + static_cast<std::vector<Scalar>*>(this->adapteePayload)->size()),
+        destructor([](void* v) { delete static_cast<std::vector<Scalar>*>(v); }){};
+
   Span& operator=(Span&&) noexcept = default;
   Span& operator=(Span const&) = delete;
-  ~Span() = default;
+  ~Span() { destructor(adapteePayload); };
 
   friend std::ostream& operator<<(std::ostream& s, Span const& span) { return s << span.size; }
 };
@@ -717,18 +750,15 @@ public:
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> copiedArgs;
     ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> newSpanArguments;
     static_assert(std::tuple_size_v<decltype(staticArguments)> == 0);
-    // auto scalarArgs =
-    //     ExpressionArgumentsWithAdditionalCustomAtomsWrapper<decltype(staticArguments), false,
-    //                                                         AdditionalCustomAtoms...>(
-    //         staticArguments, arguments, spanArguments);
-    // copiedArgs.reserve(scalarArgs.size());
     for(auto const& arg : getDynamicArguments()) {
       copiedArgs.emplace_back(arg.clone());
     }
 
     newSpanArguments.reserve(spanArguments.size());
-    for(auto const& arg : spanArguments) {
-      std::visit([&](auto&& arg) { return newSpanArguments.emplace_back(arg); }, arg);
+    for(auto it = std::move_iterator(spanArguments.begin());
+        it != std::move_iterator(spanArguments.end()); ++it) {
+      std::visit([&](auto&& arg) { return newSpanArguments.push_back(std::move(arg)); },
+                 std::move(*it));
     }
 
     return ComplexExpressionWithAdditionalCustomAtoms(head, {}, std::move(copiedArgs),
