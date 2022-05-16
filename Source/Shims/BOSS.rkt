@@ -108,7 +108,7 @@
     ['double (getDoubleValueFromExpression x)]
     ['string (let ([r (getStringValueFromExpression x)])
                r) ]
-    ['symbol (getSymbolNameFromExpression x)]
+    ['symbol (string->symbol (getSymbolNameFromExpression x))]
     ['complexExpression
      (let ([arguments (map convert-from-boss-expression
                            (ptr-ref
