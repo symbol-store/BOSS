@@ -91,10 +91,14 @@ public: // surface
     other.destructor = [](void*) {};
   };
 
+  /**
+   * because the Span constructor cannot infer what data structure/payload was used to hold the
+   * values in the other Span, arguments are copied into a std::vector. The alternative would be to
+   * use some kind of reference chain but I (Holger) did not like that -- I am open to discussing
+   * this, though
+   */
   Span(Span<Scalar> const& other)
-      : adapteePayload(
-            new std::vector<Scalar>(*static_cast<std::vector<Scalar>*>(other.adapteePayload))),
-        _begin([this]() {
+      : adapteePayload(new std::vector<Scalar>(other._begin, other._end)), _begin([this]() {
           if constexpr(std::is_same_v<Scalar, bool>) {
             return static_cast<std::vector<Scalar>*>(this->adapteePayload)->begin();
           } else {
@@ -217,11 +221,15 @@ template <typename... AdditionalCustomAtoms>
 class ExpressionSpanArgumentsWithAdditionalCustomAtoms
     : public std::vector<
           std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
-                       Span<Symbol>, Span<AdditionalCustomAtoms>...>> {
+                       Span<Symbol>, Span<AdditionalCustomAtoms>..., Span<bool const>,
+                       Span<std::int64_t const>, Span<std::double_t const>, Span<std::string const>,
+                       Span<Symbol const>, Span<AdditionalCustomAtoms const>...>> {
 public:
   using std::vector<
       std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
-                   Span<Symbol>, Span<AdditionalCustomAtoms>...>>::vector;
+                   Span<Symbol>, Span<AdditionalCustomAtoms>..., Span<bool const>,
+                   Span<std::int64_t const>, Span<std::double_t const>, Span<std::string const>,
+                   Span<Symbol const>, Span<AdditionalCustomAtoms const>...>>::vector;
 };
 
 template <bool ConstWrappee = false, typename... AdditionalCustomAtoms> class ArgumentWrapper;
@@ -563,7 +571,13 @@ public:
                               spanArgument)) {
           return std::visit(
               [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
-                return spanArgument[i - argumentPrefixScan];
+                if constexpr((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
+                              std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
+                                  0))>>)&&!IsConstWrapper) {
+                  throw std::runtime_error("cannot convert const span to non-const argument");
+                } else {
+                  return spanArgument[i - argumentPrefixScan];
+                }
               },
               spanArgument);
         }
@@ -589,12 +603,16 @@ public:
          i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
         return std::visit(
             [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
-              if constexpr(std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
-                                          std::vector<bool>::reference>) {
+              if constexpr((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
+                            std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
+                                0))>>)&&!IsConstWrapper) {
+                throw std::runtime_error("cannot convert const span to non-const argument");
+              } else if constexpr(std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                                 std::vector<bool>::reference>) {
                 return std::vector<bool>::reference(spanArgument.at(i - argumentPrefixScan));
+              } else {
+                return spanArgument.at(i - argumentPrefixScan);
               }
-
-              return spanArgument.at(i - argumentPrefixScan);
             },
             spanArgument);
       }
@@ -755,10 +773,8 @@ public:
     }
 
     newSpanArguments.reserve(spanArguments.size());
-    for(auto it = std::move_iterator(spanArguments.begin());
-        it != std::move_iterator(spanArguments.end()); ++it) {
-      std::visit([&](auto&& arg) { return newSpanArguments.push_back(std::move(arg)); },
-                 std::move(*it));
+    for(auto& it : spanArguments) {
+      newSpanArguments.push_back(it);
     }
 
     return ComplexExpressionWithAdditionalCustomAtoms(head, {}, std::move(copiedArgs),

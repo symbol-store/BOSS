@@ -80,8 +80,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans",
-                   "[spans][arrow]", // std::int64_t,
+TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans", "[spans][arrow]", std::int64_t,
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
   std::conditional_t<std::is_same_v<TestType, std::int64_t>, arrow::Int64Builder,
@@ -90,10 +89,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans",
   auto status = builder.AppendValues(begin(input), end(input));
   auto thingy = builder.Finish().ValueOrDie();
   auto* v = thingy->data()->template GetMutableValues<TestType>(1);
-  // (std::int64_t*)thingy.get();
-  auto s = boss::Span<TestType>(
-      v, thingy->length(),
-      [keeper = new std::shared_ptr<arrow::Array>(thingy)](void*) { delete keeper; });
+  auto s = boss::Span<TestType>(v, thingy->length(), [thingy](void*) {});
   auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {

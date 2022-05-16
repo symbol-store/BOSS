@@ -82,15 +82,11 @@ public:
    * build expression from span arguments
    */
   template <typename... Ts>
-  std::enable_if_t<std::disjunction<isSpanArgument<Ts>...>::value,
+  std::enable_if_t<std::disjunction<isSpanArgument<std::decay_t<Ts>>...>::value,
                    typename ExpressionSystem::ComplexExpression>
   operator()(Ts&&... args /*a*/) const {
-    typename ExpressionSystem::ExpressionSpanArguments argList;
-    argList.reserve(sizeof...(Ts));
-    ([this, &argList](auto&& arg) { argList.emplace_back(std::forward<decltype(arg)>(arg)); }(
-         std::move(args)),
-     ...);
-    return move(typename ExpressionSystem::ComplexExpression(s, {}, {}, std::move(argList)));
+    return move(typename ExpressionSystem::ComplexExpression(
+        s, {}, {}, {std::forward<decltype(args)>(args)...}));
   }
 
   /**
