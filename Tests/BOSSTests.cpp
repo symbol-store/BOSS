@@ -129,10 +129,10 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](boss::Expression&& expression) mutable {
     return engine.evaluate(
-        "EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), move(expression)));
+        "EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))), move(expression)));
   };
   CHECK_THROWS_MATCHES(
-      engine.evaluate("EvaluateInEngine"_(9, 5)), boss::bad_variant_access,
+      engine.evaluate("EvaluateInEngines"_("List"_(9), 5)), boss::bad_variant_access,
       Message("expected and actual type mismatch in expression \"9\", expected string"));
 
   SECTION("Atomics") {
@@ -323,7 +323,8 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
   namespace nasty = boss::utilities::nasty;
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
-    return engine.evaluate("EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), expression));
+    return engine.evaluate(
+        "EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))), expression));
   };
 
   std::vector<int64_t> ints{10, 20, 30, 40, 50}; // NOLINT
@@ -385,7 +386,7 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
     return engine.evaluate(
-        "EvaluateInEngine"_(GENERATE(from_range(librariesToTest)), move(expression)));
+        "EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))), move(expression)));
   };
 
   auto input = GENERATE(take(3, chunk(50, random<TestType>(1, 1000))));
