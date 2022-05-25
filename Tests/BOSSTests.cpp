@@ -102,7 +102,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans", "[spans][arro
 TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", std::int64_t,
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
-  auto vectorExpression = "duh"_(boss::Span(vector(input)));
+  auto vectorExpression = "duh"_(boss::Span<TestType>(vector(input)));
   auto clonedVectorExpression = vectorExpression.clone();
   for(auto i = 0U; i < input.size(); i++) {
     CHECK(clonedVectorExpression.getArguments().at(i) == input.at(i));
@@ -113,12 +113,14 @@ TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", s
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, boss::Symbol) {
   using std::literals::string_literals::operator""s;
-  auto input =
-      GENERATE(take(3, chunk(5, values({"a"s, "b"s, "c"s, "d"s, "e"s, "f"s, "g"s, "h"s}))));
-  auto vectorExpression = "duh"_(boss::Span(vector(input)));
-  for(auto i = 0U; i < input.size(); i++) {
-    CHECK(vectorExpression.getArguments().at(0) == input.at(0));
-    CHECK(vectorExpression.getArguments()[0] == input[0]);
+  auto vals = GENERATE(take(3, chunk(5, values({"a"s, "b"s, "c"s, "d"s, "e"s, "f"s, "g"s, "h"s}))));
+  auto input = vector<TestType>();
+  std::transform(begin(vals), end(vals), std::back_inserter(input),
+                 [](auto v) { return TestType(v); });
+  auto vectorExpression = "duh"_(boss::Span<TestType>(move(input)));
+  for(auto i = 0U; i < vals.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(0) == TestType(vals.at(0)));
+    CHECK(vectorExpression.getArguments()[0] == TestType(vals[0]));
   }
 }
 
@@ -390,10 +392,10 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   auto sum = std::accumulate(begin(input), end(input), TestType());
 
   if constexpr(std::is_same_v<TestType, std::double_t>) {
-    CHECK(get<std::double_t>(eval("Plus"_(boss::Span(vector(input))))) ==
+    CHECK(get<std::double_t>(eval("Plus"_(boss::Span<TestType>(vector(input))))) ==
           Catch::Detail::Approx((std::double_t)sum));
   } else {
-    CHECK(get<TestType>(eval("Plus"_(boss::Span(vector(input))))) == sum);
+    CHECK(get<TestType>(eval("Plus"_(boss::Span<TestType>(vector(input))))) == sum);
   }
 }
 

@@ -177,13 +177,13 @@ public:
   }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  boss::Expression evaluate(boss::Expression const& e, bool isRootExpression = true) {
+  boss::Expression evaluate(boss::Expression&& e, bool isRootExpression = true) {
     auto&& wrappedE =
         isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
             ? "EvaluateInEngines"_("List"_(Span<std::string>(defaultEngine.data(),
                                                              defaultEngine.size(), [](void*) {})),
-                                   e.clone())
-            : e.clone();
+                                   move(e))
+            : move(e);
     return std::visit(boss::utilities::overload(
                           [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
                             if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
@@ -194,6 +194,11 @@ public:
                           },
                           [](auto&& e) -> boss::Expression { return e; }),
                       std::forward<boss::Expression>(wrappedE));
+  }
+
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  boss::Expression evaluate(boss::Expression const& e, bool isRootExpression = true) {
+    return evaluate(e.clone(), isRootExpression);
   }
 };
 

@@ -38,10 +38,12 @@ private: // state
   void* adapteePayload = {};
   std::function<void(void*)> destructor;
 
-  std::conditional_t<std::is_same_v<Scalar, bool>, std::vector<bool>::iterator, Scalar*> _begin =
-      nullptr;
-  std::conditional_t<std::is_same_v<Scalar, bool>, std::vector<bool>::iterator, Scalar*> _end =
-      nullptr;
+  std::conditional_t<std::is_same_v<std::remove_const_t<Scalar>, bool>, std::vector<bool>::iterator,
+                     Scalar*>
+      _begin = nullptr;
+  std::conditional_t<std::is_same_v<std::remove_const_t<Scalar>, bool>, std::vector<bool>::iterator,
+                     Scalar*>
+      _end = nullptr;
 
 public: // surface
   size_t size() const { return _end - _begin; }
@@ -67,16 +69,21 @@ public: // surface
   /**
    * for some reason, the span takes ownership of the adaptee. That seems weird to me.
    */
-  explicit Span(std::vector<Scalar>&& adaptee)
-      : adapteePayload(new std::vector<Scalar>(move(adaptee))), _begin([this]() {
+  explicit Span(std::vector<std::remove_const_t<Scalar>>&& adaptee)
+      : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(move(adaptee))),
+        _begin([this]() {
           if constexpr(std::is_same_v<Scalar, bool>) {
-            return static_cast<std::vector<Scalar>*>(this->adapteePayload)->begin();
+            return static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)
+                ->begin();
           } else {
-            return static_cast<std::vector<Scalar>*>(this->adapteePayload)->data();
+            return static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)
+                ->data();
           }
         }()),
-        _end(_begin + static_cast<std::vector<Scalar>*>(this->adapteePayload)->size()),
-        destructor([](void* v) { delete static_cast<std::vector<Scalar>*>(v); }) {}
+        _end(_begin +
+             static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)->size()),
+        destructor(
+            [](void* v) { delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v); }) {}
 
   explicit Span(Scalar* begin, size_t size, std::function<void(void*)> destructor)
       : _begin(begin), _end(begin + size), destructor(std::move(destructor)) {}
@@ -98,15 +105,20 @@ public: // surface
    * this, though
    */
   Span(Span<Scalar> const& other)
-      : adapteePayload(new std::vector<Scalar>(other._begin, other._end)), _begin([this]() {
-          if constexpr(std::is_same_v<Scalar, bool>) {
-            return static_cast<std::vector<Scalar>*>(this->adapteePayload)->begin();
+      : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(other._begin, other._end)),
+        _begin([this]() {
+          if constexpr(std::is_same_v<std::remove_const_t<Scalar>, bool>) {
+            return static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)
+                ->begin();
           } else {
-            return static_cast<std::vector<Scalar>*>(this->adapteePayload)->data();
+            return static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)
+                ->data();
           }
         }()),
-        _end(_begin + static_cast<std::vector<Scalar>*>(this->adapteePayload)->size()),
-        destructor([](void* v) { delete static_cast<std::vector<Scalar>*>(v); }){};
+        _end(_begin +
+             static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)->size()),
+        destructor(
+            [](void* v) { delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v); }){};
 
   Span& operator=(Span&&) noexcept = default;
   Span& operator=(Span const&) = delete;
@@ -928,7 +940,7 @@ T* get_if(boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> co
       *wrapper);
 }
 
-template <typename Func, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
+template <typename Func, auto ConstWrappee, typename... AdditionalCustomAtoms>
 decltype(auto) visit(Func&& func,
                      boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
   return visit(
