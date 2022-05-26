@@ -82,11 +82,11 @@ class BootstrapEngine : public boss::Engine {
             emplace(libraryPath, LibraryAndEvaluateFunction{library, sym});
           } else {
             throw ::std::runtime_error("library \"" + libraryPath +
-                                     "\" does not provide an evaluate function: " + dlerror());
+                                       "\" does not provide an evaluate function: " + dlerror());
           }
         } else {
           throw ::std::runtime_error("library \"" + libraryPath +
-                                   "\" could not be loaded: " + dlerror());
+                                     "\" could not be loaded: " + dlerror());
         }
       };
       return unordered_map::at(libraryPath);
@@ -106,7 +106,8 @@ class BootstrapEngine : public boss::Engine {
 
   ::std::vector<::std::string> defaultEngine = {};
 
-  ::std::unordered_map<boss::Symbol, ::std::function<boss::Expression(boss::ComplexExpression&&)>> const
+  ::std::unordered_map<boss::Symbol,
+                       ::std::function<boss::Expression(boss::ComplexExpression&&)>> const
       registeredOperators{
           {boss::Symbol("EvaluateInEngines"),
            [this](auto&& e) -> boss::Expression {
@@ -115,7 +116,7 @@ class BootstrapEngine : public boss::Engine {
              auto&& args = ::std::get<ComplexExpression>(e.getArguments().at(0)).getArguments();
              ::std::for_each(args.begin(), args.end(), [this, &e, &symbols](auto&& enginePath) {
                symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                   libraries.at(boss::get<::std::string>(enginePath)).evaluateFunction));
+                   libraries.at(::std::get<::std::string>(enginePath)).evaluateFunction));
              });
              ::std::for_each(
                  ::std::make_move_iterator(::std::next(
@@ -151,12 +152,12 @@ class BootstrapEngine : public boss::Engine {
            }}};
   bool isBootstrapCommand(boss::Expression const& expression) {
     return ::std::visit(utilities::overload(
-                          [this](boss::ComplexExpression const& expression) {
-                            return registeredOperators.count(expression.getHead()) > 0;
-                          },
-                          [](auto const& /* unused */
-                          ) { return false; }),
-                      expression);
+                            [this](boss::ComplexExpression const& expression) {
+                              return registeredOperators.count(expression.getHead()) > 0;
+                            },
+                            [](auto const& /* unused */
+                            ) { return false; }),
+                        expression);
   }
 
 public:
@@ -169,8 +170,9 @@ public:
 
   auto evaluateArguments(boss::ComplexExpression&& expr) {
     ::std::transform(::std::make_move_iterator(begin(expr.getArguments())),
-                   ::std::make_move_iterator(end(expr.getArguments())), begin(expr.getArguments()),
-                   [&](auto&& e) { return evaluate(::std::forward<decltype(e)>(e), false); });
+                     ::std::make_move_iterator(end(expr.getArguments())),
+                     begin(expr.getArguments()),
+                     [&](auto&& e) { return evaluate(::std::forward<decltype(e)>(e), false); });
     return ::std::move(expr);
   }
 
@@ -179,19 +181,19 @@ public:
     auto&& wrappedE =
         isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
             ? "EvaluateInEngines"_("List"_(Span<::std::string>(defaultEngine.data(),
-                                                             defaultEngine.size(), [](void*) {})),
+                                                               defaultEngine.size(), [](void*) {})),
                                    move(e))
             : move(e);
     return ::std::visit(boss::utilities::overload(
-                          [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
-                            if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
-                              return ::std::move(unevaluatedE);
-                            }
-                            auto const& op = registeredOperators.at(unevaluatedE.getHead());
-                            return op(evaluateArguments(::std::move(unevaluatedE)));
-                          },
-                          [](auto&& e) -> boss::Expression { return e; }),
-                      ::std::forward<boss::Expression>(wrappedE));
+                            [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
+                              if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
+                                return ::std::move(unevaluatedE);
+                              }
+                              auto const& op = registeredOperators.at(unevaluatedE.getHead());
+                              return op(evaluateArguments(::std::move(unevaluatedE)));
+                            },
+                            [](auto&& e) -> boss::Expression { return e; }),
+                        ::std::forward<boss::Expression>(wrappedE));
   }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)

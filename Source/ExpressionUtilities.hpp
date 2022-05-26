@@ -166,7 +166,7 @@ template <typename... AdditionalAtoms>
 static ::std::ostream&
 operator<<(::std::ostream& out,
            boss::ExpressionWithAdditionalCustomAtoms<AdditionalAtoms...> const& thing) {
-  ::std::visit(
+  visit(
       boss::utilities::overload([&](::std::string const& value) { out << "\"" << value << "\""; },
                                 [&](bool value) { out << (value ? "True" : "False"); },
                                 [&](auto const& value) { out << value; }),
@@ -201,7 +201,7 @@ template <bool ConstWrappee, typename... AdditionalCustomAtoms>
 ::std::ostream&
 operator<<(::std::ostream& stream,
            boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& argument) {
-  return ::std::visit(
+  return visit(
       [&stream](auto&& argument) -> auto& {
         if constexpr(::std::disjunction_v<::std::is_same<::std::decay_t<decltype(argument)>,
                                                          ::std::vector<bool>::reference>,
@@ -245,7 +245,7 @@ template <typename T, typename TInput> decltype(auto) get(TInput&& v) {
     if constexpr(::std::is_rvalue_reference_v<decltype(v)>) {
       return ::std::move(::std::get<T>(::std::forward<TInput>(v)));
     } else if constexpr(::std::is_lvalue_reference_v<decltype(v)>) {
-      return ::std::visit(
+      return visit(
           [](auto& unwrapped)
               -> ::std::conditional_t<
                   ::std::is_const_v<::std::remove_reference_t<decltype(v)>> ||
@@ -272,7 +272,7 @@ template <typename T, typename TInput> decltype(auto) get(TInput&& v) {
           },
           ::std::forward<TInput>(v));
     } else {
-      return ::std::visit(
+      return visit(
           [](auto&& unwrapped) {
             if constexpr(::std::is_same_v<::std::decay_t<decltype(unwrapped)>, ::std::decay_t<T>>) {
               if constexpr(utilities::isInstanceOfTemplate<

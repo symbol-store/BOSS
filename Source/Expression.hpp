@@ -475,6 +475,32 @@ public:
   template <typename T> auto operator!=(T const& other) const { return !(*this == other); }
 };
 
+template <typename Func, auto ConstWrappee, typename... AdditionalCustomAtoms>
+decltype(auto) visit(Func&& func,
+                     boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
+  using ::std::visit;
+  return visit(
+      [&](auto&& unwrapped) {
+        if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(unwrapped)>,
+                                                           ::std::reference_wrapper>::value) {
+          if constexpr(::std::is_same_v<
+                           ::std::remove_reference_t<decltype(unwrapped.get())>,
+                           boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
+            return ::std::visit(::std::forward<Func>(func), unwrapped.get());
+          } else {
+            return ::std::forward<Func>(func)(unwrapped.get());
+          }
+        } else if constexpr(::std::is_same_v<::std::remove_reference_t<decltype(unwrapped)>,
+                                             boss::ExpressionWithAdditionalCustomAtoms<
+                                                 AdditionalCustomAtoms...>>) {
+          return ::std::visit(::std::forward<Func>(func), unwrapped);
+        } else {
+          return ::std::forward<Func>(func)(unwrapped);
+        }
+      },
+      wrapper.getArgument());
+}
+
 /**
  * utility template for use in constexpr contexts
  */
@@ -935,31 +961,6 @@ T* get_if(boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> co
         }
       },
       *wrapper);
-}
-
-template <typename Func, auto ConstWrappee, typename... AdditionalCustomAtoms>
-decltype(auto) visit(Func&& func,
-                     boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
-  return visit(
-      [&](auto&& unwrapped) {
-        if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(unwrapped)>,
-                                                           ::std::reference_wrapper>::value) {
-          if constexpr(::std::is_same_v<
-                           ::std::remove_reference_t<decltype(unwrapped.get())>,
-                           boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
-            return ::std::visit(::std::forward<Func>(func), unwrapped.get());
-          } else {
-            return ::std::forward<Func>(func)(unwrapped.get());
-          }
-        } else if constexpr(::std::is_same_v<::std::remove_reference_t<decltype(unwrapped)>,
-                                             boss::ExpressionWithAdditionalCustomAtoms<
-                                                 AdditionalCustomAtoms...>>) {
-          return ::std::visit(::std::forward<Func>(func), unwrapped);
-        } else {
-          return ::std::forward<Func>(func)(unwrapped);
-        }
-      },
-      wrapper.getArgument());
 }
 
 // template <typename... AdditionalCustomAtoms> struct variant_size;
