@@ -89,7 +89,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans", "[spans][arro
   auto status = builder.AppendValues(begin(input), end(input));
   auto thingy = builder.Finish().ValueOrDie();
   auto* v = thingy->data()->template GetMutableValues<TestType>(1);
-  auto s = boss::Span<TestType>(v, thingy->length(), [thingy](void*) {});
+  auto s = boss::Span<TestType>(v, thingy->length(), [thingy](void* /* unused */) {});
   auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {

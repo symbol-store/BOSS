@@ -180,9 +180,10 @@ public:
   boss::Expression evaluate(boss::Expression&& e, bool isRootExpression = true) {
     auto&& wrappedE =
         isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
-            ? "EvaluateInEngines"_("List"_(Span<::std::string>(defaultEngine.data(),
-                                                               defaultEngine.size(), [](void*) {})),
-                                   move(e))
+            ? "EvaluateInEngines"_(
+                  "List"_(Span<::std::string>(defaultEngine.data(), defaultEngine.size(),
+                                              [](void* /* unused */) {})),
+                  move(e))
             : move(e);
     return ::std::visit(boss::utilities::overload(
                             [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {

@@ -95,7 +95,7 @@ public: // surface
       : adapteePayload(other.adapteePayload), _begin(other._begin), _end(other._end),
         destructor(move(other.destructor)) {
     other.adapteePayload = nullptr;
-    other.destructor = [](void*) {};
+    other.destructor = [](void* /* unused */) {};
   };
 
   /**
@@ -874,7 +874,6 @@ using ComplexExpression = DefaultExpressionSystem::ComplexExpressionWithStaticAr
 using Expression = DefaultExpressionSystem::Expression;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 using ExpressionSpanArguments = DefaultExpressionSystem::ExpressionSpanArguments;
-
 
 } // namespace boss
 
