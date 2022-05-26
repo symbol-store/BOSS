@@ -35,7 +35,7 @@ TEST_CASE("Expression Transformation", "[expressions]") {
   auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto e = "UnevaluatedPlus"_(v1, v2);
   REQUIRE(*begin(e.getArguments()) == v1);
-  boss::std::get<std::int64_t>(*begin(e.getArguments()))++;
+  ::std::get<std::int64_t>(*begin(e.getArguments()))++;
   REQUIRE(*begin(e.getArguments()) == v1 + 1);
   std::transform(std::make_move_iterator(begin(e.getArguments())),
                  std::make_move_iterator(end(e.getArguments())), e.getArguments().begin(),

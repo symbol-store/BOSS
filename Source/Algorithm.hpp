@@ -6,36 +6,36 @@
 namespace boss::algorithm {
 template <typename Container, typename Visitor> void visitEach(Container c, Visitor v) {
   ::std::for_each(c.begin(), c.end(), [&v](auto&& item) {
-    boss::std::visit([&v](auto&& item) { return v(item); }, item);
+    ::std::visit([&v](auto&& item) { return v(item); }, item);
   });
 }
 
 template <typename Container, typename Init, typename Visitor>
 auto visitAccumulate(Container c, Init i, Visitor v) {
   return ::std::accumulate(c.begin(), c.end(), i, [&v](auto&& state, auto&& item) {
-    return boss::std::visit(
+    return ::std::visit(
         [&state, &v](auto&& item) {
-          return v(::std::forward<decltype(state)>(state), std::forward<decltype(item)>(item));
+          return v(::std::forward<decltype(state)>(state), ::std::forward<decltype(item)>(item));
         },
-        std::forward<decltype(item)>(item));
+        ::std::forward<decltype(item)>(item));
   });
 }
 
 template <typename Container, typename TransformVisitor, typename Init, typename AccumulateVisitor>
 auto visitTransformAccumulate(Container c, TransformVisitor t, Init i, AccumulateVisitor v) {
   return ::std::accumulate(c.begin(), c.end(), i, [&v, &t](auto&& state, auto&& item) {
-    return boss::std::visit(
+    return ::std::visit(
         [&state, &v](auto&& item) { return v(::std::forward<decltype(state)>(state), item); },
-        boss::std::visit([&t](auto&& item) { return t(std::forward<decltype(item)>(item)); },
-                         std::forward<decltype(item)>(item)));
+        ::std::visit([&t](auto&& item) { return t(::std::forward<decltype(item)>(item)); },
+                         ::std::forward<decltype(item)>(item)));
   });
 }
 
 template <typename Container, typename TransformVisitor>
 auto visitTransform(Container& c, TransformVisitor t) {
   return ::std::transform(c.begin(), c.end(), c.begin(), [&t](auto&& item) {
-    return boss::std::visit([&t](auto&& item) { return t(std::forward<decltype(item)>(item)); },
-                            std::forward<decltype(item)>(item));
+    return ::std::visit([&t](auto&& item) { return t(::std::forward<decltype(item)>(item)); },
+                            ::std::forward<decltype(item)>(item));
   });
 }
 
