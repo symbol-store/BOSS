@@ -407,8 +407,9 @@ public:
                 utilities::isVariantMember<std::reference_wrapper<const T>, WrappeeType>>::value>>
   ArgumentWrapper(T const& argument) // NOLINT(hicpp-explicit-conversions)
       : argument(std::cref(argument)) {}
-  template <typename T,
-            typename = std::enable_if_t<std::is_same_v<T, std::vector<bool>::reference>>>
+  template <typename T, typename = std::enable_if_t<
+                            std::disjunction_v<std::is_same<T, std::vector<bool>::const_reference>,
+                                               std::is_same<T, std::vector<bool>::reference>>>>
   ArgumentWrapper(T&& argument) // NOLINT(hicpp-explicit-conversions)
       : argument(argument) {}
 
@@ -668,9 +669,16 @@ public:
                             std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
                                 0))>>)&&!IsConstWrapper) {
                 throw std::runtime_error("cannot convert const span to non-const argument");
-              } else if constexpr(std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
-                                                 std::vector<bool>::reference>) {
-                return std::vector<bool>::reference(spanArgument.at(i - argumentPrefixScan));
+              }
+
+              else if constexpr(std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                               std::vector<bool>::reference>) {
+                if constexpr(IsConstWrapper) {
+                  return std::vector<bool>::const_reference(
+                      spanArgument.at(i - argumentPrefixScan));
+                } else {
+                  return std::vector<bool>::reference(spanArgument.at(i - argumentPrefixScan));
+                }
               } else {
                 return spanArgument.at(i - argumentPrefixScan);
               }
