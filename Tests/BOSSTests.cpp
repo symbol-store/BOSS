@@ -195,6 +195,15 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     REQUIRE(eval("Project"_("InterpolationTable"_, "As"_("x"_, "x"_))) ==
             "List"_("List"_(thing[0]), "List"_(thing[1]), "List"_(thing[2])));
   }
+  SECTION("Relational on ephemeral tables") {
+
+    SECTION("Selection") {
+      auto const& result =
+          eval("Select"_("ScanColumns"_("Column"_("Size"_, "List"_(2, 3, 1, 4, 1))),
+                         "Where"_("Greater"_("Size"_, 3))));
+      REQUIRE(result == "List"_("List"_(4)));
+    }
+  }
 
   SECTION("Relational (simple)") {
     eval("CreateTable"_("Customer"_, "FirstName"_, "LastName"_));
