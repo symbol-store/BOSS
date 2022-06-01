@@ -411,7 +411,13 @@ public:
                             std::disjunction_v<std::is_same<T, std::vector<bool>::const_reference>,
                                                std::is_same<T, std::vector<bool>::reference>>>>
   ArgumentWrapper(T&& argument) // NOLINT(hicpp-explicit-conversions)
-      : argument(argument) {}
+      : argument([&argument]() {
+          if constexpr(ConstWrappee) {
+            return static_cast<std::vector<bool>::const_reference>(argument);
+          } else {
+            return static_cast<std::vector<bool>::reference>(argument);
+          }
+        }()) {}
 
   bool valueless_by_exception() const { return argument.valueless_by_exception(); }
 
@@ -479,7 +485,6 @@ public:
 template <typename Func, auto ConstWrappee, typename... AdditionalCustomAtoms>
 decltype(auto) visit(Func&& func,
                      boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
-  using ::std::visit;
   return visit(
       [&](auto&& unwrapped) {
         if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(unwrapped)>,
@@ -487,14 +492,14 @@ decltype(auto) visit(Func&& func,
           if constexpr(::std::is_same_v<
                            ::std::remove_reference_t<decltype(unwrapped.get())>,
                            boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
-            return ::std::visit(::std::forward<Func>(func), unwrapped.get());
+            return visit(::std::forward<Func>(func), unwrapped.get());
           } else {
             return ::std::forward<Func>(func)(unwrapped.get());
           }
         } else if constexpr(::std::is_same_v<::std::remove_reference_t<decltype(unwrapped)>,
                                              boss::ExpressionWithAdditionalCustomAtoms<
                                                  AdditionalCustomAtoms...>>) {
-          return ::std::visit(::std::forward<Func>(func), unwrapped);
+          return visit(::std::forward<Func>(func), unwrapped);
         } else {
           return ::std::forward<Func>(func)(unwrapped);
         }
