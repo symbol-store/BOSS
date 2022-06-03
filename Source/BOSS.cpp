@@ -13,6 +13,9 @@
 #include <sstream>
 #include <variant>
 using namespace boss::utilities;
+using std::get; // this is required to prevent clang-warnings for get<...>(Expression). I (Holger)
+                // suspect this is a compiler-bug
+
 extern "C" {
 
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
@@ -72,30 +75,28 @@ size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
   return arg->delegate.index();
 }
 
-bool getBoolValueFromBOSSExpression(BOSSExpression const* arg) {
-  return boss::get<bool>(arg->delegate);
-}
+bool getBoolValueFromBOSSExpression(BOSSExpression const* arg) { return get<bool>(arg->delegate); }
 std::int64_t getLongValueFromBOSSExpression(BOSSExpression const* arg) {
-  return boss::get<::std::int64_t>(arg->delegate);
+  return get<::std::int64_t>(arg->delegate);
 }
 std::double_t getDoubleValueFromBOSSExpression(BOSSExpression const* arg) {
-  return boss::get<::std::double_t>(arg->delegate);
+  return get<::std::double_t>(arg->delegate);
 }
 char* getNewStringValueFromBOSSExpression(BOSSExpression const* arg) {
-  return strdup(boss::get<::std::string>(arg->delegate).c_str());
+  return strdup(get<::std::string>(arg->delegate).c_str());
 }
 char const* getNewSymbolNameFromBOSSExpression(BOSSExpression const* arg) {
-  return strdup(boss::get<boss::Symbol>(arg->delegate).getName().c_str());
+  return strdup(get<boss::Symbol>(arg->delegate).getName().c_str());
 }
 
 BOSSSymbol* getHeadFromBOSSExpression(BOSSExpression const* arg) {
-  return new BOSSSymbol{boss::get<boss::ComplexExpression>(arg->delegate).getHead()};
+  return new BOSSSymbol{get<boss::ComplexExpression>(arg->delegate).getHead()};
 }
 size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
-  return boss::get<boss::ComplexExpression>(arg->delegate).getArguments().size();
+  return get<boss::ComplexExpression>(arg->delegate).getArguments().size();
 }
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
-  auto const& args = boss::get<boss::ComplexExpression>(arg->delegate).getArguments();
+  auto const& args = get<boss::ComplexExpression>(arg->delegate).getArguments();
   auto* result = new BOSSExpression*[args.size() + 1];
   ::std::transform(begin(args), end(args), result,
                    [](auto const& arg) { return new BOSSExpression{arg.clone()}; });

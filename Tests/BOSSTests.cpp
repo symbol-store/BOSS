@@ -35,7 +35,7 @@ TEST_CASE("Expression Transformation", "[expressions]") {
   auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto e = "UnevaluatedPlus"_(v1, v2);
   REQUIRE(*begin(e.getArguments()) == v1);
-  ::std::get<std::int64_t>(*begin(e.getArguments()))++;
+  get<std::int64_t>(*begin(e.getArguments()))++;
   REQUIRE(*begin(e.getArguments()) == v1 + 1);
   std::transform(std::make_move_iterator(begin(e.getArguments())),
                  std::make_move_iterator(end(e.getArguments())), e.getArguments().begin(),
@@ -211,7 +211,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     eval("InsertInto"_("Customer"_, "Sam", "Madden"));
     eval("InsertInto"_("Customer"_, "Barbara", "Liskov"));
     SECTION("Selection") {
-      auto const& sam = eval(
+      auto sam = eval(
           "Select"_("Customer"_,
                     "Function"_("tuple"_, "StringContainsQ"_("Madden", "Column"_("tuple"_, 2)))));
       REQUIRE(sam == "List"_("List"_("Sam", "Madden")));

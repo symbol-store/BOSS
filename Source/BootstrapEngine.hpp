@@ -113,10 +113,10 @@ class BootstrapEngine : public boss::Engine {
            [this](auto&& e) -> boss::Expression {
              auto symbols = ::std::vector<BOSSExpression* (*)(BOSSExpression*)>();
              // libraries.at(boss::get<::std::string>(e.getArguments().at(0))).evaluateFunction;
-             auto&& args = ::std::get<ComplexExpression>(e.getArguments().at(0)).getArguments();
+             auto&& args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
              ::std::for_each(args.begin(), args.end(), [this, &e, &symbols](auto&& enginePath) {
                symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                   libraries.at(::std::get<::std::string>(enginePath)).evaluateFunction));
+                   libraries.at(get<::std::string>(enginePath)).evaluateFunction));
              });
              ::std::for_each(
                  ::std::make_move_iterator(::std::next(
@@ -151,7 +151,7 @@ class BootstrapEngine : public boss::Engine {
              return "okay";
            }}};
   bool isBootstrapCommand(boss::Expression const& expression) {
-    return ::std::visit(utilities::overload(
+    return visit(utilities::overload(
                             [this](boss::ComplexExpression const& expression) {
                               return registeredOperators.count(expression.getHead()) > 0;
                             },

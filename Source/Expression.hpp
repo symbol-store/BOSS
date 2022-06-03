@@ -4,12 +4,14 @@
 #include <cstdint>
 #include <functional>
 #include <iterator>
+#include <map>
 #include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <typeindex>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -25,6 +27,10 @@ public:
   inline bool operator==(boss::Symbol const& s2) const { return getName() == s2.getName(); };
   inline bool operator!=(boss::Symbol const& s2) const { return getName() != s2.getName(); };
 };
+
+static ::std::ostream& operator<<(::std::ostream& out, boss::Symbol const& thing) {
+  return out << thing.getName();
+}
 
 template <typename T, typename... Args> struct variant_amend;
 
@@ -261,9 +267,7 @@ using ConstArgumentWrappeeType = typename variant_amend<
     std::vector<bool>::const_reference,
     std::reference_wrapper<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const>>::
     type;
-} // namespace boss
 
-namespace std {
 template <typename T, typename... AdditionalCustomAtoms>
 T const& get(boss::ArgumentWrapper<true, AdditionalCustomAtoms...> const& wrapper) {
   return ::std::visit(
@@ -292,9 +296,7 @@ T const& get(boss::ArgumentWrapper<true, AdditionalCustomAtoms...> const& wrappe
       },
       wrapper.getArgument());
 }
-} // namespace std
 
-namespace boss {
 template <bool ConstWrappee, typename... AdditionalCustomAtoms> class ArgumentWrapper {
 public:
   using WrappeeType =
@@ -862,6 +864,67 @@ private:
   operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = default;
 };
 
+template <typename... StaticArguments, typename... AdditionalAtoms>
+static ::std::ostream&
+operator<<(::std::ostream& out,
+           boss::ComplexExpressionWithAdditionalCustomAtoms<::std::tuple<StaticArguments...>,
+                                                            AdditionalAtoms...> const& e);
+
+template <bool ConstWrappee, typename... AdditionalCustomAtoms>
+::std::ostream&
+operator<<(::std::ostream& stream,
+           boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& argument);
+
+template <typename... AdditionalAtoms>
+static ::std::ostream&
+operator<<(::std::ostream& out,
+           boss::ExpressionWithAdditionalCustomAtoms<AdditionalAtoms...> const& thing) {
+  visit(boss::utilities::overload([&](::std::string const& value) { out << "\"" << value << "\""; },
+                                  [&](bool value) { out << (value ? "True" : "False"); },
+                                  [&](auto const& value) { out << value; }),
+        thing);
+  return out;
+}
+
+/**
+ * a specialization for complex expressions is needed. Otherwise the complex
+ * expression and all its arguments have to be copied to be converted to an
+ * Expression
+ */
+template <typename... StaticArguments, typename... AdditionalAtoms>
+static ::std::ostream&
+operator<<(::std::ostream& out,
+           boss::ComplexExpressionWithAdditionalCustomAtoms<::std::tuple<StaticArguments...>,
+                                                            AdditionalAtoms...> const& e) {
+  out << e.getHead() << "[";
+  if(!e.getArguments().empty()) {
+    out << e.getArguments().front();
+    for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
+      out << "," << *it;
+    }
+  }
+  out << "]";
+  return out;
+}
+
+template <bool ConstWrappee, typename... AdditionalCustomAtoms>
+::std::ostream&
+operator<<(::std::ostream& stream,
+           boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& argument) {
+  return visit(
+      [&stream](auto&& argument) -> auto& {
+        if constexpr(::std::disjunction_v<::std::is_same<::std::decay_t<decltype(argument)>,
+                                                         ::std::vector<bool>::reference>,
+                                          ::std::is_same<::std::decay_t<decltype(argument)>,
+                                                         ::std::vector<bool>::const_reference>>) {
+          return stream << (bool)argument;
+        } else {
+          return stream << argument.get();
+        }
+      },
+      argument.getArgument());
+}
+
 template <typename... AdditionalCustomAtoms> class ExtensibleExpressionSystem {
 public:
   using AtomicExpression = AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
@@ -888,36 +951,66 @@ using Expression = DefaultExpressionSystem::Expression;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 using ExpressionSpanArguments = DefaultExpressionSystem::ExpressionSpanArguments;
 
-} // namespace boss
+class bad_variant_access : public ::std::bad_variant_access {
+  ::std::string const whatString;
 
-namespace std {
-template <typename T, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
+public:
+  explicit bad_variant_access(::std::string const& whatString) : whatString(whatString) {}
+  const char* what() const noexcept override { return whatString.c_str(); }
+};
+
+template <typename T, auto ConstWrappee, typename... AdditionalCustomAtoms>
 T& get(boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
-  return ::std::visit(
-      [](auto& argument) -> T& {
-        if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
-                                      ::std::reference_wrapper<T>>) {
-          return argument.get();
-        } else if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
-                                             ::std::vector<bool>::reference>) {
-          if constexpr(::std::is_same_v<::std::decay_t<T>, ::std::vector<bool>::reference>) {
+  try {
+    return ::std::visit(
+        [](auto& argument) -> T& {
+          if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
+                                        ::std::reference_wrapper<T>>) {
+            return argument.get();
+          } else if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
+                                               ::std::vector<bool>::reference>) {
+            if constexpr(::std::is_same_v<::std::decay_t<T>, ::std::vector<bool>::reference>) {
 
-            return argument;
+              return argument;
+            }
+            throw ::std::bad_variant_access();
+          } else if constexpr(boss::utilities::isInstanceOfTemplate<
+                                  ::std::decay_t<decltype(argument)>,
+                                  ::std::reference_wrapper>::value &&
+                              boss::utilities::isInstanceOfTemplate<
+                                  ::std::decay_t<decltype(argument.get())>,
+                                  boss::ExpressionWithAdditionalCustomAtoms>::value) {
+            return ::std::get<T>(argument.get());
+          } else {
+            throw ::std::bad_variant_access();
           }
-          throw ::std::bad_variant_access();
-        } else if constexpr(boss::utilities::isInstanceOfTemplate<
-                                ::std::decay_t<decltype(argument)>,
-                                ::std::reference_wrapper>::value &&
-                            boss::utilities::isInstanceOfTemplate<
-                                ::std::decay_t<decltype(argument.get())>,
-                                boss::ExpressionWithAdditionalCustomAtoms>::value) {
-          return ::std::get<T>(argument.get());
-        } else {
-          throw ::std::bad_variant_access();
-        }
-      },
-      wrapper.getArgument());
+        },
+        wrapper.getArgument());
+  } catch(std::bad_variant_access&) {
+    ::std::stringstream s;
+    s << "expected and actual type mismatch in expression \"";
+    if(!wrapper.getArgument().valueless_by_exception()) {
+      s << wrapper;
+    } else {
+      s << "valueless by exception";
+    }
+    static auto typenames =
+        ::std::map<::std::type_index, char const*>{{typeid(int64_t), "long"},
+                                                   {typeid(Symbol), "Symbol"},
+                                                   {typeid(bool), "bool"},
+                                                   {typeid(double_t), "double"},
+                                                   {typeid(::std::string), "string"}};
+    s << "\", expected "
+      << (typenames.count(typeid(T)) ? typenames.at(typeid(T)) : typeid(T).name());
+    throw bad_variant_access(s.str());
+  }
 }
+
+template <size_t I, bool ConstWrappee, typename... AdditionalCustomAtoms>
+constexpr ::std::variant_alternative_t<I, ::boss::ArgumentWrappeeType<AdditionalCustomAtoms...>>&
+get(::boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) noexcept {
+  return ::std::get<I>(wrapper.getArgument());
+};
 
 template <typename T, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
 T* get_if(boss::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const* wrapper) {
@@ -975,7 +1068,9 @@ T* get_if(boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> co
       *wrapper);
 }
 
-// template <typename... AdditionalCustomAtoms> struct variant_size;
+} // namespace boss
+
+namespace std {
 
 template <typename... AdditionalCustomAtoms>
 struct variant_size<typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
@@ -989,7 +1084,6 @@ struct variant_size<
     : variant_size<const typename boss::ExpressionWithAdditionalCustomAtoms<
           AdditionalCustomAtoms...>::SuperType> {};
 
-// template <::std::size_t I, typename... AdditionalCustomAtoms> struct variant_alternative;
 template <::std::size_t I, typename... AdditionalCustomAtoms>
 struct variant_alternative<
     I, typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
@@ -1026,24 +1120,6 @@ template <> struct hash<boss::Symbol> {
     return ::std::hash<::std::string>{}(s.getName());
   }
 };
-// using namespace boss::std;
-// template <typename... AdditionalCustomAtoms>
-// struct variant_size<typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
-//     : variant_size<
-//           typename
-//           boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>::SuperType> {
-// };
-// template <typename... AdditionalCustomAtoms>
-// struct variant_size<
-//     const typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
-//     : variant_size<const typename boss::ExpressionWithAdditionalCustomAtoms<
-//           AdditionalCustomAtoms...>::SuperType> {};
-
-// template <::std::size_t I, typename... AdditionalCustomAtoms>
-// struct variant_alternative<
-//     I, typename boss::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
-//     : variant_alternative<I, typename boss::ExpressionWithAdditionalCustomAtoms<
-//                                  AdditionalCustomAtoms...>::SuperType> {};
 
 #ifdef __clang__
 
