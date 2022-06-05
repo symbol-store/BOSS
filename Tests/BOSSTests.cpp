@@ -9,7 +9,6 @@
 #include <numeric>
 #include <variant>
 using boss::Expression;
-using boss::get;
 using std::string;
 using boss::utilities::operator""_;
 using Catch::Generators::random;
@@ -17,6 +16,7 @@ using Catch::Generators::take;
 using Catch::Generators::values;
 using std::vector;
 using namespace Catch::Matchers;
+using boss::expressions::generic::get;
 
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -125,14 +125,14 @@ TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, bos
 }
 
 TEST_CASE("Basics", "[basics]") { // NOLINT
-  auto engine = boss::BootstrapEngine();
+  auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](boss::Expression&& expression) mutable {
     return engine.evaluate(
         "EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))), move(expression)));
   };
   CHECK_THROWS_MATCHES(
-      engine.evaluate("EvaluateInEngines"_("List"_(9), 5)), boss::bad_variant_access,
+      engine.evaluate("EvaluateInEngines"_("List"_(9), 5)), boss::utilities::bad_variant_access,
       Message("expected and actual type mismatch in expression \"9\", expected string"));
 
   SECTION("Atomics") {
@@ -328,7 +328,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 }
 
 TEST_CASE("Arrays", "[arrays]") { // NOLINT
-  auto engine = boss::BootstrapEngine();
+  auto engine = boss::engines::BootstrapEngine();
   namespace nasty = boss::utilities::nasty;
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
@@ -391,7 +391,7 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::double_t) {
-  auto engine = boss::BootstrapEngine();
+  auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
     return engine.evaluate(

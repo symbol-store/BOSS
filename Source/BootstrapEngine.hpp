@@ -2,6 +2,7 @@
 
 #include "Algorithm.hpp"
 #include "BOSS.hpp"
+#include "Engine.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
 #include "Utilities.hpp"
@@ -65,10 +66,12 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #include <unordered_set>
 #include <variant>
 
-using boss::utilities::operator""_;
-
 namespace boss {
+namespace engines {
+namespace {
+
 class BootstrapEngine : public boss::Engine {
+
   struct LibraryAndEvaluateFunction {
     void *library, *evaluateFunction;
   };
@@ -152,12 +155,12 @@ class BootstrapEngine : public boss::Engine {
            }}};
   bool isBootstrapCommand(boss::Expression const& expression) {
     return visit(utilities::overload(
-                            [this](boss::ComplexExpression const& expression) {
-                              return registeredOperators.count(expression.getHead()) > 0;
-                            },
-                            [](auto const& /* unused */
-                            ) { return false; }),
-                        expression);
+                     [this](boss::ComplexExpression const& expression) {
+                       return registeredOperators.count(expression.getHead()) > 0;
+                     },
+                     [](auto const& /* unused */
+                     ) { return false; }),
+                 expression);
   }
 
 public:
@@ -178,6 +181,8 @@ public:
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   boss::Expression evaluate(boss::Expression&& e, bool isRootExpression = true) {
+    using boss::utilities::operator""_;
+
     auto&& wrappedE =
         isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
             ? "EvaluateInEngines"_(
@@ -202,5 +207,7 @@ public:
     return evaluate(e.clone(), isRootExpression);
   }
 };
+} // namespace
+} // namespace engines
 
 } // namespace boss

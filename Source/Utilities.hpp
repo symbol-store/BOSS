@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Expression.hpp"
+#include <string>
 #include <utility>
 #include <variant>
 
@@ -41,5 +42,18 @@ template <template <typename...> typename NewWrapper, typename... Args>
 struct rewrap_variant_arguments_and_add_const<NewWrapper, std::variant<Args...>> {
   using type = std::variant<NewWrapper<Args const>...>;
 };
+template <typename T, typename... Args> struct variant_amend;
 
+template <typename... Args0, typename... Args1>
+struct variant_amend<std::variant<Args0...>, Args1...> {
+  using type = std::variant<Args0..., Args1...>;
+};
+
+class bad_variant_access : public ::std::bad_variant_access {
+  ::std::string const whatString;
+
+public:
+  explicit bad_variant_access(::std::string const& whatString) : whatString(whatString) {}
+  const char* what() const noexcept override { return whatString.c_str(); }
+};
 } // namespace boss::utilities

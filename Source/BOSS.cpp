@@ -20,7 +20,7 @@ extern "C" {
 
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
   try {
-    static boss::BootstrapEngine engine;
+    static boss::engines::BootstrapEngine engine;
     return new BOSSExpression{engine.evaluate(arg->delegate.clone())};
   } catch(::std::exception const& e) {
     return new BOSSExpression{"ErrorWhenEvaluatingExpression"_(arg->delegate, e.what())};
