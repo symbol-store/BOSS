@@ -141,6 +141,9 @@ add_library(BOSS SHARED ${ImplementationFiles})
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
 add_dependencies(Tests catch2)
+if(WIN32)
+    target_compile_options(Tests PUBLIC /bigobj)
+endif(WIN32)
 
 # Benchmarks
 add_executable(Benchmarks ${ImplementationFiles} ${BenchmarkFiles})

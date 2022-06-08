@@ -11,6 +11,7 @@
 #include <dlfcn.h>
 #else
 #include <filesystem>
+#define NOMINMAX // max macro in minwindef.h interfering with std::max...
 #include <windows.h>
 constexpr static int RTLD_NOW = 0;
 constexpr static int RTLD_NODELETE = 0;
@@ -183,7 +184,7 @@ public:
   boss::Expression evaluate(boss::Expression&& e, bool isRootExpression = true) {
     using boss::utilities::operator""_;
 
-    auto&& wrappedE =
+    auto wrappedE =
         isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
             ? "EvaluateInEngines"_(
                   "List"_(Span<::std::string>(defaultEngine.data(), defaultEngine.size(),

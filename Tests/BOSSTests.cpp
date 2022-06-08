@@ -1,4 +1,3 @@
-#include <numeric>
 #define CATCH_CONFIG_RUNNER
 #include "../Source/BOSS.hpp"
 #include "../Source/BootstrapEngine.hpp"
