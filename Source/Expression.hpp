@@ -832,7 +832,6 @@ public:
   getArguments() {
     return {staticArguments, arguments, spanArguments};
   }
-
   ExpressionArgumentsWithAdditionalCustomAtomsWrapper<decltype(staticArguments) const, true,
                                                       AdditionalCustomAtoms...>
   getArguments() const {
@@ -843,11 +842,31 @@ public:
   getDynamicArguments() const {
     return arguments;
   };
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& getDynamicArguments() {
+    return arguments;
+  };
 
   auto const& getStaticArguments() const { return staticArguments; }
+  auto& getStaticArguments() { return staticArguments; }
+
   auto const& getSpanArguments() const { return spanArguments; }
+  auto& getSpanArguments() { return spanArguments; }
+
+  ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getArgument(size_t i) && {
+    return visit(
+        boss::utilities::overload(
+            [](ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arg)
+                -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+              return std::move(arg);
+            },
+            [](auto&& arg) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+              return std::move(arg);
+            }),
+        std::move(getArguments().at(i)));
+  }
 
   Symbol const& getHead() const { return head; };
+
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
   ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
@@ -926,6 +945,54 @@ public:
       ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
 };
 
+template <typename TargetType, typename VariantType>
+static void handleBadVariantAccess(VariantType const& v) {
+  ::std::stringstream s;
+  s << "expected and actual type mismatch in expression \"";
+  if(!v.valueless_by_exception()) {
+    s << v;
+  } else {
+    s << "valueless by exception";
+  }
+  static auto typenames =
+      ::std::map<::std::type_index, char const*>{{typeid(int64_t), "long"},
+                                                 {typeid(Symbol), "Symbol"},
+                                                 {typeid(bool), "bool"},
+                                                 {typeid(double_t), "double"},
+                                                 {typeid(::std::string), "string"}};
+  s << "\", expected "
+    << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
+                                            : typeid(TargetType).name());
+  throw boss::utilities::bad_variant_access(s.str());
+}
+
+template <typename T, typename... AdditionalCustomAtoms>
+T const& get(generic::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& e) {
+  try {
+    return std::get<T>(e);
+  } catch(std::bad_variant_access&) {
+    handleBadVariantAccess<T>(e);
+  }
+}
+
+template <typename T, typename... AdditionalCustomAtoms>
+T& get(generic::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& e) {
+  try {
+    return std::get<T>(e);
+  } catch(std::bad_variant_access&) {
+    handleBadVariantAccess<T>(e);
+  }
+}
+
+template <typename T, typename... AdditionalCustomAtoms>
+T get(generic::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& e) {
+  try {
+    return std::get<T>(std::move(e));
+  } catch(std::bad_variant_access&) {
+    handleBadVariantAccess<T>(e);
+  }
+}
+
 template <typename T, auto ConstWrappee, typename... AdditionalCustomAtoms>
 T& get(generic::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
   try {
@@ -954,22 +1021,7 @@ T& get(generic::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& w
         },
         wrapper.getArgument());
   } catch(std::bad_variant_access&) {
-    ::std::stringstream s;
-    s << "expected and actual type mismatch in expression \"";
-    if(!wrapper.getArgument().valueless_by_exception()) {
-      s << wrapper;
-    } else {
-      s << "valueless by exception";
-    }
-    static auto typenames =
-        ::std::map<::std::type_index, char const*>{{typeid(int64_t), "long"},
-                                                   {typeid(Symbol), "Symbol"},
-                                                   {typeid(bool), "bool"},
-                                                   {typeid(double_t), "double"},
-                                                   {typeid(::std::string), "string"}};
-    s << "\", expected "
-      << (typenames.count(typeid(T)) ? typenames.at(typeid(T)) : typeid(T).name());
-    throw boss::utilities::bad_variant_access(s.str());
+    handleBadVariantAccess<T>(wrapper);
   }
 }
 
@@ -982,7 +1034,7 @@ get(ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) noex
 template <typename T, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
 T* get_if(ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const* wrapper) {
   return ::std::visit(
-      [](auto& argument) -> T& {
+      [](auto& argument) -> T* {
         if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
                                       ::std::reference_wrapper<T>>) {
           return &argument.get();
@@ -1010,7 +1062,7 @@ T* get_if(ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const* wrapper
 template <typename T, typename... AdditionalCustomAtoms>
 T* get_if(ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const* wrapper) {
   return ::std::visit(
-      [](auto& argument) -> T& {
+      [](auto& argument) -> T* {
         if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
                                       ::std::reference_wrapper<T>>) {
           return &argument.get();

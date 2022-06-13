@@ -64,6 +64,35 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
       "howdie");
 }
 
+TEST_CASE("Complex expression's argument cast to more general expression system", "[expressions]") {
+  auto a = "List"_("howdie"_(1, 2, 3));
+  auto b1 = (boss::ExtensibleExpressionSystem<DummyAtom>::Expression)(std::move(a).getArgument(0));
+  CHECK(
+      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).getHead().getName() ==
+      "howdie");
+  auto b2 = (boss::ExtensibleExpressionSystem<DummyAtom>::Expression)std::move(
+      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).getArguments().at(1));
+  CHECK(get<int64_t>(b2) == 2);
+}
+
+TEST_CASE("Extract typed arguments from complex expression", "[expressions]") {
+  using std::literals::string_literals::operator""s;
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto str = std::accumulate(
+      expr.getArguments().begin(), expr.getArguments().end(), expr.getHead().getName(),
+      [](auto const& accStr, auto const& arg) {
+        return accStr + "_" +
+               visit(
+                   boss::utilities::overload(
+                       [](auto const& value) { return std::to_string(value); },
+                       [](boss::ComplexExpression const& expr) { return expr.getHead().getName(); },
+                       [](boss::Symbol const& symbol) { return symbol.getName(); },
+                       [](std::string const& str) { return str; }),
+                   arg);
+      });
+  CHECK(str == "List_howdie_1_unknown_hello world");
+}
+
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,
                    std::double_t) {
