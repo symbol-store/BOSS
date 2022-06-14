@@ -543,14 +543,14 @@ decltype(auto) visit(Func&& func,
         if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(unwrapped)>,
                                                            MovableReferenceWrapper>::value) {
           if constexpr(::std::is_same_v<
-                           ::std::remove_reference_t<decltype(unwrapped.get())>,
+                           ::std::remove_cv_t<::std::remove_reference_t<decltype(unwrapped.get())>>,
                            ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
             return visit(::std::forward<Func>(func), unwrapped.get());
           } else {
             return ::std::forward<Func>(func)(unwrapped.get());
           }
         } else if constexpr(::std::is_same_v<
-                                ::std::remove_reference_t<decltype(unwrapped)>,
+                                ::std::remove_cv_t<::std::remove_reference_t<decltype(unwrapped)>>,
                                 ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
           return visit(::std::forward<Func>(func), unwrapped);
         } else {
@@ -882,7 +882,8 @@ public:
           if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(unwrapped)>,
                                                              MovableReferenceWrapper>::value) {
             if constexpr(::std::is_same_v<
-                             ::std::remove_reference_t<decltype(unwrapped.get())>,
+                             ::std::remove_cv_t<
+                                 ::std::remove_reference_t<decltype(unwrapped.get())>>,
                              ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
               return visit(
                   [](auto&& arg) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
@@ -893,7 +894,8 @@ public:
               return ::std::forward<decltype(unwrapped)>(unwrapped).get();
             }
           } else if constexpr(::std::is_same_v<
-                                  ::std::remove_reference_t<decltype(unwrapped)>,
+                                  ::std::remove_cv_t<
+                                      ::std::remove_reference_t<decltype(unwrapped)>>,
                                   ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
             return visit(
                 [](auto&& arg) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
@@ -906,6 +908,46 @@ public:
         },
         std::forward<decltype(getArguments().at(i).getArgument())>(
             getArguments().at(i).getArgument()));
+  }
+
+  ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> cloneArgument(size_t i) const {
+    return visit(
+        [](auto const& unwrapped) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+          if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(unwrapped)>,
+                                                             MovableReferenceWrapper>::value) {
+            if constexpr(::std::is_same_v<
+                             ::std::remove_cv_t<
+                                 ::std::remove_reference_t<decltype(unwrapped.get())>>,
+                             ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
+              return visit(
+                  boss::utilities::overload(
+                      [](ComplexExpressionWithAdditionalCustomAtoms const& arg)
+                          -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+                        return arg.clone();
+                      },
+                      [](auto const& arg)
+                          -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+                        return arg;
+                      }),
+                  unwrapped.get());
+            } else {
+              return unwrapped.get();
+            }
+          } else if constexpr(::std::is_same_v<
+                                  ::std::remove_cv_t<
+                                      ::std::remove_reference_t<decltype(unwrapped)>>,
+                                  ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
+            return visit(
+                [](auto const& arg)
+                    -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+                  return arg.clone();
+                },
+                unwrapped);
+          } else {
+            return unwrapped;
+          }
+        },
+        getArguments().at(i).getArgument());
   }
 
   Symbol const& getHead() const { return head; };
