@@ -560,6 +560,31 @@ decltype(auto) visit(Func&& func,
       wrapper.getArgument());
 }
 
+template <typename Func, auto ConstWrappee, typename... AdditionalCustomAtoms>
+decltype(auto) visit(Func&& func,
+                     ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...>&& wrapper) {
+  return visit(
+      [&](auto&& unwrapped) {
+        if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(unwrapped)>,
+                                                           MovableReferenceWrapper>::value) {
+          if constexpr(::std::is_same_v<
+                           ::std::remove_cv_t<::std::remove_reference_t<decltype(unwrapped.get())>>,
+                           ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
+            return visit(::std::forward<Func>(func), unwrapped.get());
+          } else {
+            return ::std::forward<Func>(func)(unwrapped.get());
+          }
+        } else if constexpr(::std::is_same_v<
+                                ::std::remove_cv_t<::std::remove_reference_t<decltype(unwrapped)>>,
+                                ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
+          return visit(::std::forward<Func>(func), unwrapped);
+        } else {
+          return ::std::forward<Func>(func)(unwrapped);
+        }
+      },
+      wrapper.getArgument());
+}
+
 namespace utilities {
 /**
  * utility template for use in constexpr contexts
