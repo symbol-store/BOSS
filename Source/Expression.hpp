@@ -1124,11 +1124,13 @@ T& get(generic::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& w
             throw ::std::bad_variant_access();
           } else if constexpr(boss::utilities::isInstanceOfTemplate<
                                   ::std::decay_t<decltype(argument)>,
-                                  MovableReferenceWrapper>::value &&
-                              boss::utilities::isInstanceOfTemplate<
-                                  ::std::decay_t<decltype(argument.get())>,
-                                  ExpressionWithAdditionalCustomAtoms>::value) {
-            return ::std::get<T>(argument.get());
+                                  MovableReferenceWrapper>::value) {
+            if constexpr(boss::utilities::isInstanceOfTemplate<
+                             ::std::decay_t<decltype(argument.get())>,
+                             ExpressionWithAdditionalCustomAtoms>::value) {
+              return ::std::get<T>(argument.get());
+            }
+            throw ::std::bad_variant_access();
           } else {
             throw ::std::bad_variant_access();
           }
@@ -1138,6 +1140,12 @@ T& get(generic::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& w
     throw formatBOSSBadVariantAccess<T>(wrapper);
   }
 }
+
+template <size_t I, bool ConstWrappee, typename... AdditionalCustomAtoms>
+constexpr ::std::variant_alternative_t<I, ArgumentWrappeeType<AdditionalCustomAtoms...>>&
+get(ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) noexcept {
+  return ::std::get<I>(wrapper.getArgument());
+};
 
 template <typename T, auto ConstWrappee, typename... AdditionalCustomAtoms>
 bool holds_alternative(
@@ -1155,27 +1163,22 @@ bool holds_alternative(
           }
         } else if constexpr(boss::utilities::isInstanceOfTemplate<
                                 ::std::decay_t<decltype(argument)>,
-                                MovableReferenceWrapper>::value &&
-                            boss::utilities::isInstanceOfTemplate<
-                                ::std::decay_t<decltype(argument.get())>,
-                                ExpressionWithAdditionalCustomAtoms>::value) {
-          return ::std::holds_alternative<T>(argument.get());
+                                MovableReferenceWrapper>::value) {
+          if constexpr(boss::utilities::isInstanceOfTemplate<
+                           ::std::decay_t<decltype(argument.get())>,
+                           ExpressionWithAdditionalCustomAtoms>::value) {
+            return ::std::holds_alternative<T>(argument.get());
+          }
         }
         return false;
       },
       wrapper.getArgument());
 }
 
-template <size_t I, bool ConstWrappee, typename... AdditionalCustomAtoms>
-constexpr ::std::variant_alternative_t<I, ArgumentWrappeeType<AdditionalCustomAtoms...>>&
-get(ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) noexcept {
-  return ::std::get<I>(wrapper.getArgument());
-};
-
 template <typename T, auto ConstWrappee = false, typename... AdditionalCustomAtoms>
-T* get_if(ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const* wrapper) {
+decltype(auto) get_if(ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const* wrapper) {
   return ::std::visit(
-      [](auto& argument) -> T* {
+      [](auto& argument) -> std::conditional_t<ConstWrappee, T const*, T*> {
         if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
                                       MovableReferenceWrapper<T>>) {
           return &argument.get();
@@ -1188,44 +1191,18 @@ T* get_if(ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const* wrapper
           return nullptr;
         } else if constexpr(boss::utilities::isInstanceOfTemplate<
                                 ::std::decay_t<decltype(argument)>,
-                                MovableReferenceWrapper>::value &&
-                            boss::utilities::isInstanceOfTemplate<
-                                ::std::decay_t<decltype(argument.get())>,
-                                ExpressionWithAdditionalCustomAtoms>::value) {
-          return ::std::get_if<T>(argument.get());
+                                MovableReferenceWrapper>::value) {
+          if constexpr(boss::utilities::isInstanceOfTemplate<
+                           ::std::decay_t<decltype(argument.get())>,
+                           ExpressionWithAdditionalCustomAtoms>::value) {
+            return ::std::get_if<T>(&argument.get());
+          }
+          return nullptr;
         } else {
           return nullptr;
         }
       },
       wrapper->getArgument());
-}
-
-template <typename T, typename... AdditionalCustomAtoms>
-T* get_if(ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const* wrapper) {
-  return ::std::visit(
-      [](auto& argument) -> T* {
-        if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
-                                      MovableReferenceWrapper<T>>) {
-          return &argument.get();
-        } else if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
-                                             ::std::vector<bool>::reference>) {
-          if constexpr(::std::is_same_v<::std::decay_t<T>, ::std::vector<bool>::reference>) {
-
-            return &argument;
-          }
-          return nullptr;
-        } else if constexpr(boss::utilities::isInstanceOfTemplate<
-                                ::std::decay_t<decltype(argument)>,
-                                MovableReferenceWrapper>::value &&
-                            boss::utilities::isInstanceOfTemplate<
-                                ::std::decay_t<decltype(argument.get())>,
-                                ExpressionWithAdditionalCustomAtoms>::value) {
-          return ::std::get_if<T>(argument.get());
-        } else {
-          return nullptr;
-        }
-      },
-      *wrapper);
 }
 
 } // namespace generic
@@ -1253,6 +1230,7 @@ using expressions::Span; // NOLINT
 using expressions::Symbol;
 using expressions::generic::ExtensibleExpressionSystem; // NOLINT
 using expressions::generic::get;                        // NOLINT
+using expressions::generic::get_if;                     // NOLINT
 using expressions::generic::holds_alternative;          // NOLINT
 } // namespace boss
 

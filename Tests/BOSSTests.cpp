@@ -17,6 +17,7 @@ using Catch::Generators::values;
 using std::vector;
 using namespace Catch::Matchers;
 using boss::expressions::generic::get;
+using boss::expressions::generic::get_if;
 using boss::expressions::generic::holds_alternative;
 
 static std::vector<string>
@@ -152,11 +153,23 @@ TEST_CASE("Merge a static and a dynamic complex expressions", "[expressions]") {
 }
 
 TEST_CASE("holds_alternative for complex expression's arguments", "[expressions]") {
-	auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   CHECK(holds_alternative<boss::ComplexExpression>(expr.getArguments().at(0)));
   CHECK(holds_alternative<int64_t>(expr.getArguments().at(1)));
   CHECK(holds_alternative<boss::Symbol>(expr.getArguments().at(2)));
   CHECK(holds_alternative<std::string>(expr.getArguments().at(3)));
+}
+
+TEST_CASE("get_if for complex expression's arguments", "[expressions]") {
+  auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto const& arg0 = expr.getArguments().at(0);
+  auto const& arg1 = expr.getArguments().at(1);
+  auto const& arg2 = expr.getArguments().at(2);
+  auto const& arg3 = expr.getArguments().at(3);
+  CHECK(get_if<boss::ComplexExpression>(&arg0) != nullptr);
+  CHECK(get_if<int64_t>(&arg1) != nullptr);
+  CHECK(get_if<boss::Symbol>(&arg2) != nullptr);
+  CHECK(get_if<std::string>(&arg3) != nullptr);
 }
 
 // NOLINTNEXTLINE
