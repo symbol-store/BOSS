@@ -599,17 +599,17 @@ inline constexpr bool isConstArgumentWrapper = isConstArgumentWrapperType<T...>:
 template <typename StaticArgumentsContainer, bool IsConstWrapper = false,
           typename... AdditionalAtoms>
 class ExpressionArgumentsWithAdditionalCustomAtomsWrapper {
-  StaticArgumentsContainer& staticArguments;
+  std::reference_wrapper<StaticArgumentsContainer> staticArguments;
   using DynamicArgumentsContainer =
       std::conditional_t<IsConstWrapper,
                          ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> const,
                          ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>>;
-  DynamicArgumentsContainer& arguments;
+  std::reference_wrapper<DynamicArgumentsContainer> arguments;
   using SpanArgumentsContainer =
       std::conditional_t<IsConstWrapper,
                          ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> const,
                          ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>>;
-  SpanArgumentsContainer& spanArguments;
+  std::reference_wrapper<SpanArgumentsContainer> spanArguments;
 
 public:
   ExpressionArgumentsWithAdditionalCustomAtomsWrapper(StaticArgumentsContainer& staticArguments,
@@ -618,9 +618,10 @@ public:
       : staticArguments(staticArguments), arguments(arguments), spanArguments(spanArguments) {}
 
   size_t size() const {
-    return std::tuple_size_v<StaticArgumentsContainer> + arguments.size() +
+    return std::tuple_size_v<StaticArgumentsContainer> + arguments.get().size() +
            std::accumulate(
-               spanArguments.begin(), spanArguments.end(), 0, [](auto soFar, auto& thisOne) {
+               spanArguments.get().begin(), spanArguments.get().end(), 0,
+               [](auto soFar, auto& thisOne) {
                  return soFar + std::visit([](auto&& thisOne) { return thisOne.size(); }, thisOne);
                });
   }
@@ -633,7 +634,9 @@ public:
     using value_type = typename ArgumentWrapper<IsConstIterator, AdditionalAtoms...>::WrappeeType;
     using pointer = typename ArgumentWrapper<IsConstIterator, AdditionalAtoms...>::WrappeeType;
 
-    std::reference_wrapper<ExpressionArgumentsWithAdditionalCustomAtomsWrapper const> container;
+    std::conditional_t<IsConstIterator, ExpressionArgumentsWithAdditionalCustomAtomsWrapper const,
+                       ExpressionArgumentsWithAdditionalCustomAtomsWrapper>
+        container;
     size_t i;
     Iterator next() {
       auto n = *this;
@@ -670,7 +673,7 @@ public:
     std::ptrdiff_t operator-(Iterator const& other) const { return i - other.i; }
 
     ArgumentWrapper<IsConstIterator, AdditionalAtoms...> operator*() const {
-      return container.get().at(i);
+      return container.at(i);
     }
     bool operator==(Iterator const& other) { return i == other.i; }
     bool operator!=(Iterator const& other) { return i != other.i; }
@@ -687,7 +690,7 @@ public:
   getStaticArgument(size_t i, std::index_sequence<I...> /*unused*/) const {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
     return std::move(std::array<ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>, sizeof...(I)>{
-        std::get<I>(staticArguments)...}[i]);
+        std::get<I>(staticArguments.get())...}[i]);
   }
 
   template <size_t... I>
@@ -703,11 +706,12 @@ public:
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
         return getStaticArgument(i);
       }
-    } else if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
-      return arguments[i - std::tuple_size_v<StaticArgumentsContainer>];
+    } else if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.get().size()) {
+      return arguments.get()[i - std::tuple_size_v<StaticArgumentsContainer>];
     } else {
-      auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
-      for(auto& spanArgument : spanArguments) {
+      auto argumentPrefixScan =
+          std::tuple_size_v<StaticArgumentsContainer> + arguments.get().size();
+      for(auto& spanArgument : spanArguments.get()) {
         if(i >= argumentPrefixScan &&
            i < argumentPrefixScan +
                    std::visit([](auto&& spanArgument) { return spanArgument.size(); },
@@ -741,11 +745,11 @@ public:
         return getStaticArgument(i);
       }
     }
-    if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
-      return arguments.at(i - std::tuple_size_v<StaticArgumentsContainer>);
+    if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.get().size()) {
+      return arguments.get().at(i - std::tuple_size_v<StaticArgumentsContainer>);
     }
-    auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
-    for(auto& spanArgument : spanArguments) {
+    auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.get().size();
+    for(auto& spanArgument : spanArguments.get()) {
       if(i >= argumentPrefixScan &&
          i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
         return std::visit(
@@ -784,8 +788,8 @@ public:
   }
 
   template <typename T> void emplace_back(T t) {
-    assert(spanArguments.size() == 0);
-    arguments.emplace_back(t);
+    assert(spanArguments.get().size() == 0);
+    arguments.get().emplace_back(t);
   }
 };
 

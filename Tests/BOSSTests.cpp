@@ -9,6 +9,7 @@
 #include <variant>
 using boss::Expression;
 using std::string;
+using std::literals::string_literals::operator""s;
 using boss::utilities::operator""_;
 using Catch::Generators::random;
 using Catch::Generators::take;
@@ -77,7 +78,6 @@ TEST_CASE("Complex expression's argument cast to more general expression system"
 }
 
 TEST_CASE("Extract typed arguments from complex expression", "[expressions]") {
-  using std::literals::string_literals::operator""s;
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   auto str = std::accumulate(
       expr.getArguments().begin(), expr.getArguments().end(), expr.getHead().getName(),
@@ -90,6 +90,62 @@ TEST_CASE("Extract typed arguments from complex expression", "[expressions]") {
                        [](boss::Symbol const& symbol) { return symbol.getName(); },
                        [](std::string const& str) { return str; }),
                    arg);
+      });
+  CHECK(str == "List_howdie_1_unknown_hello world");
+}
+
+TEST_CASE("Merge two complex expressions", "[expressions]") {
+  auto delimeters = "List"_("_"_(), "_"_(), "_"_(), "_"_());
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto delimetersIt = std::make_move_iterator(delimeters.getArguments().begin());
+  auto delimetersItEnd = std::make_move_iterator(delimeters.getArguments().end());
+  auto exprIt = std::make_move_iterator(expr.getArguments().begin());
+  auto exprItEnd = std::make_move_iterator(expr.getArguments().end());
+  auto args = boss::ExpressionArguments();
+  for(; delimetersIt != delimetersItEnd && exprIt != exprItEnd; ++delimetersIt, ++exprIt) {
+    args.emplace_back(std::move(*delimetersIt));
+    args.emplace_back(std::move(*exprIt));
+  }
+  auto e = boss::ComplexExpression("List"_, std::move(args));
+  auto str = std::accumulate(
+      e.getArguments().begin(), e.getArguments().end(), e.getHead().getName(),
+      [](auto const& accStr, auto const& arg) {
+        return accStr + visit(boss::utilities::overload(
+                                  [](auto const& value) { return std::to_string(value); },
+                                  [](boss::ComplexExpression const& expr) {
+                                    return expr.getHead().getName();
+                                  },
+                                  [](boss::Symbol const& symbol) { return symbol.getName(); },
+                                  [](std::string const& str) { return str; }),
+                              arg);
+      });
+  CHECK(str == "List_howdie_1_unknown_hello world");
+}
+
+TEST_CASE("Merge a static and a dynamic complex expressions", "[expressions]") {
+  auto delimeters = "List"_("_"s, "_"s, "_"s, "_"s);
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto delimetersIt = std::make_move_iterator(delimeters.getArguments().begin());
+  auto delimetersItEnd = std::make_move_iterator(delimeters.getArguments().end());
+  auto exprIt = std::make_move_iterator(expr.getArguments().begin());
+  auto exprItEnd = std::make_move_iterator(expr.getArguments().end());
+  auto args = boss::ExpressionArguments();
+  for(; delimetersIt != delimetersItEnd && exprIt != exprItEnd; ++delimetersIt, ++exprIt) {
+    args.emplace_back(std::move(*delimetersIt));
+    args.emplace_back(std::move(*exprIt));
+  }
+  auto e = boss::ComplexExpression("List"_, std::move(args));
+  auto str = std::accumulate(
+      e.getArguments().begin(), e.getArguments().end(), e.getHead().getName(),
+      [](auto const& accStr, auto const& arg) {
+        return accStr + visit(boss::utilities::overload(
+                                  [](auto const& value) { return std::to_string(value); },
+                                  [](boss::ComplexExpression const& expr) {
+                                    return expr.getHead().getName();
+                                  },
+                                  [](boss::Symbol const& symbol) { return symbol.getName(); },
+                                  [](std::string const& str) { return str; }),
+                              arg);
       });
   CHECK(str == "List_howdie_1_unknown_hello world");
 }
