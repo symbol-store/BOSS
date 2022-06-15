@@ -1139,6 +1139,33 @@ T& get(generic::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& w
   }
 }
 
+template <typename T, auto ConstWrappee, typename... AdditionalCustomAtoms>
+bool holds_alternative(
+    generic::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) {
+  return ::std::visit(
+      [](auto& argument) {
+        if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
+                                      MovableReferenceWrapper<T>>) {
+          return true;
+        } else if constexpr(::std::is_same_v<::std::decay_t<decltype(argument)>,
+                                             ::std::vector<bool>::reference>) {
+          if constexpr(::std::is_same_v<::std::decay_t<T>, ::std::vector<bool>::reference>) {
+
+            return true;
+          }
+        } else if constexpr(boss::utilities::isInstanceOfTemplate<
+                                ::std::decay_t<decltype(argument)>,
+                                MovableReferenceWrapper>::value &&
+                            boss::utilities::isInstanceOfTemplate<
+                                ::std::decay_t<decltype(argument.get())>,
+                                ExpressionWithAdditionalCustomAtoms>::value) {
+          return ::std::holds_alternative<T>(argument.get());
+        }
+        return false;
+      },
+      wrapper.getArgument());
+}
+
 template <size_t I, bool ConstWrappee, typename... AdditionalCustomAtoms>
 constexpr ::std::variant_alternative_t<I, ArgumentWrappeeType<AdditionalCustomAtoms...>>&
 get(ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& wrapper) noexcept {
@@ -1226,6 +1253,7 @@ using expressions::Span; // NOLINT
 using expressions::Symbol;
 using expressions::generic::ExtensibleExpressionSystem; // NOLINT
 using expressions::generic::get;                        // NOLINT
+using expressions::generic::holds_alternative;          // NOLINT
 } // namespace boss
 
 namespace std {

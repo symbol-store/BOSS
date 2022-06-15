@@ -17,6 +17,7 @@ using Catch::Generators::values;
 using std::vector;
 using namespace Catch::Matchers;
 using boss::expressions::generic::get;
+using boss::expressions::generic::holds_alternative;
 
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -148,6 +149,14 @@ TEST_CASE("Merge a static and a dynamic complex expressions", "[expressions]") {
                               arg);
       });
   CHECK(str == "List_howdie_1_unknown_hello world");
+}
+
+TEST_CASE("holds_alternative for complex expression's arguments", "[expressions]") {
+	auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  CHECK(holds_alternative<boss::ComplexExpression>(expr.getArguments().at(0)));
+  CHECK(holds_alternative<int64_t>(expr.getArguments().at(1)));
+  CHECK(holds_alternative<boss::Symbol>(expr.getArguments().at(2)));
+  CHECK(holds_alternative<std::string>(expr.getArguments().at(3)));
 }
 
 // NOLINTNEXTLINE
