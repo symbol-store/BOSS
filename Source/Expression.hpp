@@ -679,21 +679,21 @@ public:
                        ExpressionArgumentsWithAdditionalCustomAtomsWrapper>
         container;
     size_t i;
-    Iterator next() {
-      auto n = *this;
-      n++;
-      return n;
+    Iterator next() const {
+      auto result = *this;
+      result++;
+      return result;
     }
-    Iterator operator++() {
-      i++;
-      return *this;
-    }
-    Iterator operator+(int i) {
+    Iterator operator+(int i) const {
       auto result = *this;
       result.i += i;
       return result;
     }
-    Iterator operator--() {
+    Iterator& operator++() {
+      i++;
+      return *this;
+    }
+    Iterator& operator--() {
       i--;
       return *this;
     }
@@ -703,12 +703,12 @@ public:
     }
     Iterator operator++(int) {
       auto before = *this;
-      i++;
+      ++*this;
       return before;
     }
     Iterator operator--(int) {
       auto before = *this;
-      i--;
+      --*this;
       return before;
     }
     std::ptrdiff_t operator-(Iterator const& other) const { return i - other.i; }
@@ -716,10 +716,10 @@ public:
     ArgumentWrapper<IsConstIterator, AdditionalAtoms...> operator*() const {
       return container.at(i);
     }
-    bool operator==(Iterator const& other) { return i == other.i; }
-    bool operator!=(Iterator const& other) { return i != other.i; }
-    bool operator<(Iterator const& other) { return i < other.i; }
-    bool operator>(Iterator const& other) { return i > other.i; }
+    bool operator==(Iterator const& other) const { return i == other.i; }
+    bool operator!=(Iterator const& other) const { return i != other.i; }
+    bool operator<(Iterator const& other) const { return i < other.i; }
+    bool operator>(Iterator const& other) const { return i > other.i; }
   };
 
   Iterator<IsConstWrapper> begin() const { return {*this, 0}; }
