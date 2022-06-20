@@ -130,6 +130,41 @@ public: // surface
 using atoms::Span;
 using atoms::Symbol;
 
+template <typename TargetType> class bad_variant_access;
+template <> class bad_variant_access<void> : public ::std::bad_variant_access {
+private:
+  ::std::string const whatString;
+
+public:
+  explicit bad_variant_access(::std::string const& whatString) : whatString(whatString) {}
+  const char* what() const noexcept override { return whatString.c_str(); }
+};
+template <typename... T> bad_variant_access(::std::string const&) -> bad_variant_access<void>;
+template <typename TargetType> class bad_variant_access : public bad_variant_access<void> {
+public:
+  template <typename VariantType>
+  explicit bad_variant_access(VariantType const& v)
+      : bad_variant_access<void>([&v]() {
+          ::std::stringstream s;
+          s << "expected and actual type mismatch in expression \"";
+          if(!v.valueless_by_exception()) {
+            s << v;
+          } else {
+            s << "valueless by exception";
+          }
+          static auto typenames =
+              ::std::map<::std::type_index, char const*>{{typeid(int64_t), "long"},
+                                                         {typeid(Symbol), "Symbol"},
+                                                         {typeid(bool), "bool"},
+                                                         {typeid(double_t), "double"},
+                                                         {typeid(::std::string), "string"}};
+          s << "\", expected "
+            << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
+                                                    : typeid(TargetType).name());
+          return s.str();
+        }()) {}
+};
+
 template <typename... AdditionalCustomAtoms>
 using AtomicExpressionWithAdditionalCustomAtoms =
     std::variant<bool, std::int64_t, std::double_t, std::string, Symbol, AdditionalCustomAtoms...>;
@@ -261,6 +296,12 @@ public:
                    Span<Symbol const>, Span<AdditionalCustomAtoms const>...>>::vector;
 };
 
+/**
+ * MovableReferenceWrapper is a re-implementation of std::reference_wrapper
+ * but which allows moving the stored reference with 'operator T&&() &&' and 'get() &&'.
+ * It is used for moving arguments from complex expressions,
+ * e.g. in 'ComplexExpressionWithAdditionalCustomAtoms::getArgument(size_t) &&'.
+ */
 template <class T> class MovableReferenceWrapper {
 public:
   typedef T type;
@@ -895,15 +936,9 @@ public:
   getDynamicArguments() const {
     return arguments;
   };
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& getDynamicArguments() {
-    return arguments;
-  };
 
   auto const& getStaticArguments() const { return staticArguments; }
-  auto& getStaticArguments() { return staticArguments; }
-
   auto const& getSpanArguments() const { return spanArguments; }
-  auto& getSpanArguments() { return spanArguments; }
 
   ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getArgument(size_t i) && {
     return visit(
@@ -1059,33 +1094,12 @@ public:
       ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
 };
 
-template <typename TargetType, typename VariantType>
-static auto formatBOSSBadVariantAccess(VariantType const& v) {
-  ::std::stringstream s;
-  s << "expected and actual type mismatch in expression \"";
-  if(!v.valueless_by_exception()) {
-    s << v;
-  } else {
-    s << "valueless by exception";
-  }
-  static auto typenames =
-      ::std::map<::std::type_index, char const*>{{typeid(int64_t), "long"},
-                                                 {typeid(Symbol), "Symbol"},
-                                                 {typeid(bool), "bool"},
-                                                 {typeid(double_t), "double"},
-                                                 {typeid(::std::string), "string"}};
-  s << "\", expected "
-    << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
-                                            : typeid(TargetType).name());
-  return boss::utilities::bad_variant_access(s.str());
-}
-
 template <typename T, typename... AdditionalCustomAtoms>
 T const& get(generic::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const& e) {
   try {
     return std::get<T>(e);
   } catch(std::bad_variant_access&) {
-    throw formatBOSSBadVariantAccess<T>(e);
+    throw boss::expressions::bad_variant_access<T>(e);
   }
 }
 
@@ -1094,7 +1108,7 @@ T& get(generic::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& e
   try {
     return std::get<T>(e);
   } catch(std::bad_variant_access&) {
-    throw formatBOSSBadVariantAccess<T>(e);
+    throw boss::expressions::bad_variant_access<T>(e);
   }
 }
 
@@ -1103,7 +1117,7 @@ T get(generic::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& e
   try {
     return std::get<T>(std::move(e));
   } catch(std::bad_variant_access&) {
-    throw formatBOSSBadVariantAccess<T>(e);
+    throw boss::expressions::bad_variant_access<T>(e);
   }
 }
 
@@ -1137,7 +1151,7 @@ T& get(generic::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& w
         },
         wrapper.getArgument());
   } catch(std::bad_variant_access&) {
-    throw formatBOSSBadVariantAccess<T>(wrapper);
+    throw boss::expressions::bad_variant_access<T>(wrapper);
   }
 }
 
@@ -1216,8 +1230,6 @@ using ComplexExpression = DefaultExpressionSystem::ComplexExpressionWithStaticAr
 using Expression = DefaultExpressionSystem::Expression;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 using ExpressionSpanArguments = DefaultExpressionSystem::ExpressionSpanArguments;
-
-using boss::utilities::bad_variant_access; // NOLINT
 
 } // namespace expressions
 
