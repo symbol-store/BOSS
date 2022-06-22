@@ -13,8 +13,9 @@
 #include <sstream>
 #include <variant>
 using namespace boss::utilities;
-using std::get; //NOLINT // this is required to prevent clang-warnings for get<...>(Expression). I (Holger)
-                         // suspect this is a compiler-bug
+using std::get; // NOLINT(misc-unused-using-decls)
+                // this is required to prevent clang-warnings for get<...>(Expression).
+                // I (Holger) suspect this is a compiler-bug
 
 extern "C" {
 

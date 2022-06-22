@@ -316,10 +316,10 @@ public:
   MovableReferenceWrapper& operator=(MovableReferenceWrapper&&) noexcept = default;
   ~MovableReferenceWrapper() = default;
 
-  constexpr explicit operator T&() const& { return *_ptr; }
+  constexpr operator T&() const& { return *_ptr; } // NOLINT(hicpp-explicit-conversions)
   constexpr T& get() const& { return *_ptr; }
 
-  constexpr explicit operator T&&() && { return std::move(*_ptr); }
+  constexpr operator T&&() && { return std::move(*_ptr); } // NOLINT(hicpp-explicit-conversions)
   constexpr T get() && { return std::move(*_ptr); }
 
 private:
