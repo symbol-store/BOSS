@@ -130,21 +130,21 @@ public: // surface
 using atoms::Span;
 using atoms::Symbol;
 
-template <typename TargetType> class bad_variant_access;
-template <> class bad_variant_access<void> : public ::std::bad_variant_access {
+template <typename TargetType> class ArgumentTypeMismatch;
+template <> class ArgumentTypeMismatch<void> : public ::std::bad_variant_access {
 private:
   ::std::string const whatString;
 
 public:
-  explicit bad_variant_access(::std::string const& whatString) : whatString(whatString) {}
+  explicit ArgumentTypeMismatch(::std::string const& whatString) : whatString(whatString) {}
   const char* what() const noexcept override { return whatString.c_str(); }
 };
-template <typename... T> bad_variant_access(::std::string const&) -> bad_variant_access<void>;
-template <typename TargetType> class bad_variant_access : public bad_variant_access<void> {
+template <typename... T> ArgumentTypeMismatch(::std::string const&) -> ArgumentTypeMismatch<void>;
+template <typename TargetType> class ArgumentTypeMismatch : public ArgumentTypeMismatch<void> {
 public:
   template <typename VariantType>
-  explicit bad_variant_access(VariantType const& v)
-      : bad_variant_access<void>([&v]() {
+  explicit ArgumentTypeMismatch(VariantType const& v)
+      : ArgumentTypeMismatch<void>([&v]() {
           ::std::stringstream s;
           s << "expected and actual type mismatch in expression \"";
           if(!v.valueless_by_exception()) {
@@ -343,35 +343,6 @@ using ConstArgumentWrappeeType = typename boss::utilities::variant_amend<
     std::vector<bool>::const_reference,
     MovableReferenceWrapper<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const>>::
     type;
-
-template <typename T, typename... AdditionalCustomAtoms>
-T const& get(ArgumentWrapper<true, AdditionalCustomAtoms...> const& wrapper) {
-  return ::std::visit(
-      [](auto const& wrappee) -> T const& {
-        if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(wrappee)>,
-                                                           MovableReferenceWrapper>::value) {
-          if constexpr(::std::is_same_v<typename ::std::decay_t<decltype(wrappee)>::type, T>) {
-            return wrappee.get();
-          } else if constexpr(boss::utilities::isInstanceOfTemplate<
-                                  ::std::decay_t<decltype(wrappee.get())>,
-                                  ExpressionWithAdditionalCustomAtoms>::value) {
-            return std::get<T>(wrappee.get());
-          }
-          throw ::std::bad_variant_access();
-        } else if constexpr(::std::is_same_v<::std::decay_t<decltype(wrappee)>,
-                                             ::std::vector<bool>::reference> ||
-                            ::std::is_same_v<::std::decay_t<decltype(wrappee)>,
-                                             ::std::vector<bool>::const_reference>) {
-          if constexpr(::std::is_same_v<bool, T>) {
-            return wrappee;
-          }
-          throw ::std::bad_variant_access();
-        } else {
-          return get<T>(wrappee);
-        }
-      },
-      wrapper.getArgument());
-}
 
 template <bool ConstWrappee, typename... AdditionalCustomAtoms> class ArgumentWrapper {
 public:
@@ -1122,7 +1093,7 @@ T const& get(generic::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms.
   try {
     return std::get<T>(e);
   } catch(std::bad_variant_access&) {
-    throw boss::expressions::bad_variant_access<T>(e);
+    throw ArgumentTypeMismatch<T>(e);
   }
 }
 
@@ -1131,7 +1102,7 @@ T& get(generic::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& e
   try {
     return std::get<T>(e);
   } catch(std::bad_variant_access&) {
-    throw boss::expressions::bad_variant_access<T>(e);
+    throw ArgumentTypeMismatch<T>(e);
   }
 }
 
@@ -1140,7 +1111,7 @@ T get(generic::ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& e
   try {
     return std::get<T>(std::move(e));
   } catch(std::bad_variant_access&) {
-    throw boss::expressions::bad_variant_access<T>(e);
+    throw ArgumentTypeMismatch<T>(e);
   }
 }
 
@@ -1174,7 +1145,40 @@ T& get(generic::ArgumentWrapper<ConstWrappee, AdditionalCustomAtoms...> const& w
         },
         wrapper.getArgument());
   } catch(std::bad_variant_access&) {
-    throw boss::expressions::bad_variant_access<T>(wrapper);
+    throw ArgumentTypeMismatch<T>(wrapper);
+  }
+}
+
+template <typename T, typename... AdditionalCustomAtoms>
+T const& get(ArgumentWrapper<true, AdditionalCustomAtoms...> const& wrapper) {
+  try {
+    return ::std::visit(
+        [](auto const& wrappee) -> T const& {
+          if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(wrappee)>,
+                                                             MovableReferenceWrapper>::value) {
+            if constexpr(::std::is_same_v<typename ::std::decay_t<decltype(wrappee)>::type, T>) {
+              return wrappee.get();
+            } else if constexpr(boss::utilities::isInstanceOfTemplate<
+                                    ::std::decay_t<decltype(wrappee.get())>,
+                                    ExpressionWithAdditionalCustomAtoms>::value) {
+              return std::get<T>(wrappee.get());
+            }
+            throw ::std::bad_variant_access();
+          } else if constexpr(::std::is_same_v<::std::decay_t<decltype(wrappee)>,
+                                               ::std::vector<bool>::reference> ||
+                              ::std::is_same_v<::std::decay_t<decltype(wrappee)>,
+                                               ::std::vector<bool>::const_reference>) {
+            if constexpr(::std::is_same_v<bool, T>) {
+              return wrappee;
+            }
+            throw ::std::bad_variant_access();
+          } else {
+            return get<T>(wrappee);
+          }
+        },
+        wrapper.getArgument());
+  } catch(std::bad_variant_access&) {
+    throw ArgumentTypeMismatch<T>(wrapper);
   }
 }
 
