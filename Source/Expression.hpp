@@ -190,10 +190,18 @@ public:
       ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, AdditionalCustomAtoms...>>::type;
 
   using SuperType::SuperType;
-  explicit ExpressionWithAdditionalCustomAtoms(int32_t v) noexcept
-      : ExpressionWithAdditionalCustomAtoms(int64_t(v)) {}
-  explicit ExpressionWithAdditionalCustomAtoms(float_t v) noexcept
-      : ExpressionWithAdditionalCustomAtoms(double_t(v)) {}
+
+  // allow conversion from int32_t/float_t to int64_t/double_t
+  // but only if int32_t/float_t are not supported already by the AdditionalCustomAtoms
+  template <
+      typename T,
+      typename U = std::enable_if_t<
+          std::conjunction_v<std::disjunction<std::is_same<T, int32_t>, std::is_same<T, float_t>>,
+                             std::negation<std::is_constructible<SuperType, T>>>,
+          std::conditional_t<std::is_integral_v<T>, int64_t, double_t>>>
+  explicit ExpressionWithAdditionalCustomAtoms(T v) noexcept
+      : ExpressionWithAdditionalCustomAtoms(U(v)) {}
+
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
       ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
