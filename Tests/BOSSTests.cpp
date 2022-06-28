@@ -174,8 +174,9 @@ TEST_CASE("get_if for complex expression's arguments", "[expressions]") {
 
 TEST_CASE("move expression's arguments to a new expression", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
-  auto head = std::move(expr).getHead();
-  boss::ExpressionArguments args = std::move(expr).getArguments();        // NOLINT
+  auto&& movedExpr = std::move(expr);
+  auto head = movedExpr.getHead();
+  boss::ExpressionArguments args = movedExpr.getArguments();
   auto expr2 = boss::ComplexExpression(std::move(head), std::move(args)); // NOLINT
   CHECK(get<boss::ComplexExpression>(expr2.getArguments().at(0)) == "howdie"_());
   CHECK(get<int64_t>(expr2.getArguments().at(1)) == 1);
@@ -185,16 +186,49 @@ TEST_CASE("move expression's arguments to a new expression", "[expressions]") {
 
 TEST_CASE("copy expression's arguments to a new expression", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
-  auto args = expr.getArguments(); // TODO: this one gets the reference to the arguments
-                                   // when it should be a copy.
-                                   // Any modification/move of args will be reflected in expr's arguments!
+  auto args =
+      expr.getArguments(); // TODO: this one gets the reference to the arguments
+                           // when it should be a copy.
+                           // Any modification/move of args will be reflected in expr's arguments!
   get<int64_t>(args.at(1)) = 2;
   auto expr2 = boss::ComplexExpression(expr.getHead(), args);
   get<int64_t>(args.at(1)) = 3;
   auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args)); // NOLINT
-  //CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails for now (see above TODO)
+  // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails for now (see above TODO)
   CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
   CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
+}
+
+TEST_CASE("copy expression's arguments to a new expression (with explicit conversion to "
+          "ExpressionArguments)",
+          "[expressions]") {
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  boss::ExpressionArguments args = expr.getArguments(); // TODO: why is it moved?
+  // get<int64_t>(args.at(1)) = 2;
+  // auto expr2 = boss::ComplexExpression(expr.getHead(), args); // TODO: do we need to support
+  // this?
+  get<int64_t>(args.at(1)) = 3;
+  auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args));
+  // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails because args was moved (see first TODO)
+  // CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
+}
+
+TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  std::vector<boss::Symbol> symbols;
+  std::vector<boss::Expression> otherExpressions;
+  for(auto&& arg : (boss::ExpressionArguments)std::move(expr).getArguments()) {
+    visit(boss::utilities::overload(
+              [&otherExpressions](auto&& value) {
+                otherExpressions.emplace_back(std::forward<decltype(value)>(value));
+              },
+              [&symbols](boss::Symbol&& symbol) { symbols.emplace_back(std::move(symbol)); }),
+          std::move(arg));
+  }
+  CHECK(symbols.size() == 1);
+  CHECK(symbols[0] == "unknown"_);
+  CHECK(otherExpressions.size() == 3);
 }
 
 // NOLINTNEXTLINE
