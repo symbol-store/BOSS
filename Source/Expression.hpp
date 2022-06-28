@@ -824,9 +824,33 @@ public:
   }
 
   operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() const {
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() const& {
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
+    result.reserve(this->size());
     std::copy(std::begin(*this), std::end(*this), back_inserter(result));
+    return std::move(result);
+  }
+
+  operator // NOLINT(hicpp-explicit-conversions)
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() & {
+    ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
+    result.reserve(this->size());
+    std::copy(std::begin(*this), std::end(*this), back_inserter(result));
+    return std::move(result);
+  }
+
+  operator // NOLINT(hicpp-explicit-conversions)
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() && {
+    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) == 0) {
+      if(spanArguments.empty()) {
+        // avoid any copying if there are only ExpressionArguments
+        return std::move(arguments);
+      }
+    }
+    ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
+    result.reserve(this->size());
+    std::copy(std::make_move_iterator(std::begin(*this)), std::make_move_iterator(std::end(*this)),
+              back_inserter(result));
     return std::move(result);
   }
 
@@ -887,12 +911,33 @@ public:
       : head(head), staticArguments(std::move(staticArguments)), arguments(std::move(arguments)),
         spanArguments(std::move(spanArguments)) {}
 
+  ComplexExpressionWithAdditionalCustomAtoms(
+      Symbol&& head, StaticArgumentsTuple&& staticArguments,
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments = {},
+      ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& spanArguments =
+          {})
+      : head(std::move(head)), staticArguments(std::move(staticArguments)),
+        arguments(std::move(arguments)), spanArguments(std::move(spanArguments)) {}
+
   template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       Symbol const& head,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
       : ComplexExpressionWithAdditionalCustomAtoms(
             head,
+            convertToTuple(
+                arguments,
+                std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
+            {std::move_iterator(
+                 next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
+             std::move_iterator(end(arguments))}){};
+
+  template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
+  explicit ComplexExpressionWithAdditionalCustomAtoms(
+      Symbol&& head,
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
+      : ComplexExpressionWithAdditionalCustomAtoms(
+            std::move(head),
             convertToTuple(
                 arguments,
                 std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
@@ -911,7 +956,7 @@ public:
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms<T...>&& other)
-      : head(other.getHead()) {
+      : head(std::move(other).getHead()) {
     arguments.reserve(other.getArguments().size());
     for(auto&& arg : other.getArguments()) {
       std::visit(boss::utilities::overload(
@@ -1016,7 +1061,9 @@ public:
         getArguments().at(i).getArgument());
   }
 
-  Symbol const& getHead() const { return head; };
+  Symbol const& getHead() const& { return head; };
+  Symbol& getHead() & { return head; };
+  Symbol&& getHead() && { return std::move(head); }
 
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
   ComplexExpressionWithAdditionalCustomAtoms(

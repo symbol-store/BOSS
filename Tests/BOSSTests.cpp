@@ -172,6 +172,31 @@ TEST_CASE("get_if for complex expression's arguments", "[expressions]") {
   CHECK(get_if<std::string>(&arg3) != nullptr);
 }
 
+TEST_CASE("move expression's arguments to a new expression", "[expressions]") {
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto head = std::move(expr).getHead();
+  boss::ExpressionArguments args = std::move(expr).getArguments();        // NOLINT
+  auto expr2 = boss::ComplexExpression(std::move(head), std::move(args)); // NOLINT
+  CHECK(get<boss::ComplexExpression>(expr2.getArguments().at(0)) == "howdie"_());
+  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 1);
+  CHECK(get<boss::Symbol>(expr2.getArguments().at(2)) == "unknown"_);
+  CHECK(get<std::string>(expr2.getArguments().at(3)) == "hello world"s);
+}
+
+TEST_CASE("copy expression's arguments to a new expression", "[expressions]") {
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto args = expr.getArguments(); // TODO: this one gets the reference to the arguments
+                                   // when it should be a copy.
+                                   // Any modification/move of args will be reflected in expr's arguments!
+  get<int64_t>(args.at(1)) = 2;
+  auto expr2 = boss::ComplexExpression(expr.getHead(), args);
+  get<int64_t>(args.at(1)) = 3;
+  auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args)); // NOLINT
+  //CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails for now (see above TODO)
+  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
+}
+
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,
                    std::double_t) {
