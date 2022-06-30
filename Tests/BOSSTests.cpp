@@ -297,9 +297,12 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     return engine.evaluate(
         "EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))), move(expression)));
   };
-  CHECK_THROWS_MATCHES(
-      engine.evaluate("EvaluateInEngines"_("List"_(9), 5)), std::bad_variant_access,
-      Message("expected and actual type mismatch in expression \"9\", expected string"));
+
+  SECTION("CatchingErrors") {
+    CHECK_THROWS_MATCHES(
+        engine.evaluate("EvaluateInEngines"_("List"_(9), 5)), std::bad_variant_access,
+        Message("expected and actual type mismatch in expression \"9\", expected string"));
+  }
 
   SECTION("Atomics") {
     CHECK(get<std::int64_t>(eval(boss::Expression(9))) == 9); // NOLINT
