@@ -405,31 +405,6 @@ public:
   }
 
   /**
-   * we allow conversion to Expression value only for lvalues (to disambiguate
-   * from conversion to rvalue)
-   */
-  operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&() & {
-    // this is a shim and should be removed
-    return std::visit(
-        [](auto& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-          if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
-                                                             MovableReferenceWrapper>::value) {
-            if constexpr(boss::utilities::isInstanceOfTemplate<
-                             std::decay_t<decltype(e.get())>,
-                             ExpressionWithAdditionalCustomAtoms>::value) {
-              return e.get().clone();
-            } else {
-              return e.get();
-            }
-          } else {
-            return e;
-          }
-        },
-        argument);
-  }
-
-  /**
    * we allow conversion to rvalue Expression only for rvalues
    */
   operator // NOLINT(hicpp-explicit-conversions)
