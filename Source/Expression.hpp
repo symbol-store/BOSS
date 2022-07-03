@@ -380,7 +380,7 @@ public:
     std::get<MovableReferenceWrapper<T>>(argument).get() = std::forward<T>(newValue);
     return *this;
   }
-  template <typename T> ArgumentWrapper& operator=(T& newValue) {
+  template <typename T> ArgumentWrapper& operator=(T const& newValue) {
     argument = newValue;
     return *this;
   }
