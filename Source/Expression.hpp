@@ -842,7 +842,7 @@ public:
 
   operator // NOLINT(hicpp-explicit-conversions)
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() && {
-    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) == 0) {
+    if constexpr(!IsConstWrapper && (std::tuple_size_v<StaticArgumentsContainer>) == 0) {
       if(spanArguments.empty()) {
         // avoid any copying if there are only ExpressionArguments
         return std::move(arguments);
@@ -865,9 +865,9 @@ template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms {
 private:
   Symbol head;
-  StaticArgumentsTuple staticArguments{};
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments{};
-  ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments{};
+  StaticArgumentsTuple staticArguments;
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments;
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments;
 
 public:
   template <size_t... I>

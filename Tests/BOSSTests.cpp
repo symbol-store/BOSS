@@ -65,6 +65,10 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
   CHECK(
       get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b).getHead().getName() ==
       "howdie");
+  auto& srcExpr = get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b);
+  auto const& cexpr = std::decay_t<decltype(srcExpr)>(std::move(srcExpr));
+  auto const& args = cexpr.getArguments();
+  CHECK(args.empty());
 }
 
 TEST_CASE("Complex expression's argument cast to more general expression system", "[expressions]") {
@@ -170,14 +174,15 @@ TEST_CASE("get_if for complex expression's arguments", "[expressions]") {
   CHECK(get_if<int64_t>(&arg1) != nullptr);
   CHECK(get_if<boss::Symbol>(&arg2) != nullptr);
   CHECK(get_if<std::string>(&arg3) != nullptr);
+  auto const& arg0args = get<boss::ComplexExpression>(arg0).getArguments();
+  CHECK(arg0args.empty());
 }
 
 TEST_CASE("move expression's arguments to a new expression", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   auto&& movedExpr = std::move(expr);
-  auto head = movedExpr.getHead();
   boss::ExpressionArguments args = movedExpr.getArguments();
-  auto expr2 = boss::ComplexExpression(std::move(head), std::move(args)); // NOLINT
+  auto expr2 = boss::ComplexExpression(std::move(movedExpr.getHead()), std::move(args)); // NOLINT
   CHECK(get<boss::ComplexExpression>(expr2.getArguments().at(0)) == "howdie"_());
   CHECK(get<int64_t>(expr2.getArguments().at(1)) == 1);
   CHECK(get<boss::Symbol>(expr2.getArguments().at(2)) == "unknown"_);
@@ -205,11 +210,10 @@ TEST_CASE("copy expression's arguments to a new expression (with explicit conver
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   boss::ExpressionArguments args = expr.getArguments(); // TODO: why is it moved?
   // get<int64_t>(args.at(1)) = 2;
-  // auto expr2 = boss::ComplexExpression(expr.getHead(), args); // TODO: do we need to support
-  // this?
+  // auto expr2 = boss::ComplexExpression(expr.getHead(), args); // TODO: fails to compile
   get<int64_t>(args.at(1)) = 3;
   auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args));
-  // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails because args was moved (see first TODO)
+  // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails because args was moved (see TODO)
   // CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
   CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
 }
