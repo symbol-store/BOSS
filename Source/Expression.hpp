@@ -797,9 +797,14 @@ public:
     return std::move(result);
   }
 
+  /**
+   * Only allow (move-)conversion to ExpressionArguments if the wrapper is non-const
+   */
+  template <bool Enable = !ConstWrappee,
+            typename = typename std::enable_if<Enable>::type>
   operator // NOLINT(hicpp-explicit-conversions)
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() && {
-    if constexpr(!IsConstWrapper && (std::tuple_size_v<StaticArgumentsContainer>) == 0) {
+    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) == 0) {
       if(spanArguments.empty()) {
         // avoid any copying if there are only ExpressionArguments
         return std::move(arguments);
