@@ -405,24 +405,6 @@ public:
   }
 
   /**
-   * we allow conversion to rvalue Expression only for rvalues
-   */
-  operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>() && {
-    // this is a shim and should be removed
-    return std::visit(
-        [](auto&& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-          if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
-                                                             MovableReferenceWrapper>::value) {
-            return std::move(e.get());
-          } else {
-            return e;
-          }
-        },
-        std::move(argument));
-  }
-
-  /**
    * ArgumentWrappers wrap statically typed references to atomic types or references to dynamically
    * typed boss expressions. The provide a unified (dynamically-typed, visitor-based) interface to
    * them these types.
