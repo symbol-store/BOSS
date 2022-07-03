@@ -83,20 +83,53 @@ TEST_CASE("Complex expression's argument cast to more general expression system"
   CHECK(get<int64_t>(b2) == 2);
 }
 
-TEST_CASE("Extract typed arguments from complex expression", "[expressions]") {
-  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
-  auto str = std::accumulate(
-      expr.getArguments().begin(), expr.getArguments().end(), expr.getHead().getName(),
-      [](auto const& accStr, auto const& arg) {
-        return accStr + "_" +
-               visit(
-                   boss::utilities::overload(
-                       [](auto const& value) { return std::to_string(value); },
-                       [](boss::ComplexExpression const& expr) { return expr.getHead().getName(); },
-                       [](boss::Symbol const& symbol) { return symbol.getName(); },
-                       [](std::string const& str) { return str; }),
-                   arg);
-      });
+TEST_CASE("Extract typed arguments from complex expression (using std::accumulate)",
+          "[expressions]") {
+  auto exprBase = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto const& expr0 =
+      boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression(std::move(exprBase));
+  auto str = [](auto const& expr) {
+    auto const& args = expr.getArguments();
+    return std::accumulate(
+        args.begin(), args.end(), expr.getHead().getName(),
+        [](auto const& accStr, auto const& arg) {
+          return accStr + "_" +
+                 visit(boss::utilities::overload(
+                           [](auto const& value) { return std::to_string(value); },
+                           [](DummyAtom const& /*value*/) { return ""s; },
+                           [](boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression const&
+                                  expr) { return expr.getHead().getName(); },
+                           [](boss::Symbol const& symbol) { return symbol.getName(); },
+                           [](std::string const& str) { return str; }),
+                       arg);
+        });
+  }(expr0);
+  CHECK(str == "List_howdie_1_unknown_hello world");
+}
+
+TEST_CASE("Extract typed arguments from complex expression (manual iteration)", "[expressions]") {
+  auto exprBase = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto const& expr0 =
+      boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression(std::move(exprBase));
+  auto str = [](auto const& expr) {
+    auto const& args = expr.getArguments();
+    auto size = args.size();
+    auto accStr = expr.getHead().getName();
+    for(int idx = 0; idx < size; ++idx) {
+      accStr +=
+          "_" +
+          visit(boss::utilities::overload(
+                    [](auto const& value) { return std::to_string(value); },
+                    [](DummyAtom const& /*value*/) { return ""s; },
+                    [](boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression const& expr) {
+                      return expr.getHead().getName();
+                    },
+                    [](boss::Symbol const& symbol) { return symbol.getName(); },
+                    [](std::string const& str) { return str; }),
+                args.at(idx));
+    }
+    return accStr;
+  }(expr0);
   CHECK(str == "List_howdie_1_unknown_hello world");
 }
 
@@ -204,9 +237,7 @@ TEST_CASE("copy expression's arguments to a new expression", "[expressions]") {
   CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
 }
 
-TEST_CASE("copy expression's arguments to a new expression (with explicit conversion to "
-          "ExpressionArguments)",
-          "[expressions]") {
+TEST_CASE("copy non-const expression's arguments to ExpressionArguments", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   boss::ExpressionArguments args = expr.getArguments(); // TODO: why is it moved?
   // get<int64_t>(args.at(1)) = 2;
@@ -214,6 +245,18 @@ TEST_CASE("copy expression's arguments to a new expression (with explicit conver
   get<int64_t>(args.at(1)) = 3;
   auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args));
   // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails because args was moved (see TODO)
+  // CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
+}
+
+TEST_CASE("copy const expression's arguments to ExpressionArguments)", "[expressions]") {
+  auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  boss::ExpressionArguments args = expr.getArguments();
+  // get<int64_t>(args.at(1)) = 2;
+  //  auto expr2 = boss::ComplexExpression(expr.getHead(), args); // TODO: fails to compile
+  get<int64_t>(args.at(1)) = 3;
+  auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args));
+  CHECK(get<int64_t>(expr.getArguments().at(1)) == 1);
   // CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
   CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
 }

@@ -785,7 +785,8 @@ public:
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() const& {
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
     result.reserve(this->size());
-    std::copy(std::begin(*this), std::end(*this), back_inserter(result));
+    std::transform(std::begin(*this), std::end(*this), back_inserter(result),
+                   [](auto&& wrapper) { return wrapper.clone(); });
     return std::move(result);
   }
 
@@ -793,14 +794,15 @@ public:
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() & {
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
     result.reserve(this->size());
-    std::copy(std::begin(*this), std::end(*this), back_inserter(result));
+    std::transform(std::begin(*this), std::end(*this), back_inserter(result),
+                   [](auto&& wrapper) { return wrapper.clone(); });
     return std::move(result);
   }
 
   /**
    * Only allow (move-)conversion to ExpressionArguments if the wrapper is non-const
    */
-  template <bool Enable = !ConstWrappee,
+  template <bool Enable = !IsConstWrapper,
             typename = typename std::enable_if<Enable>::type>
   operator // NOLINT(hicpp-explicit-conversions)
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() && {
