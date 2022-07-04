@@ -396,9 +396,9 @@ public:
         [](auto&& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
           if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
                                                              MovableReferenceWrapper>::value) {
-            return std::move(e.get());
+            return std::forward<decltype(e)>(e).get();
           } else {
-            return e;
+            return std::forward<decltype(e)>(e);
           }
         },
         std::move(argument)));
@@ -801,12 +801,11 @@ public:
 
   /**
    * Only allow (move-)conversion to ExpressionArguments if the wrapper is non-const
+   * otherwise apply the (copy-)conversion (same as for l-reference)
    */
-  template <bool Enable = !IsConstWrapper,
-            typename = typename std::enable_if<Enable>::type>
   operator // NOLINT(hicpp-explicit-conversions)
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() && {
-    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) == 0) {
+    if constexpr(!IsConstWrapper && (std::tuple_size_v<StaticArgumentsContainer>) == 0) {
       if(spanArguments.empty()) {
         // avoid any copying if there are only ExpressionArguments
         return std::move(arguments);
@@ -814,8 +813,16 @@ public:
     }
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
     result.reserve(this->size());
-    std::copy(std::make_move_iterator(std::begin(*this)), std::make_move_iterator(std::end(*this)),
-              back_inserter(result));
+    std::transform(std::make_move_iterator(std::begin(*this)),
+                   std::make_move_iterator(std::end(*this)), back_inserter(result),
+                   [](auto&& wrapper) -> ExpressionWithAdditionalCustomAtoms<AdditionalAtoms...> {
+                     if constexpr(!IsConstWrapper &&
+                                  !std::is_lvalue_reference_v<decltype(wrapper)>) {
+                       return std::forward<decltype(wrapper)>(wrapper);
+                     } else {
+                       return wrapper.clone();
+                     }
+                   });
     return std::move(result);
   }
 

@@ -240,25 +240,19 @@ TEST_CASE("copy expression's arguments to a new expression", "[expressions]") {
 TEST_CASE("copy non-const expression's arguments to ExpressionArguments", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   boss::ExpressionArguments args = expr.getArguments(); // TODO: why is it moved?
-  // get<int64_t>(args.at(1)) = 2;
-  // auto expr2 = boss::ComplexExpression(expr.getHead(), args); // TODO: fails to compile
-  get<int64_t>(args.at(1)) = 3;
-  auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args));
+  get<int64_t>(args.at(1)) = 2;
+  auto expr2 = boss::ComplexExpression(expr.getHead(), std::move(args));
   // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails because args was moved (see TODO)
-  // CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
-  CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
+  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
 }
 
 TEST_CASE("copy const expression's arguments to ExpressionArguments)", "[expressions]") {
   auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   boss::ExpressionArguments args = expr.getArguments();
-  // get<int64_t>(args.at(1)) = 2;
-  //  auto expr2 = boss::ComplexExpression(expr.getHead(), args); // TODO: fails to compile
-  get<int64_t>(args.at(1)) = 3;
-  auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args));
+  get<int64_t>(args.at(1)) = 2;
+  auto expr2 = boss::ComplexExpression(expr.getHead(), std::move(args));
   CHECK(get<int64_t>(expr.getArguments().at(1)) == 1);
-  // CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
-  CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
+  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
 }
 
 TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
