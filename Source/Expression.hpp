@@ -499,14 +499,14 @@ public:
 
   friend ::std::ostream& operator<<(::std::ostream& stream, ArgumentWrapper const& argument) {
     return visit(
-        [&stream](auto&& argument) -> auto& {
-          if constexpr(::std::disjunction_v<::std::is_same<::std::decay_t<decltype(argument)>,
+        [&stream](auto&& val) -> auto& {
+          if constexpr(::std::disjunction_v<::std::is_same<::std::decay_t<decltype(val)>,
                                                            ::std::vector<bool>::reference>,
-                                            ::std::is_same<::std::decay_t<decltype(argument)>,
+                                            ::std::is_same<::std::decay_t<decltype(val)>,
                                                            ::std::vector<bool>::const_reference>>) {
-            return stream << (bool)argument;
+            return stream << (bool)val;
           } else {
-            return stream << argument.get();
+            return stream << val.get();
           }
         },
         argument.getArgument());
