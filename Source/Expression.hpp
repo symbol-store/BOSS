@@ -836,9 +836,9 @@ template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms {
 private:
   Symbol head;
-  StaticArgumentsTuple staticArguments;
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments;
-  ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments;
+  StaticArgumentsTuple staticArguments{};
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments{};
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments{};
 
 public:
   template <size_t... I>
