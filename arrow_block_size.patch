@@ -1,0 +1,11 @@
+--- cpp/src/arrow/csv/options.h	2022-08-26 00:00:00.000000000 +0100
++++ cpp/src/arrow/csv/options.h	2022-08-27 00:00:00.000000000 +0100
+@@ -146,7 +146,7 @@ struct ARROW_EXPORT ReadOptions {
+   /// This will determine multi-threading granularity as well as
+   /// the size of individual record batches.
+   /// Minimum valid value for block size is 1
+-  int32_t block_size = 1 << 20;  // 1 MB
++  int64_t block_size = 1 << 20;  // 1 MB
+
+   /// Number of header rows to skip (not including the row of column names, if any)
+   int32_t skip_rows = 0;
