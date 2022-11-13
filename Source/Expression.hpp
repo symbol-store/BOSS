@@ -952,8 +952,12 @@ public:
   }
 
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const&
-  getDynamicArguments() const {
+  getDynamicArguments() const& {
     return arguments;
+  };
+
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getDynamicArguments() && {
+    return move(arguments);
   };
 
   auto const& getStaticArguments() const { return staticArguments; }
