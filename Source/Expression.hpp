@@ -680,6 +680,12 @@ public:
     }
     Iterator(Iterator const& other) = default;
     Iterator(Iterator&& other) noexcept = default;
+    Iterator(std::conditional_t<IsConstIterator,
+                                ExpressionArgumentsWithAdditionalCustomAtomsWrapper const,
+                                ExpressionArgumentsWithAdditionalCustomAtomsWrapper>
+                 container,
+             size_t i)
+        : container(container), i(i) {}
     ~Iterator() = default;
   };
 
