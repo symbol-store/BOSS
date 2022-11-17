@@ -287,6 +287,35 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
 }
 
 // NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int64_t,
+                   std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto v = vector<TestType>(input);
+  auto s = boss::Span<TestType>(v);
+  auto vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]", std::int64_t,
+                   std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto const v = vector<TestType>(input);
+  auto s = boss::Span<TestType const>(v);
+  auto vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+
+// NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans", "[spans][arrow]", std::int64_t,
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));

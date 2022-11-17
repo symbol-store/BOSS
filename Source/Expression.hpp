@@ -39,12 +39,13 @@ private: // state
   void* adapteePayload = {};
   std::function<void(void*)> destructor;
 
-  std::conditional_t<std::is_same_v<std::remove_const_t<Scalar>, bool>, std::vector<bool>::iterator,
-                     Scalar*>
-      _begin = {};
-  std::conditional_t<std::is_same_v<std::remove_const_t<Scalar>, bool>, std::vector<bool>::iterator,
-                     Scalar*>
-      _end = {};
+  using IteratorType = std::conditional_t<
+      std::is_same_v<std::remove_const_t<Scalar>, bool>,
+      std::conditional_t<std::is_const_v<Scalar>, typename std::vector<bool>::const_iterator,
+                         typename std::vector<bool>::iterator>,
+      Scalar*>;
+  IteratorType _begin = {};
+  IteratorType _end = {};
 
 public: // surface
   size_t size() const { return _end - _begin; }
@@ -68,7 +69,7 @@ public: // surface
     throw std::out_of_range("Span has no element with index " + std::to_string(i));
   }
   /**
-   * for some reason, the span takes ownership of the adaptee. That seems weird to me.
+   * The span takes ownership of the adaptee
    */
   explicit Span(std::vector<std::remove_const_t<Scalar>>&& adaptee)
       : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(move(adaptee))),
@@ -86,6 +87,34 @@ public: // surface
         destructor(
             [](void* v) { delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v); }) {}
 
+  /**
+   * The span does not take ownership of the adaptee. The vector better not be modified while the
+   * span lives
+   */
+  explicit Span(std::vector<std::remove_const_t<Scalar>>& adaptee)
+      : _begin([&adaptee]() {
+          if constexpr(std::is_same_v<Scalar, bool>) {
+            return adaptee.begin();
+          } else {
+            return adaptee.data();
+          }
+        }()),
+        _end(_begin + adaptee.size()) {}
+
+  /**
+   * The span does not take ownership of the adaptee. The vector better not be modified while the
+   * span lives
+   */
+  explicit Span(std::vector<std::remove_const_t<Scalar>> const& adaptee)
+      : _begin([&adaptee]() {
+          if constexpr(std::is_same_v<Scalar, bool>) {
+            return adaptee.begin();
+          } else {
+            return adaptee.data();
+          }
+        }()),
+        _end(_begin + adaptee.size()) {}
+
   explicit Span(Scalar* begin, size_t size, std::function<void(void*)> destructor)
       : _begin(begin), _end(begin + size), destructor(std::move(destructor)) {}
 
@@ -101,9 +130,9 @@ public: // surface
 
   /**
    * because the Span constructor cannot infer what data structure/payload was used to hold the
-   * values in the other Span, arguments are copied into a std::vector. The alternative would be to
-   * use some kind of reference chain but I (Holger) did not like that -- I am open to discussing
-   * this, though
+   * values in the other Span, arguments are copied into a std::vector. The alternative would be
+   * to use some kind of reference chain but I (Holger) did not like that -- I am open to
+   * discussing this, though
    */
   Span(Span<Scalar> const& other)
       : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(other._begin, other._end)),
@@ -423,12 +452,13 @@ public:
           boss::utilities::isVariantMember<MovableReferenceWrapper<const T>, WrappeeType>>::value>>
   ArgumentWrapper(T const& argument) // NOLINT(hicpp-explicit-conversions)
       : argument(MovableReferenceWrapper(std::cref(argument))) {}
+
   template <typename T, typename = std::enable_if_t<
                             std::disjunction_v<std::is_same<T, std::vector<bool>::const_reference>,
                                                std::is_same<T, std::vector<bool>::reference>>>>
   ArgumentWrapper(T&& argument) // NOLINT(hicpp-explicit-conversions)
       : argument([&argument]() {
-          if constexpr(ConstWrappee) {
+          if constexpr(ConstWrappee || std::is_same_v<T, std::vector<bool>::const_reference>) {
             return static_cast<std::vector<bool>::const_reference>(argument);
           } else {
             return static_cast<std::vector<bool>::reference>(argument);
@@ -725,9 +755,14 @@ public:
                               spanArgument)) {
           return std::visit(
               [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
-                if constexpr((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                              std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                  0))>>)&&!IsConstWrapper) {
+                if constexpr(std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                            std::vector<bool>::const_reference> &&
+                             !IsConstWrapper) {
+                  throw std::runtime_error("cannot convert const span to non-const argument");
+                } else if constexpr((std::is_const_v<
+                                         std::remove_reference_t<decltype(spanArgument)>> ||
+                                     std::is_const_v<std::remove_reference_t<
+                                         decltype(spanArgument.at(0))>>)&&!IsConstWrapper) {
                   throw std::runtime_error("cannot convert const span to non-const argument");
                 } else {
                   return spanArgument[i - argumentPrefixScan];
@@ -761,15 +796,27 @@ public:
          i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
         return std::visit(
             [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
-              if constexpr((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                            std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                0))>>)&&!IsConstWrapper) {
+              if constexpr(!IsConstWrapper &&
+                           std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                          std::vector<bool>::const_reference>) {
+
+                throw std::runtime_error("cannot convert const span to non-const argument");
+              } else if constexpr((std::is_const_v<
+                                       std::remove_reference_t<decltype(spanArgument)>> ||
+                                   std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
+                                       0))>>)&&!IsConstWrapper) {
                 throw std::runtime_error("cannot convert const span to non-const argument");
               }
 
-              else if constexpr(std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
-                                               std::vector<bool>::reference>) {
-                if constexpr(IsConstWrapper) {
+              else if constexpr(
+
+                  std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                 std::vector<bool>::reference> ||
+                  std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                 std::vector<bool>::const_reference>) {
+                if constexpr(IsConstWrapper ||
+                             std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                            std::vector<bool>::const_reference>) {
                   return std::vector<bool>::const_reference(
                       spanArgument.at(i - argumentPrefixScan));
                 } else {
