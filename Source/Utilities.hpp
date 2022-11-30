@@ -25,6 +25,15 @@ struct isInstanceOfTemplate<U<Ts...>, U> : public std::true_type {};
 template <class... Ts, template <class...> class U>
 struct isInstanceOfTemplate<const U<Ts...>, U> : public std::true_type {};
 
+template <class, template <class...> class> struct isInstanceOfTemplateWithConstArguments : public std::false_type {};
+
+template <class... Ts, template <class...> class U>
+struct isInstanceOfTemplateWithConstArguments<U<Ts const...>, U> : public std::true_type {};
+
+template <class... Ts, template <class...> class U>
+struct isInstanceOfTemplateWithConstArguments<const U<Ts const...>, U> : public std::true_type {};
+
+
 template <template <typename...> typename NewWrapper, typename... Args>
 struct rewrap_variant_arguments;
 

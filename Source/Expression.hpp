@@ -84,8 +84,11 @@ public: // surface
         }()),
         _end(_begin +
              static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)->size()),
-        destructor(
-            [](void* v) { delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v); }) {}
+        destructor([](void* v) {
+          if(v != nullptr) {
+            delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v);
+          }
+        }) {}
 
   /**
    * The span does not take ownership of the adaptee. The vector better not be modified while the
@@ -115,7 +118,7 @@ public: // surface
         }()),
         _end(_begin + adaptee.size()) {}
 
-  explicit Span(Scalar* begin, size_t size, std::function<void(void*)> destructor)
+  explicit Span(IteratorType begin, size_t size, std::function<void(void*)> destructor)
       : _begin(begin), _end(begin + size), destructor(std::move(destructor)) {}
 
   bool operator==(Span const& other) const { return _begin == other._begin; }
@@ -152,7 +155,11 @@ public: // surface
 
   Span& operator=(Span&&) noexcept = default;
   Span& operator=(Span const&) = delete;
-  ~Span() { destructor(adapteePayload); };
+  ~Span() {
+    if(destructor && adapteePayload != nullptr) {
+      destructor(adapteePayload);
+    }
+  };
 
   friend std::ostream& operator<<(std::ostream& s, Span const& span) { return s << span.size; }
 };
