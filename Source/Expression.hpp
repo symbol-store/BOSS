@@ -1020,8 +1020,10 @@ public:
     return move(arguments);
   };
 
-  auto const& getStaticArguments() const { return staticArguments; }
-  auto const& getSpanArguments() const { return spanArguments; }
+  auto const& getStaticArguments() const& { return staticArguments; }
+  auto getStaticArguments() && { return std::move(staticArguments); }
+  auto const& getSpanArguments() const& { return spanArguments; }
+  auto getSpanArguments() && { return std::move(spanArguments); }
 
   ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getArgument(size_t i) && {
     return visit(
