@@ -306,7 +306,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
   auto const v = vector<TestType>(input);
   auto s = boss::Span<TestType const>(v);
-  auto vectorExpression = "duh"_(std::move(s));
+  auto const vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
     CHECK(vectorExpression.getArguments().at(i) == input.at(i));
