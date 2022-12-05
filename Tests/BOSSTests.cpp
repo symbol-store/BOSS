@@ -32,6 +32,35 @@ TEST_CASE("Expressions", "[expressions]") {
   CHECK(e.getArguments().at(1) == v2);
 }
 
+TEST_CASE("Expressions with static Arguments", "[expressions]") {
+  SECTION("Atomic type subexpressions") {
+    auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+    auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+    auto const e = boss::ComplexExpressionWithStaticArguments<long long, long long>(
+        "UnevaluatedPlus"_, {v1, v2}, {}, {});
+    CHECK(e.getHead().getName() == "UnevaluatedPlus");
+    CHECK(e.getArguments().at(0) == v1);
+    CHECK(e.getArguments().at(1) == v2);
+  }
+  SECTION("Complex subexpressions") {
+    auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+    auto const e = boss::ComplexExpressionWithStaticArguments<
+        boss::ComplexExpressionWithStaticArguments<long long>>(
+        {"Duh"_,
+         boss::ComplexExpressionWithStaticArguments<long long>{"UnevaluatedPlus"_, {v1}, {}, {}},
+         {},
+         {}});
+    CHECK(e.getHead().getName() == "Duh");
+    // TODO: this check should be enabled but requires a way to construct argument wrappers
+    // from statically typed expressions
+    // std::visit(
+    //     [](auto&& arg) {
+    //       CHECK(std::is_same_v<decltype(arg), boss::expressions::ComplexExpression>);
+    //     },
+    //     e.getArguments().at(0).getArgument());
+  }
+}
+
 TEST_CASE("Expression Transformation", "[expressions]") {
   auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
@@ -301,8 +330,8 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]", std::int64_t,
-                   std::double_t) {
+TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]",
+                   std::int64_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
   auto const v = vector<TestType>(input);
   auto s = boss::Span<TestType const>(v);
