@@ -364,12 +364,30 @@ public:
   constexpr operator T&() const& { return *_ptr; } // NOLINT(hicpp-explicit-conversions)
   constexpr T& get() const& { return *_ptr; }
 
+  template <typename T2, typename = std::enable_if_t<utilities::is_comparable<T, T2>::value>>
+  constexpr bool operator==(MovableReferenceWrapper<T2> const other) const {
+    return *_ptr == *other._ptr;
+  }
+
+  template <typename T2, typename = std::enable_if_t<utilities::is_comparable<T, T2>::value>>
+  constexpr bool operator==(T2 const other) const {
+    return *_ptr == other;
+  }
+
   constexpr operator T&&() && { return std::move(*_ptr); } // NOLINT(hicpp-explicit-conversions)
   constexpr T get() && { return std::move(*_ptr); }
 
 private:
   T* _ptr;
+
+  template <typename T2> friend class MovableReferenceWrapper;
 };
+
+template <typename T, typename T2>
+constexpr auto operator==(T const& left, MovableReferenceWrapper<T2> const other)
+    -> std::enable_if_t<utilities::is_comparable<T2, T>::value, bool> {
+  return other == left;
+}
 
 template <bool ConstWrappee = false, typename... AdditionalCustomAtoms> class ArgumentWrapper;
 template <typename... AdditionalCustomAtoms>
@@ -506,30 +524,15 @@ public:
   }
 
   template <typename T> auto operator==(T const& other) const {
-    auto constexpr otherIsConstMember =
-        boss::utilities::isVariantMember<MovableReferenceWrapper<const std::decay_t<T>>,
-                                         WrappeeType>::value;
-    auto constexpr otherIsMember =
-        boss::utilities::isVariantMember<MovableReferenceWrapper<std::decay_t<T>>,
-                                         WrappeeType>::value;
-    auto constexpr otherIsArgumentWrapper =
-        std::is_same_v<T, ArgumentWrapper<false, AdditionalCustomAtoms...>> ||
-        std::is_same_v<T, ArgumentWrapper<true, AdditionalCustomAtoms...>>;
-    if constexpr(otherIsConstMember) {
-      return std::holds_alternative<MovableReferenceWrapper<const std::decay_t<T>>>(argument) &&
-             std::get<MovableReferenceWrapper<const std::decay_t<T>>>(argument).get() == other;
-    } else if constexpr(otherIsMember) {
-      return std::holds_alternative<MovableReferenceWrapper<std::decay_t<T>>>(argument) &&
-             std::get<MovableReferenceWrapper<std::decay_t<T>>>(argument).get() == other;
-    } else if constexpr(otherIsArgumentWrapper) {
-      return std::visit(
-          boss::utilities::overload(
-              [this](std::vector<bool>::const_reference argument) { return *this == argument; },
-              [this](auto&& argument) { return *this == argument.get(); }),
-          other.getArgument());
-    } else {
-      return false;
-    }
+    return std::visit(
+        [&other](auto const& thisArgument) {
+          if constexpr(utilities::is_comparable<T, decltype(thisArgument)>::value) {
+            return other == thisArgument;
+          } else {
+            return false;
+          }
+        },
+        getArgument());
   };
 
   template <typename T> auto operator!=(T const& other) const { return !(*this == other); }
@@ -1108,7 +1111,10 @@ public:
   ComplexExpressionWithAdditionalCustomAtoms&
   operator=(ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 
-  bool operator==(ComplexExpressionWithAdditionalCustomAtoms const& other) const {
+  template <typename... StaticArgumentTypes>
+  bool operator==(
+      ComplexExpressionWithAdditionalCustomAtoms<std::tuple<StaticArgumentTypes...>,
+                                                 AdditionalCustomAtoms...> const& other) const {
     if(getHead() != other.getHead() || getArguments().size() != other.getArguments().size()) {
       return false;
     }

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -25,14 +26,14 @@ struct isInstanceOfTemplate<U<Ts...>, U> : public std::true_type {};
 template <class... Ts, template <class...> class U>
 struct isInstanceOfTemplate<const U<Ts...>, U> : public std::true_type {};
 
-template <class, template <class...> class> struct isInstanceOfTemplateWithConstArguments : public std::false_type {};
+template <class, template <class...> class>
+struct isInstanceOfTemplateWithConstArguments : public std::false_type {};
 
 template <class... Ts, template <class...> class U>
 struct isInstanceOfTemplateWithConstArguments<U<Ts const...>, U> : public std::true_type {};
 
 template <class... Ts, template <class...> class U>
 struct isInstanceOfTemplateWithConstArguments<const U<Ts const...>, U> : public std::true_type {};
-
 
 template <template <typename...> typename NewWrapper, typename... Args>
 struct rewrap_variant_arguments;
@@ -55,5 +56,18 @@ template <typename... Args0, typename... Args1>
 struct variant_amend<std::variant<Args0...>, Args1...> {
   using type = std::variant<Args0..., Args1...>;
 };
+
+// ------------------------------
+// see https://stackoverflow.com/a/33196728
+// ------------------------------
+template <class...> using void_t = void;
+
+template <typename L, typename R, class = void> struct is_comparable : std::false_type {};
+
+template <typename L, typename R>
+using comparability = decltype(std::declval<L>() == std::declval<R>());
+
+template <typename L, typename R>
+struct is_comparable<L, R, void_t<comparability<L, R>>> : std::true_type {};
 
 } // namespace boss::utilities

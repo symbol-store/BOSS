@@ -19,17 +19,43 @@ using namespace Catch::Matchers;
 using boss::expressions::generic::get;
 using boss::expressions::generic::get_if;
 using boss::expressions::generic::holds_alternative;
+using std::int64_t;
 
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 TEST_CASE("Expressions", "[expressions]") {
-  auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
-  auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
-  auto const& e = "UnevaluatedPlus"_(v1, v2);
+  auto const v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+  auto const v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+  auto const e = "UnevaluatedPlus"_(v1, v2);
   CHECK(e.getHead().getName() == "UnevaluatedPlus");
   CHECK(e.getArguments().at(0) == v1);
   CHECK(e.getArguments().at(1) == v2);
+
+  SECTION("static expression arguments") {
+    auto staticArgumentExpression =
+        boss::expressions::ComplexExpressionWithStaticArguments<std::int64_t, std::int64_t>(
+            "UnevaluatedPlus"_, {v1, v2});
+    CHECK(e == staticArgumentExpression);
+  }
+
+  SECTION("span expression arguments") {
+    auto spanArgumentExpression = boss::expressions::ComplexExpression(
+        "UnevaluatedPlus"_, {}, {},
+        {boss::expressions::atoms::Span<int64_t>((int64_t[]){v1, v2}, 2, [](auto&&) {})});
+    CHECK(e == spanArgumentExpression);
+  }
+
+  SECTION("nested span expression arguments") {
+    auto nested = boss::expressions::ComplexExpression(
+        "UnevaluatedPlus"_, {}, {},
+        {boss::expressions::atoms::Span<int64_t const>((int64_t[]){v1, v2}, 2, [](auto&&) {})});
+    boss::expressions::ExpressionArguments subExpressions;
+    subExpressions.push_back(std::move(nested));
+    auto spanArgumentExpression =
+      boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, std::move(subExpressions), {});
+    CHECK("UnevaluatedPlus"_("UnevaluatedPlus"_(v1, v2)) == spanArgumentExpression);
+  }
 }
 
 TEST_CASE("Expressions with static Arguments", "[expressions]") {
@@ -342,7 +368,6 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
     CHECK(vectorExpression.getArguments()[i] == input[i]);
   }
 }
-
 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans", "[spans][arrow]", std::int64_t,
