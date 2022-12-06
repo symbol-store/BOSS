@@ -929,6 +929,18 @@ public:
     result.emplace_back(e);
   }
 
+  /**
+   * This will move the components out of the expression and leave the expression empty
+   * (don't move individual members out of the expresion !!!)
+   */
+  std::tuple<Symbol, StaticArgumentsTuple,
+             ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
+             ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
+  decompose() && {
+    return {std::move(head), std::move(staticArguments), std::move(arguments),
+            std::move(spanArguments)};
+  }
+
   template <size_t... I>
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>
   convertStaticToDynamicArguments(std::index_sequence<I...> /*unused*/) const {
