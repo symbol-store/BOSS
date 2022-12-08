@@ -25,8 +25,9 @@ class Symbol {
 public:
   explicit Symbol(std::string const& name) : name(name){};
   explicit Symbol(std::string&& name) : name(std::move(name)){};
-  std::string const& getName() const { return name; };
-  std::string& getName() { return name; };
+  std::string const& getName() const& { return name; };
+  std::string& getName() & { return name; };
+  std::string getName() && { return std::move(name); };
   inline bool operator==(Symbol const& s2) const { return getName() == s2.getName(); };
   inline bool operator!=(Symbol const& s2) const { return getName() != s2.getName(); };
   friend ::std::ostream& operator<<(::std::ostream& out, Symbol const& thing) {
@@ -1043,8 +1044,9 @@ public:
         getArguments().at(i).getArgument());
   }
 
-  Symbol const& getHead() const { return head; };
-  Symbol& getHead() { return head; };
+  Symbol const& getHead() const& { return head; };
+  Symbol& getHead() & { return head; };
+  Symbol getHead() && { return std::move(head); };
 
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
   ComplexExpressionWithAdditionalCustomAtoms(
