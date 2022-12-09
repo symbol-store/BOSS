@@ -527,7 +527,7 @@ public:
   template <typename T> auto operator==(T const& other) const {
     return std::visit(
         [&other](auto const& thisArgument) {
-          if constexpr(utilities::is_comparable<T, decltype(thisArgument)>::value) {
+          if constexpr(boss::utilities::is_comparable<T, decltype(thisArgument)>::value) {
             return other == thisArgument;
           } else {
             return false;

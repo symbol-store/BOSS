@@ -40,20 +40,22 @@ TEST_CASE("Expressions", "[expressions]") {
   }
 
   SECTION("span expression arguments") {
+    int64_t values[] = {v1, v2};
     auto spanArgumentExpression = boss::expressions::ComplexExpression(
         "UnevaluatedPlus"_, {}, {},
-        {boss::expressions::atoms::Span<int64_t>((int64_t[]){v1, v2}, 2, [](auto&&) {})});
+        {boss::expressions::atoms::Span<int64_t>(values, 2, [](auto&&) {})});
     CHECK(e == spanArgumentExpression);
   }
 
   SECTION("nested span expression arguments") {
+    int64_t values[] = {v1, v2};
     auto nested = boss::expressions::ComplexExpression(
         "UnevaluatedPlus"_, {}, {},
-        {boss::expressions::atoms::Span<int64_t const>((int64_t[]){v1, v2}, 2, [](auto&&) {})});
+        {boss::expressions::atoms::Span<int64_t const>(values, 2, [](auto&&) {})});
     boss::expressions::ExpressionArguments subExpressions;
     subExpressions.push_back(std::move(nested));
     auto spanArgumentExpression =
-      boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, std::move(subExpressions), {});
+        boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, std::move(subExpressions), {});
     CHECK("UnevaluatedPlus"_("UnevaluatedPlus"_(v1, v2)) == spanArgumentExpression);
   }
 }
