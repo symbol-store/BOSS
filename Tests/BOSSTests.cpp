@@ -62,7 +62,7 @@ TEST_CASE("Expressions with static Arguments", "[expressions]") {
   SECTION("Atomic type subexpressions") {
     auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
     auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
-    auto const e = boss::ComplexExpressionWithStaticArguments<long long, long long>(
+    auto const e = boss::ComplexExpressionWithStaticArguments<std::int64_t, std::int64_t>(
         "UnevaluatedPlus"_, {v1, v2}, {}, {});
     CHECK(e.getHead().getName() == "UnevaluatedPlus");
     CHECK(e.getArguments().at(0) == v1);
@@ -71,9 +71,9 @@ TEST_CASE("Expressions with static Arguments", "[expressions]") {
   SECTION("Complex subexpressions") {
     auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
     auto const e = boss::ComplexExpressionWithStaticArguments<
-        boss::ComplexExpressionWithStaticArguments<long long>>(
+        boss::ComplexExpressionWithStaticArguments<std::int64_t>>(
         {"Duh"_,
-         boss::ComplexExpressionWithStaticArguments<long long>{"UnevaluatedPlus"_, {v1}, {}, {}},
+         boss::ComplexExpressionWithStaticArguments<std::int64_t>{"UnevaluatedPlus"_, {v1}, {}, {}},
          {},
          {}});
     CHECK(e.getHead().getName() == "Duh");
