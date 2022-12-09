@@ -19,17 +19,72 @@ using namespace Catch::Matchers;
 using boss::expressions::generic::get;
 using boss::expressions::generic::get_if;
 using boss::expressions::generic::holds_alternative;
+using std::int64_t;
 
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 TEST_CASE("Expressions", "[expressions]") {
-  auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
-  auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
-  auto const& e = "UnevaluatedPlus"_(v1, v2);
+  auto const v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+  auto const v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+  auto const e = "UnevaluatedPlus"_(v1, v2);
   CHECK(e.getHead().getName() == "UnevaluatedPlus");
   CHECK(e.getArguments().at(0) == v1);
   CHECK(e.getArguments().at(1) == v2);
+
+  SECTION("static expression arguments") {
+    auto staticArgumentExpression =
+        boss::expressions::ComplexExpressionWithStaticArguments<std::int64_t, std::int64_t>(
+            "UnevaluatedPlus"_, {v1, v2});
+    CHECK(e == staticArgumentExpression);
+  }
+
+  SECTION("span expression arguments") {
+    auto spanArgumentExpression = boss::expressions::ComplexExpression(
+        "UnevaluatedPlus"_, {}, {},
+        {boss::expressions::atoms::Span<int64_t>((int64_t[]){v1, v2}, 2, [](auto&&) {})});
+    CHECK(e == spanArgumentExpression);
+  }
+
+  SECTION("nested span expression arguments") {
+    auto nested = boss::expressions::ComplexExpression(
+        "UnevaluatedPlus"_, {}, {},
+        {boss::expressions::atoms::Span<int64_t const>((int64_t[]){v1, v2}, 2, [](auto&&) {})});
+    boss::expressions::ExpressionArguments subExpressions;
+    subExpressions.push_back(std::move(nested));
+    auto spanArgumentExpression =
+      boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, std::move(subExpressions), {});
+    CHECK("UnevaluatedPlus"_("UnevaluatedPlus"_(v1, v2)) == spanArgumentExpression);
+  }
+}
+
+TEST_CASE("Expressions with static Arguments", "[expressions]") {
+  SECTION("Atomic type subexpressions") {
+    auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+    auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+    auto const e = boss::ComplexExpressionWithStaticArguments<long long, long long>(
+        "UnevaluatedPlus"_, {v1, v2}, {}, {});
+    CHECK(e.getHead().getName() == "UnevaluatedPlus");
+    CHECK(e.getArguments().at(0) == v1);
+    CHECK(e.getArguments().at(1) == v2);
+  }
+  SECTION("Complex subexpressions") {
+    auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+    auto const e = boss::ComplexExpressionWithStaticArguments<
+        boss::ComplexExpressionWithStaticArguments<long long>>(
+        {"Duh"_,
+         boss::ComplexExpressionWithStaticArguments<long long>{"UnevaluatedPlus"_, {v1}, {}, {}},
+         {},
+         {}});
+    CHECK(e.getHead().getName() == "Duh");
+    // TODO: this check should be enabled but requires a way to construct argument wrappers
+    // from statically typed expressions
+    // std::visit(
+    //     [](auto&& arg) {
+    //       CHECK(std::is_same_v<decltype(arg), boss::expressions::ComplexExpression>);
+    //     },
+    //     e.getArguments().at(0).getArgument());
+  }
 }
 
 TEST_CASE("Expression Transformation", "[expressions]") {
@@ -279,6 +334,34 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
   auto v = vector<TestType>(input);
   auto s = boss::Span<TestType>(std::move(v));
   auto vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int64_t,
+                   std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto v = vector<TestType>(input);
+  auto s = boss::Span<TestType>(v);
+  auto vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]",
+                   std::int64_t, std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto const v = vector<TestType>(input);
+  auto s = boss::Span<TestType const>(v);
+  auto const vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
     CHECK(vectorExpression.getArguments().at(i) == input.at(i));
