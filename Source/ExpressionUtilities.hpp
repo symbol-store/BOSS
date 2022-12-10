@@ -56,7 +56,8 @@ public:
   template <typename Ts>
   using isStaticArgument = ::std::disjunction<isComplexExpression<Ts>, isAtom<Ts>>;
   template <typename T> using isSpanArgument = isInstanceOfTemplate<T, Span>;
-  template <typename T> using isSpanOfConstArgument = isInstanceOfTemplateWithConstArguments<T, Span>;
+  template <typename T>
+  using isSpanOfConstArgument = isInstanceOfTemplateWithConstArguments<T, Span>;
 
   template <typename T>
   using isDynamicArgument =
@@ -84,8 +85,9 @@ public:
    * build expression from span arguments
    */
   template <typename... Ts>
-  ::std::enable_if_t<::std::conjunction<isSpanArgument<::std::decay_t<Ts>>...>::value && (sizeof...(Ts) > 0)
-    && !::std::conjunction_v<isSpanOfConstArgument<std::decay_t<Ts>>...>,
+  ::std::enable_if_t<::std::conjunction<isSpanArgument<::std::decay_t<Ts>>...>::value &&
+                         (sizeof...(Ts) > 0) &&
+                         !::std::conjunction_v<isSpanOfConstArgument<std::decay_t<Ts>>...>,
                      typename ExpressionSystem::ComplexExpression>
   operator()(Ts&&... args /*a*/) const {
     return {s, {}, {}, {::std::forward<decltype(args)>(args)...}};
@@ -95,9 +97,10 @@ public:
    * build expression from const span arguments
    */
   template <typename... Ts>
-  ::std::enable_if_t<::std::conjunction<isSpanArgument<::std::decay_t<Ts>>...>::value && (sizeof...(Ts) > 0)
-    && ::std::conjunction_v<isSpanOfConstArgument<std::decay_t<Ts>>...>,
-                     typename ExpressionSystem::ComplexExpression const>
+  ::std::enable_if_t<::std::conjunction<isSpanArgument<::std::decay_t<Ts>>...>::value &&
+                         (sizeof...(Ts) > 0) &&
+                         ::std::conjunction_v<isSpanOfConstArgument<std::decay_t<Ts>>...>,
+                     typename ExpressionSystem::ComplexExpression>
   operator()(Ts&&... args /*a*/) const {
     return {s, {}, {}, {::std::forward<decltype(args)>(args)...}};
   }

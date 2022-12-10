@@ -85,11 +85,8 @@ public: // surface
         }()),
         _end(_begin +
              static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)->size()),
-        destructor([](void* v) {
-          if(v != nullptr) {
-            delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v);
-          }
-        }) {}
+        destructor(
+            [](void* v) { delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v); }) {}
 
   /**
    * The span does not take ownership of the adaptee. The vector better not be modified while the
@@ -385,7 +382,7 @@ private:
 };
 
 template <typename T, typename T2>
-constexpr auto operator==(T const& left, MovableReferenceWrapper<T2> const other)
+constexpr auto operator==(T const& left, MovableReferenceWrapper<T2> other)
     -> std::enable_if_t<utilities::is_comparable<T2, T>::value, bool> {
   return other == left;
 }
@@ -766,14 +763,12 @@ public:
                               spanArgument)) {
           return std::visit(
               [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
-                if constexpr(std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
-                                            std::vector<bool>::const_reference> &&
-                             !IsConstWrapper) {
-                  throw std::runtime_error("cannot convert const span to non-const argument");
-                } else if constexpr((std::is_const_v<
-                                         std::remove_reference_t<decltype(spanArgument)>> ||
-                                     std::is_const_v<std::remove_reference_t<
-                                         decltype(spanArgument.at(0))>>)&&!IsConstWrapper) {
+                if constexpr((std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                             std::vector<bool>::const_reference> &&
+                              !IsConstWrapper) ||
+                             ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
+                               std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
+                                   0))>>)&&!IsConstWrapper)) {
                   throw std::runtime_error("cannot convert const span to non-const argument");
                 } else {
                   return spanArgument[i - argumentPrefixScan];
@@ -807,19 +802,14 @@ public:
          i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
         return std::visit(
             [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
-              if constexpr(!IsConstWrapper &&
-                           std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
-                                          std::vector<bool>::const_reference>) {
-
+              if constexpr((!IsConstWrapper &&
+                            std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                           std::vector<bool>::const_reference>) ||
+                           ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
+                             std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
+                                 0))>>)&&!IsConstWrapper)) {
                 throw std::runtime_error("cannot convert const span to non-const argument");
-              } else if constexpr((std::is_const_v<
-                                       std::remove_reference_t<decltype(spanArgument)>> ||
-                                   std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                       0))>>)&&!IsConstWrapper) {
-                throw std::runtime_error("cannot convert const span to non-const argument");
-              }
-
-              else if constexpr(
+              } else if constexpr(
 
                   std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
                                  std::vector<bool>::reference> ||
@@ -1178,11 +1168,10 @@ public:
     return out;
   }
 
-private:
   ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
-      default;
+      delete;
   ComplexExpressionWithAdditionalCustomAtoms&
-  operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = default;
+  operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = delete;
 };
 
 template <typename... AdditionalCustomAtoms> class ExtensibleExpressionSystem {
