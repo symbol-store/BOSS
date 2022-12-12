@@ -19,17 +19,74 @@ using namespace Catch::Matchers;
 using boss::expressions::generic::get;
 using boss::expressions::generic::get_if;
 using boss::expressions::generic::holds_alternative;
+using std::int64_t;
 
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 TEST_CASE("Expressions", "[expressions]") {
-  auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
-  auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
-  auto const& e = "UnevaluatedPlus"_(v1, v2);
+  auto const v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+  auto const v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+  auto const e = "UnevaluatedPlus"_(v1, v2);
   CHECK(e.getHead().getName() == "UnevaluatedPlus");
   CHECK(e.getArguments().at(0) == v1);
   CHECK(e.getArguments().at(1) == v2);
+
+  SECTION("static expression arguments") {
+    auto staticArgumentExpression =
+        boss::expressions::ComplexExpressionWithStaticArguments<std::int64_t, std::int64_t>(
+            "UnevaluatedPlus"_, {v1, v2});
+    CHECK(e == staticArgumentExpression);
+  }
+
+  SECTION("span expression arguments") {
+    std::array<int64_t, 2> values = {v1, v2};
+    auto spanArgumentExpression = boss::expressions::ComplexExpression(
+        "UnevaluatedPlus"_, {}, {},
+        {boss::expressions::atoms::Span<int64_t>(&values[0], 2, [](auto&& /*unused*/) {})});
+    CHECK(e == spanArgumentExpression);
+  }
+
+  SECTION("nested span expression arguments") {
+    std::array<int64_t, 2> values = {v1, v2};
+    auto nested = boss::expressions::ComplexExpression(
+        "UnevaluatedPlus"_, {}, {},
+        {boss::expressions::atoms::Span<int64_t const>(&values[0], 2, [](auto&& /*unused*/) {})});
+    boss::expressions::ExpressionArguments subExpressions;
+    subExpressions.push_back(std::move(nested));
+    auto spanArgumentExpression =
+        boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, std::move(subExpressions), {});
+    CHECK("UnevaluatedPlus"_("UnevaluatedPlus"_(v1, v2)) == spanArgumentExpression);
+  }
+}
+
+TEST_CASE("Expressions with static Arguments", "[expressions]") {
+  SECTION("Atomic type subexpressions") {
+    auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+    auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+    auto const e = boss::ComplexExpressionWithStaticArguments<std::int64_t, std::int64_t>(
+        "UnevaluatedPlus"_, {v1, v2}, {}, {});
+    CHECK(e.getHead().getName() == "UnevaluatedPlus");
+    CHECK(e.getArguments().at(0) == v1);
+    CHECK(e.getArguments().at(1) == v2);
+  }
+  SECTION("Complex subexpressions") {
+    auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
+    auto const e = boss::ComplexExpressionWithStaticArguments<
+        boss::ComplexExpressionWithStaticArguments<std::int64_t>>(
+        {"Duh"_,
+         boss::ComplexExpressionWithStaticArguments<std::int64_t>{"UnevaluatedPlus"_, {v1}, {}, {}},
+         {},
+         {}});
+    CHECK(e.getHead().getName() == "Duh");
+    // TODO: this check should be enabled but requires a way to construct argument wrappers
+    // from statically typed expressions
+    // std::visit(
+    //     [](auto&& arg) {
+    //       CHECK(std::is_same_v<decltype(arg), boss::expressions::ComplexExpression>);
+    //     },
+    //     e.getArguments().at(0).getArgument());
+  }
 }
 
 TEST_CASE("Expression Transformation", "[expressions]") {
@@ -65,6 +122,10 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
   CHECK(
       get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b).getHead().getName() ==
       "howdie");
+  auto& srcExpr = get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b);
+  auto const& cexpr = std::decay_t<decltype(srcExpr)>(std::move(srcExpr));
+  auto const& args = cexpr.getArguments();
+  CHECK(args.empty());
 }
 
 TEST_CASE("Complex expression's argument cast to more general expression system", "[expressions]") {
@@ -79,20 +140,53 @@ TEST_CASE("Complex expression's argument cast to more general expression system"
   CHECK(get<int64_t>(b2) == 2);
 }
 
-TEST_CASE("Extract typed arguments from complex expression", "[expressions]") {
-  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
-  auto str = std::accumulate(
-      expr.getArguments().begin(), expr.getArguments().end(), expr.getHead().getName(),
-      [](auto const& accStr, auto const& arg) {
-        return accStr + "_" +
-               visit(
-                   boss::utilities::overload(
-                       [](auto const& value) { return std::to_string(value); },
-                       [](boss::ComplexExpression const& expr) { return expr.getHead().getName(); },
-                       [](boss::Symbol const& symbol) { return symbol.getName(); },
-                       [](std::string const& str) { return str; }),
-                   arg);
-      });
+TEST_CASE("Extract typed arguments from complex expression (using std::accumulate)",
+          "[expressions]") {
+  auto exprBase = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto const& expr0 =
+      boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression(std::move(exprBase));
+  auto str = [](auto const& expr) {
+    auto const& args = expr.getArguments();
+    return std::accumulate(
+        args.begin(), args.end(), expr.getHead().getName(),
+        [](auto const& accStr, auto const& arg) {
+          return accStr + "_" +
+                 visit(boss::utilities::overload(
+                           [](auto const& value) { return std::to_string(value); },
+                           [](DummyAtom const& /*value*/) { return ""s; },
+                           [](boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression const&
+                                  expr) { return expr.getHead().getName(); },
+                           [](boss::Symbol const& symbol) { return symbol.getName(); },
+                           [](std::string const& str) { return str; }),
+                       arg);
+        });
+  }(expr0);
+  CHECK(str == "List_howdie_1_unknown_hello world");
+}
+
+TEST_CASE("Extract typed arguments from complex expression (manual iteration)", "[expressions]") {
+  auto exprBase = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto const& expr0 =
+      boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression(std::move(exprBase));
+  auto str = [](auto const& expr) {
+    auto const& args = expr.getArguments();
+    auto size = args.size();
+    auto accStr = expr.getHead().getName();
+    for(int idx = 0; idx < size; ++idx) {
+      accStr +=
+          "_" +
+          visit(boss::utilities::overload(
+                    [](auto const& value) { return std::to_string(value); },
+                    [](DummyAtom const& /*value*/) { return ""s; },
+                    [](boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression const& expr) {
+                      return expr.getHead().getName();
+                    },
+                    [](boss::Symbol const& symbol) { return symbol.getName(); },
+                    [](std::string const& str) { return str; }),
+                args.at(idx));
+    }
+    return accStr;
+  }(expr0);
   CHECK(str == "List_howdie_1_unknown_hello world");
 }
 
@@ -170,6 +264,69 @@ TEST_CASE("get_if for complex expression's arguments", "[expressions]") {
   CHECK(get_if<int64_t>(&arg1) != nullptr);
   CHECK(get_if<boss::Symbol>(&arg2) != nullptr);
   CHECK(get_if<std::string>(&arg3) != nullptr);
+  auto const& arg0args = get<boss::ComplexExpression>(arg0).getArguments();
+  CHECK(arg0args.empty());
+}
+
+TEST_CASE("move expression's arguments to a new expression", "[expressions]") {
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto&& movedExpr = std::move(expr);
+  boss::ExpressionArguments args = movedExpr.getArguments();
+  auto expr2 = boss::ComplexExpression(std::move(movedExpr.getHead()), std::move(args)); // NOLINT
+  CHECK(get<boss::ComplexExpression>(expr2.getArguments().at(0)) == "howdie"_());
+  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 1);
+  CHECK(get<boss::Symbol>(expr2.getArguments().at(2)) == "unknown"_);
+  CHECK(get<std::string>(expr2.getArguments().at(3)) == "hello world"s);
+}
+
+TEST_CASE("copy expression's arguments to a new expression", "[expressions]") {
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto args =
+      expr.getArguments(); // TODO: this one gets the reference to the arguments
+                           // when it should be a copy.
+                           // Any modification/move of args will be reflected in expr's arguments!
+  get<int64_t>(args.at(1)) = 2;
+  auto expr2 = boss::ComplexExpression(expr.getHead(), args);
+  get<int64_t>(args.at(1)) = 3;
+  auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args)); // NOLINT
+  // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails for now (see above TODO)
+  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
+}
+
+TEST_CASE("copy non-const expression's arguments to ExpressionArguments", "[expressions]") {
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  boss::ExpressionArguments args = expr.getArguments(); // TODO: why is it moved?
+  get<int64_t>(args.at(1)) = 2;
+  auto expr2 = boss::ComplexExpression(expr.getHead(), std::move(args));
+  // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails because args was moved (see TODO)
+  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+}
+
+TEST_CASE("copy const expression's arguments to ExpressionArguments)", "[expressions]") {
+  auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  boss::ExpressionArguments args = expr.getArguments();
+  get<int64_t>(args.at(1)) = 2;
+  auto expr2 = boss::ComplexExpression(expr.getHead(), std::move(args));
+  CHECK(get<int64_t>(expr.getArguments().at(1)) == 1);
+  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+}
+
+TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
+  auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  std::vector<boss::Symbol> symbols;
+  std::vector<boss::Expression> otherExpressions;
+  for(auto&& arg : (boss::ExpressionArguments)std::move(expr).getArguments()) {
+    visit(boss::utilities::overload(
+              [&otherExpressions](auto&& value) {
+                otherExpressions.emplace_back(std::forward<decltype(value)>(value));
+              },
+              [&symbols](boss::Symbol&& symbol) { symbols.emplace_back(std::move(symbol)); }),
+          std::move(arg));
+  }
+  CHECK(symbols.size() == 1);
+  CHECK(symbols[0] == "unknown"_);
+  CHECK(otherExpressions.size() == 3);
 }
 
 // NOLINTNEXTLINE
@@ -179,6 +336,34 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
   auto v = vector<TestType>(input);
   auto s = boss::Span<TestType>(std::move(v));
   auto vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int64_t,
+                   std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto v = vector<TestType>(input);
+  auto s = boss::Span<TestType>(v);
+  auto vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]",
+                   std::int64_t, std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto const v = vector<TestType>(input);
+  auto s = boss::Span<TestType const>(v);
+  auto const vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
     CHECK(vectorExpression.getArguments().at(i) == input.at(i));
@@ -238,9 +423,12 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     return engine.evaluate(
         "EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))), move(expression)));
   };
-  CHECK_THROWS_MATCHES(
-      engine.evaluate("EvaluateInEngines"_("List"_(9), 5)), std::bad_variant_access,
-      Message("expected and actual type mismatch in expression \"9\", expected string"));
+
+  SECTION("CatchingErrors") {
+    CHECK_THROWS_MATCHES(
+        engine.evaluate("EvaluateInEngines"_("List"_(9), 5)), std::bad_variant_access,
+        Message("expected and actual type mismatch in expression \"9\", expected string"));
+  }
 
   SECTION("Atomics") {
     CHECK(get<std::int64_t>(eval(boss::Expression(9))) == 9); // NOLINT

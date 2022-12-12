@@ -25,7 +25,8 @@ class Symbol {
 public:
   explicit Symbol(std::string const& name) : name(name){};
   explicit Symbol(std::string&& name) : name(std::move(name)){};
-  std::string const& getName() const { return name; };
+  std::string const& getName() const& { return name; };
+  std::string getName() && { return std::move(name); };
   inline bool operator==(Symbol const& s2) const { return getName() == s2.getName(); };
   inline bool operator!=(Symbol const& s2) const { return getName() != s2.getName(); };
   friend ::std::ostream& operator<<(::std::ostream& out, Symbol const& thing) {
@@ -38,12 +39,13 @@ private: // state
   void* adapteePayload = {};
   std::function<void(void*)> destructor;
 
-  std::conditional_t<std::is_same_v<std::remove_const_t<Scalar>, bool>, std::vector<bool>::iterator,
-                     Scalar*>
-      _begin = {};
-  std::conditional_t<std::is_same_v<std::remove_const_t<Scalar>, bool>, std::vector<bool>::iterator,
-                     Scalar*>
-      _end = {};
+  using IteratorType = std::conditional_t<
+      std::is_same_v<std::remove_const_t<Scalar>, bool>,
+      std::conditional_t<std::is_const_v<Scalar>, typename std::vector<bool>::const_iterator,
+                         typename std::vector<bool>::iterator>,
+      Scalar*>;
+  IteratorType _begin = {};
+  IteratorType _end = {};
 
 public: // surface
   size_t size() const { return _end - _begin; }
@@ -67,7 +69,7 @@ public: // surface
     throw std::out_of_range("Span has no element with index " + std::to_string(i));
   }
   /**
-   * for some reason, the span takes ownership of the adaptee. That seems weird to me.
+   * The span takes ownership of the adaptee
    */
   explicit Span(std::vector<std::remove_const_t<Scalar>>&& adaptee)
       : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(move(adaptee))),
@@ -85,7 +87,35 @@ public: // surface
         destructor(
             [](void* v) { delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v); }) {}
 
-  explicit Span(Scalar* begin, size_t size, std::function<void(void*)> destructor)
+  /**
+   * The span does not take ownership of the adaptee. The vector better not be modified while the
+   * span lives
+   */
+  explicit Span(std::vector<std::remove_const_t<Scalar>>& adaptee)
+      : _begin([&adaptee]() {
+          if constexpr(std::is_same_v<Scalar, bool>) {
+            return adaptee.begin();
+          } else {
+            return adaptee.data();
+          }
+        }()),
+        _end(_begin + adaptee.size()) {}
+
+  /**
+   * The span does not take ownership of the adaptee. The vector better not be modified while the
+   * span lives
+   */
+  explicit Span(std::vector<std::remove_const_t<Scalar>> const& adaptee)
+      : _begin([&adaptee]() {
+          if constexpr(std::is_same_v<Scalar, bool>) {
+            return adaptee.begin();
+          } else {
+            return adaptee.data();
+          }
+        }()),
+        _end(_begin + adaptee.size()) {}
+
+  explicit Span(IteratorType begin, size_t size, std::function<void(void*)> destructor)
       : _begin(begin), _end(begin + size), destructor(std::move(destructor)) {}
 
   bool operator==(Span const& other) const { return _begin == other._begin; }
@@ -100,9 +130,9 @@ public: // surface
 
   /**
    * because the Span constructor cannot infer what data structure/payload was used to hold the
-   * values in the other Span, arguments are copied into a std::vector. The alternative would be to
-   * use some kind of reference chain but I (Holger) did not like that -- I am open to discussing
-   * this, though
+   * values in the other Span, arguments are copied into a std::vector. The alternative would be
+   * to use some kind of reference chain but I (Holger) did not like that -- I am open to
+   * discussing this, though
    */
   Span(Span<Scalar> const& other)
       : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(other._begin, other._end)),
@@ -122,7 +152,11 @@ public: // surface
 
   Span& operator=(Span&&) noexcept = default;
   Span& operator=(Span const&) = delete;
-  ~Span() { destructor(adapteePayload); };
+  ~Span() {
+    if(destructor && adapteePayload != nullptr) {
+      destructor(adapteePayload);
+    }
+  };
 
   friend std::ostream& operator<<(std::ostream& s, Span const& span) { return s << span.size; }
 };
@@ -190,10 +224,18 @@ public:
       ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, AdditionalCustomAtoms...>>::type;
 
   using SuperType::SuperType;
-  explicit ExpressionWithAdditionalCustomAtoms(int32_t v) noexcept
-      : ExpressionWithAdditionalCustomAtoms(int64_t(v)) {}
-  explicit ExpressionWithAdditionalCustomAtoms(float_t v) noexcept
-      : ExpressionWithAdditionalCustomAtoms(double_t(v)) {}
+
+  // allow conversion from int32_t/float_t to int64_t/double_t
+  // but only if int32_t/float_t are not supported already by the AdditionalCustomAtoms
+  template <
+      typename T,
+      typename U = std::enable_if_t<
+          std::conjunction_v<std::disjunction<std::is_same<T, int32_t>, std::is_same<T, float_t>>,
+                             std::negation<std::is_constructible<SuperType, T>>>,
+          std::conditional_t<std::is_integral_v<T>, int64_t, double_t>>>
+  explicit ExpressionWithAdditionalCustomAtoms(T v) noexcept
+      : ExpressionWithAdditionalCustomAtoms(U(v)) {}
+
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
       ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
@@ -319,12 +361,30 @@ public:
   constexpr operator T&() const& { return *_ptr; } // NOLINT(hicpp-explicit-conversions)
   constexpr T& get() const& { return *_ptr; }
 
+  template <typename T2, typename = std::enable_if_t<utilities::is_comparable<T, T2>::value>>
+  constexpr bool operator==(MovableReferenceWrapper<T2> const other) const {
+    return *_ptr == *other._ptr;
+  }
+
+  template <typename T2, typename = std::enable_if_t<utilities::is_comparable<T, T2>::value>>
+  constexpr bool operator==(T2 const other) const {
+    return *_ptr == other;
+  }
+
   constexpr operator T&&() && { return std::move(*_ptr); } // NOLINT(hicpp-explicit-conversions)
   constexpr T get() && { return std::move(*_ptr); }
 
 private:
   T* _ptr;
+
+  template <typename T2> friend class MovableReferenceWrapper;
 };
+
+template <typename T, typename T2>
+constexpr auto operator==(T const& left, MovableReferenceWrapper<T2> other)
+    -> std::enable_if_t<utilities::is_comparable<T2, T>::value, bool> {
+  return other == left;
+}
 
 template <bool ConstWrappee = false, typename... AdditionalCustomAtoms> class ArgumentWrapper;
 template <typename... AdditionalCustomAtoms>
@@ -371,7 +431,7 @@ public:
     std::get<MovableReferenceWrapper<T>>(argument).get() = std::forward<T>(newValue);
     return *this;
   }
-  template <typename T> ArgumentWrapper& operator=(T& newValue) {
+  template <typename T> ArgumentWrapper& operator=(T const& newValue) {
     argument = newValue;
     return *this;
   }
@@ -387,55 +447,12 @@ public:
         [](auto&& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
           if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
                                                              MovableReferenceWrapper>::value) {
-            return std::move(e.get());
+            return std::forward<decltype(e)>(e).get();
           } else {
-            return e;
+            return std::forward<decltype(e)>(e);
           }
         },
         std::move(argument)));
-  }
-
-  /**
-   * we allow conversion to Expression value only for lvalues (to disambiguate
-   * from conversion to rvalue)
-   */
-  operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&() & {
-    // this is a shim and should be removed
-    return std::visit(
-        [](auto& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-          if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
-                                                             MovableReferenceWrapper>::value) {
-            if constexpr(boss::utilities::isInstanceOfTemplate<
-                             std::decay_t<decltype(e.get())>,
-                             ExpressionWithAdditionalCustomAtoms>::value) {
-              return e.get().clone();
-            } else {
-              return e.get();
-            }
-          } else {
-            return e;
-          }
-        },
-        argument);
-  }
-
-  /**
-   * we allow conversion to rvalue Expression only for rvalues
-   */
-  operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>() && {
-    // this is a shim and should be removed
-    return std::visit(
-        [](auto&& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-          if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
-                                                             MovableReferenceWrapper>::value) {
-            return std::move(e.get());
-          } else {
-            return e;
-          }
-        },
-        std::move(argument));
   }
 
   /**
@@ -457,12 +474,13 @@ public:
           boss::utilities::isVariantMember<MovableReferenceWrapper<const T>, WrappeeType>>::value>>
   ArgumentWrapper(T const& argument) // NOLINT(hicpp-explicit-conversions)
       : argument(MovableReferenceWrapper(std::cref(argument))) {}
+
   template <typename T, typename = std::enable_if_t<
                             std::disjunction_v<std::is_same<T, std::vector<bool>::const_reference>,
                                                std::is_same<T, std::vector<bool>::reference>>>>
   ArgumentWrapper(T&& argument) // NOLINT(hicpp-explicit-conversions)
       : argument([&argument]() {
-          if constexpr(ConstWrappee) {
+          if constexpr(ConstWrappee || std::is_same_v<T, std::vector<bool>::const_reference>) {
             return static_cast<std::vector<bool>::const_reference>(argument);
           } else {
             return static_cast<std::vector<bool>::reference>(argument);
@@ -503,44 +521,29 @@ public:
   }
 
   template <typename T> auto operator==(T const& other) const {
-    auto constexpr otherIsConstMember =
-        boss::utilities::isVariantMember<MovableReferenceWrapper<const std::decay_t<T>>,
-                                         WrappeeType>::value;
-    auto constexpr otherIsMember =
-        boss::utilities::isVariantMember<MovableReferenceWrapper<std::decay_t<T>>,
-                                         WrappeeType>::value;
-    auto constexpr otherIsArgumentWrapper =
-        std::is_same_v<T, ArgumentWrapper<false, AdditionalCustomAtoms...>> ||
-        std::is_same_v<T, ArgumentWrapper<true, AdditionalCustomAtoms...>>;
-    if constexpr(otherIsConstMember) {
-      return std::holds_alternative<MovableReferenceWrapper<const std::decay_t<T>>>(argument) &&
-             std::get<MovableReferenceWrapper<const std::decay_t<T>>>(argument).get() == other;
-    } else if constexpr(otherIsMember) {
-      return std::holds_alternative<MovableReferenceWrapper<std::decay_t<T>>>(argument) &&
-             std::get<MovableReferenceWrapper<std::decay_t<T>>>(argument).get() == other;
-    } else if constexpr(otherIsArgumentWrapper) {
-      return std::visit(
-          boss::utilities::overload(
-              [this](std::vector<bool>::const_reference argument) { return *this == argument; },
-              [this](auto&& argument) { return *this == argument.get(); }),
-          other.getArgument());
-    } else {
-      return false;
-    }
+    return std::visit(
+        [&other](auto const& thisArgument) {
+          if constexpr(boss::utilities::is_comparable<T, decltype(thisArgument)>::value) {
+            return other == thisArgument;
+          } else {
+            return false;
+          }
+        },
+        getArgument());
   };
 
   template <typename T> auto operator!=(T const& other) const { return !(*this == other); }
 
   friend ::std::ostream& operator<<(::std::ostream& stream, ArgumentWrapper const& argument) {
     return visit(
-        [&stream](auto&& argument) -> auto& {
-          if constexpr(::std::disjunction_v<::std::is_same<::std::decay_t<decltype(argument)>,
+        [&stream](auto&& val) -> auto& {
+          if constexpr(::std::disjunction_v<::std::is_same<::std::decay_t<decltype(val)>,
                                                            ::std::vector<bool>::reference>,
-                                            ::std::is_same<::std::decay_t<decltype(argument)>,
+                                            ::std::is_same<::std::decay_t<decltype(val)>,
                                                            ::std::vector<bool>::const_reference>>) {
-            return stream << (bool)argument;
+            return stream << (bool)val;
           } else {
-            return stream << argument.get();
+            return stream << val.get();
           }
         },
         argument.getArgument());
@@ -714,6 +717,12 @@ public:
     }
     Iterator(Iterator const& other) = default;
     Iterator(Iterator&& other) noexcept = default;
+    Iterator(std::conditional_t<IsConstIterator,
+                                ExpressionArgumentsWithAdditionalCustomAtomsWrapper const,
+                                ExpressionArgumentsWithAdditionalCustomAtomsWrapper>
+                 container,
+             size_t i)
+        : container(container), i(i) {}
     ~Iterator() = default;
   };
 
@@ -753,9 +762,12 @@ public:
                               spanArgument)) {
           return std::visit(
               [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
-                if constexpr((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                              std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                  0))>>)&&!IsConstWrapper) {
+                if constexpr((std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                             std::vector<bool>::const_reference> &&
+                              !IsConstWrapper) ||
+                             ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
+                               std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
+                                   0))>>)&&!IsConstWrapper)) {
                   throw std::runtime_error("cannot convert const span to non-const argument");
                 } else {
                   return spanArgument[i - argumentPrefixScan];
@@ -789,15 +801,22 @@ public:
          i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
         return std::visit(
             [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
-              if constexpr((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                            std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                0))>>)&&!IsConstWrapper) {
+              if constexpr((!IsConstWrapper &&
+                            std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                           std::vector<bool>::const_reference>) ||
+                           ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
+                             std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
+                                 0))>>)&&!IsConstWrapper)) {
                 throw std::runtime_error("cannot convert const span to non-const argument");
-              }
+              } else if constexpr(
 
-              else if constexpr(std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
-                                               std::vector<bool>::reference>) {
-                if constexpr(IsConstWrapper) {
+                  std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                 std::vector<bool>::reference> ||
+                  std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                 std::vector<bool>::const_reference>) {
+                if constexpr(IsConstWrapper ||
+                             std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
+                                            std::vector<bool>::const_reference>) {
                   return std::vector<bool>::const_reference(
                       spanArgument.at(i - argumentPrefixScan));
                 } else {
@@ -816,9 +835,47 @@ public:
   }
 
   operator // NOLINT(hicpp-explicit-conversions)
-      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() const {
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() const& {
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
-    std::copy(std::begin(*this), std::end(*this), back_inserter(result));
+    result.reserve(this->size());
+    std::transform(std::begin(*this), std::end(*this), back_inserter(result),
+                   [](auto&& wrapper) { return wrapper.clone(); });
+    return std::move(result);
+  }
+
+  operator // NOLINT(hicpp-explicit-conversions)
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() & {
+    ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
+    result.reserve(this->size());
+    std::transform(std::begin(*this), std::end(*this), back_inserter(result),
+                   [](auto&& wrapper) { return wrapper.clone(); });
+    return std::move(result);
+  }
+
+  /**
+   * Only allow (move-)conversion to ExpressionArguments if the wrapper is non-const
+   * otherwise apply the (copy-)conversion (same as for l-reference)
+   */
+  operator // NOLINT(hicpp-explicit-conversions)
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() && {
+    if constexpr(!IsConstWrapper && (std::tuple_size_v<StaticArgumentsContainer>) == 0) {
+      if(spanArguments.empty()) {
+        // avoid any copying if there are only ExpressionArguments
+        return std::move(arguments);
+      }
+    }
+    ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
+    result.reserve(this->size());
+    std::transform(std::make_move_iterator(std::begin(*this)),
+                   std::make_move_iterator(std::end(*this)), back_inserter(result),
+                   [](auto&& wrapper) -> ExpressionWithAdditionalCustomAtoms<AdditionalAtoms...> {
+                     if constexpr(!IsConstWrapper &&
+                                  !std::is_lvalue_reference_v<decltype(wrapper)>) {
+                       return std::forward<decltype(wrapper)>(wrapper);
+                     } else {
+                       return wrapper.clone();
+                     }
+                   });
     return std::move(result);
   }
 
@@ -862,6 +919,18 @@ public:
     result.emplace_back(e);
   }
 
+  /**
+   * This will move the components out of the expression and leave the expression empty
+   * (don't move individual members out of the expresion !!!)
+   */
+  std::tuple<Symbol, StaticArgumentsTuple,
+             ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>,
+             ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>
+  decompose() && {
+    return {std::move(head), std::move(staticArguments), std::move(arguments),
+            std::move(spanArguments)};
+  }
+
   template <size_t... I>
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>
   convertStaticToDynamicArguments(std::index_sequence<I...> /*unused*/) const {
@@ -879,12 +948,33 @@ public:
       : head(head), staticArguments(std::move(staticArguments)), arguments(std::move(arguments)),
         spanArguments(std::move(spanArguments)) {}
 
+  ComplexExpressionWithAdditionalCustomAtoms(
+      Symbol&& head, StaticArgumentsTuple&& staticArguments,
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments = {},
+      ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& spanArguments =
+          {})
+      : head(std::move(head)), staticArguments(std::move(staticArguments)),
+        arguments(std::move(arguments)), spanArguments(std::move(spanArguments)) {}
+
   template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       Symbol const& head,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
       : ComplexExpressionWithAdditionalCustomAtoms(
             head,
+            convertToTuple(
+                arguments,
+                std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
+            {std::move_iterator(
+                 next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
+             std::move_iterator(end(arguments))}){};
+
+  template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
+  explicit ComplexExpressionWithAdditionalCustomAtoms(
+      Symbol&& head,
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
+      : ComplexExpressionWithAdditionalCustomAtoms(
+            std::move(head),
             convertToTuple(
                 arguments,
                 std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
@@ -903,7 +993,7 @@ public:
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms<T...>&& other)
-      : head(other.getHead()) {
+      : head(std::move(other).getHead()) {
     arguments.reserve(other.getArguments().size());
     for(auto&& arg : other.getArguments()) {
       std::visit(boss::utilities::overload(
@@ -927,12 +1017,18 @@ public:
   }
 
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const&
-  getDynamicArguments() const {
+  getDynamicArguments() const& {
     return arguments;
   };
 
-  auto const& getStaticArguments() const { return staticArguments; }
-  auto const& getSpanArguments() const { return spanArguments; }
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getDynamicArguments() && {
+    return move(arguments);
+  };
+
+  auto const& getStaticArguments() const& { return staticArguments; }
+  auto getStaticArguments() && { return std::move(staticArguments); }
+  auto const& getSpanArguments() const& { return spanArguments; }
+  auto getSpanArguments() && { return std::move(spanArguments); }
 
   ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getArgument(size_t i) && {
     return visit(
@@ -1008,7 +1104,8 @@ public:
         getArguments().at(i).getArgument());
   }
 
-  Symbol const& getHead() const { return head; };
+  Symbol const& getHead() const& { return head; };
+  Symbol getHead() && { return std::move(head); };
 
   ~ComplexExpressionWithAdditionalCustomAtoms() = default;
   ComplexExpressionWithAdditionalCustomAtoms(
@@ -1016,7 +1113,10 @@ public:
   ComplexExpressionWithAdditionalCustomAtoms&
   operator=(ComplexExpressionWithAdditionalCustomAtoms&&) noexcept = default;
 
-  bool operator==(ComplexExpressionWithAdditionalCustomAtoms const& other) const {
+  template <typename... StaticArgumentTypes>
+  bool operator==(
+      ComplexExpressionWithAdditionalCustomAtoms<std::tuple<StaticArgumentTypes...>,
+                                                 AdditionalCustomAtoms...> const& other) const {
     if(getHead() != other.getHead() || getArguments().size() != other.getArguments().size()) {
       return false;
     }
@@ -1066,11 +1166,10 @@ public:
     return out;
   }
 
-private:
   ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
-      default;
+      delete;
   ComplexExpressionWithAdditionalCustomAtoms&
-  operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = default;
+  operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = delete;
 };
 
 template <typename... AdditionalCustomAtoms> class ExtensibleExpressionSystem {
