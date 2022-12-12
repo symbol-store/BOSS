@@ -361,13 +361,15 @@ public:
   constexpr operator T&() const& { return *_ptr; } // NOLINT(hicpp-explicit-conversions)
   constexpr T& get() const& { return *_ptr; }
 
-  template <typename T2, typename = std::enable_if_t<utilities::is_comparable<T, T2>::value>>
-  constexpr bool operator==(MovableReferenceWrapper<T2> const other) const {
+  template <typename T2>
+  constexpr std::enable_if_t<boss::utilities::is_comparable<T, T2>::value, bool>
+  operator==(MovableReferenceWrapper<T2> const other) const {
     return *_ptr == *other._ptr;
   }
 
-  template <typename T2, typename = std::enable_if_t<utilities::is_comparable<T, T2>::value>>
-  constexpr bool operator==(T2 const other) const {
+  template <typename T2>
+  constexpr std::enable_if_t<boss::utilities::is_comparable<T, T2>::value, bool>
+  operator==(T2 const other) const {
     return *_ptr == other;
   }
 
