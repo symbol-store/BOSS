@@ -225,6 +225,10 @@ public:
 
   using SuperType::SuperType;
 
+  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = delete;
+  ExpressionWithAdditionalCustomAtoms&
+  operator=(ExpressionWithAdditionalCustomAtoms const&) = delete;
+
   // allow conversion from int32_t/float_t to int64_t/double_t
   // but only if int32_t/float_t are not supported already by the AdditionalCustomAtoms
   template <
@@ -311,11 +315,6 @@ public:
         thing);
     return out;
   }
-
-private:
-  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = delete;
-  ExpressionWithAdditionalCustomAtoms&
-  operator=(ExpressionWithAdditionalCustomAtoms const&) = delete;
 };
 
 template <typename... AdditionalCustomAtoms>

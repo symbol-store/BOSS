@@ -129,7 +129,7 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
 }
 
 TEST_CASE("Complex expression's argument cast to more general expression system", "[expressions]") {
-  auto a = "List"_("howdie"_(1, 2, 3));
+  auto a = "List"_("howdie"_(1L, 2L, 3L));
   auto const& b1 =
       (boss::ExtensibleExpressionSystem<DummyAtom>::Expression)(std::move(a).getArgument(0));
   CHECK(
@@ -552,14 +552,16 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
     REQUIRE(get<std::int64_t>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
     auto emptyTable = eval("Select"_("Customer"_, "Function"_(true)));
-    CHECK(get<std::int64_t>(eval("Length"_(std::move(emptyTable)))) == 0);
+    auto tmp = eval("Length"_(std::move(emptyTable)));
+    CHECK(get<std::int64_t>(tmp) == 0);
     eval("InsertInto"_("Customer"_, 1, "John", "McCarthy", 1927, "USA"));  // NOLINT
     eval("InsertInto"_("Customer"_, 2, "Sam", "Madden", 1976, "USA"));     // NOLINT
     eval("InsertInto"_("Customer"_, 3, "Barbara", "Liskov", 1939, "USA")); // NOLINT
     INFO("Select"_("Customer"_, "Function"_(true)));
     CHECK(eval("Length"_("Select"_("Customer"_, "Function"_(true)))) == Expression(3));
     auto fullTable = eval("Select"_("Customer"_, "Function"_(true)));
-    CHECK(get<std::int64_t>(eval("Length"_(std::move(fullTable)))) == 3);
+    auto tmp2 = eval("Length"_(std::move(fullTable)));
+    CHECK(get<std::int64_t>(tmp2) == 3);
     CHECK(get<std::string>(eval("Extract"_("Extract"_("Select"_("Customer"_, "Function"_(true)), 2),
                                            3))) == "Madden");
 
@@ -571,15 +573,19 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
       auto samRow = eval("Extract"_(std::move(sam), 1));
       CHECK(get<std::int64_t>(eval("Length"_(samRow.clone(/* for testing */)))) == 5);
       CHECK(get<string>(eval("Extract"_(samRow.clone(/* for testing */), 2))) == "Sam");
-      CHECK(get<string>(eval("Extract"_(std::move(samRow), 3))) == "Madden");
+      auto tmp = eval("Extract"_(std::move(samRow), 3));
+      CHECK(get<string>(tmp) == "Madden");
       auto none = eval("Select"_("Customer"_, "Function"_(false)));
-      CHECK(get<std::int64_t>(eval("Length"_(std::move(none)))) == 0);
+      auto tmp2 = eval("Length"_(std::move(none)));
+      CHECK(get<std::int64_t>(tmp2) == 0);
       auto all = eval("Select"_("Customer"_, "Function"_(true)));
       CHECK(get<std::int64_t>(eval("Length"_(all.clone(/* for testing*/)))) == 3);
       auto johnRow = eval("Extract"_(all.clone(/* for testing*/), 1));
       auto barbaraRow = eval("Extract"_(std::move(all), 3));
-      CHECK(get<string>(eval("Extract"_(std::move(johnRow), 2))) == "John");
-      CHECK(get<string>(eval("Extract"_(std::move(barbaraRow), 2))) == "Barbara");
+      auto tmp3 = eval("Extract"_(std::move(johnRow), 2));
+      CHECK(get<string>(tmp3) == "John");
+      auto tmp4 = eval("Extract"_(std::move(barbaraRow), 2));
+      CHECK(get<string>(tmp4) == "Barbara");
     }
 
     SECTION("Projection") {
@@ -590,13 +596,15 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
       CHECK(get<std::int64_t>(eval("Length"_(fullnames.clone(/* for testing*/)))) == 3);
       auto firstNames = eval("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_)));
       INFO(eval("Extract"_("Extract"_(fullnames.clone(/* for testing */), 1), 1)));
-      CHECK(get<string>(eval("Extract"_("Extract"_(std::move(firstNames), 1), 1))) ==
+      auto tmp = eval("Extract"_("Extract"_(std::move(firstNames), 1), 1));
+      CHECK(get<string>(tmp) ==
             get<string>(eval("Extract"_("Extract"_(fullnames.clone(/* for testing */), 1), 1))));
       auto lastNames = eval("Project"_("Customer"_, "As"_("LastName"_, "LastName"_)));
       INFO("lastnames=" << eval("Extract"_("Extract"_(lastNames.clone(/* for testing */), 1), 1)));
       INFO("fullnames=" << eval("Extract"_("Extract"_(fullnames.clone(/* for testing */), 1), 2)));
-      CHECK(get<string>(eval("Extract"_("Extract"_(std::move(lastNames), 1), 1))) ==
-            get<string>(eval("Extract"_("Extract"_(std::move(fullnames), 1), 2))));
+      auto tmp2 = eval("Extract"_("Extract"_(std::move(lastNames), 1), 1));
+      auto tmp3 = eval("Extract"_("Extract"_(std::move(fullnames), 1), 2));
+      CHECK(get<string>(tmp2) == get<string>(tmp3));
     }
 
     SECTION("Sorting") {
@@ -604,15 +612,18 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
                                              "Function"_("tuple"_, "Column"_("tuple"_, 3))));
       auto liskovRow = eval("Extract"_(sortedByLastName.clone(/* for testing */), 1));
       auto MaddenRow = eval("Extract"_(std::move(sortedByLastName), 2));
-      CHECK(get<string>(eval("Extract"_(std::move(liskovRow), 3))) == "Liskov");
-      CHECK(get<string>(eval("Extract"_(std::move(MaddenRow), 3))) == "Madden");
+      auto tmp = eval("Extract"_(std::move(liskovRow), 3));
+      CHECK(get<string>(tmp) == "Liskov");
+      auto tmp2 = eval("Extract"_(std::move(MaddenRow), 3));
+      CHECK(get<string>(tmp2) == "Madden");
     }
 
     SECTION("Aggregation") {
       auto countRows = eval("Group"_("Customer"_, "Function"_(0), "Count"_));
       INFO("countRows=" << countRows << "\n"
                         << eval("Extract"_("Extract"_(countRows.clone(/* for testing */), 1))));
-      CHECK(get<std::int64_t>(eval("Extract"_("Extract"_(std::move(countRows), 1), 1))) == 3);
+      auto tmp = eval("Extract"_("Extract"_(std::move(countRows), 1), 1));
+      CHECK(get<std::int64_t>(tmp) == 3);
       CHECK(get<std::int64_t>(eval("Extract"_(
                 "Extract"_("Group"_(("Select"_("Customer"_, "Where"_("StringContainsQ"_(
                                                                 "Madden", "LastName"_)))),
@@ -651,8 +662,9 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
 
   auto compareColumn = [&eval](boss::Expression&& expression, auto const& results) {
     for(auto i = 0; i < results.size(); i++) {
-      CHECK(get<typename std::remove_reference_t<decltype(results)>::value_type>(
-                eval("Extract"_("Extract"_(std::move(expression), i + 1), 1))) == results[i]);
+      auto tmp = eval("Extract"_("Extract"_(std::move(expression), i + 1), 1));
+      CHECK(get<typename std::remove_reference_t<decltype(results)>::value_type>(tmp) ==
+            results[i]);
     }
   };
 
