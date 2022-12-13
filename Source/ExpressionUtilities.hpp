@@ -42,11 +42,6 @@ public:
       return Expression(v);
     }
   }
-  // template <typename T>
-  // ::std::enable_if_t<::std::is_rvalue_reference_v<T&&>, typename ExpressionSystem::Expression>
-  // convertConstCharToStringAndOnToExpression(T&& v) const {
-  //   return typename ExpressionSystem::Expression(::std::forward<T>(v));
-  // }
 
   template <typename Ts>
   using isAtom = isVariantMember<::std::decay_t<Ts>, typename ExpressionSystem::AtomicExpression>;
@@ -64,45 +59,18 @@ public:
       ::std::conjunction<::std::negation<isStaticArgument<T>>, ::std::negation<isSpanArgument<T>>>;
 
   /**
-   * build expression from dynamic arguments
+   * build expression from dynamic arguments (or no arguments)
    */
   template <typename... Ts>
-  ::std::enable_if_t<::std::disjunction<isDynamicArgument<Ts>...>::value,
+  ::std::enable_if_t<(sizeof...(Ts) == 0) || (isDynamicArgument<Ts>::value || ...),
                      typename ExpressionSystem::ComplexExpression>
   operator()(Ts&&... args /*a*/) const {
     typename ExpressionSystem::ExpressionArguments argList;
     argList.reserve(sizeof...(Ts));
-    (
-        [this, &argList](auto&& arg) {
-          argList.emplace_back(convertConstCharToStringAndOnToExpression<decltype(arg)>(
-              ::std::forward<decltype(arg)>(arg)));
-        }(::std::move(args)),
-        ...);
-    return move(typename ExpressionSystem::ComplexExpression(s, ::std::move(argList)));
-  }
-
-  /**
-   * build expression from span arguments
-   */
-  template <typename... Ts>
-  ::std::enable_if_t<::std::conjunction<isSpanArgument<::std::decay_t<Ts>>...>::value &&
-                         (sizeof...(Ts) > 0) &&
-                         !::std::conjunction_v<isSpanOfConstArgument<std::decay_t<Ts>>...>,
-                     typename ExpressionSystem::ComplexExpression>
-  operator()(Ts&&... args /*a*/) const {
-    return {s, {}, {}, {::std::forward<decltype(args)>(args)...}};
-  }
-
-  /**
-   * build expression from const span arguments
-   */
-  template <typename... Ts>
-  ::std::enable_if_t<::std::conjunction<isSpanArgument<::std::decay_t<Ts>>...>::value &&
-                         (sizeof...(Ts) > 0) &&
-                         ::std::conjunction_v<isSpanOfConstArgument<std::decay_t<Ts>>...>,
-                     typename ExpressionSystem::ComplexExpression>
-  operator()(Ts&&... args /*a*/) const {
-    return {s, {}, {}, {::std::forward<decltype(args)>(args)...}};
+    (argList.emplace_back(convertConstCharToStringAndOnToExpression<decltype(args)>(
+         ::std::forward<decltype(args)>(args))),
+     ...);
+    return {s, {}, ::std::move(argList)};
   }
 
   /**
@@ -110,29 +78,24 @@ public:
    * arguments by rvalue reference)
    */
   template <typename... Ts>
-  ::std::enable_if_t<(sizeof...(Ts) > 0) &&
-                         ::std::conjunction<isStaticArgument<Ts>...,
-                                            ::std::disjunction<isComplexExpression<Ts>>...>::value,
+  ::std::enable_if_t<(sizeof...(Ts) > 0) && !(isSpanArgument<::std::decay_t<Ts>>::value && ...) &&
+                         (!isDynamicArgument<Ts>::value && ...),
                      typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
                          ::std::decay_t<Ts>...>>
   operator()(Ts&&... args /*a*/) const {
-    return move(typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
-                ::std::decay_t<Ts>...>(
-        s, ::std::tuple<::std::decay_t<Ts>...>(::std::forward<Ts>(args)...)));
+    return {s, ::std::tuple<::std::decay_t<Ts>...>(::std::forward<Ts>(args)...)};
   };
 
   /**
-   * build expression from static arguments, all of which are atoms (passing arguments by value)
+   * build expression from span arguments
    */
   template <typename... Ts>
-  ::std::enable_if_t<::std::conjunction<isAtom<Ts>...>::value,
-                     typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
-                         ::std::decay_t<Ts>...>>
-  operator()(Ts... args /*a*/) const {
-    return move(typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
-                ::std::decay_t<Ts>...>(
-        s, ::std::tuple<::std::decay_t<Ts>...>(::std::forward<Ts>(args)...)));
-  };
+  ::std::enable_if_t<::std::conjunction<isSpanArgument<::std::decay_t<Ts>>...>::value &&
+                         (sizeof...(Ts) > 0),
+                     typename ExpressionSystem::ComplexExpression>
+  operator()(Ts&&... args /*a*/) const {
+    return {s, {}, {}, {::std::forward<decltype(args)>(args)...}};
+  }
 
   friend typename ExpressionSystem::Expression
   operator|(typename ExpressionSystem::Expression const& expression,

@@ -399,9 +399,10 @@ using ArgumentWrappeeType = typename boss::utilities::variant_amend<
 
 template <typename... AdditionalCustomAtoms>
 using ConstArgumentWrappeeType = typename boss::utilities::variant_amend<
-    typename boss::utilities::rewrap_variant_arguments_and_add_const<
+    typename utilities::rewrap_variant_arguments<
         MovableReferenceWrapper,
-        AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type,
+        typename utilities::make_variant_members_const<
+            AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::type>::type,
     std::vector<bool>::const_reference,
     MovableReferenceWrapper<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> const>>::
     type;
