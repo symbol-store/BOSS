@@ -142,7 +142,7 @@ TEST_CASE("Complex expression's argument cast to more general expression system"
 
 TEST_CASE("Extract typed arguments from complex expression (using std::accumulate)",
           "[expressions]") {
-  auto exprBase = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto exprBase = "List"_("howdie"_(), 1L, "unknown"_, "hello world"s);
   auto const& expr0 =
       boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression(std::move(exprBase));
   auto str = [](auto const& expr) {
@@ -426,7 +426,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
   SECTION("CatchingErrors") {
     CHECK_THROWS_MATCHES(
-        engine.evaluate("EvaluateInEngines"_("List"_(9), 5)), std::bad_variant_access,
+        engine.evaluate("EvaluateInEngines"_("List"_(9L), 5L)), std::bad_variant_access,
         Message("expected and actual type mismatch in expression \"9\", expected string"));
   }
 
@@ -661,8 +661,8 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
   }
 
   auto compareColumn = [&eval](boss::Expression&& expression, auto const& results) {
+    auto tmp = eval("Extract"_("Extract"_(std::move(expression), i + 1), 1));
     for(auto i = 0; i < results.size(); i++) {
-      auto tmp = eval("Extract"_("Extract"_(std::move(expression), i + 1), 1));
       CHECK(get<typename std::remove_reference_t<decltype(results)>::value_type>(tmp) ==
             results[i]);
     }
