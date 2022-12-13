@@ -661,8 +661,8 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
   }
 
   auto compareColumn = [&eval](boss::Expression&& expression, auto const& results) {
-    auto tmp = eval("Extract"_("Extract"_(std::move(expression), i + 1), 1));
     for(auto i = 0; i < results.size(); i++) {
+      auto tmp = eval("Extract"_("Extract"_(expression.clone(), i + 1), 1));
       CHECK(get<typename std::remove_reference_t<decltype(results)>::value_type>(tmp) ==
             results[i]);
     }
