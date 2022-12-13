@@ -72,7 +72,7 @@ public: // surface
    * The span takes ownership of the adaptee
    */
   explicit Span(std::vector<std::remove_const_t<Scalar>>&& adaptee)
-      : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(move(adaptee))),
+      : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(std::move(adaptee))),
         _begin([this]() {
           if constexpr(std::is_same_v<Scalar, bool>) {
             return static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)
@@ -123,7 +123,7 @@ public: // surface
   Span() noexcept = default;
   Span(Span&& other) noexcept
       : adapteePayload(other.adapteePayload), _begin(other._begin), _end(other._end),
-        destructor(move(other.destructor)) {
+        destructor(std::move(other.destructor)) {
     other.adapteePayload = nullptr;
     other.destructor = [](void* /* unused */) {};
   };
@@ -313,10 +313,9 @@ public:
   }
 
 private:
-  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = // NOLINT
-      default;
+  ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms const&) = delete;
   ExpressionWithAdditionalCustomAtoms&
-  operator=(ExpressionWithAdditionalCustomAtoms const&) = default; // NOLINT
+  operator=(ExpressionWithAdditionalCustomAtoms const&) = delete;
 };
 
 template <typename... AdditionalCustomAtoms>
@@ -910,7 +909,7 @@ public:
   void cloneIfNecessary(
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& result,
       ComplexExpressionWithAdditionalCustomAtoms<T, AdditionalCustomAtoms...> const& e) const {
-    result.emplace_back(move(e.clone()));
+    result.push_back(e.clone());
   }
 
   template <typename T,
@@ -987,10 +986,11 @@ public:
 
   operator ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
       std::tuple<>, AdditionalCustomAtoms...>() const {
-    return move(ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
-                std::tuple<>, AdditionalCustomAtoms...>(
-        head, convertStaticToDynamicArguments(
-                  std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>())));
+    return std::move(
+        ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
+            std::tuple<>, AdditionalCustomAtoms...>(
+            head, convertStaticToDynamicArguments(
+                      std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>())));
   }
 
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
@@ -1025,7 +1025,7 @@ public:
   };
 
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getDynamicArguments() && {
-    return move(arguments);
+    return std::move(arguments);
   };
 
   auto const& getStaticArguments() const& { return staticArguments; }

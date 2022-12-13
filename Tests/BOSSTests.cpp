@@ -409,7 +409,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, bos
   auto input = vector<TestType>();
   std::transform(begin(vals), end(vals), std::back_inserter(input),
                  [](auto v) { return TestType(v); });
-  auto vectorExpression = "duh"_(boss::Span<TestType>(move(input)));
+  auto vectorExpression = "duh"_(boss::Span<TestType>(std::move(input)));
   for(auto i = 0U; i < vals.size(); i++) {
     CHECK(vectorExpression.getArguments().at(0) == TestType(vals.at(0)));
     CHECK(vectorExpression.getArguments()[0] == TestType(vals[0]));
@@ -420,8 +420,8 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](boss::Expression&& expression) mutable {
-    return engine.evaluate(
-        "EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))), move(expression)));
+    return engine.evaluate("EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))),
+                                                std::move(expression)));
   };
 
   SECTION("CatchingErrors") {
@@ -551,67 +551,68 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     INFO(eval("Length"_("Select"_("Customer"_, "Function"_(true)))));
 
     REQUIRE(get<std::int64_t>(eval("Length"_("Select"_("Customer"_, "Function"_(true))))) == 0);
-    auto const& emptyTable = eval("Select"_("Customer"_, "Function"_(true)));
-    CHECK(get<std::int64_t>(eval("Length"_(emptyTable))) == 0);
+    auto emptyTable = eval("Select"_("Customer"_, "Function"_(true)));
+    CHECK(get<std::int64_t>(eval("Length"_(std::move(emptyTable)))) == 0);
     eval("InsertInto"_("Customer"_, 1, "John", "McCarthy", 1927, "USA"));  // NOLINT
     eval("InsertInto"_("Customer"_, 2, "Sam", "Madden", 1976, "USA"));     // NOLINT
     eval("InsertInto"_("Customer"_, 3, "Barbara", "Liskov", 1939, "USA")); // NOLINT
     INFO("Select"_("Customer"_, "Function"_(true)));
     CHECK(eval("Length"_("Select"_("Customer"_, "Function"_(true)))) == Expression(3));
-    auto const& fullTable = eval("Select"_("Customer"_, "Function"_(true)));
-    CHECK(get<std::int64_t>(eval("Length"_(fullTable))) == 3);
+    auto fullTable = eval("Select"_("Customer"_, "Function"_(true)));
+    CHECK(get<std::int64_t>(eval("Length"_(std::move(fullTable)))) == 3);
     CHECK(get<std::string>(eval("Extract"_("Extract"_("Select"_("Customer"_, "Function"_(true)), 2),
                                            3))) == "Madden");
 
     SECTION("Selection") {
-      auto const& sam = eval("Select"_(
+      auto sam = eval("Select"_(
           "Customer"_,
           "Function"_("List"_("tuple"_), "StringContainsQ"_("Madden", "Column"_("tuple"_, 3)))));
-      CHECK(get<std::int64_t>(eval("Length"_(sam))) == 1);
-      auto const& samRow = eval("Extract"_(sam, 1));
-      CHECK(get<std::int64_t>(eval("Length"_(samRow))) == 5);
-      CHECK(get<string>(eval("Extract"_(samRow, 2))) == "Sam");
-      CHECK(get<string>(eval("Extract"_(samRow, 3))) == "Madden");
-      auto const& none = eval("Select"_("Customer"_, "Function"_(false)));
-      CHECK(get<std::int64_t>(eval("Length"_(none))) == 0);
-      auto const& all = eval("Select"_("Customer"_, "Function"_(true)));
-      CHECK(get<std::int64_t>(eval("Length"_(all))) == 3);
-      auto const& johnRow = eval("Extract"_(all, 1));
-      auto const& barbaraRow = eval("Extract"_(all, 3));
-      CHECK(get<string>(eval("Extract"_(johnRow, 2))) == "John");
-      CHECK(get<string>(eval("Extract"_(barbaraRow, 2))) == "Barbara");
+      CHECK(get<std::int64_t>(eval("Length"_(sam.clone(/* for testing */)))) == 1);
+      auto samRow = eval("Extract"_(std::move(sam), 1));
+      CHECK(get<std::int64_t>(eval("Length"_(samRow.clone(/* for testing */)))) == 5);
+      CHECK(get<string>(eval("Extract"_(samRow.clone(/* for testing */), 2))) == "Sam");
+      CHECK(get<string>(eval("Extract"_(std::move(samRow), 3))) == "Madden");
+      auto none = eval("Select"_("Customer"_, "Function"_(false)));
+      CHECK(get<std::int64_t>(eval("Length"_(std::move(none)))) == 0);
+      auto all = eval("Select"_("Customer"_, "Function"_(true)));
+      CHECK(get<std::int64_t>(eval("Length"_(all.clone(/* for testing*/)))) == 3);
+      auto johnRow = eval("Extract"_(all.clone(/* for testing*/), 1));
+      auto barbaraRow = eval("Extract"_(std::move(all), 3));
+      CHECK(get<string>(eval("Extract"_(std::move(johnRow), 2))) == "John");
+      CHECK(get<string>(eval("Extract"_(std::move(barbaraRow), 2))) == "Barbara");
     }
 
     SECTION("Projection") {
-      auto const& fullnames = eval(
+      auto fullnames = eval(
           "Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
       INFO("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
       INFO(fullnames);
-      CHECK(get<std::int64_t>(eval("Length"_(fullnames))) == 3);
-      auto const& firstNames = eval("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_)));
-      INFO(eval("Extract"_("Extract"_(fullnames, 1), 1)));
-      CHECK(get<string>(eval("Extract"_("Extract"_(firstNames, 1), 1))) ==
-            get<string>(eval("Extract"_("Extract"_(fullnames, 1), 1))));
-      auto const& lastNames = eval("Project"_("Customer"_, "As"_("LastName"_, "LastName"_)));
-      INFO("lastnames=" << eval("Extract"_("Extract"_(lastNames, 1), 1)));
-      INFO("fullnames=" << eval("Extract"_("Extract"_(fullnames, 1), 2)));
-      CHECK(get<string>(eval("Extract"_("Extract"_(lastNames, 1), 1))) ==
-            get<string>(eval("Extract"_("Extract"_(fullnames, 1), 2))));
+      CHECK(get<std::int64_t>(eval("Length"_(fullnames.clone(/* for testing*/)))) == 3);
+      auto firstNames = eval("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_)));
+      INFO(eval("Extract"_("Extract"_(fullnames.clone(/* for testing */), 1), 1)));
+      CHECK(get<string>(eval("Extract"_("Extract"_(std::move(firstNames), 1), 1))) ==
+            get<string>(eval("Extract"_("Extract"_(fullnames.clone(/* for testing */), 1), 1))));
+      auto lastNames = eval("Project"_("Customer"_, "As"_("LastName"_, "LastName"_)));
+      INFO("lastnames=" << eval("Extract"_("Extract"_(lastNames.clone(/* for testing */), 1), 1)));
+      INFO("fullnames=" << eval("Extract"_("Extract"_(fullnames.clone(/* for testing */), 1), 2)));
+      CHECK(get<string>(eval("Extract"_("Extract"_(std::move(lastNames), 1), 1))) ==
+            get<string>(eval("Extract"_("Extract"_(std::move(fullnames), 1), 2))));
     }
 
     SECTION("Sorting") {
-      auto const& sortedByLastName = eval("SortBy"_("Select"_("Customer"_, "Function"_(true)),
-                                                    "Function"_("tuple"_, "Column"_("tuple"_, 3))));
-      auto const& liskovRow = eval("Extract"_(sortedByLastName, 1));
-      auto const& MaddenRow = eval("Extract"_(sortedByLastName, 2));
-      CHECK(get<string>(eval("Extract"_(liskovRow, 3))) == "Liskov");
-      CHECK(get<string>(eval("Extract"_(MaddenRow, 3))) == "Madden");
+      auto sortedByLastName = eval("SortBy"_("Select"_("Customer"_, "Function"_(true)),
+                                             "Function"_("tuple"_, "Column"_("tuple"_, 3))));
+      auto liskovRow = eval("Extract"_(sortedByLastName.clone(/* for testing */), 1));
+      auto MaddenRow = eval("Extract"_(std::move(sortedByLastName), 2));
+      CHECK(get<string>(eval("Extract"_(std::move(liskovRow), 3))) == "Liskov");
+      CHECK(get<string>(eval("Extract"_(std::move(MaddenRow), 3))) == "Madden");
     }
 
     SECTION("Aggregation") {
-      auto const& countRows = eval("Group"_("Customer"_, "Function"_(0), "Count"_));
-      INFO("countRows=" << countRows << "\n" << eval("Extract"_("Extract"_(countRows, 1))));
-      CHECK(get<std::int64_t>(eval("Extract"_("Extract"_(countRows, 1), 1))) == 3);
+      auto countRows = eval("Group"_("Customer"_, "Function"_(0), "Count"_));
+      INFO("countRows=" << countRows << "\n"
+                        << eval("Extract"_("Extract"_(countRows.clone(/* for testing */), 1))));
+      CHECK(get<std::int64_t>(eval("Extract"_("Extract"_(std::move(countRows), 1), 1))) == 3);
       CHECK(get<std::int64_t>(eval("Extract"_(
                 "Extract"_("Group"_(("Select"_("Customer"_, "Where"_("StringContainsQ"_(
                                                                 "Madden", "LastName"_)))),
@@ -627,8 +628,8 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
   namespace nasty = boss::utilities::nasty;
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
-    return engine.evaluate(
-        "EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))), expression));
+    return engine.evaluate("EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))),
+                                                std::move(expression)));
   };
 
   std::vector<int64_t> ints{10, 20, 30, 40, 50}; // NOLINT
@@ -648,10 +649,10 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
     CHECK(eval(arrayPtrExpr) == "List"_(10, 20, 30, 40, 50));
   }
 
-  auto compareColumn = [&eval](boss::Expression const& expression, auto const& results) {
+  auto compareColumn = [&eval](boss::Expression&& expression, auto const& results) {
     for(auto i = 0; i < results.size(); i++) {
       CHECK(get<typename std::remove_reference_t<decltype(results)>::value_type>(
-                eval("Extract"_("Extract"_(expression, i + 1), 1))) == results[i]);
+                eval("Extract"_("Extract"_(std::move(expression), i + 1), 1))) == results[i]);
     }
   };
 
@@ -689,8 +690,8 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
-    return engine.evaluate(
-        "EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))), move(expression)));
+    return engine.evaluate("EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))),
+                                                std::move(expression)));
   };
 
   auto input = GENERATE(take(3, chunk(50, random<TestType>(1, 1000))));

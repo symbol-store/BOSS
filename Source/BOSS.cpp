@@ -24,7 +24,7 @@ BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
     static boss::engines::BootstrapEngine engine;
     return new BOSSExpression{engine.evaluate(arg->delegate.clone())};
   } catch(::std::exception const& e) {
-    return new BOSSExpression{"ErrorWhenEvaluatingExpression"_(arg->delegate, e.what())};
+    return new BOSSExpression{"ErrorWhenEvaluatingExpression"_(arg->delegate.clone(), e.what())};
   }
 };
 BOSSExpression* longToNewBOSSExpression(int64_t i) {

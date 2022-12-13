@@ -30,16 +30,9 @@ public:
     using Expression = typename ExpressionSystem::Expression;
     using ComplexExpression = typename ExpressionSystem::ComplexExpression;
     if constexpr(::std::is_same_v<::std::decay_t<decltype(v)>, char const*>) {
-      return Expression(::std::string((char const*)v));
-    } else if constexpr(::std::is_same_v<::std::decay_t<decltype(v)>, ComplexExpression> ||
-                        ::std::is_same_v<::std::decay_t<decltype(v)>, Expression>) {
-      if constexpr(::std::is_rvalue_reference_v<T> &&
-                   !::std::is_const_v<::std::remove_reference_t<T>>) {
-        return Expression(::std::forward<T>(v));
-      }
-      return Expression(v.clone());
+      return ::std::string((char const*)v);
     } else {
-      return Expression(v);
+      return std::forward<T>(v);
     }
   }
 
@@ -67,7 +60,7 @@ public:
   operator()(Ts&&... args /*a*/) const {
     typename ExpressionSystem::ExpressionArguments argList;
     argList.reserve(sizeof...(Ts));
-    (argList.emplace_back(convertConstCharToStringAndOnToExpression<decltype(args)>(
+    (argList.push_back(convertConstCharToStringAndOnToExpression<decltype(args)>(
          ::std::forward<decltype(args)>(args))),
      ...);
     return {s, {}, ::std::move(argList)};

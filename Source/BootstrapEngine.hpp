@@ -188,8 +188,8 @@ public:
             ? "EvaluateInEngines"_(
                   "List"_(Span<::std::string>(defaultEngine.data(), defaultEngine.size(),
                                               [](void* /* unused */) {})),
-                  move(e))
-            : move(e);
+                  std::move(e))
+            : std::move(e);
     return ::std::visit(boss::utilities::overload(
                             [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
                               if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
