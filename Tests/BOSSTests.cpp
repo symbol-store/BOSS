@@ -165,7 +165,7 @@ TEST_CASE("Extract typed arguments from complex expression (using std::accumulat
 }
 
 TEST_CASE("Extract typed arguments from complex expression (manual iteration)", "[expressions]") {
-  auto exprBase = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto exprBase = "List"_("howdie"_(), 1L, "unknown"_, "hello world"s);
   auto const& expr0 =
       boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression(std::move(exprBase));
   auto str = [](auto const& expr) {
@@ -640,7 +640,7 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
     return engine.evaluate("EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))),
-                                                std::move(expression)));
+                                                std::forward<decltype(expression)>(expression)));
   };
 
   std::vector<int64_t> ints{10, 20, 30, 40, 50}; // NOLINT
@@ -703,7 +703,7 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
     return engine.evaluate("EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))),
-                                                std::move(expression)));
+                                                std::forward<decltype(expression)>(expression)));
   };
 
   auto input = GENERATE(take(3, chunk(50, random<TestType>(1, 1000))));
