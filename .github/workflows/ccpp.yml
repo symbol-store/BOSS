@@ -13,7 +13,7 @@ jobs:
   format-check:
     runs-on: self-hosted
     container:
-      image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
+      image: docker.pkg.github.com/little-big-h/buildenvironment/ubuntubased
       credentials:
          username: ${{ github.actor }}
          password: ${{ secrets.GITHUB_TOKEN }}
