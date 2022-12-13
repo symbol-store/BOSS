@@ -383,8 +383,8 @@ private:
 };
 
 template <typename T, typename T2>
-constexpr auto operator==(T const& left, MovableReferenceWrapper<T2> other)
-    -> std::enable_if_t<utilities::is_comparable<T2, T>::value, bool> {
+constexpr std::enable_if_t<boss::utilities::is_comparable<T2, T>::value, bool>
+operator==(T const& left, MovableReferenceWrapper<T2> other) {
   return other == left;
 }
 
