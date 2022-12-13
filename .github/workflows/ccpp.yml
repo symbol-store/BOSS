@@ -23,7 +23,7 @@ jobs:
         submodules: true
     - name: check
       run: |
-        git config --list --local
+        git config --list --global
         git status -s
         find . \( -name '*.cpp' -or -name '*.hpp' \) -exec clang-format -i -style=file '{}' ';'
         git status -s
