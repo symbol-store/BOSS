@@ -27,13 +27,13 @@ public:
    */
   template <typename T>
   typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {
-    using Expression = typename ExpressionSystem::Expression;
-    using ComplexExpression = typename ExpressionSystem::ComplexExpression;
-    if constexpr(::std::is_same_v<::std::decay_t<decltype(v)>, char const*>) {
-      return ::std::string((char const*)v);
-    } else {
-      return std::forward<T>(v);
-    }
+    return std::forward<T>(v);
+  }
+
+  template <>
+  typename ExpressionSystem::Expression
+  convertConstCharToStringAndOnToExpression<char const*>(char const*&& v) const {
+    return ::std::string(v);
   }
 
   template <typename Ts>
