@@ -27,22 +27,13 @@ public:
    */
   template <typename T>
   typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {
-    return std::forward<T>(v);
+    return ExpressionSystem::Expression(std::forward<T>(v));
   }
 
   template <>
   typename ExpressionSystem::Expression
   convertConstCharToStringAndOnToExpression<char const*>(char const*&& v) const {
     return ::std::string(v);
-  }
-
-  /**
-   * we are converting 32 bit its to 64 to allow the convenience of using plain int literals
-   */
-  template <>
-  typename ExpressionSystem::Expression
-  convertConstCharToStringAndOnToExpression<int>(int&& v) const {
-    return int64_t(v);
   }
 
   template <typename Ts>
