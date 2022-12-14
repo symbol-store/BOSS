@@ -49,7 +49,9 @@ jobs:
         CXX=clang++-11 CC=clang-11 cmake -DCMAKE_INSTALL_PREFIX=../install -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
         cd ..
     - name: build
-      run: cmake --build ${{ matrix.build-type }} -- -j $(nproc)
+      run: |
+        cmake --build ${{ matrix.build-type }} --target Tests -- -j $(nproc)
+        cmake --build ${{ matrix.build-type }} --target BOSS -- -j $(nproc)
     - name: install
       run: cmake --build ${{ matrix.build-type }} --target install
     - name: Upload artifact
