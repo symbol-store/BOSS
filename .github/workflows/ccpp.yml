@@ -18,11 +18,12 @@ jobs:
          username: ${{ github.actor }}
          password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
     - name: check
       run: |
+        /usr/bin/git config --global --add safe.directory $GITHUB_WORKSPACE
         find . \( -name '*.cpp' -or -name '*.hpp' \) -exec clang-format -i -style=file '{}' ';'
         git status -s
         exit $(git status -s | wc -l)
