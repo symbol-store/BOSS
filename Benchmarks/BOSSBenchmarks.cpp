@@ -18,4 +18,4 @@ static void DummyBenchmark(benchmark::State& state) {
 }
 BENCHMARK(DummyBenchmark)->Range(0, 1024); // NOLINT
 
-BENCHMARK_MAIN();
+BENCHMARK_MAIN(); // NOLINT
