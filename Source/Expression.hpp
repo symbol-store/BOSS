@@ -199,6 +199,22 @@ public:
         }()) {}
 };
 
+enum class CloneReason {
+  FOR_TESTING,                     // should be used only in BOSSTests!
+  CONVERSION_TO_CUSTOM_EXPRESSION, // from boss::Expression to custom Expression
+  CONVERSION_TO_C_BOSS_EXPRESSION, // from boss::Expression to C BOSSExpression
+  IMPLICIT_CONVERSION_WITH_GET_ARGUMENTS,
+  FUNCTION_RETURNING_LVALUE,
+  FUNCTION_TAKING_DEFAULT_EXPRESSION,
+  EVALUATE_CONST_EXPRESSION, // evaluate() taking only a rvalue reference
+  // transformations:
+  EXPRESSION_WRAPPING,     // use expression as argument for another complex expression
+  EXPRESSION_SUBSTITUTION, // modifying arguments (includes argument evaluation)
+  EXPRESSION_AUGMENTATION, // adding new arguments
+};
+static void checkCloneWithoutReason(CloneReason reason) {}
+[[deprecated("Provide a reason type instead")]] static void checkCloneWithoutReason() {}
+
 template <typename... AdditionalCustomAtoms>
 using AtomicExpressionWithAdditionalCustomAtoms =
     std::variant<bool, std::int64_t, std::double_t, std::string, Symbol, AdditionalCustomAtoms...>;
@@ -245,8 +261,8 @@ public:
       ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
       : SuperType(std::visit(
             boss::utilities::overload(
-                [](ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...> &&
-                   unpacked) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+                [](ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...>&& unpacked)
+                    -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
                   return ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>,
                                                                     AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
@@ -294,14 +310,15 @@ public:
     return !(*this == other);
   }
 
-  ExpressionWithAdditionalCustomAtoms clone() const {
+  template <typename... Reason> ExpressionWithAdditionalCustomAtoms clone(Reason... reason) const {
+    checkCloneWithoutReason(reason...);
     using ComplexExpression =
         ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, AdditionalCustomAtoms...>;
     return std::visit(
         boss::utilities::overload(
             [](auto const& val) -> ExpressionWithAdditionalCustomAtoms { return val; },
-            [](ComplexExpression const& val) -> ExpressionWithAdditionalCustomAtoms {
-              return ComplexExpression(val.clone());
+            [reason...](ComplexExpression const& val) -> ExpressionWithAdditionalCustomAtoms {
+              return ComplexExpression(val.clone(reason...));
             }),
         (ExpressionWithAdditionalCustomAtoms::SuperType const&)*this);
   }
@@ -494,21 +511,22 @@ public:
     return std::visit(boss::utilities::overload([i](auto&& arg) { return arg.at(i); }));
   }
 
-  auto clone() const {
-    static auto unwrap = [](auto const& b) {
+  template <typename... Reason> auto clone(Reason... reason) const {
+    checkCloneWithoutReason(reason...);
+    static auto unwrap = [reason...](auto const& b) {
       if constexpr(boss::utilities::isInstanceOfTemplate<
                        std::decay_t<decltype(b)>, ExpressionWithAdditionalCustomAtoms>::value) {
-        return b.clone();
+        return b.clone(reason...);
       } else {
         return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
       }
     };
     return std::visit(
-        boss::utilities::overload([
-        ](auto const& a) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+        boss::utilities::overload([reason...](auto const& a) -> ExpressionWithAdditionalCustomAtoms<
+                                                                 AdditionalCustomAtoms...> {
           if constexpr(boss::utilities::isInstanceOfTemplate<
                            std::decay_t<decltype(a)>, ExpressionWithAdditionalCustomAtoms>::value) {
-            return a.get().clone();
+            return a.get().clone(reason...);
           }
           if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(a)>,
                                                              MovableReferenceWrapper>::value) {
@@ -747,7 +765,7 @@ public:
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> front() const { return at(0); }
 
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> operator[](size_t i) const {
-    if constexpr(std::tuple_size_v<StaticArgumentsContainer> > 0) {
+    if constexpr(std::tuple_size_v < StaticArgumentsContainer >> 0) {
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
         return getStaticArgument(i);
       }
@@ -766,8 +784,8 @@ public:
                                              std::vector<bool>::const_reference> &&
                               !IsConstWrapper) ||
                              ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                               std::is_const_v<std::remove_reference_t<decltype(
-                                   spanArgument.at(0))>>)&&!IsConstWrapper)) {
+                               std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
+                                   0))>>)&&!IsConstWrapper)) {
                   throw std::runtime_error("cannot convert const span to non-const argument");
                 } else {
                   return spanArgument[i - argumentPrefixScan];
@@ -805,8 +823,8 @@ public:
                             std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
                                            std::vector<bool>::const_reference>) ||
                            ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                             std::is_const_v<std::remove_reference_t<decltype(
-                                 spanArgument.at(0))>>)&&!IsConstWrapper)) {
+                             std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
+                                 0))>>)&&!IsConstWrapper)) {
                 throw std::runtime_error("cannot convert const span to non-const argument");
               } else if constexpr(
 
@@ -847,8 +865,9 @@ public:
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() & {
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
     result.reserve(this->size());
-    std::transform(std::begin(*this), std::end(*this), back_inserter(result),
-                   [](auto&& wrapper) { return wrapper.clone(); });
+    std::transform(std::begin(*this), std::end(*this), back_inserter(result), [](auto&& wrapper) {
+      return wrapper.clone(CloneReason::IMPLICIT_CONVERSION_WITH_GET_ARGUMENTS);
+    });
     return std::move(result);
   }
 
@@ -866,16 +885,16 @@ public:
     }
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
     result.reserve(this->size());
-    std::transform(
-        std::make_move_iterator(std::begin(*this)), std::make_move_iterator(std::end(*this)),
-        back_inserter(result),
-        [](auto&& wrapper) -> ExpressionWithAdditionalCustomAtoms<AdditionalAtoms...> {
-          if constexpr(!IsConstWrapper && !std::is_lvalue_reference_v<decltype(wrapper)>) {
-            return std::forward<decltype(wrapper)>(wrapper);
-          } else {
-            return wrapper.clone();
-          }
-        });
+    std::transform(std::make_move_iterator(std::begin(*this)),
+                   std::make_move_iterator(std::end(*this)), back_inserter(result),
+                   [](auto&& wrapper) -> ExpressionWithAdditionalCustomAtoms<AdditionalAtoms...> {
+                     if constexpr(!IsConstWrapper &&
+                                  !std::is_lvalue_reference_v<decltype(wrapper)>) {
+                       return std::forward<decltype(wrapper)>(wrapper);
+                     } else {
+                       return wrapper.clone(CloneReason::IMPLICIT_CONVERSION_WITH_GET_ARGUMENTS);
+                     }
+                   });
     return std::move(result);
   }
 
@@ -1065,9 +1084,13 @@ public:
             getArguments().at(i).getArgument()));
   }
 
-  ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> cloneArgument(size_t i) const {
+  template <typename... Reason>
+  ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>
+  cloneArgument(size_t i, Reason... reason) const {
+    checkCloneWithoutReason(reason...);
     return visit(
-        [](auto const& unwrapped) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+        [reason...](auto const& unwrapped)
+            -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
           if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(unwrapped)>,
                                                              MovableReferenceWrapper>::value) {
             if constexpr(::std::is_same_v<
@@ -1076,9 +1099,9 @@ public:
                              ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
               return visit(
                   boss::utilities::overload(
-                      [](ComplexExpressionWithAdditionalCustomAtoms const& arg)
+                      [reason...](ComplexExpressionWithAdditionalCustomAtoms const& arg)
                           -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-                        return arg.clone();
+                        return arg.clone(reason...);
                       },
                       [](auto const& arg)
                           -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
@@ -1093,9 +1116,9 @@ public:
                                       ::std::remove_reference_t<decltype(unwrapped)>>,
                                   ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>) {
             return visit(
-                [](auto const& arg)
+                [reason...](auto const& arg)
                     -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-                  return arg.clone();
+                  return arg.clone(reason...);
                 },
                 unwrapped);
           } else {
@@ -1132,12 +1155,14 @@ public:
     return !(*this == other);
   }
 
-  ComplexExpressionWithAdditionalCustomAtoms clone() const {
+  template <typename... Reason>
+  ComplexExpressionWithAdditionalCustomAtoms clone(Reason... reason) const {
+    checkCloneWithoutReason(reason...);
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> copiedArgs;
     ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> newSpanArguments;
     static_assert(std::tuple_size_v<decltype(staticArguments)> == 0);
     for(auto const& arg : getDynamicArguments()) {
-      copiedArgs.emplace_back(arg.clone());
+      copiedArgs.emplace_back(arg.clone(reason...));
     }
 
     newSpanArguments.reserve(spanArguments.size());

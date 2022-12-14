@@ -16,6 +16,7 @@ using Catch::Generators::take;
 using Catch::Generators::values;
 using std::vector;
 using namespace Catch::Matchers;
+using boss::expressions::CloneReason;
 using boss::expressions::generic::get;
 using boss::expressions::generic::get_if;
 using boss::expressions::generic::holds_alternative;
@@ -135,8 +136,8 @@ TEST_CASE("Complex expression's argument cast to more general expression system"
   CHECK(
       get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).getHead().getName() ==
       "howdie");
-  auto b2 =
-      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).cloneArgument(1);
+  auto b2 = get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).cloneArgument(
+      1, CloneReason::FOR_TESTING);
   CHECK(get<int64_t>(b2) == 2);
 }
 
@@ -395,7 +396,7 @@ TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", s
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto vectorExpression = "duh"_(boss::Span<TestType>(vector(input)));
-  auto clonedVectorExpression = vectorExpression.clone();
+  auto clonedVectorExpression = vectorExpression.clone(CloneReason::FOR_TESTING);
   for(auto i = 0U; i < input.size(); i++) {
     CHECK(clonedVectorExpression.getArguments().at(i) == input.at(i));
     CHECK(vectorExpression.getArguments()[i] == input[i]);
@@ -569,18 +570,18 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
       auto sam = eval("Select"_(
           "Customer"_,
           "Function"_("List"_("tuple"_), "StringContainsQ"_("Madden", "Column"_("tuple"_, 3)))));
-      CHECK(get<std::int64_t>(eval("Length"_(sam.clone(/* for testing */)))) == 1);
+      CHECK(get<std::int64_t>(eval("Length"_(sam.clone(CloneReason::FOR_TESTING)))) == 1);
       auto samRow = eval("Extract"_(std::move(sam), 1));
-      CHECK(get<std::int64_t>(eval("Length"_(samRow.clone(/* for testing */)))) == 5);
-      CHECK(get<string>(eval("Extract"_(samRow.clone(/* for testing */), 2))) == "Sam");
+      CHECK(get<std::int64_t>(eval("Length"_(samRow.clone(CloneReason::FOR_TESTING)))) == 5);
+      CHECK(get<string>(eval("Extract"_(samRow.clone(CloneReason::FOR_TESTING), 2))) == "Sam");
       auto tmp = eval("Extract"_(std::move(samRow), 3));
       CHECK(get<string>(tmp) == "Madden");
       auto none = eval("Select"_("Customer"_, "Function"_(false)));
       auto tmp2 = eval("Length"_(std::move(none)));
       CHECK(get<std::int64_t>(tmp2) == 0);
       auto all = eval("Select"_("Customer"_, "Function"_(true)));
-      CHECK(get<std::int64_t>(eval("Length"_(all.clone(/* for testing*/)))) == 3);
-      auto johnRow = eval("Extract"_(all.clone(/* for testing*/), 1));
+      CHECK(get<std::int64_t>(eval("Length"_(all.clone(CloneReason::FOR_TESTING)))) == 3);
+      auto johnRow = eval("Extract"_(all.clone(CloneReason::FOR_TESTING), 1));
       auto barbaraRow = eval("Extract"_(std::move(all), 3));
       auto tmp3 = eval("Extract"_(std::move(johnRow), 2));
       CHECK(get<string>(tmp3) == "John");
@@ -593,15 +594,17 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
           "Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
       INFO("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_, "LastName"_, "LastName"_)));
       INFO(fullnames);
-      CHECK(get<std::int64_t>(eval("Length"_(fullnames.clone(/* for testing*/)))) == 3);
+      CHECK(get<std::int64_t>(eval("Length"_(fullnames.clone(CloneReason::FOR_TESTING)))) == 3);
       auto firstNames = eval("Project"_("Customer"_, "As"_("FirstName"_, "FirstName"_)));
-      INFO(eval("Extract"_("Extract"_(fullnames.clone(/* for testing */), 1), 1)));
+      INFO(eval("Extract"_("Extract"_(fullnames.clone(CloneReason::FOR_TESTING), 1), 1)));
       auto tmp = eval("Extract"_("Extract"_(std::move(firstNames), 1), 1));
-      CHECK(get<string>(tmp) ==
-            get<string>(eval("Extract"_("Extract"_(fullnames.clone(/* for testing */), 1), 1))));
+      CHECK(get<string>(tmp) == get<string>(eval("Extract"_(
+                                    "Extract"_(fullnames.clone(CloneReason::FOR_TESTING), 1), 1))));
       auto lastNames = eval("Project"_("Customer"_, "As"_("LastName"_, "LastName"_)));
-      INFO("lastnames=" << eval("Extract"_("Extract"_(lastNames.clone(/* for testing */), 1), 1)));
-      INFO("fullnames=" << eval("Extract"_("Extract"_(fullnames.clone(/* for testing */), 1), 2)));
+      INFO("lastnames=" << eval(
+               "Extract"_("Extract"_(lastNames.clone(CloneReason::FOR_TESTING), 1), 1)));
+      INFO("fullnames=" << eval(
+               "Extract"_("Extract"_(fullnames.clone(CloneReason::FOR_TESTING), 1), 2)));
       auto tmp2 = eval("Extract"_("Extract"_(std::move(lastNames), 1), 1));
       auto tmp3 = eval("Extract"_("Extract"_(std::move(fullnames), 1), 2));
       CHECK(get<string>(tmp2) == get<string>(tmp3));
@@ -610,7 +613,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     SECTION("Sorting") {
       auto sortedByLastName = eval("SortBy"_("Select"_("Customer"_, "Function"_(true)),
                                              "Function"_("tuple"_, "Column"_("tuple"_, 3))));
-      auto liskovRow = eval("Extract"_(sortedByLastName.clone(/* for testing */), 1));
+      auto liskovRow = eval("Extract"_(sortedByLastName.clone(CloneReason::FOR_TESTING), 1));
       auto MaddenRow = eval("Extract"_(std::move(sortedByLastName), 2));
       auto tmp = eval("Extract"_(std::move(liskovRow), 3));
       CHECK(get<string>(tmp) == "Liskov");
@@ -621,7 +624,8 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     SECTION("Aggregation") {
       auto countRows = eval("Group"_("Customer"_, "Function"_(0), "Count"_));
       INFO("countRows=" << countRows << "\n"
-                        << eval("Extract"_("Extract"_(countRows.clone(/* for testing */), 1))));
+                        << eval("Extract"_(
+                               "Extract"_(countRows.clone(CloneReason::FOR_TESTING), 1))));
       auto tmp = eval("Extract"_("Extract"_(std::move(countRows), 1), 1));
       CHECK(get<std::int64_t>(tmp) == 3);
       CHECK(get<std::int64_t>(eval("Extract"_(
@@ -662,7 +666,7 @@ TEST_CASE("Arrays", "[arrays]") { // NOLINT
 
   auto compareColumn = [&eval](boss::Expression&& expression, auto const& results) {
     for(auto i = 0; i < results.size(); i++) {
-      auto tmp = eval("Extract"_("Extract"_(expression.clone(), i + 1), 1));
+      auto tmp = eval("Extract"_("Extract"_(expression.clone(CloneReason::FOR_TESTING), i + 1), 1));
       CHECK(get<typename std::remove_reference_t<decltype(results)>::value_type>(tmp) ==
             results[i]);
     }

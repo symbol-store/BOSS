@@ -204,7 +204,8 @@ public:
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   boss::Expression evaluate(boss::Expression const& e, bool isRootExpression = true) {
-    return evaluate(e.clone(), isRootExpression);
+    return evaluate(e.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION),
+                    isRootExpression);
   }
 };
 } // namespace

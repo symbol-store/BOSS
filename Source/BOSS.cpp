@@ -13,6 +13,7 @@
 #include <sstream>
 #include <variant>
 using namespace boss::utilities;
+using boss::expressions::CloneReason;
 using std::get; // NOLINT(misc-unused-using-decls)
                 // this is required to prevent clang-warnings for get<...>(Expression).
                 // I (Holger) suspect this is a compiler-bug
@@ -22,9 +23,11 @@ extern "C" {
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
   try {
     static boss::engines::BootstrapEngine engine;
-    return new BOSSExpression{engine.evaluate(arg->delegate.clone())};
+    return new BOSSExpression{
+        engine.evaluate(arg->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION))};
   } catch(::std::exception const& e) {
-    return new BOSSExpression{"ErrorWhenEvaluatingExpression"_(arg->delegate.clone(), e.what())};
+    return new BOSSExpression{"ErrorWhenEvaluatingExpression"_(
+        arg->delegate.clone(CloneReason::EXPRESSION_WRAPPING), e.what())};
   }
 };
 BOSSExpression* longToNewBOSSExpression(int64_t i) {
@@ -46,7 +49,9 @@ BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                                          BOSSExpression* arguments[]) {
   auto args = boss::ExpressionArguments();
   ::std::transform(arguments, arguments + cardinality, ::std::back_insert_iterator(args),
-                   [](auto const* a) { return a->delegate.clone(); });
+                   [](auto const* a) {
+                     return a->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION);
+                   });
   return new BOSSExpression{boss::ComplexExpression(head->delegate, ::std::move(args))};
 }
 
@@ -99,8 +104,9 @@ size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
   auto const& args = get<boss::ComplexExpression>(arg->delegate).getArguments();
   auto* result = new BOSSExpression*[args.size() + 1];
-  ::std::transform(begin(args), end(args), result,
-                   [](auto const& arg) { return new BOSSExpression{arg.clone()}; });
+  ::std::transform(begin(args), end(args), result, [](auto const& arg) {
+    return new BOSSExpression{arg.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
+  });
   result[args.size()] = nullptr;
   return result;
 }
@@ -124,7 +130,7 @@ void freeBOSSString(char* s) {
 
 namespace boss {
 Expression evaluate(Expression const& expr) {
-  auto* e = new BOSSExpression{expr.clone()};
+  auto* e = new BOSSExpression{expr.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
   auto* result = BOSSEvaluate(e);
   auto output = ::std::move(result->delegate);
   freeBOSSExpression(result);
