@@ -27,7 +27,7 @@ public:
    */
   template <typename T>
   typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {
-    if constexpr(std::is_same_v<std::decay_t<T>, int>){
+    if constexpr(std::is_same_v<std::decay_t<T>, int>) {
       return int64_t(v);
     } else {
       return typename ExpressionSystem::Expression(std::forward<T>(v));
