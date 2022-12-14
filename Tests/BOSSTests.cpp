@@ -22,6 +22,8 @@ using boss::expressions::generic::get_if;
 using boss::expressions::generic::holds_alternative;
 using std::int64_t;
 
+constexpr int64_t operator"" i64(unsigned long long v) { return static_cast<int64_t>(v); }
+
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
@@ -94,11 +96,11 @@ TEST_CASE("Expression Transformation", "[expressions]") {
   auto v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto e = "UnevaluatedPlus"_(v1, v2);
-  REQUIRE(*begin(e.getArguments()) == v1);
-  get<std::int64_t>(*begin(e.getArguments()))++;
-  REQUIRE(*begin(e.getArguments()) == v1 + 1);
-  std::transform(std::make_move_iterator(begin(e.getArguments())),
-                 std::make_move_iterator(end(e.getArguments())), e.getArguments().begin(),
+  REQUIRE(*std::begin(e.getArguments()) == v1);
+  get<std::int64_t>(*std::begin(e.getArguments()))++;
+  REQUIRE(*std::begin(e.getArguments()) == v1 + 1);
+  std::transform(std::make_move_iterator(std::begin(e.getArguments())),
+                 std::make_move_iterator(std::end(e.getArguments())), e.getArguments().begin(),
                  [](auto&& e) { return get<std::int64_t>(e) + 1; });
 
   CHECK(e.getArguments().at(0) == v1 + 2);
@@ -130,7 +132,7 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
 }
 
 TEST_CASE("Complex expression's argument cast to more general expression system", "[expressions]") {
-  auto a = "List"_("howdie"_(1L, 2L, 3L));
+  auto a = "List"_("howdie"_(1i64, 2i64, 3i64));
   auto const& b1 =
       (boss::ExtensibleExpressionSystem<DummyAtom>::Expression)(std::move(a).getArgument(0));
   CHECK(
@@ -143,7 +145,7 @@ TEST_CASE("Complex expression's argument cast to more general expression system"
 
 TEST_CASE("Extract typed arguments from complex expression (using std::accumulate)",
           "[expressions]") {
-  auto exprBase = "List"_("howdie"_(), 1L, "unknown"_, "hello world"s);
+  auto exprBase = "List"_("howdie"_(), 1i64, "unknown"_, "hello world"s);
   auto const& expr0 =
       boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression(std::move(exprBase));
   auto str = [](auto const& expr) {
@@ -166,7 +168,7 @@ TEST_CASE("Extract typed arguments from complex expression (using std::accumulat
 }
 
 TEST_CASE("Extract typed arguments from complex expression (manual iteration)", "[expressions]") {
-  auto exprBase = "List"_("howdie"_(), 1L, "unknown"_, "hello world"s);
+  auto exprBase = "List"_("howdie"_(), 1i64, "unknown"_, "hello world"s);
   auto const& expr0 =
       boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression(std::move(exprBase));
   auto str = [](auto const& expr) {
@@ -333,7 +335,7 @@ TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,
                    std::double_t) {
-  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1i64, 1000i64))));
   auto v = vector<TestType>(input);
   auto s = boss::Span<TestType>(std::move(v));
   auto vectorExpression = "duh"_(std::move(s));
@@ -347,7 +349,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int64_t,
                    std::double_t) {
-  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1i64, 1000i64))));
   auto v = vector<TestType>(input);
   auto s = boss::Span<TestType>(v);
   auto vectorExpression = "duh"_(std::move(s));
@@ -361,7 +363,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]",
                    std::int64_t, std::double_t) {
-  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1i64, 1000i64))));
   auto const v = vector<TestType>(input);
   auto s = boss::Span<TestType const>(v);
   auto const vectorExpression = "duh"_(std::move(s));
@@ -375,7 +377,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans", "[spans][arrow]", std::int64_t,
                    std::double_t) {
-  auto input = GENERATE(take(3, chunk(5, random<TestType>(1L, 1000L))));
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1i64, 1000i64))));
   std::conditional_t<std::is_same_v<TestType, std::int64_t>, arrow::Int64Builder,
                      arrow::DoubleBuilder>
       builder;
@@ -427,7 +429,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
   SECTION("CatchingErrors") {
     CHECK_THROWS_MATCHES(
-        engine.evaluate("EvaluateInEngines"_("List"_(9L), 5L)), std::bad_variant_access,
+        engine.evaluate("EvaluateInEngines"_("List"_(9i64), 5i64)), std::bad_variant_access,
         Message("expected and actual type mismatch in expression \"9\", expected string"));
   }
 

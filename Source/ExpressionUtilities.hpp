@@ -64,7 +64,7 @@ public:
    * build expression from dynamic arguments (or no arguments)
    */
   template <typename... Ts>
-  ::std::enable_if_t<(sizeof...(Ts) == 0) || (isDynamicArgument<Ts>::value || ...),
+  ::std::enable_if_t<sizeof...(Ts) == 0 || std::disjunction_v<isDynamicArgument<Ts>...>,
                      typename ExpressionSystem::ComplexExpression>
   operator()(Ts&&... args /*a*/) const {
     typename ExpressionSystem::ExpressionArguments argList;
@@ -80,8 +80,9 @@ public:
    * arguments by rvalue reference)
    */
   template <typename... Ts>
-  ::std::enable_if_t<(sizeof...(Ts) > 0) && !(isSpanArgument<::std::decay_t<Ts>>::value && ...) &&
-                         (!isDynamicArgument<Ts>::value && ...),
+  ::std::enable_if_t<(sizeof...(Ts) > 0) &&
+                         !(std::conjunction_v<isSpanArgument<::std::decay_t<Ts>>...>)&&!(
+                             std::disjunction_v<isDynamicArgument<Ts>...>),
                      typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
                          ::std::decay_t<Ts>...>>
   operator()(Ts&&... args /*a*/) const {
