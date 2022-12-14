@@ -36,6 +36,15 @@ public:
     return ::std::string(v);
   }
 
+  /**
+   * we are converting 32 bit its to 64 to allow the convenience of using plain int literals
+   */
+  template <>
+  typename ExpressionSystem::Expression
+  convertConstCharToStringAndOnToExpression<int>(int&& v) const {
+    return int64_t(v);
+  }
+
   template <typename Ts>
   using isAtom = isVariantMember<::std::decay_t<Ts>, typename ExpressionSystem::AtomicExpression>;
   template <typename Ts>
