@@ -105,6 +105,8 @@ ExternalProject_Add(googlebenchmark
 		CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_GTEST_TESTS=OFF $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
   BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main${CMAKE_STATIC_LIBRARY_SUFFIX}
   )
+set_target_properties(googlebenchmark PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
 
 ExternalProject_Add(catch2
 	URL https://github.com/catchorg/Catch2/archive/v2.13.6.tar.gz
@@ -146,7 +148,7 @@ if(WIN32)
 endif(WIN32)
 
 # Benchmarks
-add_executable(Benchmarks ${ImplementationFiles} ${BenchmarkFiles})
+add_executable(Benchmarks EXCLUDE_FROM_ALL ${ImplementationFiles} ${BenchmarkFiles})
 target_link_libraries(Benchmarks Threads::Threads)
 if(WIN32)
   target_link_libraries(Benchmarks shlwapi.lib)  

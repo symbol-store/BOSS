@@ -50,8 +50,7 @@ jobs:
         cd ..
     - name: build
       run: |
-        cmake --build ${{ matrix.build-type }} --target Tests -- -j $(nproc)
-        cmake --build ${{ matrix.build-type }} --target BOSS -- -j $(nproc)
+        cmake --build ${{ matrix.build-type }} -- -j $(nproc)
     - name: install
       run: cmake --build ${{ matrix.build-type }} --target install
     - name: Upload artifact
