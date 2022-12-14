@@ -6,9 +6,8 @@
 namespace boss::algorithm {
 template <typename Container, typename Visitor> void visitEach(Container c, Visitor v) {
   using std::for_each;
-  for_each(c.begin(), c.end(), [&v](auto&& item) {
-    visit([&v](auto&& item) { return v(item); }, item);
-  });
+  for_each(c.begin(), c.end(),
+           [&v](auto&& item) { visit([&v](auto&& item) { return v(item); }, item); });
 }
 
 template <typename Container, typename Init, typename Visitor>

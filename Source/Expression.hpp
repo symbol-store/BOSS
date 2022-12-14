@@ -245,8 +245,8 @@ public:
       ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
       : SuperType(std::visit(
             boss::utilities::overload(
-                [](ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...>&& unpacked)
-                    -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+                [](ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...> &&
+                   unpacked) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
                   return ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>,
                                                                     AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
@@ -504,20 +504,19 @@ public:
       }
     };
     return std::visit(
-        boss::utilities::overload(
-            [](auto const& a) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-              if constexpr(boss::utilities::isInstanceOfTemplate<
-                               std::decay_t<decltype(a)>,
-                               ExpressionWithAdditionalCustomAtoms>::value) {
-                return a.get().clone();
-              }
-              if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(a)>,
-                                                                 MovableReferenceWrapper>::value) {
-                return unwrap(a.get());
-              } else {
-                return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(a);
-              }
-            }),
+        boss::utilities::overload([
+        ](auto const& a) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+          if constexpr(boss::utilities::isInstanceOfTemplate<
+                           std::decay_t<decltype(a)>, ExpressionWithAdditionalCustomAtoms>::value) {
+            return a.get().clone();
+          }
+          if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(a)>,
+                                                             MovableReferenceWrapper>::value) {
+            return unwrap(a.get());
+          } else {
+            return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(a);
+          }
+        }),
         argument);
   }
 
@@ -748,7 +747,7 @@ public:
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> front() const { return at(0); }
 
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> operator[](size_t i) const {
-    if constexpr(std::tuple_size_v < StaticArgumentsContainer >> 0) {
+    if constexpr(std::tuple_size_v<StaticArgumentsContainer> > 0) {
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
         return getStaticArgument(i);
       }
@@ -767,8 +766,8 @@ public:
                                              std::vector<bool>::const_reference> &&
                               !IsConstWrapper) ||
                              ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                               std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                   0))>>)&&!IsConstWrapper)) {
+                               std::is_const_v<std::remove_reference_t<decltype(
+                                   spanArgument.at(0))>>)&&!IsConstWrapper)) {
                   throw std::runtime_error("cannot convert const span to non-const argument");
                 } else {
                   return spanArgument[i - argumentPrefixScan];
@@ -806,8 +805,8 @@ public:
                             std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
                                            std::vector<bool>::const_reference>) ||
                            ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                             std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                 0))>>)&&!IsConstWrapper)) {
+                             std::is_const_v<std::remove_reference_t<decltype(
+                                 spanArgument.at(0))>>)&&!IsConstWrapper)) {
                 throw std::runtime_error("cannot convert const span to non-const argument");
               } else if constexpr(
 
@@ -867,16 +866,16 @@ public:
     }
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...> result;
     result.reserve(this->size());
-    std::transform(std::make_move_iterator(std::begin(*this)),
-                   std::make_move_iterator(std::end(*this)), back_inserter(result),
-                   [](auto&& wrapper) -> ExpressionWithAdditionalCustomAtoms<AdditionalAtoms...> {
-                     if constexpr(!IsConstWrapper &&
-                                  !std::is_lvalue_reference_v<decltype(wrapper)>) {
-                       return std::forward<decltype(wrapper)>(wrapper);
-                     } else {
-                       return wrapper.clone();
-                     }
-                   });
+    std::transform(
+        std::make_move_iterator(std::begin(*this)), std::make_move_iterator(std::end(*this)),
+        back_inserter(result),
+        [](auto&& wrapper) -> ExpressionWithAdditionalCustomAtoms<AdditionalAtoms...> {
+          if constexpr(!IsConstWrapper && !std::is_lvalue_reference_v<decltype(wrapper)>) {
+            return std::forward<decltype(wrapper)>(wrapper);
+          } else {
+            return wrapper.clone();
+          }
+        });
     return std::move(result);
   }
 
