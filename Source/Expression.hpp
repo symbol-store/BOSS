@@ -76,6 +76,10 @@ public: // surface
     return std::move(*this);
   }
 
+  constexpr Span<Scalar> subspan(size_t offset) && {
+    return std::move(*this).subspan(offset, _end - _begin - offset);
+  }
+
   /**
    * The span takes ownership of the adaptee
    */
