@@ -35,9 +35,9 @@ TEST_CASE("Subspans work correctly", "[spans]") {
   CHECK(subrange[0] == 2);
   CHECK(subrange[1] == 4);
   CHECK(subrange[2] == 3);
-  auto subrange2 = boss::Span<int64_t>{std::vector<int64_t>{1, 2, 5, 6}}.subspan(2);
+  auto subrange2 = boss::Span<int64_t>{std::vector<int64_t>{1, 2, 5, 2}}.subspan(2);
   CHECK(subrange2[0] == 5);
-  CHECK(subrange2[1] == 6);
+  CHECK(subrange2[1] == 2);
 }
 
 TEST_CASE("Expressions", "[expressions]") {
