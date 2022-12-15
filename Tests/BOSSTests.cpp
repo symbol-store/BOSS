@@ -1,3 +1,4 @@
+#include <cstdint>
 #define CATCH_CONFIG_RUNNER
 #include "../Source/BOSS.hpp"
 #include "../Source/BootstrapEngine.hpp"
@@ -20,10 +21,22 @@ using boss::expressions::CloneReason;
 using boss::expressions::generic::get;
 using boss::expressions::generic::get_if;
 using boss::expressions::generic::holds_alternative;
+namespace boss {
+using boss::expressions::atoms::Span;
+};
 using std::int64_t;
 
 static std::vector<string>
     librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+TEST_CASE("Subspans work correctly", "[spans]") {
+  auto input = boss::Span<int64_t>{std::vector<int64_t>{1, 2, 4, 3}};
+  auto subrange = std::move(input).subspan(1, 3);
+  CHECK(subrange.size() == 3);
+  CHECK(subrange[0] == 2);
+  CHECK(subrange[1] == 4);
+  CHECK(subrange[2] == 3);
+}
 
 TEST_CASE("Expressions", "[expressions]") {
   auto const v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
