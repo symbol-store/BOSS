@@ -27,18 +27,16 @@ public:
    */
   template <typename T>
   typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {
+    if constexpr(std::is_same_v<std::decay_t<T>, char const*>) {
+      return ::std::string(v);
+    }
     // also convert int32 to int64 as a convenience
     // (except if the expression's type system includes int32)
-    if constexpr(std::is_same_v<std::decay_t<T>, int> && !isAtom<int>::value) {
+    else if constexpr(std::is_same_v<std::decay_t<T>, int> && !isAtom<int>::value) {
       return int64_t(v);
     } else {
       return std::forward<T>(v);
     }
-  }
-  template <>
-  typename ExpressionSystem::Expression
-  convertConstCharToStringAndOnToExpression<char const*>(char const*&& v) const {
-    return ::std::string(v);
   }
 
   template <typename Ts>
