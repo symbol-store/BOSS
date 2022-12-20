@@ -41,6 +41,9 @@ TEST_CASE("Subspans work correctly", "[spans]") {
 }
 
 TEST_CASE("Expressions", "[expressions]") {
+  using SpanArguments = boss::expressions::ExpressionSpanArguments;
+  using SpanArgument = boss::expressions::ExpressionSpanArgument;
+  using boss::expressions::atoms::Span;
   auto const v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto const v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto const e = "UnevaluatedPlus"_(v1, v2);
@@ -57,17 +60,20 @@ TEST_CASE("Expressions", "[expressions]") {
 
   SECTION("span expression arguments") {
     std::array<int64_t, 2> values = {v1, v2};
-    auto spanArgumentExpression = boss::expressions::ComplexExpression(
-        "UnevaluatedPlus"_, {}, {},
-        {boss::expressions::atoms::Span<int64_t>(&values[0], 2, [](auto&& /*unused*/) {})});
+    SpanArguments args;
+    args.emplace_back(Span<int64_t>(&values[0], 2, [](auto&& /*unused*/) {}));
+    auto spanArgumentExpression =
+      boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
     CHECK(e == spanArgumentExpression);
   }
 
   SECTION("nested span expression arguments") {
     std::array<int64_t, 2> values = {v1, v2};
+    SpanArguments args;
+    args.emplace_back(Span<int64_t const>(&values[0], 2, [](auto&& /*unused*/) {}));
     auto nested = boss::expressions::ComplexExpression(
         "UnevaluatedPlus"_, {}, {},
-        {boss::expressions::atoms::Span<int64_t const>(&values[0], 2, [](auto&& /*unused*/) {})});
+        std::move(args));
     boss::expressions::ExpressionArguments subExpressions;
     subExpressions.push_back(std::move(nested));
     auto spanArgumentExpression =
@@ -729,10 +735,11 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   auto sum = std::accumulate(begin(input), end(input), TestType());
 
   if constexpr(std::is_same_v<TestType, std::double_t>) {
-    CHECK(get<std::double_t>(eval("Plus"_(boss::Span<TestType>(vector(input))))) ==
-          Catch::Detail::Approx((std::double_t)sum));
+    auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
+    CHECK(get<std::double_t>(result) == Catch::Detail::Approx((std::double_t)sum));
   } else {
-    CHECK(get<TestType>(eval("Plus"_(boss::Span<TestType>(vector(input))))) == sum);
+    auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
+    CHECK(get<TestType>(result) == sum);
   }
 }
 

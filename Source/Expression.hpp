@@ -18,6 +18,22 @@
 
 namespace boss {
 namespace expressions {
+
+enum class CloneReason {
+  FOR_TESTING,                            // should be used only in BOSSTests!
+  CONVERSION_TO_CUSTOM_EXPRESSION,        // from boss::Expression to custom Expression
+  CONVERSION_TO_C_BOSS_EXPRESSION,        // from boss::Expression to C BOSSExpression
+  IMPLICIT_CONVERSION_WITH_GET_ARGUMENTS, //
+  FUNCTION_RETURNING_LVALUE,              //
+  FUNCTION_TAKING_DEFAULT_EXPRESSION,     //
+  EVALUATE_CONST_EXPRESSION, // evaluate() taking only a rvalue reference   transformations:
+  EXPRESSION_WRAPPING,       // use expression as argument for another complex expression
+  EXPRESSION_SUBSTITUTION,   // modifying arguments (includes argument evaluation)
+  EXPRESSION_AUGMENTATION,   // adding new arguments
+};
+static void checkCloneWithoutReason(CloneReason reason) {}
+[[deprecated("Provide a reason type instead")]] static void checkCloneWithoutReason() {}
+
 namespace atoms {
 class Symbol {
   std::string name;
@@ -133,6 +149,12 @@ public: // surface
   bool operator==(Span const& other) const { return _begin == other._begin; }
 
   Span() noexcept = default;
+
+  /**
+   * We consider Spans move-only because they can be *really* expensive to copy. It you really,
+   * really have to copy one, use the clone() function and provide a reason
+   */
+  Span(Span const& other) = delete;
   Span(Span&& other) noexcept
       : adapteePayload(other.adapteePayload), _begin(other._begin), _end(other._end),
         destructor(std::move(other.destructor)) {
@@ -143,26 +165,28 @@ public: // surface
   /**
    * because the Span constructor cannot infer what data structure/payload was used to hold the
    * values in the other Span, arguments are copied into a std::vector. The alternative would be
-   * to use some kind of reference chain but I (Holger) did not like that -- I am open to
-   * discussing this, though
+   * to use some kind of reference chain or counting but I (Holger) did not like that -- I am open
+   * to discussing this, though
    */
-  Span(Span<Scalar> const& other)
-      : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(other._begin, other._end)),
-        _begin([this]() {
-          if constexpr(std::is_same_v<std::remove_const_t<Scalar>, bool>) {
-            return static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)
-                ->begin();
-          } else {
-            return static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)
-                ->data();
-          }
-        }()),
-        _end(_begin +
-             static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)->size()),
-        destructor(
-            [](void* v) { delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v); }){};
+  template <typename... Reason> Span<std::remove_const_t<Scalar>> clone(Reason... reason) const& {
+    checkCloneWithoutReason(reason...);
+    return Span<std::remove_const_t<Scalar>>(
+        std::vector<std::remove_const_t<Scalar>>(_begin, _end));
+  }
 
-  Span& operator=(Span&&) noexcept = default;
+  Span& operator=(Span&& other) noexcept {
+    adapteePayload = (other.adapteePayload);
+    _begin = (other._begin);
+    _end = (other._end);
+    destructor = (std::move(other.destructor));
+    other.adapteePayload = nullptr;
+    other.destructor = [](void* /* unused */) {};
+    return *this;
+  };
+
+  /**
+   * see comment on the copy constructor about copying Spans
+   */
   Span& operator=(Span const&) = delete;
   ~Span() {
     if(destructor && adapteePayload != nullptr) {
@@ -210,22 +234,6 @@ public:
           return s.str();
         }()) {}
 };
-
-enum class CloneReason {
-  FOR_TESTING,                     // should be used only in BOSSTests!
-  CONVERSION_TO_CUSTOM_EXPRESSION, // from boss::Expression to custom Expression
-  CONVERSION_TO_C_BOSS_EXPRESSION, // from boss::Expression to C BOSSExpression
-  IMPLICIT_CONVERSION_WITH_GET_ARGUMENTS,
-  FUNCTION_RETURNING_LVALUE,
-  FUNCTION_TAKING_DEFAULT_EXPRESSION,
-  EVALUATE_CONST_EXPRESSION, // evaluate() taking only a rvalue reference
-  // transformations:
-  EXPRESSION_WRAPPING,     // use expression as argument for another complex expression
-  EXPRESSION_SUBSTITUTION, // modifying arguments (includes argument evaluation)
-  EXPRESSION_AUGMENTATION, // adding new arguments
-};
-static void checkCloneWithoutReason(CloneReason reason) {}
-[[deprecated("Provide a reason type instead")]] static void checkCloneWithoutReason() {}
 
 template <typename... AdditionalCustomAtoms>
 using AtomicExpressionWithAdditionalCustomAtoms =
@@ -351,18 +359,19 @@ using ExpressionArgumentsWithAdditionalCustomAtoms =
     std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>;
 
 template <typename... AdditionalCustomAtoms>
+using ExpressionSpanArgumentWithAdditionalCustomAtoms =
+    std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
+                 Span<Symbol>, Span<AdditionalCustomAtoms>..., Span<bool const>,
+                 Span<std::int64_t const>, Span<std::double_t const>, Span<std::string const>,
+                 Span<Symbol const>, Span<AdditionalCustomAtoms const>...>;
+
+template <typename... AdditionalCustomAtoms>
 class ExpressionSpanArgumentsWithAdditionalCustomAtoms
     : public std::vector<
-          std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
-                       Span<Symbol>, Span<AdditionalCustomAtoms>..., Span<bool const>,
-                       Span<std::int64_t const>, Span<std::double_t const>, Span<std::string const>,
-                       Span<Symbol const>, Span<AdditionalCustomAtoms const>...>> {
+          ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...>> {
 public:
   using std::vector<
-      std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
-                   Span<Symbol>, Span<AdditionalCustomAtoms>..., Span<bool const>,
-                   Span<std::int64_t const>, Span<std::double_t const>, Span<std::string const>,
-                   Span<Symbol const>, Span<AdditionalCustomAtoms const>...>>::vector;
+      ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::vector;
 };
 
 /**
@@ -1179,7 +1188,12 @@ public:
 
     newSpanArguments.reserve(spanArguments.size());
     for(auto& it : spanArguments) {
-      newSpanArguments.push_back(it);
+      newSpanArguments.push_back(std::visit(
+          [&](auto const& v)
+              -> ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+            return v.clone(reason...);
+          },
+          it));
     }
 
     return ComplexExpressionWithAdditionalCustomAtoms(head, {}, std::move(copiedArgs),
@@ -1223,6 +1237,8 @@ public:
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
   using ExpressionSpanArguments =
       ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
+  using ExpressionSpanArgument =
+      ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...>;
 };
 
 template <typename T, typename... AdditionalCustomAtoms>
@@ -1394,6 +1410,7 @@ using ComplexExpression = DefaultExpressionSystem::ComplexExpressionWithStaticAr
 using Expression = DefaultExpressionSystem::Expression;
 using ExpressionArguments = DefaultExpressionSystem::ExpressionArguments;
 using ExpressionSpanArguments = DefaultExpressionSystem::ExpressionSpanArguments;
+using ExpressionSpanArgument = DefaultExpressionSystem::ExpressionSpanArgument;
 
 } // namespace expressions
 

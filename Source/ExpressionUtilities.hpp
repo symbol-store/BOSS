@@ -92,8 +92,11 @@ public:
   ::std::enable_if_t<::std::conjunction<isSpanArgument<::std::decay_t<Ts>>...>::value &&
                          (sizeof...(Ts) > 0),
                      typename ExpressionSystem::ComplexExpression>
-  operator()(Ts&&... args /*a*/) const {
-    return {s, {}, {}, {::std::forward<decltype(args)>(args)...}};
+  operator()(Ts&&... args) const {
+    auto spans = std::array{
+        std::move(args)...}; // unfortunately, vectors cannot be initialized with move-only types
+                             // which is why we need to put spans into an array first
+    return {s, {}, {}, {std::move_iterator(begin(spans)), std::move_iterator(end(spans))}};
   }
 
   friend typename ExpressionSystem::Expression
