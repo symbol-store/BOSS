@@ -233,7 +233,7 @@ if(WIN32)
   # on Windows, one "import library" for each executable target is needed
   # to link the plugins without leaving any unresolved symbol in the dll
   foreach(Target IN LISTS AllTargets)
-    install(FILES ${BOSS_BINARY_DIR}/${Target}.lib DESTINATION lib)
+    install(FILES ${BOSS_BINARY_DIR}/${Target}.lib DESTINATION lib OPTIONAL)
   endforeach()
 else()
   # other OS only need to expose the BOSS library
