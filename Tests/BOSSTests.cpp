@@ -63,7 +63,7 @@ TEST_CASE("Expressions", "[expressions]") {
     SpanArguments args;
     args.emplace_back(Span<int64_t>(&values[0], 2, [](auto&& /*unused*/) {}));
     auto spanArgumentExpression =
-      boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
+        boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
     CHECK(e == spanArgumentExpression);
   }
 
@@ -71,9 +71,7 @@ TEST_CASE("Expressions", "[expressions]") {
     std::array<int64_t, 2> values = {v1, v2};
     SpanArguments args;
     args.emplace_back(Span<int64_t const>(&values[0], 2, [](auto&& /*unused*/) {}));
-    auto nested = boss::expressions::ComplexExpression(
-        "UnevaluatedPlus"_, {}, {},
-        std::move(args));
+    auto nested = boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
     boss::expressions::ExpressionArguments subExpressions;
     subExpressions.push_back(std::move(nested));
     auto spanArgumentExpression =
