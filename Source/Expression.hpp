@@ -373,6 +373,18 @@ class ExpressionSpanArgumentsWithAdditionalCustomAtoms
 public:
   using std::vector<
       ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::vector;
+
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms(
+      ExpressionSpanArgumentsWithAdditionalCustomAtoms const&) = delete;
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms&
+  operator=(ExpressionSpanArgumentsWithAdditionalCustomAtoms const&) = delete;
+
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms() noexcept = default;
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms(
+      ExpressionSpanArgumentsWithAdditionalCustomAtoms&&) noexcept = default;
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms&
+  operator=(ExpressionSpanArgumentsWithAdditionalCustomAtoms&&) noexcept = default;
+  ~ExpressionSpanArgumentsWithAdditionalCustomAtoms() = default;
 };
 
 /**
