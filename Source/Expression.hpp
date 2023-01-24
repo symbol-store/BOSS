@@ -1,5 +1,6 @@
 #pragma once
 #include "Utilities.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <functional>
