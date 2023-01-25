@@ -374,6 +374,9 @@ public:
   using std::vector<
       ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::vector;
 
+  // The Spans are not copyable anyway,
+  // but we need to remove the copy constructors
+  // so the compilers provide more useful errors at the calling point when trying to copy
   ExpressionSpanArgumentsWithAdditionalCustomAtoms(
       ExpressionSpanArgumentsWithAdditionalCustomAtoms const&) = delete;
   ExpressionSpanArgumentsWithAdditionalCustomAtoms&
