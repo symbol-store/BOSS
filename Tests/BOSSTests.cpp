@@ -504,7 +504,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     auto interpolationTable = "Table"_("Column"_("x"_, "List"_(thing[0], thing[1], thing[2])),
                                        "Column"_("y"_, "List"_(y[0], "Interpolate"_("x"_), y[2])));
 
-    auto expectedProjectX = "Table"_("Column"_("y"_, "List"_(thing[0], thing[1], thing[2])));
+    auto expectedProjectX = "Table"_("Column"_("x"_, "List"_(thing[0], thing[1], thing[2])));
     auto expectedProjectY = "Table"_("Column"_("y"_, "List"_(y[0], (y[0] + y[2]) / 2, y[2])));
 
     CHECK(eval("Project"_(interpolationTable.clone(CloneReason::FOR_TESTING), "As"_("x"_, "x"_))) ==
@@ -516,7 +516,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   SECTION("Relational (Ints)") {
     SECTION("Selection") {
       auto intTable = "Table"_("Column"_("Value"_, "List"_(2, 3, 1, 4, 1))); // NOLINT
-      auto result = eval("Select"_(std::move(intTable), "Where"_("Greater"_("Size"_, 3))));
+      auto result = eval("Select"_(std::move(intTable), "Where"_("Greater"_("Value"_, 3))));
       CHECK(result == "Table"_("Column"_("Value"_, "List"_(4))));
     }
 
