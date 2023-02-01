@@ -61,7 +61,7 @@ TEST_CASE("Expressions", "[expressions]") {
   SECTION("span expression arguments") {
     std::array<int64_t, 2> values = {v1, v2};
     SpanArguments args;
-    args.emplace_back(Span<int64_t>(&values[0], 2, [](auto&& /*unused*/) {}));
+    args.emplace_back(Span<int64_t>(&values[0], 2, nullptr));
     auto spanArgumentExpression =
         boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
     CHECK(e == spanArgumentExpression);
@@ -70,7 +70,7 @@ TEST_CASE("Expressions", "[expressions]") {
   SECTION("nested span expression arguments") {
     std::array<int64_t, 2> values = {v1, v2};
     SpanArguments args;
-    args.emplace_back(Span<int64_t const>(&values[0], 2, [](auto&& /*unused*/) {}));
+    args.emplace_back(Span<int64_t const>(&values[0], 2, nullptr));
     auto nested = boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
     boss::expressions::ExpressionArguments subExpressions;
     subExpressions.push_back(std::move(nested));
@@ -395,13 +395,15 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans", "[spans][arrow]", std::int64_t,
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
-  std::conditional_t<std::is_same_v<TestType, std::int64_t>, arrow::Int64Builder,
-                     arrow::DoubleBuilder>
-      builder;
-  auto status = builder.AppendValues(begin(input), end(input));
-  auto thingy = builder.Finish().ValueOrDie();
-  auto* v = thingy->data()->template GetMutableValues<TestType>(1);
-  auto s = boss::Span<TestType>(v, thingy->length(), [thingy](void* /* unused */) {});
+  auto s = [&input]() {
+    std::conditional_t<std::is_same_v<TestType, std::int64_t>, arrow::Int64Builder,
+                       arrow::DoubleBuilder>
+        builder;
+    auto status = builder.AppendValues(begin(input), end(input));
+    auto thingy = builder.Finish().ValueOrDie();
+    auto* v = thingy->data()->template GetMutableValues<TestType>(1);
+    return boss::Span<TestType>(v, thingy->length(), [thingy]() {});
+  }();
   auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {

@@ -53,9 +53,6 @@ public:
 
 template <typename Scalar> struct Span {
 private: // state
-  void* adapteePayload = {};
-  std::function<void(void*)> destructor;
-
   using IteratorType = std::conditional_t<
       std::is_same_v<std::remove_const_t<Scalar>, bool>,
       std::conditional_t<std::is_const_v<Scalar>, typename std::vector<bool>::const_iterator,
@@ -63,6 +60,7 @@ private: // state
       Scalar*>;
   IteratorType _begin = {};
   IteratorType _end = {};
+  std::function<void(void)> destructor;
 
 public: // surface
   using element_type = Scalar;
@@ -101,20 +99,14 @@ public: // surface
    * The span takes ownership of the adaptee
    */
   explicit Span(std::vector<std::remove_const_t<Scalar>>&& adaptee)
-      : adapteePayload(new std::vector<std::remove_const_t<Scalar>>(std::move(adaptee))),
-        _begin([this]() {
+      : _begin([&adaptee]() {
           if constexpr(std::is_same_v<Scalar, bool>) {
-            return static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)
-                ->begin();
+            return adaptee.begin();
           } else {
-            return static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)
-                ->data();
+            return adaptee.data();
           }
         }()),
-        _end(_begin +
-             static_cast<std::vector<std::remove_const_t<Scalar>>*>(this->adapteePayload)->size()),
-        destructor(
-            [](void* v) { delete static_cast<std::vector<std::remove_const_t<Scalar>>*>(v); }) {}
+        _end(_begin + adaptee.size()), destructor([v = std::move(adaptee)]() {}) {}
 
   /**
    * The span does not take ownership of the adaptee. The vector better not be modified while the
@@ -144,7 +136,7 @@ public: // surface
         }()),
         _end(_begin + adaptee.size()) {}
 
-  explicit Span(IteratorType begin, size_t size, std::function<void(void*)> destructor)
+  explicit Span(IteratorType begin, size_t size, std::function<void(void)> destructor)
       : _begin(begin), _end(begin + size), destructor(std::move(destructor)) {}
 
   bool operator==(Span const& other) const { return _begin == other._begin; }
@@ -157,10 +149,8 @@ public: // surface
    */
   Span(Span const& other) = delete;
   Span(Span&& other) noexcept
-      : adapteePayload(other.adapteePayload), _begin(other._begin), _end(other._end),
-        destructor(std::move(other.destructor)) {
-    other.adapteePayload = nullptr;
-    other.destructor = [](void* /* unused */) {};
+      : _begin(other._begin), _end(other._end), destructor(std::move(other.destructor)) {
+    other.destructor = nullptr;
   };
 
   /**
@@ -176,12 +166,10 @@ public: // surface
   }
 
   Span& operator=(Span&& other) noexcept {
-    adapteePayload = (other.adapteePayload);
     _begin = (other._begin);
     _end = (other._end);
     destructor = (std::move(other.destructor));
-    other.adapteePayload = nullptr;
-    other.destructor = [](void* /* unused */) {};
+    other.destructor = nullptr;
     return *this;
   };
 
@@ -190,8 +178,8 @@ public: // surface
    */
   Span& operator=(Span const&) = delete;
   ~Span() {
-    if(destructor && adapteePayload != nullptr) {
-      destructor(adapteePayload);
+    if(destructor) {
+      destructor();
     }
   };
 
