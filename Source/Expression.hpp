@@ -991,8 +991,11 @@ public:
   ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>
   convertStaticToDynamicArguments(std::index_sequence<I...> /*unused*/) const {
     ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> result;
-    result.reserve(sizeof...(I));
+    result.reserve(arguments.size() + sizeof...(I));
     (cloneIfNecessary(result, std::get<I>(staticArguments)), ...);
+    std::for_each(arguments.begin(), arguments.end(), [this, &result](auto&& e) {
+      std::visit([this, &result](auto&& e) { cloneIfNecessary(result, e); }, e);
+    });
     return result;
   }
 
