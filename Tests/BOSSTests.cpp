@@ -741,6 +741,54 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   }
 }
 
+TEST_CASE("TPC-H", "[tpch]") {
+  auto engine = boss::engines::BootstrapEngine();
+  REQUIRE(!librariesToTest.empty());
+  auto eval = [&engine](boss::Expression&& expression) mutable {
+    return engine.evaluate("EvaluateInEngines"_("List"_(GENERATE(from_range(librariesToTest))),
+                                                std::move(expression)));
+  };
+
+  auto lineitem = "Table"_(
+      "Column"_("L_ORDERKEY"_, "List"_(1, 1, 2, 3)),
+      "Column"_("L_PARTKEY"_, "List"_(156, 68, 64, 121)),
+      "Column"_("L_SUPPKEY"_, "List"_(5, 4, 9, 12)),
+      "Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)),
+      "Column"_("L_EXTENDEDPRICE"_, "List"_(17954.55, 34850.16, 7712.48, 25284.00)),
+      "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)),
+      "Column"_("L_SHIPDATE"_, "List"_("DateObject"_("1992-03-13"), "DateObject"_("1994-04-12"),
+                                       "DateObject"_("1996-02-28"), "DateObject"_("1994-12-31"))));
+
+  SECTION("Q6 (Select-Project only)") {
+    auto output = eval("Project"_(
+        "Select"_("Project"_(std::move(lineitem), "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                                        "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                        "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
+                  "Where"_("And"_("Greater"_(24, "L_QUANTITY"_), "Greater"_("L_DISCOUNT"_, 0.0499),
+                                  "Greater"_(0.07001, "L_DISCOUNT"_),
+                                  "Greater"_("DateObject"_("1995-01-01"), "L_SHIPDATE"_),
+                                  "Greater"_("L_SHIPDATE"_, "DateObject"_("1993-12-31"))))),
+        "As"_("revenue"_, "Times"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_))));
+    CHECK(output == "Table"_("Column"_("revenue"_, "List"_(34850.16 * 0.05, 25284.00 * 0.06))));
+  }
+
+  SECTION("Q6 (With grouping)") {
+    auto output = eval("Group"_(
+        "Project"_(
+            "Select"_(
+                "Project"_(std::move(lineitem), "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                                      "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                      "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
+                "Where"_("And"_("Greater"_(24, "L_QUANTITY"_), "Greater"_("L_DISCOUNT"_, 0.0499),
+                                "Greater"_(0.07001, "L_DISCOUNT"_),
+                                "Greater"_("DateObject"_("1995-01-01"), "L_SHIPDATE"_),
+                                "Greater"_("L_SHIPDATE"_, "DateObject"_("1993-12-31"))))),
+            "As"_("revenue"_, "Times"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_))),
+        "Sum"_("revenue"_)));
+    CHECK(output == "Table"_("Column"_("revenue"_, "List"_(34850.16 * 0.05 + 25284.00 * 0.06))));
+  }
+}
+
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::double_t) {
   auto engine = boss::engines::BootstrapEngine();
