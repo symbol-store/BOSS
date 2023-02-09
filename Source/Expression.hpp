@@ -491,6 +491,12 @@ public:
           if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
                                                              MovableReferenceWrapper>::value) {
             return std::forward<decltype(e)>(e).get();
+          } else if constexpr(::std::disjunction_v<
+                                  ::std::is_same<::std::decay_t<decltype(e)>,
+                                                 ::std::vector<bool>::reference>,
+                                  ::std::is_same<::std::decay_t<decltype(e)>,
+                                                 ::std::vector<bool>::const_reference>>) {
+            return (bool)e;
           } else {
             return std::forward<decltype(e)>(e);
           }
@@ -1044,12 +1050,11 @@ public:
       : head(std::move(other).getHead()) {
     arguments.reserve(other.getArguments().size());
     for(auto&& arg : other.getArguments()) {
-      std::visit(boss::utilities::overload(
-                     [this](std::vector<bool>::reference&& arg) {
-                       arguments.emplace_back(std::move(arg));
-                     },
-                     [this](auto&& arg) { arguments.emplace_back(std::move(arg.get())); }),
-                 std::move(arg.getArgument()));
+      std::visit(
+          boss::utilities::overload(
+              [this](std::vector<bool>::reference&& arg) { arguments.emplace_back((bool)arg); },
+              [this](auto&& arg) { arguments.emplace_back(std::move(arg.get())); }),
+          std::move(arg.getArgument()));
     }
   }
 
