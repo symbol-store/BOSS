@@ -677,7 +677,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
                              "Column"_("Country"_, "List"_("USA"))));
 
       auto id3 = eval(
-          "Select"_(customerTable.clone(CloneReason::FOR_TESTING), "Where"_("Equal"_(("ID"_, 3)))));
+          "Select"_(customerTable.clone(CloneReason::FOR_TESTING), "Where"_("Equal"_("ID"_, 3))));
       CHECK(id3 == "Table"_("Column"_("ID"_, "List"_(3)), // NOLINT
                             "Column"_("FirstName"_, "List"_("Barbara")),
                             "Column"_("LastName"_, "List"_("Liskov")),
@@ -685,7 +685,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
                             "Column"_("Country"_, "List"_("USA"))));
 
       auto notFound = eval("Select"_(customerTable.clone(CloneReason::FOR_TESTING),
-                                     "Where"_("Equal"_(("BirthYear"_, 0)))));
+                                     "Where"_("Equal"_("BirthYear"_, 0))));
       CHECK(notFound == "Table"_("Column"_("ID"_, "List"_()), "Column"_("FirstName"_, "List"_()),
                                  "Column"_("LastName"_, "List"_()),
                                  "Column"_("BirthYear"_, "List"_()),
