@@ -1060,7 +1060,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                                 "Select"_("Project"_(customer.clone(CloneReason::FOR_TESTING),
                                                      "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_ACCTBAL"_,
                                                            "C_ACCTBAL"_)),
-                                          "Where"_("Equal"_("C_ACCTBAL"_, 2866.83))),
+                                          "Where"_("Equal"_("C_ACCTBAL"_, 2866.83))), // NOLINT
                                 "As"_("C_CUSTKEY"_, "C_CUSTKEY"_)),
                             "Select"_(
                                 "Project"_(orders.clone(CloneReason::FOR_TESTING),
@@ -1085,7 +1085,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                       "O_ORDERDATE"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
             "By"_("L_ORDERKEY"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_),
             "As"_("revenue"_, "Sum"_("Expr1009"_))),
-        "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10));
+        "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10)); // NOLINT
     CHECK(output == "Dummy"_());
   }
 
@@ -1126,7 +1126,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                       "O_ORDERDATE"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
             "By"_("L_ORDERKEY"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_),
             "As"_("revenue"_, "Sum"_("Expr1009"_))),
-        "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10));
+        "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10)); // NOLINT
     CHECK(output == "Dummy"_());
   }
 
@@ -1144,7 +1144,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                                             "Project"_(part.clone(CloneReason::FOR_TESTING),
                                                        "As"_("P_PARTKEY"_, "P_PARTKEY"_,
                                                              "P_RETAILPRICE"_, "P_RETAILPRICE"_)),
-                                            "Where"_("Equal"_("P_RETAILPRICE"_, 100.01))),
+                                            "Where"_("Equal"_("P_RETAILPRICE"_, 100.01))), // NOLINT
                                         "As"_("P_PARTKEY"_, "P_PARTKEY"_)),
                                     "Project"_(
                                         "Join"_(
@@ -1287,7 +1287,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                       "sum_l_quantity"_, "sum_l_quantity"_)),
             "By"_("C_ACCTBAL"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
             "Sum"_("sum_l_quantity"_)),
-        "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100));
+        "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100)); // NOLINT
     CHECK(output == "Dummy"_());
   }
 
@@ -1299,7 +1299,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                                  "L_QUANTITY"_, "L_QUANTITY"_)),
                                                 "By"_("L_ORDERKEY"_),
                                                 "As"_("sum_l_quantity"_, "Sum"_("L_QUANTITY"_))),
-                                       "Where"_("Greater"_("sum_l_quantity"_, 1.0))),
+                                       "Where"_("Greater"_("sum_l_quantity"_, 1.0))), // NOLINT
                              "Project"_("Join"_("Project"_(customer.clone(CloneReason::FOR_TESTING),
                                                            "As"_("C_NAME"_, "C_NAME"_, "C_CUSTKEY"_,
                                                                  "C_CUSTKEY"_)),
@@ -1318,7 +1318,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                            "O_CUSTKEY"_, "sum_l_quantity"_, "sum_l_quantity"_)),
                  "By"_("C_NAME"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
                  "Sum"_("sum_l_quantity"_)),
-        "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100));
+        "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100)); // NOLINT
     CHECK(output == "Dummy"_());
   }
 }
