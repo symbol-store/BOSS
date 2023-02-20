@@ -741,6 +741,8 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   }
 }
 
+static int64_t operator""_i64(char c) { return static_cast<int64_t>(c); };
+
 TEST_CASE("TPC-H", "[tpch]") {
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
