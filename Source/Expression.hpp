@@ -1072,7 +1072,7 @@ public:
     for(auto&& span : otherSpans) {
       std::visit(
           [this](auto&& typedSpan) {
-            spanArguments.emplace_back(std::forward<decltype(typedArg)>(typedSpan));
+            spanArguments.emplace_back(std::forward<decltype(typedSpan)>(typedSpan));
           },
           std::move(span));
     }
