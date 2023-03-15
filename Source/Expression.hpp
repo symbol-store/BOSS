@@ -1044,9 +1044,10 @@ public:
                       std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>())));
   }
 
-  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
+  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename OtherTuple,
+            typename... T>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
-      ComplexExpressionWithAdditionalCustomAtoms<T...>&& other)
+      ComplexExpressionWithAdditionalCustomAtoms<OtherTuple, T...>&& other)
       : head(std::move(other).getHead()) {
     auto [_unused, otherStatics, otherDynamics, otherSpans] = std::move(other).decompose();
     arguments.reserve(std::tuple_size_v<OtherTuple> + otherDynamics.size());
