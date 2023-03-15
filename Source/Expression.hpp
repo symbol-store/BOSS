@@ -1063,13 +1063,18 @@ public:
                 arguments.emplace_back(
                     ComplexExpressionWithAdditionalCustomAtoms(std::move(typedArg)));
               },
-              [this](auto&& typedArg) { arguments.emplace_back(std::move(typedArg)); }),
+              [this](auto&& typedArg) {
+                arguments.emplace_back(std::forward<decltype(typedArg)>(typedArg));
+              }),
           std::move(arg));
     }
     spanArguments.reserve(otherSpans.size());
     for(auto&& span : otherSpans) {
-      std::visit([this](auto&& typedSpan) { spanArguments.emplace_back(std::move(typedSpan)); },
-                 std::move(span));
+      std::visit(
+          [this](auto&& typedSpan) {
+            spanArguments.emplace_back(std::forward<decltype(typedArg)>(typedSpan));
+          },
+          std::move(span));
     }
   }
 
