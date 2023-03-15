@@ -1048,13 +1048,27 @@ public:
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms<T...>&& other)
       : head(std::move(other).getHead()) {
-    arguments.reserve(other.getArguments().size());
-    for(auto&& arg : other.getArguments()) {
+    auto [_unused, otherStatics, otherDynamics, otherSpans] = std::move(other).decompose();
+    arguments.reserve(std::tuple_size_v<OtherTuple> + otherDynamics.size());
+    // move statics
+    std::apply(
+        [this](auto&&... staticArgs) { (arguments.emplace_back(std::move(staticArgs)), ...); },
+        std::move(otherStatics));
+    // move dynamics
+    for(auto&& arg : otherDynamics) {
       std::visit(
           boss::utilities::overload(
-              [this](std::vector<bool>::reference&& arg) { arguments.emplace_back((bool)arg); },
-              [this](auto&& arg) { arguments.emplace_back(std::move(arg.get())); }),
-          std::move(arg.getArgument()));
+              [this](ComplexExpressionWithAdditionalCustomAtoms<OtherTuple, T...>&& typedArg) {
+                arguments.emplace_back(
+                    ComplexExpressionWithAdditionalCustomAtoms(std::move(typedArg)));
+              },
+              [this](auto&& typedArg) { arguments.emplace_back(std::move(typedArg)); }),
+          std::move(arg));
+    }
+    spanArguments.reserve(otherSpans.size());
+    for(auto&& span : otherSpans) {
+      std::visit([this](auto&& typedSpan) { spanArguments.emplace_back(std::move(typedSpan)); },
+                 std::move(span));
     }
   }
 
