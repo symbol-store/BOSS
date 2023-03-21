@@ -99,7 +99,7 @@ public: // surface
    * The span takes ownership of the adaptee
    */
   explicit Span(std::vector<std::remove_const_t<Scalar>>&& adaptee)
-      : _begin([&adaptee]() {
+      : _begin([&/* capturing context for immediate evaluation */]() {
           if constexpr(std::is_same_v<Scalar, bool>) {
             return adaptee.begin();
           } else {
