@@ -2,6 +2,7 @@
 #include "../Source/BOSS.hpp"
 #include "../Source/BootstrapEngine.hpp"
 #include "../Source/ExpressionUtilities.hpp"
+#include "../Source/Serialization.hpp"
 #include <arrow/array.h>
 #include <arrow/builder.h>
 #include <catch2/catch.hpp>
@@ -353,8 +354,8 @@ TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
-  auto v = vector<TestType>(input);
-  auto s = boss::Span<TestType>(std::move(v));
+  auto argument = vector<TestType>(input);
+  auto s = boss::Span<TestType>(std::move(argument));
   auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
@@ -367,8 +368,8 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int64_t,
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
-  auto v = vector<TestType>(input);
-  auto s = boss::Span<TestType>(v);
+  auto argument = vector<TestType>(input);
+  auto s = boss::Span<TestType>(argument);
   auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
@@ -381,8 +382,8 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]",
                    std::int64_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
-  auto const v = vector<TestType>(input);
-  auto s = boss::Span<TestType const>(v);
+  auto const argument = vector<TestType>(input);
+  auto s = boss::Span<TestType const>(argument);
   auto const vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
@@ -401,8 +402,8 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans", "[spans][arro
         builder;
     auto status = builder.AppendValues(begin(input), end(input));
     auto thingy = builder.Finish().ValueOrDie();
-    auto* v = thingy->data()->template GetMutableValues<TestType>(1);
-    return boss::Span<TestType>(v, thingy->length(), [thingy]() {});
+    auto* argument = thingy->data()->template GetMutableValues<TestType>(1);
+    return boss::Span<TestType>(argument, thingy->length(), [thingy]() {});
   }();
   auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
@@ -430,7 +431,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, bos
   auto vals = GENERATE(take(3, chunk(5, values({"a"s, "b"s, "c"s, "d"s, "e"s, "f"s, "g"s, "h"s}))));
   auto input = vector<TestType>();
   std::transform(begin(vals), end(vals), std::back_inserter(input),
-                 [](auto v) { return TestType(v); });
+                 [](auto argument) { return TestType(argument); });
   auto vectorExpression = "duh"_(boss::Span<TestType>(std::move(input)));
   for(auto i = 0U; i < vals.size(); i++) {
     CHECK(vectorExpression.getArguments().at(0) == TestType(vals.at(0)));
@@ -1341,6 +1342,42 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   } else {
     auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
     CHECK(get<TestType>(result) == sum);
+  }
+}
+
+
+TEST_CASE("Expression Serialization") {
+  auto plans = std::array<boss::ComplexExpression, 3>{
+      "Howdie"_("Yo"_(5, 17, "duh"_(3)), "Five"_(6), 9, 1), "Howdie"_(1, 4, 9, "You"_(1, 3), 9, 3),
+      "Top"_("Group"_(
+                 "Project"_(
+                     "Join"_("Select"_("Group"_("Project"_("lineitem"_,
+                                                           "As"_("L_ORDERKEY"_, "L_ORDERKEY"_,
+                                                                 "L_QUANTITY"_, "L_QUANTITY"_)),
+                                                "By"_("L_ORDERKEY"_),
+                                                "As"_("sum_l_quantity"_, "Sum"_("L_QUANTITY"_))),
+                                       "Where"_("Greater"_("sum_l_quantity"_, 1.0))), // NOLINT
+                             "Project"_(
+                                 "Join"_("Project"_("customer"_, "As"_("C_NAME"_, "C_NAME"_,
+                                                                       "C_CUSTKEY"_, "C_CUSTKEY"_)),
+                                         "Project"_("orders"_,
+                                                    "As"_("O_ORDERKEY"_, "O_ORDERKEY"_,
+                                                          "O_CUSTKEY"_, "O_CUSTKEY"_,
+                                                          "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                                          "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
+                                         "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
+                                 "As"_("C_NAME"_, "C_NAME"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
+                                       "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                       "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
+                             "Where"_("Equal"_("L_ORDERKEY"_, "O_ORDERKEY"_))),
+                     "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                           "O_TOTALPRICE"_, "O_TOTALPRICE"_, "C_NAME"_, "C_NAME"_, "O_CUSTKEY"_,
+                           "O_CUSTKEY"_, "sum_l_quantity"_, "sum_l_quantity"_)),
+                 "By"_("C_NAME"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
+                 "Sum"_("sum_l_quantity"_)),
+             "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100)};
+  for(auto const& plan : plans) {
+    REQUIRE(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING)).deserialize() == plan);
   }
 }
 
