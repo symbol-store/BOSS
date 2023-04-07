@@ -574,8 +574,80 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
       auto result = eval("Join"_(std::move(adjacency1), std::move(adjacency2),
                                  "Where"_("Equal"_("To"_, "From2"_))));
 
-      INFO(result);
-      CHECK(get<boss::ComplexExpression>(result).getArguments().size() == dataSetSize);
+      CHECK(get<boss::ComplexExpression>(result) ==
+            "Table"_("Column"_("From"_, "List"_(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)),
+                     "Column"_("To"_, "List"_(10, 11, 12, 13, 14, 15, 16, 17, 18, 19)),
+                     "Column"_("From2"_, "List"_(10, 11, 12, 13, 14, 15, 16, 17, 18, 19)),
+                     "Column"_("To2"_, "List"_(0, 1, 2, 3, 4, 5, 6, 7, 8, 9))));
+    }
+
+    SECTION("Join with indexes") {
+      auto const dataSetSize = 10;
+      std::vector<int64_t> vec1(dataSetSize);
+      std::vector<int64_t> vec2(dataSetSize);
+      std::iota(vec1.begin(), vec1.end(), 0);
+      std::iota(vec2.begin(), vec2.end(), dataSetSize);
+
+      auto adjacency1 = "Table"_("Column"_("From"_, "List"_(boss::Span<int64_t>(vector(vec1)))),
+                                 "Column"_("To"_, "List"_(boss::Span<int64_t>(vector(vec2)))),
+                                 "Index"_("From2"_, "List"_(boss::Span<int64_t>(vector(vec1)))));
+      auto adjacency2 = "Table"_("Column"_("From2"_, "List"_(boss::Span<int64_t>(vector(vec2)))),
+                                 "Column"_("To2"_, "List"_(boss::Span<int64_t>(vector(vec1)))),
+                                 "Index"_("To"_, "List"_(boss::Span<int64_t>(vector(vec1)))));
+
+      auto result = eval("Join"_(std::move(adjacency1), std::move(adjacency2),
+                                 "Where"_("Equal"_("To"_, "From2"_))));
+
+      CHECK(get<boss::ComplexExpression>(result) ==
+            "Table"_("Column"_("From"_, "List"_(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)),
+                     "Column"_("To"_, "List"_(10, 11, 12, 13, 14, 15, 16, 17, 18, 19)),
+                     "Column"_("From2"_, "List"_(10, 11, 12, 13, 14, 15, 16, 17, 18, 19)),
+                     "Column"_("To2"_, "List"_(0, 1, 2, 3, 4, 5, 6, 7, 8, 9))));
+    }
+
+    SECTION("Join with indexes and multiple spans") {
+      auto const dataSetSize = 10;
+      std::vector<int64_t> vec1a(dataSetSize / 2);
+      std::vector<int64_t> vec1b(dataSetSize / 2);
+      std::vector<int64_t> vec2a(dataSetSize / 2);
+      std::vector<int64_t> vec2b(dataSetSize / 2);
+      std::iota(vec1a.begin(), vec1a.end(), 0);
+      std::iota(vec1b.begin(), vec1b.end(), dataSetSize / 2);
+      std::iota(vec2a.begin(), vec2a.end(), dataSetSize);
+      std::iota(vec2b.begin(), vec2b.end(), dataSetSize * 3 / 2);
+      boss::expressions::ExpressionSpanArguments args11, args12, index1, args21, args22, index2;
+      args11.emplace_back(boss::Span<int64_t>(vector(vec1a)));
+      args11.emplace_back(boss::Span<int64_t>(vector(vec1b)));
+      args12.emplace_back(boss::Span<int64_t>(vector(vec2a)));
+      args12.emplace_back(boss::Span<int64_t>(vector(vec2b)));
+      index1.emplace_back(boss::Span<int64_t>(vector(vec1a)));
+      index1.emplace_back(boss::Span<int64_t>(vector(vec1b)));
+      args21.emplace_back(boss::Span<int64_t>(vector(vec1a)));
+      args21.emplace_back(boss::Span<int64_t>(vector(vec1b)));
+      args22.emplace_back(boss::Span<int64_t>(vector(vec2a)));
+      args22.emplace_back(boss::Span<int64_t>(vector(vec2b)));
+      index2.emplace_back(boss::Span<int64_t>(vector(vec1a)));
+      index2.emplace_back(boss::Span<int64_t>(vector(vec1b)));
+
+      auto adjacency1 =
+          "Table"_("Column"_("From"_, boss::ComplexExpression("List"_, {}, {}, std::move(args11))),
+                   "Column"_("To"_, boss::ComplexExpression("List"_, {}, {}, std::move(args12))),
+                   "Index"_("From2"_, boss::ComplexExpression("List"_, {}, {}, std::move(index1))));
+      INFO(adjacency1);
+      auto adjacency2 =
+          "Table"_("Column"_("From2"_, boss::ComplexExpression("List"_, {}, {}, std::move(args22))),
+                   "Column"_("To2"_, boss::ComplexExpression("List"_, {}, {}, std::move(args21))),
+                   "Index"_("To"_, boss::ComplexExpression("List"_, {}, {}, std::move(index2))));
+      INFO(adjacency2);
+
+      auto result = eval("Join"_(std::move(adjacency1), std::move(adjacency2),
+                                 "Where"_("Equal"_("To"_, "From2"_))));
+
+      CHECK(get<boss::ComplexExpression>(result) ==
+            "Table"_("Column"_("From"_, "List"_(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)),
+                     "Column"_("To"_, "List"_(10, 11, 12, 13, 14, 15, 16, 17, 18, 19)),
+                     "Column"_("From2"_, "List"_(10, 11, 12, 13, 14, 15, 16, 17, 18, 19)),
+                     "Column"_("To2"_, "List"_(0, 1, 2, 3, 4, 5, 6, 7, 8, 9))));
     }
   }
 
@@ -764,56 +836,75 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                 std::move(expression)));
   };
 
-  auto nation = "Table"_("Column"_("N_NATIONKEY"_, "List"_(1, 2, 3, 4)), // NOLINT
-                         "Column"_("N_REGIONKEY"_, "List"_(1, 1, 2, 3)), // NOLINT
-                         "Column"_("N_NAME"_, "List"_("ALGERIA", "ARGENTINA", "BRAZIL", "CANADA")));
+  auto nation =
+      "Table"_("Column"_("N_NATIONKEY"_, "List"_(1, 2, 3, 4)), // NOLINT
+               "Column"_("N_REGIONKEY"_, "List"_(1, 1, 2, 3)), // NOLINT
+               "Column"_("N_NAME"_, "DictionaryEncodedList"_("List"_(0, 7, 16, 22, 28), "ALGERIA"
+                                                                                        "ARGENTINA"
+                                                                                        "BRAZIL"
+                                                                                        "CANADA")),
+               "Index"_("R_REGIONKEY"_, "List"_()));
 
-  auto part =
-      "Table"_("Column"_("P_PARTKEY"_, "List"_(1, 1, 2, 3)),                         // NOLINT
-               "Column"_("P_RETAILPRICE"_, "List"_(100.01, 100.01, 100.01, 100.01)), // NOLINT
-               "Column"_("P_NAME"_, "List"_("spring green yellow purple cornsilk",
-                                            "cornflower chocolate smoke green pink",
-                                            "moccasin green thistle khaki floral",
-                                            "green blush tomato burlywood seashell")));
+  auto part = "Table"_(
+      "Column"_("P_PARTKEY"_, "List"_(4, 3, 2, 1)),                         // NOLINT
+      "Column"_("P_RETAILPRICE"_, "List"_(100.01, 100.01, 100.01, 100.01)), // NOLINT
+      "Column"_("P_NAME"_, "DictionaryEncodedList"_("List"_(0, 35, 72, 107, 144),
+                                                    "spring green yellow purple cornsilk"
+                                                    "cornflower chocolate smoke green pink"
+                                                    "moccasin green thistle khaki floral"
+                                                    "green blush tomato burlywood seashell")));
 
-  auto supplier = "Table"_("Column"_("S_SUPPKEY"_, "List"_(1, 1, 2, 3)),    // NOLINT
-                           "Column"_("S_NATIONKEY"_, "List"_(1, 1, 2, 3))); // NOLINT
+  auto supplier = "Table"_("Column"_("S_SUPPKEY"_, "List"_(1, 4, 2, 3)),   // NOLINT
+                           "Column"_("S_NATIONKEY"_, "List"_(1, 1, 2, 3)), // NOLINT
+                           "Index"_("N_NATIONKEY"_, "List"_(0, 0, 1, 2))); // NOLINT
 
   auto partsupp =
-      "Table"_("Column"_("PS_PARTKEY"_, "List"_(1, 1, 2, 3)),                         // NOLINT
-               "Column"_("PS_SUPPKEY"_, "List"_(1, 1, 2, 3)),                         // NOLINT
-               "Column"_("PS_SUPPLYCOST"_, "List"_(771.64, 993.49, 337.09, 357.84))); // NOLINT
+      "Table"_("Column"_("PS_PARTKEY"_, "List"_(1, 2, 3, 4)),                        // NOLINT
+               "Column"_("PS_SUPPKEY"_, "List"_(1, 2, 3, 4)),                        // NOLINT
+               "Column"_("PS_SUPPLYCOST"_, "List"_(771.64, 993.49, 337.09, 357.84)), // NOLINT
+               "Index"_("P_PARTKEY"_, "List"_(3, 3, 2, 1)),                          // NOLINT
+               "Index"_("S_SUPPKEY"_, "List"_(0, 0, 2, 3)));                         // NOLINT
 
   auto customer = "Table"_(
       "Column"_("C_CUSTKEY"_, "List"_(4, 7, 1, 4)),                       // NOLINT
-      "Column"_("C_NATIONKEY"_, "List"_(15, 13, 1, 4)),                   // NOLINT
+      "Column"_("C_NATIONKEY"_, "List"_(3, 3, 1, 4)),                     // NOLINT
       "Column"_("C_ACCTBAL"_, "List"_(711.56, 121.65, 7498.12, 2866.83)), // NOLINT
-      "Column"_("C_NAME"_, "List"_("Customer#000000001", "Customer#000000002", "Customer#000000003",
-                                   "Customer#000000004")),
-      "Column"_("C_MKTSEGMENT"_, "List"_("AUTOMOBILE", "MACHINERY", "HOUSEHOLD", "BUILDING")));
+      "Column"_("C_NAME"_,
+                "DictionaryEncodedList"_("List"_(0, 18, 36, 54, 72), "Customer#000000001"
+                                                                     "Customer#000000002"
+                                                                     "Customer#000000003"
+                                                                     "Customer#000000004")),
+      "Column"_("C_MKTSEGMENT"_, "DictionaryEncodedList"_("List"_(0, 10, 19, 28, 36), "AUTOMOBILE"
+                                                                                      "MACHINERY"
+                                                                                      "HOUSEHOLD"
+                                                                                      "BUILDING")),
+      "Index"_("N_NATIONKEY"_, "List"_(2, 2, 0, 3))); // NOLINT
 
   auto orders = "Table"_(
-      "Column"_("O_ORDERKEY"_, "List"_(1, 1, 2, 3)),
+      "Column"_("O_ORDERKEY"_, "List"_(1, 0, 2, 3)),
       "Column"_("O_CUSTKEY"_, "List"_(4, 7, 1, 4)),                                    // NOLINT
       "Column"_("O_TOTALPRICE"_, "List"_(178821.73, 154260.84, 202660.52, 155680.60)), // NOLINT
       "Column"_("O_ORDERDATE"_, "List"_("DateObject"_("1998-01-24"), "DateObject"_("1992-05-01"),
                                         "DateObject"_("1992-12-21"), "DateObject"_("1994-06-18"))),
-      "Column"_("O_SHIPPRIORITY"_, "List"_(1, 1, 1, 1))); // NOLINT
+      "Column"_("O_SHIPPRIORITY"_, "List"_(1, 1, 1, 1)), // NOLINT
+      "Index"_("C_CUSTKEY"_, "List"_(0, 1, 2, 3)));      // NOLINT
 
   auto lineitem = "Table"_(
-      "Column"_("L_ORDERKEY"_, "List"_(1, 1, 2, 3)),                                 // NOLINT
-      "Column"_("L_PARTKEY"_, "List"_(1, 2, 3, 4)),                                  // NOLINT
-      "Column"_("L_SUPPKEY"_, "List"_(1, 2, 3, 4)),                                  // NOLINT
-      "Column"_("L_RETURNFLAG"_, "List"_("N", "N", "A", "A")),                       // NOLINT
-      "Column"_("L_LINESTATUS"_, "List"_("O", "O", "F", "F")),                       // NOLINT
-      "Column"_("L_RETURNFLAG_INT"_, "List"_('N'_i64, 'N'_i64, 'A'_i64, 'A'_i64)),   // NOLINT
-      "Column"_("L_LINESTATUS_INT"_, "List"_('O'_i64, 'O'_i64, 'F'_i64, 'F'_i64)),   // NOLINT
-      "Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)),                               // NOLINT
-      "Column"_("L_EXTENDEDPRICE"_, "List"_(17954.55, 34850.16, 7712.48, 25284.00)), // NOLINT
-      "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)),                     // NOLINT
-      "Column"_("L_TAX"_, "List"_(0.02, 0.06, 0.02, 0.06)),                          // NOLINT
+      "Column"_("L_ORDERKEY"_, "List"_(1, 1, 2, 3)),                                     // NOLINT
+      "Column"_("L_PARTKEY"_, "List"_(1, 2, 3, 4)),                                      // NOLINT
+      "Column"_("L_SUPPKEY"_, "List"_(1, 2, 3, 4)),                                      // NOLINT
+      "Column"_("L_RETURNFLAG"_, "DictionaryEncodedList"_("List"_(0, 1, 2, 3), "NNAA")), // NOLINT
+      "Column"_("L_LINESTATUS"_, "DictionaryEncodedList"_("List"_(0, 1, 2, 3), "OOFF")), // NOLINT
+      "Column"_("L_RETURNFLAG_INT"_, "List"_('N'_i64, 'N'_i64, 'A'_i64, 'A'_i64)),       // NOLINT
+      "Column"_("L_LINESTATUS_INT"_, "List"_('O'_i64, 'O'_i64, 'F'_i64, 'F'_i64)),       // NOLINT
+      "Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)),                                   // NOLINT
+      "Column"_("L_EXTENDEDPRICE"_, "List"_(17954.55, 34850.16, 7712.48, 25284.00)),     // NOLINT
+      "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)),                         // NOLINT
+      "Column"_("L_TAX"_, "List"_(0.02, 0.06, 0.02, 0.06)),                              // NOLINT
       "Column"_("L_SHIPDATE"_, "List"_("DateObject"_("1992-03-13"), "DateObject"_("1994-04-12"),
-                                       "DateObject"_("1996-02-28"), "DateObject"_("1994-12-31"))));
+                                       "DateObject"_("1996-02-28"), "DateObject"_("1994-12-31"))),
+      "Index"_("O_ORDERKEY"_, "List"_(0, 0, 1, 2)),            // NOLINT
+      "Index"_("PS_PARTKEYPS_SUPPKEY"_, "List"_(0, 1, 2, 3))); // NOLINT
 
   SECTION("Q1 (Select only)") {
     auto output = eval("Select"_(
