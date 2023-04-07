@@ -841,64 +841,65 @@ TEST_CASE("TPC-H", "[tpch]") {
   SECTION("Q1 (Select-Project only)") {
     auto output = eval("Project"_(
         "Project"_(
-            "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                 "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                                       "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
-                                       "L_EXTENDEDPRICE"_, "L_TAX"_, "L_TAX"_)),
-                      "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
-            "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "calc1"_,
-                  "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0), "L_DISCOUNT"_,
-                  "L_DISCOUNT"_)),
-        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "disc_price"_,
-              "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "charge"_,
-              "Times"_("L_EXTENDEDPRICE"_, "calc1"_, "calc2"_), "L_DISCOUNT"_, "L_DISCOUNT"_)));
+            "Project"_("Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
+                                            "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                                  "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                  "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_TAX"_,
+                                                  "L_TAX"_)),
+                                 "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                       "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                             "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
+                             "calc2"_, "Plus"_("L_TAX"_, 1.0))),
+            "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                  "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                  "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
+              "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
+              "Times"_("disc_price"_, "calc2"_))));
     CHECK(output ==
           "Table"_("Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)), // NOLINT
                    "Column"_("L_EXTENDEDPRICE"_,
                              "List"_(17954.55, 34850.16, 7712.48, 25284.00)), // NOLINT
+                   "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)), // NOLINT
                    "Column"_("disc_price"_,
                              "List"_(17954.55 * (1.0 - 0.10), 34850.16 * (1.0 - 0.05),    // NOLINT
                                      7712.48 * (1.0 - 0.06), 25284.00 * (1.0 - 0.06))),   // NOLINT
-                   "Column"_("charge"_, "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),   // NOLINT
-                                                34850.16 * (1.0 - 0.05) * (0.06 + 1.0),   // NOLINT
-                                                7712.48 * (1.0 - 0.06) * (0.02 + 1.0),    // NOLINT
-                                                25284.00 * (1.0 - 0.06) * (0.06 + 1.0))), // NOLINT
-                   "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06))));           // NOLINT
+                   "Column"_("calc"_, "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),     // NOLINT
+                                              34850.16 * (1.0 - 0.05) * (0.06 + 1.0),     // NOLINT
+                                              7712.48 * (1.0 - 0.06) * (0.02 + 1.0),      // NOLINT
+                                              25284.00 * (1.0 - 0.06) * (0.06 + 1.0))))); // NOLINT
   }
 
   SECTION("Q1 (No Order, No Strings)") {
-    auto output = eval("Project"_(
-        "Group"_(
+    auto output = eval("Group"_(
+        "Project"_(
             "Project"_(
                 "Project"_(
                     "Select"_(
                         "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                   "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_,
-                                         "L_LINESTATUS_INT"_, "L_LINESTATUS_INT"_, "L_QUANTITY"_,
-                                         "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "L_SHIPDATE"_,
-                                         "L_SHIPDATE"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                                         "L_TAX"_, "L_TAX"_)),
+                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                         "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
+                                         "L_EXTENDEDPRICE"_, "L_RETURNFLAG_INT"_,
+                                         "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
+                                         "L_LINESTATUS_INT"_, "L_TAX"_, "L_TAX"_)),
                         "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
                     "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
                           "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
-                          "L_EXTENDEDPRICE"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_,
-                          "Plus"_("L_TAX"_, 1.0), "L_DISCOUNT"_, "L_DISCOUNT"_)),
+                          "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_,
+                          "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0))),
                 "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
                       "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
-                      "L_EXTENDEDPRICE"_, "disc_price"_, "Times"_("L_EXTENDEDPRICE"_, "calc1"_),
-                      "charge"_, "Times"_("L_EXTENDEDPRICE"_, "calc1"_, "calc2"_), "L_DISCOUNT"_,
-                      "L_DISCOUNT"_)),
-            "By"_("L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_),
-            "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
-                  "SUM_DISC_PRICE"_, "Sum"_("DISC_PRICE"_), "SUM_CHARGES"_,
-                  "Sum"_("Times"_("DISC_PRICE"_, "calc"_)), "SUM_DISC"_, "Sum"_("L_DISCOUNT"_),
-                  "COUNT_ORDER"_, "Count"_("L_QUANTITY"_))),
-        "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_, "L_LINESTATUS_INT"_,
-              "SUM_QTY"_, "SUM_QTY"_, "SUM_BASE_PRICE"_, "SUM_BASE_PRICE"_, "SUM_DISC_PRICE"_,
-              "SUM_DISC_PRICE"_, "SUM_CHARGES"_, "SUM_CHARGES"_, "AVG_QTY"_,
-              "Divide"_("SUM_QTY"_, "COUNT_ORDER"_), "AVG_PRICE"_,
-              "Divide"_("SUM_BASE_PRICE"_, "COUNT_ORDER"_), "AVG_DISC"_,
-              "Divide"_("SUM_DISC"_, "COUNT_ORDER"_), "COUNT_ORDER"_, "COUNT_ORDER"_)));
+                      "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+            "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
+                  "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
+                  "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_,
+                  "calc"_, "Times"_("disc_price"_, "calc2"_))),
+        "By"_("L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_),
+        "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
+              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_,
+              "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_,
+              "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
     CHECK(output ==
           "Table"_("Column"_("L_RETURNFLAG_INT"_, "List"_('N'_i64, 'A'_i64)), // NOLINT
                    "Column"_("L_LINESTATUS_INT"_, "List"_('O'_i64, 'F'_i64)), // NOLINT
@@ -920,37 +921,34 @@ TEST_CASE("TPC-H", "[tpch]") {
   }
 
   SECTION("Q1 (No Order)") {
-    auto output = eval("Project"_(
-        "Group"_(
+    auto output = eval("Group"_(
+        "Project"_(
             "Project"_(
                 "Project"_(
-                    "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                         "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_,
-                                               "L_LINESTATUS"_, "L_QUANTITY"_, "L_QUANTITY"_,
-                                               "L_DISCOUNT"_, "L_DISCOUNT"_, "L_SHIPDATE"_,
-                                               "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
-                                               "L_EXTENDEDPRICE"_, "L_TAX"_, "L_TAX"_)),
-                              "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                    "Select"_(
+                        "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
+                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                         "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
+                                         "L_EXTENDEDPRICE"_, "L_RETURNFLAG"_, "L_RETURNFLAG"_,
+                                         "L_LINESTATUS"_, "L_LINESTATUS"_, "L_TAX"_, "L_TAX"_)),
+                        "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
                     "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
                           "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                          "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0),
-                          "L_DISCOUNT"_, "L_DISCOUNT"_)),
+                          "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
+                          "calc2"_, "Plus"_("L_TAX"_, 1.0))),
                 "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
                       "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                      "disc_price"_, "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "charge"_,
-                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_, "calc2"_), "L_DISCOUNT"_,
-                      "L_DISCOUNT"_)),
-            "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
-            "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
-                  "SUM_DISC_PRICE"_, "Sum"_("DISC_PRICE"_), "SUM_CHARGES"_,
-                  "Sum"_("Times"_("DISC_PRICE"_, "calc"_)), "SUM_DISC"_, "Sum"_("L_DISCOUNT"_),
-                  "COUNT_ORDER"_, "Count"_("L_QUANTITY"_))),
-        "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_, "SUM_QTY"_,
-              "SUM_QTY"_, "SUM_BASE_PRICE"_, "SUM_BASE_PRICE"_, "SUM_DISC_PRICE"_,
-              "SUM_DISC_PRICE"_, "SUM_CHARGES"_, "SUM_CHARGES"_, "AVG_QTY"_,
-              "Divide"_("SUM_QTY"_, "COUNT_ORDER"_), "AVG_PRICE"_,
-              "Divide"_("SUM_BASE_PRICE"_, "COUNT_ORDER"_), "AVG_DISC"_,
-              "Divide"_("SUM_DISC"_, "COUNT_ORDER"_), "COUNT_ORDER"_, "COUNT_ORDER"_)));
+                      "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+            "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_, "L_QUANTITY"_,
+                  "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
+                  "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
+                  "Times"_("disc_price"_, "calc2"_))),
+        "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
+        "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
+              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_,
+              "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_,
+              "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
     CHECK(output ==
           "Table"_("Column"_("L_RETURNFLAG"_, "List"_("N", "A")),  // NOLINT
                    "Column"_("L_LINESTATUS"_, "List"_("O", "F")),  // NOLINT
@@ -972,32 +970,37 @@ TEST_CASE("TPC-H", "[tpch]") {
   }
 
   SECTION("Q1") {
-    auto output = eval("Order"_("Project"_(
+    auto output = eval("Order"_(
         "Group"_(
             "Project"_(
                 "Project"_(
-                    "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                         "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
-                                               "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
-                                               "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                                               "L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_,
-                                               "L_LINESTATUS"_, "L_TAX"_, "L_TAX"_)),
-                              "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                    "Project"_(
+                        "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
+                                             "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                                   "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                   "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                                                   "L_RETURNFLAG"_, "L_RETURNFLAG"_,
+                                                   "L_LINESTATUS"_, "L_LINESTATUS"_, "L_TAX"_,
+                                                   "L_TAX"_)),
+                                  "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                        "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
+                              "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                              "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
+                              "calc2"_, "Plus"_("L_TAX"_, 1.0))),
                     "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
                           "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                          "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
-                          "calc2"_, "Plus"_(1.0, "L_TAX"_))),
+                          "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                          "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
                 "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
                       "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                      "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
-                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc"_,
+                      "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
                       "Times"_("disc_price"_, "calc2"_))),
             "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
-            "As"_("sum_qty"_, "Sum"_("L_QUANTITY"_), "sum_base_price"_, "Sum"_("L_EXTENDEDPRICE"_),
-                  "sum_disc_price"_, "Sum"_("disc_price"_), "sum_charges"_, "Sum"_("calc"_),
-                  "avg_qty"_, "Avg"_("L_QUANTITY"_), "avg_price"_, "Avg"_("L_EXTENDEDPRICE"_),
-                  "avg_disc"_, "Avg"_("L_DISCOUNT"_), "count_order"_, "Count"_("*"_))),
-        "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_))));
+            "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
+                  "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_),
+                  "AVG_QTY"_, "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_),
+                  "AVG_DISC"_, "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))),
+        "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_)));
     CHECK(output ==
           "Table"_("Column"_("L_RETURNFLAG"_, "List"_("A", "N")),  // NOLINT
                    "Column"_("L_LINESTATUS"_, "List"_("F", "O")),  // NOLINT
@@ -1102,7 +1105,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                             "Project"_(
                                 "Select"_(
                                     "Project"_(customer.clone(CloneReason::FOR_TESTING),
-                                               "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_ACCTBAL"_,
+                                               "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_MKTSEGMENT"_,
                                                      "C_MKTSEGMENT"_)),
                                     "Where"_("StringContainsQ"_("C_MKTSEGMENT"_, "BUILDING"))),
                                 "As"_("C_CUSTKEY"_, "C_CUSTKEY"_)),
