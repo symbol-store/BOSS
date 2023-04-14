@@ -43,7 +43,7 @@ struct BOSSSymbol* getHeadFromBOSSExpression(struct BOSSExpression const* arg);
 size_t getArgumentCountFromBOSSExpression(struct BOSSExpression const* arg);
 struct BOSSExpression** getArgumentsFromBOSSExpression(struct BOSSExpression const* arg);
 
-struct BOSSExpression* BOSSEvaluate(struct BOSSExpression const* arg);
+struct BOSSExpression* BOSSEvaluate(struct BOSSExpression* arg);
 void freeBOSSExpression(struct BOSSExpression* expression);
 void freeBOSSArguments(struct BOSSExpression** arguments);
 void freeBOSSSymbol(struct BOSSSymbol* symbol);

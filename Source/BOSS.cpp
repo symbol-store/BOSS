@@ -21,14 +21,19 @@ using std::get; // NOLINT(misc-unused-using-decls)
 
 extern "C" {
 
-BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
+BOSSExpression* BOSSEvaluate(BOSSExpression* arg) {
   try {
     static boss::engines::BootstrapEngine engine;
-    return new BOSSExpression{
-        engine.evaluate(arg->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION))};
+    auto* output = new BOSSExpression{engine.evaluate(std::move(arg->delegate))};
+    freeBOSSExpression(arg);
+    return output;
   } catch(::std::exception const& e) {
-    return new BOSSExpression{"ErrorWhenEvaluatingExpression"_(
-        arg->delegate.clone(CloneReason::EXPRESSION_WRAPPING), e.what())};
+    auto args = boss::ExpressionArguments();
+    args.reserve(2);
+    args.emplace_back(std::move(arg->delegate));
+    args.emplace_back(std::string{e.what()});
+    return new BOSSExpression{
+        boss::ComplexExpression("ErrorWhenEvaluatingExpression"_, std::move(args))};
   }
 };
 BOSSExpression* boolToNewBOSSExpression(bool value) {
@@ -160,12 +165,11 @@ void freeBOSSString(char* string) {
 }
 
 namespace boss {
-Expression evaluate(Expression const& expr) {
-  auto* e = new BOSSExpression{expr.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
+Expression evaluate(Expression&& expr) {
+  auto* e = new BOSSExpression{std::move(expr)};
   auto* result = BOSSEvaluate(e);
   auto output = ::std::move(result->delegate);
   freeBOSSExpression(result);
-  freeBOSSExpression(e);
   return output;
 }
 } // namespace boss

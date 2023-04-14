@@ -11,5 +11,5 @@ struct BOSSSymbol {
 };
 
 namespace boss {
-expressions::Expression evaluate(expressions::Expression const& expr);
+expressions::Expression evaluate(expressions::Expression&& expr);
 }
