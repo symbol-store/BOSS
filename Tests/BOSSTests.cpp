@@ -615,29 +615,20 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
       std::iota(vec1b.begin(), vec1b.end(), dataSetSize / 2);
       std::iota(vec2a.begin(), vec2a.end(), dataSetSize);
       std::iota(vec2b.begin(), vec2b.end(), dataSetSize * 3 / 2);
-      boss::expressions::ExpressionSpanArguments args11, args12, index1, args21, args22, index2;
-      args11.emplace_back(boss::Span<int64_t>(vector(vec1a)));
-      args11.emplace_back(boss::Span<int64_t>(vector(vec1b)));
-      args12.emplace_back(boss::Span<int64_t>(vector(vec2a)));
-      args12.emplace_back(boss::Span<int64_t>(vector(vec2b)));
-      index1.emplace_back(boss::Span<int64_t>(vector(vec1a)));
-      index1.emplace_back(boss::Span<int64_t>(vector(vec1b)));
-      args21.emplace_back(boss::Span<int64_t>(vector(vec1a)));
-      args21.emplace_back(boss::Span<int64_t>(vector(vec1b)));
-      args22.emplace_back(boss::Span<int64_t>(vector(vec2a)));
-      args22.emplace_back(boss::Span<int64_t>(vector(vec2b)));
-      index2.emplace_back(boss::Span<int64_t>(vector(vec1a)));
-      index2.emplace_back(boss::Span<int64_t>(vector(vec1b)));
 
-      auto adjacency1 =
-          "Table"_("Column"_("From"_, boss::ComplexExpression("List"_, {}, {}, std::move(args11))),
-                   "Column"_("To"_, boss::ComplexExpression("List"_, {}, {}, std::move(args12))),
-                   "Index"_("From2"_, boss::ComplexExpression("List"_, {}, {}, std::move(index1))));
+      auto adjacency1 = "Table"_("Column"_("From"_, "List"_(boss::Span<int64_t>(vector(vec1a)),
+                                                            boss::Span<int64_t>(vector(vec1b)))),
+                                 "Column"_("To"_, "List"_(boss::Span<int64_t>(vector(vec2a)),
+                                                          boss::Span<int64_t>(vector(vec2b)))),
+                                 "Index"_("From2"_, "List"_(boss::Span<int64_t>(vector(vec1a)),
+                                                            boss::Span<int64_t>(vector(vec1b)))));
       INFO(adjacency1);
-      auto adjacency2 =
-          "Table"_("Column"_("From2"_, boss::ComplexExpression("List"_, {}, {}, std::move(args22))),
-                   "Column"_("To2"_, boss::ComplexExpression("List"_, {}, {}, std::move(args21))),
-                   "Index"_("To"_, boss::ComplexExpression("List"_, {}, {}, std::move(index2))));
+      auto adjacency2 = "Table"_("Column"_("From2"_, "List"_(boss::Span<int64_t>(vector(vec2a)),
+                                                             boss::Span<int64_t>(vector(vec2b)))),
+                                 "Column"_("To2"_, "List"_(boss::Span<int64_t>(vector(vec1a)),
+                                                           boss::Span<int64_t>(vector(vec1b)))),
+                                 "Index"_("To"_, "List"_(boss::Span<int64_t>(vector(vec1a)),
+                                                         boss::Span<int64_t>(vector(vec1b)))));
       INFO(adjacency2);
 
       auto result = eval("Join"_(std::move(adjacency1), std::move(adjacency2),
@@ -836,23 +827,41 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                 std::move(expression)));
   };
 
-  auto nation =
-      "Table"_("Column"_("N_NATIONKEY"_, "List"_(1, 2, 3, 4)), // NOLINT
-               "Column"_("N_REGIONKEY"_, "List"_(1, 1, 2, 3)), // NOLINT
-               "Column"_("N_NAME"_, "DictionaryEncodedList"_("List"_(0, 7, 16, 22, 28), "ALGERIA"
-                                                                                        "ARGENTINA"
-                                                                                        "BRAZIL"
-                                                                                        "CANADA")),
-               "Index"_("R_REGIONKEY"_, "List"_()));
+  auto nation = "Table"_(
+      "Column"_("N_NATIONKEY"_, "List"_(1, 2, 3, 4)),                                    // NOLINT
+      "Column"_("N_REGIONKEY"_, "List"_(1, 1, 2, 3)),                                    // NOLINT
+      "Column"_("N_NAME"_, "DictionaryEncodedList"_("List"_(0, 7, 16, 22, 28), "ALGERIA" // NOLINT
+                                                                               "ARGENTINA"
+                                                                               "BRAZIL"
+                                                                               "CANADA")),
+      "Index"_("R_REGIONKEY"_, "List"_()));
+
+  auto nNameVelox = "Column"_(
+      "N_NAME"_,
+      "SmallStringEncodedList"_("List"_(0x00000007'414c4745, 0, 0x00000009'41524745, 7,    // NOLINT
+                                        0x00000006'4252415a, 16, 0x00000006'43414e41, 22), // NOLINT
+                                "ALGERIA"
+                                "ARGENTINA"
+                                "BRAZIL"
+                                "CANADA"));
 
   auto part = "Table"_(
-      "Column"_("P_PARTKEY"_, "List"_(4, 3, 2, 1)),                         // NOLINT
-      "Column"_("P_RETAILPRICE"_, "List"_(100.01, 100.01, 100.01, 100.01)), // NOLINT
-      "Column"_("P_NAME"_, "DictionaryEncodedList"_("List"_(0, 35, 72, 107, 144),
+      "Column"_("P_PARTKEY"_, "List"_(4, 3, 2, 1)),                               // NOLINT
+      "Column"_("P_RETAILPRICE"_, "List"_(100.01, 100.01, 100.01, 100.01)),       // NOLINT
+      "Column"_("P_NAME"_, "DictionaryEncodedList"_("List"_(0, 35, 72, 107, 144), // NOLINT
                                                     "spring green yellow purple cornsilk"
                                                     "cornflower chocolate smoke green pink"
                                                     "moccasin green thistle khaki floral"
                                                     "green blush tomato burlywood seashell")));
+
+  auto pNameVelox =
+      "Column"_("P_NAME"_, "SmallStringEncodedList"_(
+                               "List"_(0x00000023'73707269, 0, 0x00000025'636f726e, 35,    // NOLINT
+                                       0x00000023'6d6f6363, 72, 0x00000025'67726565, 107), // NOLINT
+                               "spring green yellow purple cornsilk"
+                               "cornflower chocolate smoke green pink"
+                               "moccasin green thistle khaki floral"
+                               "green blush tomato burlywood seashell"));
 
   auto supplier = "Table"_("Column"_("S_SUPPKEY"_, "List"_(1, 4, 2, 3)),   // NOLINT
                            "Column"_("S_NATIONKEY"_, "List"_(1, 1, 2, 3)), // NOLINT
@@ -865,23 +874,42 @@ TEST_CASE("TPC-H", "[tpch]") {
                "Index"_("P_PARTKEY"_, "List"_(3, 3, 2, 1)),                          // NOLINT
                "Index"_("S_SUPPKEY"_, "List"_(0, 0, 2, 3)));                         // NOLINT
 
-  auto customer = "Table"_(
-      "Column"_("C_CUSTKEY"_, "List"_(4, 7, 1, 4)),                       // NOLINT
-      "Column"_("C_NATIONKEY"_, "List"_(3, 3, 1, 4)),                     // NOLINT
-      "Column"_("C_ACCTBAL"_, "List"_(711.56, 121.65, 7498.12, 2866.83)), // NOLINT
-      "Column"_("C_NAME"_,
-                "DictionaryEncodedList"_("List"_(0, 18, 36, 54, 72), "Customer#000000001"
-                                                                     "Customer#000000002"
-                                                                     "Customer#000000003"
-                                                                     "Customer#000000004")),
-      "Column"_("C_MKTSEGMENT"_, "DictionaryEncodedList"_("List"_(0, 10, 19, 28, 36), "AUTOMOBILE"
-                                                                                      "MACHINERY"
-                                                                                      "HOUSEHOLD"
-                                                                                      "BUILDING")),
-      "Index"_("N_NATIONKEY"_, "List"_(2, 2, 0, 3))); // NOLINT
+  auto customer =
+      "Table"_("Column"_("C_CUSTKEY"_, "List"_(4, 7, 1, 4)),                             // NOLINT
+               "Column"_("C_NATIONKEY"_, "List"_(3, 3, 1, 4)),                           // NOLINT
+               "Column"_("C_ACCTBAL"_, "List"_(711.56, 121.65, 7498.12, 2866.83)),       // NOLINT
+               "Column"_("C_NAME"_, "DictionaryEncodedList"_("List"_(0, 18, 36, 54, 72), // NOLINT
+                                                             "Customer#000000001"        // NOLINT
+                                                             "Customer#000000002"
+                                                             "Customer#000000003"
+                                                             "Customer#000000004")),
+               "Column"_("C_MKTSEGMENT"_,
+                         "DictionaryEncodedList"_("List"_(0, 10, 19, 28, 36), "AUTOMOBILE" // NOLINT
+                                                                              "MACHINERY"
+                                                                              "HOUSEHOLD"
+                                                                              "BUILDING")),
+               "Index"_("N_NATIONKEY"_, "List"_(2, 2, 0, 3))); // NOLINT
+
+  auto cNameVelox = "Column"_(
+      "C_NAME"_,
+      "SmallStringEncodedList"_("List"_(0x00000012'43757374, 0, 0x00000012'43757374, 18,   // NOLINT
+                                        0x00000012'43757374, 36, 0x00000012'43757374, 54), // NOLINT
+                                "Customer#000000001"
+                                "Customer#000000002"
+                                "Customer#000000003"
+                                "Customer#000000004"));
+
+  auto cMktSegment = "Column"_(
+      "C_MKTSEGMENT"_,
+      "SmallStringEncodedList"_("List"_(0x00000010'4155544f, 0, 0x00000009'4d414348, 10,   // NOLINT
+                                        0x00000009'484f5553, 19, 0x00000008'4255494c, 28), // NOLINT
+                                "AUTOMOBILE"
+                                "MACHINERY"
+                                "HOUSEHOLD"
+                                "BUILDING"));
 
   auto orders = "Table"_(
-      "Column"_("O_ORDERKEY"_, "List"_(1, 0, 2, 3)),
+      "Column"_("O_ORDERKEY"_, "List"_(1, 0, 2, 3)),                                   // NOLINT
       "Column"_("O_CUSTKEY"_, "List"_(4, 7, 1, 4)),                                    // NOLINT
       "Column"_("O_TOTALPRICE"_, "List"_(178821.73, 154260.84, 202660.52, 155680.60)), // NOLINT
       "Column"_("O_ORDERDATE"_, "List"_("DateObject"_("1998-01-24"), "DateObject"_("1992-05-01"),
