@@ -1375,7 +1375,7 @@ TEST_CASE("Expression Serialization") {
                  "By"_("C_NAME"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
                  "Sum"_("sum_l_quantity"_)),
              "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100),
-      "Table"_("Something"_(5, 17, "Sum"_(3, 9, 2)), "Else"_(6, "Date"_()))};
+      "Table"_("Something"_(5, 17, "Sum"_(3, 9, 2)), "Else"_(6, "Date"_())), "Table"_(1, 5, 9)};
   for(auto const& plan : plans) {
     REQUIRE(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
                 .deserialize() == plan);

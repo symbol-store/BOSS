@@ -23,7 +23,8 @@ struct PortableBossExpression {
 };
 
 struct PortableBOSSExpressionRoot {
-  uint64_t argumentCount;
+  uint64_t const argumentCount;
+  uint64_t const expressionCount;
   struct PortableBossArgument arguments[];
 };
 
@@ -42,9 +43,10 @@ getExpressionSubexpressions(struct PortableBOSSExpressionRoot* root) {
 static struct PortableBOSSExpressionRoot* allocateExpressionTree(uint64_t argumentCount,
                                                                  uint64_t expressionCount) {
   struct PortableBOSSExpressionRoot* root = (struct PortableBOSSExpressionRoot*)malloc(
-      sizeof(argumentCount) + sizeof(struct PortableBossArgument) * argumentCount +
+      sizeof(argumentCount) + sizeof(expressionCount) + sizeof(struct PortableBossArgument) * argumentCount +
       sizeof(struct PortableBossExpression) * expressionCount);
-  root->argumentCount = argumentCount;
+  *((uint64_t*)&root->argumentCount) = argumentCount;
+  *((uint64_t*)&root->expressionCount) = expressionCount;
   return root;
 }
 
@@ -62,6 +64,14 @@ static int64_t* makeLongArgument(struct PortableBossArgument* buffer, uint64_t a
 static char** makeSymbolArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
 #ifdef __cplusplus
   auto SYMBOL = PortableBossArgument::SymbolType::SYMBOL;
+#endif
+  buffer[argumentOutputI].type = SYMBOL;
+  return &buffer[argumentOutputI].asString;
+};
+
+static char** makeStringArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto SYMBOL = PortableBossArgument::SymbolType::STRING;
 #endif
   buffer[argumentOutputI].type = SYMBOL;
   return &buffer[argumentOutputI].asString;

@@ -92,14 +92,9 @@ struct SerializedExpression {
     (flattenArguments(std::get<Is>(tuple), argumentOutputI), ...);
   };
 
-  template <typename T>
-  static uint64_t flattenArguments(Argument* buffer, T&& value, uint64_t& argumentOutputI) {
-    buffer[argumentOutputI++] = value;
-  }
-
-  static void flattenArguments(Argument* buffer, uint64_t& argumentOutputI,
-                               std::vector<boss::ComplexExpression>&& inputs,
-                               Expression* expressions, uint64_t& expressionOutputI) {
+  static uint64_t flattenArguments(Argument* buffer, uint64_t argumentOutputI,
+                                   std::vector<boss::ComplexExpression>&& inputs,
+                                   Expression* expressions, uint64_t& expressionOutputI) {
     auto nextLayerOffset =
         argumentOutputI +
         std::accumulate(inputs.begin(), inputs.end(), 0, [](auto count, auto const& expression) {
@@ -162,16 +157,17 @@ struct SerializedExpression {
                         });
         });
     if(!children.empty()) {
-      flattenArguments(buffer, argumentOutputI, std::move(children), expressions,
-                       expressionOutputI);
+      return flattenArguments(buffer, argumentOutputI, std::move(children), expressions,
+                              expressionOutputI);
     }
+    return argumentOutputI;
   }
 
   ////////////////////////////////   Surface Area ////////////////////////////////
 
 public:
   explicit SerializedExpression(boss::ComplexExpression&& input)
-      : root(allocateExpressionTree(countArguments(input) + 1, countExpressions(input))) {
+      : root(allocateExpressionTree(countArguments(input) + 1, countExpressions(input)-1)) {
     auto argumentIterator = uint64_t{};
     auto expressionIterator = uint64_t{};
     flattenedArguments()[argumentIterator++] =
@@ -222,9 +218,14 @@ public:
   }
 
   boss::ComplexExpression deserialize() && {
+
     auto result = boss::ComplexExpression{
         boss::Symbol(std::string(flattenedArguments()[0].asString)),
-        deserializeArguments(1, expressionsBuffer()[0].firstChildOffset - 1, 0)};
+        deserializeArguments(1,
+                             root->expressionCount == 0
+                                 ? root->argumentCount - 1
+                                 : expressionsBuffer()[0].firstChildOffset - 1,
+                             0)};
     free(static_cast<void*>(flattenedArguments()[0].asString));
     return result;
   };
