@@ -1345,9 +1345,8 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
   }
 }
 
-
 TEST_CASE("Expression Serialization") {
-  auto plans = std::array<boss::ComplexExpression, 3>{
+  auto const plans = std::array{
       "Howdie"_("Yo"_(5, 17, "duh"_(3)), "Five"_(6), 9, 1), "Howdie"_(1, 4, 9, "You"_(1, 3), 9, 3),
       "Top"_("Group"_(
                  "Project"_(
@@ -1375,9 +1374,11 @@ TEST_CASE("Expression Serialization") {
                            "O_CUSTKEY"_, "sum_l_quantity"_, "sum_l_quantity"_)),
                  "By"_("C_NAME"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
                  "Sum"_("sum_l_quantity"_)),
-             "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100)};
+             "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100),
+      "Table"_("Something"_(5, 17, "Sum"_(3, 9, 2)), "Else"_(6, "Date"_()))};
   for(auto const& plan : plans) {
-    REQUIRE(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING)).deserialize() == plan);
+    REQUIRE(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
+                .deserialize() == plan);
   }
 }
 

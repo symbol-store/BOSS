@@ -1,45 +1,33 @@
+#include <inttypes.h>
+extern "C" {
+#include "PortableBOSSSerialization.h"
+}
 namespace boss::serialization {
-
+using Argument = PortableBossArgument;
+using Expression = PortableBossExpression;
 /**
  * Implements serialization/deserialization of a (complex) expression to/from a c-allocated buffer.
  * The buffer contains no pointers so it can be safely written to disk or passed to a different
  * processing using shared memory
  */
 struct SerializedExpression {
-  void* buffer;
-  size_t argumentCount() const { return static_cast<size_t*>(buffer)[0]; };
-  size_t expressionCount() const;
-  struct Argument {
-    enum SymbolType { LONG, DOUBLE, STRING, SYMBOL } type = LONG;
-    union {
-      int64_t asLong = 0;
-      double asDouble;
-      char* asString;
-    };
-  };
-  Argument* flattenedArguments() const {
-    return static_cast<Argument*>(static_cast<void*>(static_cast<size_t*>(buffer) + 2));
-  }
-  struct Expression {
-    size_t headOffset;
-    size_t firstChildOffset;
-    size_t lastChildOffset;
-  };
-  Expression* expressionsBuffer() const {
-    return static_cast<Expression*>(static_cast<void*>(flattenedArguments() + argumentCount()));
-  }
+  PortableBOSSExpressionRoot* root;
+  uint64_t argumentCount() const { return root->argumentCount; };
+ 
+  Argument* flattenedArguments() const { return getExpressionArguments(root); }
+  Expression* expressionsBuffer() const { return getExpressionSubexpressions(root); }
 
   //////////////////////////////// Count Arguments ///////////////////////////////
 
-  template <typename TupleLike, size_t... Is>
-  static size_t countArgumentsInTuple(TupleLike const& tuple,
-                                      std::index_sequence<Is...> /*unused*/) {
+  template <typename TupleLike, uint64_t... Is>
+  static uint64_t countArgumentsInTuple(TupleLike const& tuple,
+                                        std::index_sequence<Is...> /*unused*/) {
     return (countArguments(std::get<Is>(tuple)) + ... + 0);
   };
 
-  template <typename T> static size_t countArguments(T const& /*unused*/) { return 1; }
+  template <typename T> static uint64_t countArguments(T const& /*unused*/) { return 1; }
 
-  static size_t countArguments(boss::ComplexExpression const& input) {
+  static uint64_t countArguments(boss::ComplexExpression const& input) {
     return countArgumentsInTuple(
                input.getStaticArguments(),
                std::make_index_sequence<
@@ -49,7 +37,7 @@ struct SerializedExpression {
                [](auto runningSum, auto const& argument) {
                  return runningSum +
                         std::visit(
-                            [](auto const& argument) -> size_t {
+                            [](auto const& argument) -> uint64_t {
                               if constexpr(boss::expressions::generic::isComplexExpression<
                                                decltype(argument)>) {
                                 return 1 + countArguments(argument);
@@ -64,15 +52,15 @@ struct SerializedExpression {
 
   //////////////////////////////// Count Expressions ///////////////////////////////
 
-  template <typename TupleLike, size_t... Is>
-  static size_t countExpressionsInTuple(TupleLike const& tuple,
-                                        std::index_sequence<Is...> /*unused*/) {
+  template <typename TupleLike, uint64_t... Is>
+  static uint64_t countExpressionsInTuple(TupleLike const& tuple,
+                                          std::index_sequence<Is...> /*unused*/) {
     return (countExpressions(std::get<Is>(tuple)) + ... + 0);
   };
 
-  template <typename T> static size_t countExpressions(T const& /*unused*/) { return 0; }
+  template <typename T> static uint64_t countExpressions(T const& /*unused*/) { return 0; }
 
-  static size_t countExpressions(boss::ComplexExpression const& input) {
+  static uint64_t countExpressions(boss::ComplexExpression const& input) {
     return 1 +
            countArgumentsInTuple(
                input.getStaticArguments(),
@@ -83,7 +71,7 @@ struct SerializedExpression {
                [](auto runningSum, auto const& argument) {
                  return runningSum +
                         std::visit(
-                            [](auto const& argument) -> size_t {
+                            [](auto const& argument) -> uint64_t {
                               if constexpr(boss::expressions::generic::isComplexExpression<
                                                decltype(argument)>) {
                                 return countExpressions(argument);
@@ -97,21 +85,21 @@ struct SerializedExpression {
 
   //////////////////////////////   Flatten Arguments /////////////////////////////
 
-  template <typename TupleLike, size_t... Is>
+  template <typename TupleLike, uint64_t... Is>
   static void flattenArgumentsInTuple(Argument* buffer, TupleLike&& tuple,
                                       std::index_sequence<Is...> /*unused*/,
-                                      size_t& argumentOutputI) {
+                                      uint64_t& argumentOutputI) {
     (flattenArguments(std::get<Is>(tuple), argumentOutputI), ...);
   };
 
   template <typename T>
-  static size_t flattenArguments(Argument* buffer, T&& value, size_t& argumentOutputI) {
+  static uint64_t flattenArguments(Argument* buffer, T&& value, uint64_t& argumentOutputI) {
     buffer[argumentOutputI++] = value;
   }
 
-  static void flattenArguments(Argument* buffer, size_t& argumentOutputI,
+  static void flattenArguments(Argument* buffer, uint64_t& argumentOutputI,
                                std::vector<boss::ComplexExpression>&& inputs,
-                               Expression* expressions, size_t& expressionOutputI) {
+                               Expression* expressions, uint64_t& expressionOutputI) {
     auto nextLayerOffset =
         argumentOutputI +
         std::accumulate(inputs.begin(), inputs.end(), 0, [](auto count, auto const& expression) {
@@ -131,50 +119,47 @@ struct SerializedExpression {
               buffer, statics,
               std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
               argumentOutputI);
-          std::for_each(
-              dynamics.begin(), dynamics.end(),
-              [buffer, &argumentOutputI, &children, expressions, &expressionOutputI,
-               nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
-                std::visit(
-                    [&children, buffer, &argumentOutputI, expressions, &expressionOutputI,
-                     nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
-                      if constexpr(boss::expressions::generic::isComplexExpression<
-                                       decltype(argument)>) {
-                        expressions[expressionOutputI].headOffset = argumentOutputI;
-                        expressions[expressionOutputI].firstChildOffset =
-                            nextLayerOffset + childrenCountRunningSum;
-                        auto childrenCount =
-                            std::tuple_size_v<
-                                std::decay_t<decltype(argument.getStaticArguments())>> +
-                            argument.getDynamicArguments().size() +
-                            argument.getSpanArguments().size();
-                        childrenCountRunningSum += childrenCount;
+          std::for_each(dynamics.begin(), dynamics.end(),
+                        [buffer, &argumentOutputI, &children, expressions, &expressionOutputI,
+                         nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
+                          std::visit(
+                              [&children, buffer, &argumentOutputI, expressions, &expressionOutputI,
+                               nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
+                                if constexpr(boss::expressions::generic::isComplexExpression<
+                                                 decltype(argument)>) {
+                                  auto const childrenCount =
+                                      std::tuple_size_v<
+                                          std::decay_t<decltype(argument.getStaticArguments())>> +
+                                      argument.getDynamicArguments().size() +
+                                      argument.getSpanArguments().size();
 
-                        expressions[expressionOutputI++].lastChildOffset =
-                            expressions[expressionOutputI].firstChildOffset + childrenCount - 1;
-                        buffer[argumentOutputI].type = Argument::SymbolType::SYMBOL;
-                        buffer[argumentOutputI++].asString =
-                            strdup(argument.getHead().getName().c_str());
-                        children.push_back(std::move(argument));
-                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                         long long>) {
-                        buffer[argumentOutputI].type = Argument::SymbolType::LONG;
-                        buffer[argumentOutputI++].asLong = argument;
-                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                         boss::Symbol>) {
-                        buffer[argumentOutputI].type = Argument::SymbolType::SYMBOL;
-                        buffer[argumentOutputI++].asString = strdup(argument.getName().c_str());
-                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                         double>) {
-                        buffer[argumentOutputI].type = Argument::SymbolType::DOUBLE;
-                        buffer[argumentOutputI++].asDouble = argument;
-                      } else {
-                        __builtin_debugtrap();
-                        throw std::runtime_error("unknown type");
-                      }
-                    },
-                    argument);
-              });
+                                  *makeExpression(expressions,
+                                                  expressionOutputI++) = PortableBossExpression{
+                                      .headOffset = argumentOutputI,
+                                      .firstChildOffset = nextLayerOffset + childrenCountRunningSum,
+                                      .lastChildOffset = nextLayerOffset + childrenCountRunningSum +
+                                                         childrenCount - 1};
+                                  *makeSymbolArgument(buffer, argumentOutputI++) =
+                                      strdup(argument.getHead().getName().c_str());
+                                  childrenCountRunningSum += childrenCount;
+                                  children.push_back(std::move(argument));
+                                } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                                   long long>) {
+                                  *makeLongArgument(buffer, argumentOutputI++) = argument;
+                                } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                                   boss::Symbol>) {
+                                  *makeSymbolArgument(buffer, argumentOutputI++) =
+                                      strdup(argument.getName().c_str());
+                                } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                                   double>) {
+                                  *makeDoubleArgument(buffer, argumentOutputI++) = argument;
+                                } else {
+                                  __builtin_debugtrap();
+                                  throw std::runtime_error("unknown type");
+                                }
+                              },
+                              argument);
+                        });
         });
     if(!children.empty()) {
       flattenArguments(buffer, argumentOutputI, std::move(children), expressions,
@@ -186,18 +171,9 @@ struct SerializedExpression {
 
 public:
   explicit SerializedExpression(boss::ComplexExpression&& input)
-      : buffer([&input]() {
-          size_t argumentCount = (countArguments(input) + 1);
-          size_t expressionCount = (countExpressions(input));
-          void* buffer =
-              malloc(sizeof(argumentCount) + sizeof(expressionCount) +
-                     sizeof(Argument) * argumentCount + sizeof(Expression) * expressionCount);
-          static_cast<size_t*>(buffer)[0] = argumentCount;
-          static_cast<size_t*>(buffer)[1] = expressionCount;
-          return buffer;
-        }()) {
-    auto argumentIterator = size_t{};
-    auto expressionIterator = size_t{};
+      : root(allocateExpressionTree(countArguments(input) + 1, countExpressions(input))) {
+    auto argumentIterator = uint64_t{};
+    auto expressionIterator = uint64_t{};
     flattenedArguments()[argumentIterator++] =
         Argument{.type = Argument::SymbolType::SYMBOL,
                  .asString = strdup(input.getHead().getName().c_str())};
@@ -207,9 +183,9 @@ public:
                      expressionIterator);
   }
 
-  boss::expressions::ExpressionArguments deserializeArguments(size_t firstChildOffset,
-                                                              size_t lastChildOffset,
-                                                              size_t unprocessedExpressionPointer) {
+  boss::expressions::ExpressionArguments
+  deserializeArguments(uint64_t firstChildOffset, uint64_t lastChildOffset,
+                       uint64_t unprocessedExpressionPointer) {
     boss::expressions::ExpressionArguments arguments;
     for(auto childIndex = firstChildOffset; childIndex <= lastChildOffset; childIndex++) {
       auto& arg = flattenedArguments()[childIndex];
@@ -253,6 +229,12 @@ public:
     return result;
   };
 
-  ~SerializedExpression() { free(buffer); }
+  PortableBOSSExpressionRoot* extractRoot() && {
+    auto root = this->root;
+    this->root = nullptr;
+    return root;
+  };
+
+  ~SerializedExpression() { freeExpressionTree(root); }
 };
 } // namespace boss::serialization
