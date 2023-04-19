@@ -51,17 +51,27 @@ static struct PortableBOSSExpressionRoot* allocateExpressionTree(uint64_t argume
 static void freeExpressionTree(struct PortableBOSSExpressionRoot* root) { free(root); }
 
 static int64_t* makeLongArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
-  buffer[argumentOutputI].type = PortableBossArgument::SymbolType::LONG;
+#ifdef __cplusplus
+  auto LONG = PortableBossArgument::SymbolType::LONG;
+#endif
+
+  buffer[argumentOutputI].type = LONG;
   return &buffer[argumentOutputI].asLong;
 };
 
 static char** makeSymbolArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
-  buffer[argumentOutputI].type = PortableBossArgument::SymbolType::SYMBOL;
+#ifdef __cplusplus
+  auto SYMBOL = PortableBossArgument::SymbolType::SYMBOL;
+#endif
+  buffer[argumentOutputI].type = SYMBOL;
   return &buffer[argumentOutputI].asString;
 };
 
 static double* makeDoubleArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
-  buffer[argumentOutputI].type = PortableBossArgument::SymbolType::DOUBLE;
+#ifdef __cplusplus
+  auto DOUBLE = PortableBossArgument::SymbolType::DOUBLE;
+#endif
+  buffer[argumentOutputI].type = DOUBLE;
   return &buffer[argumentOutputI].asDouble;
 };
 
