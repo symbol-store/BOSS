@@ -93,7 +93,8 @@ static struct PortableBossExpression* makeExpression(struct PortableBossExpressi
 
 struct PortableBOSSExpressionRoot* serializeBOSSExpression(struct BOSSExpression*);
 struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSExpressionRoot*);
-struct BOSSExpression* BOSSEvaluate(BOSSExpression const* arg);
+struct BOSSExpression*
+BOSSEvaluate(BOSSExpression const* arg); // TODO: this should probably be somewhere else
 
 #ifdef __cplusplus
 }
