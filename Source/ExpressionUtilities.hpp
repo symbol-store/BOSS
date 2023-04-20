@@ -25,18 +25,18 @@ public:
    * libraries convert char const* to int or bool, not to ::std::string -- so I do
    * it explicitly
    */
+
+  typename ExpressionSystem::Expression
+  convertConstCharToStringAndOnToExpression(char const* v) const {
+    return ::std::string((char const*)v);
+  }
+  typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(int v) const {
+    return int64_t(v);
+  }
   template <typename T>
-  typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {
-    if constexpr(std::is_same_v<std::decay_t<T>, char const*>) {
-      return ::std::string((char const*)v);
-    }
-    // also convert int32 to int64 as a convenience
-    // (except if the expression's type system includes int32)
-    else if constexpr(std::is_same_v<std::decay_t<T>, int> && !isAtom<int>::value) {
-      return int64_t(v);
-    } else {
-      return std::forward<T>(v);
-    }
+  typename ExpressionSystem::Expression
+  convertConstCharToStringAndOnToExpression(typename ExpressionSystem::Expression&& v) const {
+    return std::move(v);
   }
 
   template <typename Ts>
