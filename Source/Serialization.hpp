@@ -167,7 +167,8 @@ struct SerializedExpression {
 
 public:
   explicit SerializedExpression(boss::ComplexExpression&& input)
-      : root(allocateExpressionTree(countArguments(input) + 1, countExpressions(input)-1)) {
+      : SerializedExpression(
+            allocateExpressionTree(countArguments(input) + 1, countExpressions(input) - 1)) {
     auto argumentIterator = uint64_t{};
     auto expressionIterator = uint64_t{};
     flattenedArguments()[argumentIterator++] =
@@ -178,6 +179,8 @@ public:
     flattenArguments(flattenedArguments(), argumentIterator, std::move(inputs), expressionsBuffer(),
                      expressionIterator);
   }
+
+  explicit SerializedExpression(PortableBOSSExpressionRoot* root) : root(root) {}
 
   boss::expressions::ExpressionArguments
   deserializeArguments(uint64_t firstChildOffset, uint64_t lastChildOffset,

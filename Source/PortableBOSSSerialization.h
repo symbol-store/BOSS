@@ -43,7 +43,8 @@ getExpressionSubexpressions(struct PortableBOSSExpressionRoot* root) {
 static struct PortableBOSSExpressionRoot* allocateExpressionTree(uint64_t argumentCount,
                                                                  uint64_t expressionCount) {
   struct PortableBOSSExpressionRoot* root = (struct PortableBOSSExpressionRoot*)malloc(
-      sizeof(argumentCount) + sizeof(expressionCount) + sizeof(struct PortableBossArgument) * argumentCount +
+      sizeof(argumentCount) + sizeof(expressionCount) +
+      sizeof(struct PortableBossArgument) * argumentCount +
       sizeof(struct PortableBossExpression) * expressionCount);
   *((uint64_t*)&root->argumentCount) = argumentCount;
   *((uint64_t*)&root->expressionCount) = expressionCount;
@@ -89,6 +90,10 @@ static struct PortableBossExpression* makeExpression(struct PortableBossExpressi
                                                      uint64_t expressionOutputI) {
   return &expressions[expressionOutputI];
 }
+
+struct PortableBOSSExpressionRoot* serializeBOSSExpression(struct BOSSExpression*);
+struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSExpressionRoot*);
+struct BOSSExpression* BOSSEvaluate(BOSSExpression const* arg);
 
 #ifdef __cplusplus
 }

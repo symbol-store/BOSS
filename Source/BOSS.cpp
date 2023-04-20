@@ -2,6 +2,7 @@
 #include "BootstrapEngine.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "Serialization.hpp"
 #include "Utilities.hpp"
 #include <algorithm>
 #include <cstring>
@@ -138,3 +139,15 @@ Expression evaluate(Expression const& expr) {
   return output;
 }
 } // namespace boss
+
+extern "C" {
+
+struct PortableBOSSExpressionRoot* serializeBOSSExpression(struct BOSSExpression* e) {
+  return boss::serialization::SerializedExpression(
+             std::move(get<boss::ComplexExpression>(e->delegate)))
+      .extractRoot();
+}
+struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSExpressionRoot* root) {
+  return new BOSSExpression{.delegate = boss::serialization::SerializedExpression(root).deserialize()};
+}
+}
