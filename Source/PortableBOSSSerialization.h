@@ -72,9 +72,9 @@ static char** makeSymbolArgument(struct PortableBossArgument* buffer, uint64_t a
 
 static char** makeStringArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
 #ifdef __cplusplus
-  auto SYMBOL = PortableBossArgument::SymbolType::STRING;
+  auto STRING = PortableBossArgument::SymbolType::STRING;
 #endif
-  buffer[argumentOutputI].type = SYMBOL;
+  buffer[argumentOutputI].type = STRING;
   return &buffer[argumentOutputI].asString;
 };
 

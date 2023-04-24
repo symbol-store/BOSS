@@ -13,7 +13,7 @@ using Expression = PortableBossExpression;
 struct SerializedExpression {
   PortableBOSSExpressionRoot* root;
   uint64_t argumentCount() const { return root->argumentCount; };
- 
+
   Argument* flattenedArguments() const { return getExpressionArguments(root); }
   Expression* expressionsBuffer() const { return getExpressionSubexpressions(root); }
 
@@ -114,47 +114,50 @@ struct SerializedExpression {
               buffer, statics,
               std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
               argumentOutputI);
-          std::for_each(dynamics.begin(), dynamics.end(),
-                        [buffer, &argumentOutputI, &children, expressions, &expressionOutputI,
-                         nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
-                          std::visit(
-                              [&children, buffer, &argumentOutputI, expressions, &expressionOutputI,
-                               nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
-                                if constexpr(boss::expressions::generic::isComplexExpression<
-                                                 decltype(argument)>) {
-                                  auto const childrenCount =
-                                      std::tuple_size_v<
-                                          std::decay_t<decltype(argument.getStaticArguments())>> +
-                                      argument.getDynamicArguments().size() +
-                                      argument.getSpanArguments().size();
+          std::for_each(
+              dynamics.begin(), dynamics.end(),
+              [buffer, &argumentOutputI, &children, expressions, &expressionOutputI,
+               nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
+                std::visit(
+                    [&children, buffer, &argumentOutputI, expressions, &expressionOutputI,
+                     nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
+                      if constexpr(boss::expressions::generic::isComplexExpression<
+                                       decltype(argument)>) {
+                        auto const childrenCount =
+                            std::tuple_size_v<
+                                std::decay_t<decltype(argument.getStaticArguments())>> +
+                            argument.getDynamicArguments().size() +
+                            argument.getSpanArguments().size();
 
-                                  *makeExpression(expressions,
-                                                  expressionOutputI++) = PortableBossExpression{
-                                      .headOffset = argumentOutputI,
-                                      .firstChildOffset = nextLayerOffset + childrenCountRunningSum,
-                                      .lastChildOffset = nextLayerOffset + childrenCountRunningSum +
-                                                         childrenCount - 1};
-                                  *makeSymbolArgument(buffer, argumentOutputI++) =
-                                      strdup(argument.getHead().getName().c_str());
-                                  childrenCountRunningSum += childrenCount;
-                                  children.push_back(std::move(argument));
-                                } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                                   long long>) {
-                                  *makeLongArgument(buffer, argumentOutputI++) = argument;
-                                } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                                   boss::Symbol>) {
-                                  *makeSymbolArgument(buffer, argumentOutputI++) =
-                                      strdup(argument.getName().c_str());
-                                } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                                   double>) {
-                                  *makeDoubleArgument(buffer, argumentOutputI++) = argument;
-                                } else {
-                                  __builtin_debugtrap();
-                                  throw std::runtime_error("unknown type");
-                                }
-                              },
-                              argument);
-                        });
+                        *makeExpression(expressions, expressionOutputI++) = PortableBossExpression{
+                            .headOffset = argumentOutputI,
+                            .firstChildOffset = nextLayerOffset + childrenCountRunningSum,
+                            .lastChildOffset =
+                                nextLayerOffset + childrenCountRunningSum + childrenCount - 1};
+                        *makeSymbolArgument(buffer, argumentOutputI++) =
+                            strdup(argument.getHead().getName().c_str());
+                        childrenCountRunningSum += childrenCount;
+                        children.push_back(std::move(argument));
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                         long long>) {
+                        *makeLongArgument(buffer, argumentOutputI++) = argument;
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                         boss::Symbol>) {
+                        *makeSymbolArgument(buffer, argumentOutputI++) =
+                            strdup(argument.getName().c_str());
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                         std::string>) {
+                        *makeStringArgument(buffer, argumentOutputI++) = strdup(argument.c_str());
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                         double>) {
+                        *makeDoubleArgument(buffer, argumentOutputI++) = argument;
+                      } else {
+                        __builtin_debugtrap();
+                        throw std::runtime_error("unknown type");
+                      }
+                    },
+                    argument);
+              });
         });
     if(!children.empty()) {
       return flattenArguments(buffer, argumentOutputI, std::move(children), expressions,
