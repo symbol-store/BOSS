@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <iterator>
 #include <map>
 #include <numeric>
@@ -20,6 +21,8 @@
 namespace boss {
 namespace expressions {
 
+#define LOGGING_CLONE
+
 enum class CloneReason {
   FOR_TESTING,                            // should be used only in BOSSTests!
   CONVERSION_TO_CUSTOM_EXPRESSION,        // from boss::Expression to custom Expression
@@ -32,8 +35,20 @@ enum class CloneReason {
   EXPRESSION_SUBSTITUTION,   // modifying arguments (includes argument evaluation)
   EXPRESSION_AUGMENTATION,   // adding new arguments
 };
-static void checkCloneWithoutReason(CloneReason reason) {}
-[[deprecated("Provide a reason type instead")]] static void checkCloneWithoutReason() {}
+static void cloneLog(CloneReason reason) {
+#ifdef LOGGING_CLONE
+  std::cout << "clone(reason:" << (int)reason << ")" << std::endl;
+#endif
+}
+static void cloneLog() {
+#ifdef LOGGING_CLONE
+  std::cout << "clone(no reason)" << std::endl;
+#endif
+}
+static void checkCloneWithoutReason(CloneReason reason) { cloneLog(reason); }
+[[deprecated("Provide a reason type instead")]] static void checkCloneWithoutReason() {
+  cloneLog();
+}
 
 namespace atoms {
 // NOLINTBEGIN(bugprone-exception-escape)
