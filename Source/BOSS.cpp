@@ -31,6 +31,12 @@ BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
         arg->delegate.clone(CloneReason::EXPRESSION_WRAPPING), e.what())};
   }
 };
+BOSSExpression* boolToNewBOSSExpression(bool value) {
+  return new BOSSExpression{boss::Expression(value)};
+}
+BOSSExpression* intToNewBOSSExpression(int32_t value) {
+  return new BOSSExpression{boss::Expression(value)};
+}
 BOSSExpression* longToNewBOSSExpression(int64_t value) {
   return new BOSSExpression{boss::Expression(value)};
 }
@@ -65,26 +71,31 @@ char const* bossSymbolToNewString(BOSSSymbol const* arg) {
 }
 
 /**
- *     bool = 0, long = 1, double = 2 , ::std::string = 3, Symbol = 4 , ComplexExpression = 5
+ *     bool = 0, int = 1, long = 2, double = 3 , ::std::string = 4, Symbol = 5 , ComplexExpression = 6
  */
 size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
   static_assert(
       ::std::is_same_v<bool, ::std::variant_alternative_t<0, boss::Expression::SuperType>>);
-  static_assert(::std::is_same_v<::std::int64_t,
+  static_assert(::std::is_same_v<::std::int32_t,
                                  ::std::variant_alternative_t<1, boss::Expression::SuperType>>);
-  static_assert(::std::is_same_v<::std::double_t,
+  static_assert(::std::is_same_v<::std::int64_t,
                                  ::std::variant_alternative_t<2, boss::Expression::SuperType>>);
-  static_assert(::std::is_same_v<::std::string,
+  static_assert(::std::is_same_v<::std::double_t,
                                  ::std::variant_alternative_t<3, boss::Expression::SuperType>>);
+  static_assert(::std::is_same_v<::std::string,
+                                 ::std::variant_alternative_t<4, boss::Expression::SuperType>>);
   static_assert(
-      ::std::is_same_v<boss::Symbol, ::std::variant_alternative_t<4, boss::Expression::SuperType>>);
+      ::std::is_same_v<boss::Symbol, ::std::variant_alternative_t<5, boss::Expression::SuperType>>);
   static_assert(
       ::std::is_same_v<boss::ComplexExpression,
-                       ::std::variant_alternative_t<5, boss::Expression::SuperType>>); // NOLINT
+                       ::std::variant_alternative_t<6, boss::Expression::SuperType>>); // NOLINT
   return arg->delegate.index();
 }
 
 bool getBoolValueFromBOSSExpression(BOSSExpression const* arg) { return get<bool>(arg->delegate); }
+std::int32_t getIntValueFromBOSSExpression(BOSSExpression const* arg) {
+  return get<::std::int32_t>(arg->delegate);
+}
 std::int64_t getLongValueFromBOSSExpression(BOSSExpression const* arg) {
   return get<::std::int64_t>(arg->delegate);
 }

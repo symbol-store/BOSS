@@ -14,6 +14,8 @@ struct BOSSSymbol* symbolNameToNewBOSSSymbol(char const* name);
 char const* symbolToNewString(struct BOSSSymbol const* arg);
 
 struct BOSSExpression;
+struct BOSSExpression* boolToNewBOSSExpression(bool value);
+struct BOSSExpression* intToNewBOSSExpression(int32_t value);
 struct BOSSExpression* longToNewBOSSExpression(int64_t value);
 struct BOSSExpression* doubleToNewBOSSExpression(double value);
 struct BOSSExpression* stringToNewBOSSExpression(char const* string);
@@ -23,11 +25,12 @@ struct BOSSExpression* newComplexBOSSExpression(struct BOSSSymbol* head, size_t 
                                                 struct BOSSExpression* arguments[]);
 
 /**
- *     bool = 0, long = 1, double = 2 , std::string = 3, Symbol = 4 , ComplexExpression = 5
+ *     bool = 0, int = 1, long = 2, double = 3 , std::string = 4, Symbol = 5 , ComplexExpression = 6
  */
 size_t getBOSSExpressionTypeID(struct BOSSExpression const* arg);
 
 bool getBoolValueFromBOSSExpression(struct BOSSExpression const* arg);
+int32_t getIntValueFromBOSSExpression(struct BOSSExpression const* arg);
 int64_t getLongValueFromBOSSExpression(struct BOSSExpression const* arg);
 double getDoubleValueFromBOSSExpression(struct BOSSExpression const* arg);
 char* getNewStringValueFromBOSSExpression(struct BOSSExpression const* arg);
