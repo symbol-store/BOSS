@@ -13,6 +13,7 @@ using std::string;
 using std::literals::string_literals::operator""s; // NOLINT(misc-unused-using-decls) clang-tidy bug
 using boss::utilities::operator""_;                // NOLINT(misc-unused-using-decls) clang-tidy bug
 using Catch::Generators::random;
+using Catch::Generators::table;
 using Catch::Generators::take;
 using Catch::Generators::values;
 using std::vector;
@@ -36,6 +37,46 @@ std::vector<string> librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-con
 // NOLINTBEGIN(bugprone-exception-escape)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // TODO: @Hubert, can you reduce the complexity of the tests, please?
+
+// TODO: https://github.com/symbol-store/BOSS/issues/151
+static boss::ComplexExpression shallowCopy(boss::ComplexExpression const& e) {
+  auto const& head = e.getHead();
+  auto const& dynamics = e.getDynamicArguments();
+  auto const& spans = e.getSpanArguments();
+  boss::ExpressionArguments dynamicsCopy;
+  std::transform(dynamics.begin(), dynamics.end(), std::back_inserter(dynamicsCopy),
+                 [](auto const& arg) {
+                   return std::visit(
+                       boss::utilities::overload(
+                           [&](boss::ComplexExpression const& expr) -> boss::Expression {
+                             return shallowCopy(expr);
+                           },
+                           [](auto const& otherTypes) -> boss::Expression { return otherTypes; }),
+                       arg);
+                 });
+  boss::expressions::ExpressionSpanArguments spansCopy;
+  std::transform(spans.begin(), spans.end(), std::back_inserter(spansCopy), [](auto const& span) {
+    return std::visit(
+        [](auto const& typedSpan) -> boss::expressions::ExpressionSpanArgument {
+          // just do a shallow copy of the span
+          // the storage's span keeps the ownership
+          // (since the storage will be alive until the query finishes)
+          using SpanType = std::decay_t<decltype(typedSpan)>;
+          using T = std::remove_const_t<typename SpanType::element_type>;
+          if constexpr(std::is_same_v<T, bool>) {
+            // TODO: this would still keep const spans for bools, need to fix later
+            return SpanType(typedSpan.begin(), typedSpan.size(), []() {});
+          } else {
+            // force non-const value for now (otherwise expressions cannot be moved)
+            auto* ptr = const_cast<T*>(typedSpan.begin()); // NOLINT
+            return boss::Span<T>(ptr, typedSpan.size(), []() {});
+          }
+        },
+        span);
+  });
+  return boss::ComplexExpression(head, {}, std::move(dynamicsCopy), std::move(spansCopy));
+}
+
 TEST_CASE("Subspans work correctly", "[spans]") {
   auto input = boss::Span<int64_t>{std::vector<int64_t>{1, 2, 4, 3}};
   auto subrange = std::move(input).subspan(1, 3);
@@ -827,284 +868,375 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                 std::move(expression)));
   };
 
-  auto nation = "Table"_(
-      "Column"_("N_NATIONKEY"_, "List"_(1, 2, 3, 4)),                                    // NOLINT
-      "Column"_("N_REGIONKEY"_, "List"_(1, 1, 2, 3)),                                    // NOLINT
-      "Column"_("N_NAME"_, "DictionaryEncodedList"_("List"_(0, 7, 16, 22, 28), "ALGERIA" // NOLINT
-                                                                               "ARGENTINA"
-                                                                               "BRAZIL"
-                                                                               "CANADA")),
-      "Index"_("R_REGIONKEY"_, "List"_()));
+  auto multipleSpans = GENERATE(false, true);
 
-  auto nNameVelox = "Column"_(
-      "N_NAME"_,
-      "SmallStringEncodedList"_("List"_(0x00000007'414c4745, 0, 0x00000009'41524745, 7,    // NOLINT
-                                        0x00000006'4252415a, 16, 0x00000006'43414e41, 22), // NOLINT
-                                "ALGERIA"
-                                "ARGENTINA"
-                                "BRAZIL"
-                                "CANADA"));
+  auto asInt64Spans = [&eval, &multipleSpans](auto&& val0, auto&&... val) {
+    auto evalIfNeeded = [&eval](auto&& val) {
+      if constexpr(std::is_same_v<boss::ComplexExpression, std::decay_t<decltype(val)>>) {
+        return get<int64_t>(eval(std::move(val)));
+      } else {
+        return (int64_t)std::move(val);
+      }
+    };
+    boss::expressions::ExpressionSpanArguments spans;
+    if(multipleSpans) {
+      spans.emplace_back(boss::Span<int64_t>{std::vector<int64_t>{evalIfNeeded(std::move(val0))}});
+      spans.emplace_back(
+          boss::Span<int64_t>{std::vector<int64_t>{evalIfNeeded(std::move(val))...}});
+    } else {
+      spans.emplace_back(boss::Span<int64_t>{
+          std::vector<int64_t>{evalIfNeeded(std::move(val0)), evalIfNeeded(std::move(val))...}});
+    }
+    return boss::ComplexExpression("List"_, {}, {}, std::move(spans));
+  };
+
+  auto asDoubleSpans = [&eval, &multipleSpans](auto&& val0, auto&&... val) {
+    auto evalIfNeeded = [&eval](auto&& val) {
+      if constexpr(std::is_same_v<boss::ComplexExpression, std::decay_t<decltype(val)>>) {
+        return get<double_t>(eval(std::move(val)));
+      } else {
+        return (double_t)std::move(val);
+      }
+    };
+    boss::expressions::ExpressionSpanArguments spans;
+    if(multipleSpans) {
+      spans.emplace_back(
+          boss::Span<double_t>{std::vector<double_t>{evalIfNeeded(std::move(val0))}});
+      spans.emplace_back(
+          boss::Span<double_t>{std::vector<double_t>{evalIfNeeded(std::move(val))...}});
+    } else {
+      spans.emplace_back(boss::Span<double_t>{
+          std::vector<double_t>{evalIfNeeded(std::move(val0)), evalIfNeeded(std::move(val))...}});
+    }
+    return boss::ComplexExpression("List"_, {}, {}, std::move(spans));
+  };
+
+  auto nation = "Table"_(
+      "Column"_("N_NATIONKEY"_, asInt64Spans(1, 2, 3, 4)), // NOLINT
+      "Column"_("N_REGIONKEY"_, asInt64Spans(1, 1, 2, 3)), // NOLINT
+      "Column"_("N_NAME"_, "DictionaryEncodedList"_(asInt64Spans(0, 7, 16, 22, 28), "ALGERIA"
+                                                                                    "ARGENTINA"
+                                                                                    "BRAZIL"
+                                                                                    "CANADA")),
+      "Index"_("R_REGIONKEY"_, asInt64Spans(1, 1, 2, 3)));
 
   auto part = "Table"_(
-      "Column"_("P_PARTKEY"_, "List"_(4, 3, 2, 1)),                               // NOLINT
-      "Column"_("P_RETAILPRICE"_, "List"_(100.01, 100.01, 100.01, 100.01)),       // NOLINT
-      "Column"_("P_NAME"_, "DictionaryEncodedList"_("List"_(0, 35, 72, 107, 144), // NOLINT
+      "Column"_("P_PARTKEY"_, asInt64Spans(4, 3, 2, 1)),                          // NOLINT
+      "Column"_("P_RETAILPRICE"_, asDoubleSpans(100.01, 100.01, 100.01, 100.01)), // NOLINT
+      "Column"_("P_NAME"_, "DictionaryEncodedList"_(asInt64Spans(0, 35, 72, 107, 144),
                                                     "spring green yellow purple cornsilk"
                                                     "cornflower chocolate smoke green pink"
                                                     "moccasin green thistle khaki floral"
                                                     "green blush tomato burlywood seashell")));
 
-  auto pNameVelox =
-      "Column"_("P_NAME"_, "SmallStringEncodedList"_(
-                               "List"_(0x00000023'73707269, 0, 0x00000025'636f726e, 35,    // NOLINT
-                                       0x00000023'6d6f6363, 72, 0x00000025'67726565, 107), // NOLINT
-                               "spring green yellow purple cornsilk"
-                               "cornflower chocolate smoke green pink"
-                               "moccasin green thistle khaki floral"
-                               "green blush tomato burlywood seashell"));
-
-  auto supplier = "Table"_("Column"_("S_SUPPKEY"_, "List"_(1, 4, 2, 3)),   // NOLINT
-                           "Column"_("S_NATIONKEY"_, "List"_(1, 1, 2, 3)), // NOLINT
-                           "Index"_("N_NATIONKEY"_, "List"_(0, 0, 1, 2))); // NOLINT
+  auto supplier = "Table"_("Column"_("S_SUPPKEY"_, asInt64Spans(1, 4, 2, 3)),   // NOLINT
+                           "Column"_("S_NATIONKEY"_, asInt64Spans(1, 1, 2, 3)), // NOLINT
+                           "Index"_("N_NATIONKEY"_, asInt64Spans(0, 0, 1, 2))); // NOLINT
 
   auto partsupp =
-      "Table"_("Column"_("PS_PARTKEY"_, "List"_(1, 2, 3, 4)),                        // NOLINT
-               "Column"_("PS_SUPPKEY"_, "List"_(1, 2, 3, 4)),                        // NOLINT
-               "Column"_("PS_SUPPLYCOST"_, "List"_(771.64, 993.49, 337.09, 357.84)), // NOLINT
-               "Index"_("P_PARTKEY"_, "List"_(3, 3, 2, 1)),                          // NOLINT
-               "Index"_("S_SUPPKEY"_, "List"_(0, 0, 2, 3)));                         // NOLINT
+      "Table"_("Column"_("PS_PARTKEY"_, asInt64Spans(1, 2, 3, 4)),                         // NOLINT
+               "Column"_("PS_SUPPKEY"_, asInt64Spans(1, 2, 3, 4)),                         // NOLINT
+               "Column"_("PS_SUPPLYCOST"_, asDoubleSpans(771.64, 993.49, 337.09, 357.84)), // NOLINT
+               "Index"_("P_PARTKEY"_, asInt64Spans(3, 3, 2, 1)),                           // NOLINT
+               "Index"_("S_SUPPKEY"_, asInt64Spans(0, 0, 2, 3)));                          // NOLINT
 
   auto customer =
-      "Table"_("Column"_("C_CUSTKEY"_, "List"_(4, 7, 1, 4)),                             // NOLINT
-               "Column"_("C_NATIONKEY"_, "List"_(3, 3, 1, 4)),                           // NOLINT
-               "Column"_("C_ACCTBAL"_, "List"_(711.56, 121.65, 7498.12, 2866.83)),       // NOLINT
-               "Column"_("C_NAME"_, "DictionaryEncodedList"_("List"_(0, 18, 36, 54, 72), // NOLINT
-                                                             "Customer#000000001"        // NOLINT
+      "Table"_("Column"_("C_CUSTKEY"_, asInt64Spans(4, 7, 1, 4)),                        // NOLINT
+               "Column"_("C_NATIONKEY"_, asInt64Spans(3, 3, 1, 4)),                      // NOLINT
+               "Column"_("C_ACCTBAL"_, asDoubleSpans(711.56, 121.65, 7498.12, 2866.83)), // NOLINT
+               "Column"_("C_NAME"_, "DictionaryEncodedList"_(asInt64Spans(0, 18, 36, 54, 72),
+                                                             "Customer#000000001"
                                                              "Customer#000000002"
                                                              "Customer#000000003"
                                                              "Customer#000000004")),
                "Column"_("C_MKTSEGMENT"_,
-                         "DictionaryEncodedList"_("List"_(0, 10, 19, 28, 36), "AUTOMOBILE" // NOLINT
-                                                                              "MACHINERY"
-                                                                              "HOUSEHOLD"
-                                                                              "BUILDING")),
-               "Index"_("N_NATIONKEY"_, "List"_(2, 2, 0, 3))); // NOLINT
+                         "DictionaryEncodedList"_(asInt64Spans(0, 10, 19, 28, 36), "AUTOMOBILE"
+                                                                                   "MACHINERY"
+                                                                                   "HOUSEHOLD"
+                                                                                   "BUILDING")),
+               "Index"_("N_NATIONKEY"_, asInt64Spans(2, 2, 0, 3))); // NOLINT
 
-  auto cNameVelox = "Column"_(
-      "C_NAME"_,
-      "SmallStringEncodedList"_("List"_(0x00000012'43757374, 0, 0x00000012'43757374, 18,   // NOLINT
-                                        0x00000012'43757374, 36, 0x00000012'43757374, 54), // NOLINT
-                                "Customer#000000001"
-                                "Customer#000000002"
-                                "Customer#000000003"
-                                "Customer#000000004"));
-
-  auto cMktSegment = "Column"_(
-      "C_MKTSEGMENT"_,
-      "SmallStringEncodedList"_("List"_(0x00000010'4155544f, 0, 0x00000009'4d414348, 10,   // NOLINT
-                                        0x00000009'484f5553, 19, 0x00000008'4255494c, 28), // NOLINT
-                                "AUTOMOBILE"
-                                "MACHINERY"
-                                "HOUSEHOLD"
-                                "BUILDING"));
-
-  auto orders = "Table"_(
-      "Column"_("O_ORDERKEY"_, "List"_(1, 0, 2, 3)),                                   // NOLINT
-      "Column"_("O_CUSTKEY"_, "List"_(4, 7, 1, 4)),                                    // NOLINT
-      "Column"_("O_TOTALPRICE"_, "List"_(178821.73, 154260.84, 202660.52, 155680.60)), // NOLINT
-      "Column"_("O_ORDERDATE"_, "List"_("DateObject"_("1998-01-24"), "DateObject"_("1992-05-01"),
-                                        "DateObject"_("1992-12-21"), "DateObject"_("1994-06-18"))),
-      "Column"_("O_SHIPPRIORITY"_, "List"_(1, 1, 1, 1)), // NOLINT
-      "Index"_("C_CUSTKEY"_, "List"_(0, 1, 2, 3)));      // NOLINT
+  auto orders =
+      "Table"_("Column"_("O_ORDERKEY"_, asInt64Spans(1, 0, 2, 3)),
+               "Column"_("O_CUSTKEY"_, asInt64Spans(4, 7, 1, 4)), // NOLINT
+               "Column"_("O_TOTALPRICE"_,
+                         asDoubleSpans(178821.73, 154260.84, 202660.52, 155680.60)), // NOLINT
+               "Column"_("O_ORDERDATE"_,
+                         asInt64Spans("DateObject"_("1998-01-24"), "DateObject"_("1992-05-01"),
+                                      "DateObject"_("1992-12-21"), "DateObject"_("1994-06-18"))),
+               "Column"_("O_SHIPPRIORITY"_, asInt64Spans(1, 1, 1, 1)), // NOLINT
+               "Index"_("C_CUSTKEY"_, asInt64Spans(0, 1, 2, 3)));      // NOLINT
 
   auto lineitem = "Table"_(
-      "Column"_("L_ORDERKEY"_, "List"_(1, 1, 2, 3)),                                     // NOLINT
-      "Column"_("L_PARTKEY"_, "List"_(1, 2, 3, 4)),                                      // NOLINT
-      "Column"_("L_SUPPKEY"_, "List"_(1, 2, 3, 4)),                                      // NOLINT
-      "Column"_("L_RETURNFLAG"_, "DictionaryEncodedList"_("List"_(0, 1, 2, 3), "NNAA")), // NOLINT
-      "Column"_("L_LINESTATUS"_, "DictionaryEncodedList"_("List"_(0, 1, 2, 3), "OOFF")), // NOLINT
-      "Column"_("L_RETURNFLAG_INT"_, "List"_('N'_i64, 'N'_i64, 'A'_i64, 'A'_i64)),       // NOLINT
-      "Column"_("L_LINESTATUS_INT"_, "List"_('O'_i64, 'O'_i64, 'F'_i64, 'F'_i64)),       // NOLINT
-      "Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)),                                   // NOLINT
-      "Column"_("L_EXTENDEDPRICE"_, "List"_(17954.55, 34850.16, 7712.48, 25284.00)),     // NOLINT
-      "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)),                         // NOLINT
-      "Column"_("L_TAX"_, "List"_(0.02, 0.06, 0.02, 0.06)),                              // NOLINT
-      "Column"_("L_SHIPDATE"_, "List"_("DateObject"_("1992-03-13"), "DateObject"_("1994-04-12"),
-                                       "DateObject"_("1996-02-28"), "DateObject"_("1994-12-31"))),
-      "Index"_("O_ORDERKEY"_, "List"_(0, 0, 1, 2)),            // NOLINT
-      "Index"_("PS_PARTKEYPS_SUPPKEY"_, "List"_(0, 1, 2, 3))); // NOLINT
+      "Column"_("L_ORDERKEY"_, asInt64Spans(1, 1, 2, 3)), // NOLINT
+      "Column"_("L_PARTKEY"_, asInt64Spans(1, 2, 3, 4)),  // NOLINT
+      "Column"_("L_SUPPKEY"_, asInt64Spans(1, 2, 3, 4)),  // NOLINT
+      "Column"_("L_RETURNFLAG"_,
+                "DictionaryEncodedList"_(asInt64Spans(0, 1, 2, 3), "NNAA")), // NOLINT
+      "Column"_("L_LINESTATUS"_,
+                "DictionaryEncodedList"_(asInt64Spans(0, 1, 2, 3), "OOFF")),               // NOLINT
+      "Column"_("L_RETURNFLAG_INT"_, asInt64Spans('N'_i64, 'N'_i64, 'A'_i64, 'A'_i64)),    // NOLINT
+      "Column"_("L_LINESTATUS_INT"_, asInt64Spans('O'_i64, 'O'_i64, 'F'_i64, 'F'_i64)),    // NOLINT
+      "Column"_("L_QUANTITY"_, asInt64Spans(17, 21, 8, 5)),                                // NOLINT
+      "Column"_("L_EXTENDEDPRICE"_, asDoubleSpans(17954.55, 34850.16, 7712.48, 25284.00)), // NOLINT
+      "Column"_("L_DISCOUNT"_, asDoubleSpans(0.10, 0.05, 0.06, 0.06)),                     // NOLINT
+      "Column"_("L_TAX"_, asDoubleSpans(0.02, 0.06, 0.02, 0.06)),                          // NOLINT
+      "Column"_("L_SHIPDATE"_,
+                asInt64Spans("DateObject"_("1992-03-13"), "DateObject"_("1994-04-12"),
+                             "DateObject"_("1996-02-28"), "DateObject"_("1994-12-31"))),
+      "Index"_("O_ORDERKEY"_, asInt64Spans(0, 0, 2, 3)),            // NOLINT
+      "Index"_("PS_PARTKEYPS_SUPPKEY"_, asInt64Spans(0, 1, 2, 3))); // NOLINT
 
-  SECTION("Q1 (Select only)") {
-    auto output = eval("Select"_(
-        "Project"_(lineitem.clone(CloneReason::FOR_TESTING), "As"_("L_SHIPDATE"_, "L_SHIPDATE"_)),
-        "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))));
-    CHECK(output ==
-          eval("Table"_("Column"_(
+  auto useCache = GENERATE(false, true);
+
+  if(useCache) {
+    CHECK(eval("Set"_("CachedColumn"_, "L_QUANTITY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_DISCOUNT"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_SHIPDATE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_EXTENDEDPRICE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_QUANTITY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_DISCOUNT"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_SHIPDATE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_EXTENDEDPRICE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_RETURNFLAG"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_LINESTATUS"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_TAX"_)) == true);
+    // Q3
+    CHECK(eval("Set"_("CachedColumn"_, "C_CUSTKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "C_MKTSEGMENT"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "O_ORDERKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "O_ORDERDATE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "O_CUSTKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "O_SHIPPRIORITY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_ORDERKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_DISCOUNT"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_SHIPDATE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_EXTENDEDPRICE"_)) == true);
+    // Q6
+    CHECK(eval("Set"_("CachedColumn"_, "L_QUANTITY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_DISCOUNT"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_SHIPDATE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_EXTENDEDPRICE"_)) == true);
+    // Q9
+    CHECK(eval("Set"_("CachedColumn"_, "O_ORDERKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "O_ORDERDATE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "P_PARTKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "P_RETAILPRICE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "N_NAME"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "N_NATIONKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "S_SUPPKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "S_NATIONKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "PS_PARTKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "PS_SUPPKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "PS_SUPPLYCOST"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_PARTKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_SUPPKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_ORDERKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_EXTENDEDPRICE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_DISCOUNT"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_QUANTITY"_)) == true);
+    // Q18
+    CHECK(eval("Set"_("CachedColumn"_, "L_ORDERKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "L_QUANTITY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "C_CUSTKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "O_ORDERKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "O_CUSTKEY"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "O_ORDERDATE"_)) == true);
+    CHECK(eval("Set"_("CachedColumn"_, "O_TOTALPRICE"_)) == true);
+  }
+
+  auto const& [queryName, query,
+               expectedOutput] = GENERATE_REF(table<std::string,
+                                                    std::function<boss::ComplexExpression(void)>,
+                                                    std::function<boss::Expression(void)>>(
+      {{"Q1 (Select only)",
+        [&]() {
+          return "Select"_("Project"_(shallowCopy(lineitem), "As"_("L_SHIPDATE"_, "L_SHIPDATE"_)),
+                           "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_)));
+        },
+        [&]() {
+          return eval("Table"_("Column"_(
               "L_SHIPDATE"_, "List"_("DateObject"_("1992-03-13"), "DateObject"_("1994-04-12"),
-                                     "DateObject"_("1996-02-28"), "DateObject"_("1994-12-31"))))));
-  }
-
-  SECTION("Q1 (Project only)") {
-    auto output = eval("Project"_(
-        "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                         "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0),
-                         "L_DISCOUNT"_, "L_DISCOUNT"_)),
-        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "disc_price"_,
-              "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "charge"_,
-              "Times"_("L_EXTENDEDPRICE"_, "calc1"_, "calc2"_), "L_DISCOUNT"_, "L_DISCOUNT"_)));
-    CHECK(output ==
-          "Table"_("Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)), // NOLINT
-                   "Column"_("L_EXTENDEDPRICE"_,
-                             "List"_(17954.55, 34850.16, 7712.48, 25284.00)), // NOLINT
-                   "Column"_("disc_price"_,
-                             "List"_(17954.55 * (1.0 - 0.10), 34850.16 * (1.0 - 0.05),    // NOLINT
-                                     7712.48 * (1.0 - 0.06), 25284.00 * (1.0 - 0.06))),   // NOLINT
-                   "Column"_("charge"_, "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),   // NOLINT
-                                                34850.16 * (1.0 - 0.05) * (0.06 + 1.0),   // NOLINT
-                                                7712.48 * (1.0 - 0.06) * (0.02 + 1.0),    // NOLINT
-                                                25284.00 * (1.0 - 0.06) * (0.06 + 1.0))), // NOLINT
-                   "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06))));           // NOLINT
-  }
-
-  SECTION("Q1 (Select-Project only)") {
-    auto output = eval("Project"_(
-        "Project"_(
-            "Project"_("Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                            "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
-                                                  "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
-                                                  "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_TAX"_,
-                                                  "L_TAX"_)),
-                                 "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
-                       "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                             "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
-                             "calc2"_, "Plus"_("L_TAX"_, 1.0))),
-            "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                  "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
-                  "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
-        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
-              "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
-              "Times"_("disc_price"_, "calc2"_))));
-    CHECK(output ==
-          "Table"_("Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)), // NOLINT
-                   "Column"_("L_EXTENDEDPRICE"_,
-                             "List"_(17954.55, 34850.16, 7712.48, 25284.00)), // NOLINT
-                   "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)), // NOLINT
-                   "Column"_("disc_price"_,
-                             "List"_(17954.55 * (1.0 - 0.10), 34850.16 * (1.0 - 0.05),    // NOLINT
-                                     7712.48 * (1.0 - 0.06), 25284.00 * (1.0 - 0.06))),   // NOLINT
-                   "Column"_("calc"_, "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),     // NOLINT
-                                              34850.16 * (1.0 - 0.05) * (0.06 + 1.0),     // NOLINT
-                                              7712.48 * (1.0 - 0.06) * (0.02 + 1.0),      // NOLINT
-                                              25284.00 * (1.0 - 0.06) * (0.06 + 1.0))))); // NOLINT
-  }
-
-  SECTION("Q1 (No Order, No Strings)") {
-    auto output = eval("Group"_(
-        "Project"_(
-            "Project"_(
-                "Project"_(
-                    "Select"_(
-                        "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                                         "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
-                                         "L_EXTENDEDPRICE"_, "L_RETURNFLAG_INT"_,
-                                         "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
-                                         "L_LINESTATUS_INT"_, "L_TAX"_, "L_TAX"_)),
-                        "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
-                    "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
-                          "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
-                          "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_,
-                          "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0))),
-                "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
-                      "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
-                      "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
-                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
-            "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
-                  "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
-                  "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_,
-                  "calc"_, "Times"_("disc_price"_, "calc2"_))),
-        "By"_("L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_),
-        "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
-              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_,
-              "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_,
-              "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
-    CHECK(output ==
-          "Table"_("Column"_("L_RETURNFLAG_INT"_, "List"_('N'_i64, 'A'_i64)), // NOLINT
-                   "Column"_("L_LINESTATUS_INT"_, "List"_('O'_i64, 'F'_i64)), // NOLINT
-                   "Column"_("SUM_QTY"_, "List"_(17 + 21, 8 + 5)),            // NOLINT
-                   "Column"_("SUM_BASE_PRICE"_,
-                             "List"_(17954.55 + 34850.16, 7712.48 + 25284.00)), // NOLINT
-                   "Column"_("SUM_DISC_PRICE"_,
-                             "List"_(17954.55 * (1.0 - 0.10) + 34850.16 * (1.0 - 0.05),  // NOLINT
-                                     7712.48 * (1.0 - 0.06) + 25284.00 * (1.0 - 0.06))), // NOLINT
-                   "Column"_("SUM_CHARGES"_,
-                             "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0) +             // NOLINT
-                                         34850.16 * (1.0 - 0.05) * (0.06 + 1.0),          // NOLINT
-                                     7712.48 * (1.0 - 0.06) * (0.02 + 1.0) +              // NOLINT
-                                         25284.00 * (1.0 - 0.06) * (0.06 + 1.0))),        // NOLINT
-                   "Column"_("AVG_PRICE"_, "List"_((17954.55 + 34850.16) / 2,             // NOLINT
-                                                   (7712.48 + 25284.00) / 2)),            // NOLINT
-                   "Column"_("AVG_DISC"_, "List"_((0.10 + 0.05) / 2, (0.06 + 0.06) / 2)), // NOLINT
-                   "Column"_("COUNT_ORDER"_, "List"_(2, 2))));                            // NOLINT
-  }
-
-  SECTION("Q1 (No Order)") {
-    auto output = eval("Group"_(
-        "Project"_(
-            "Project"_(
-                "Project"_(
-                    "Select"_(
-                        "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                                         "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
-                                         "L_EXTENDEDPRICE"_, "L_RETURNFLAG"_, "L_RETURNFLAG"_,
-                                         "L_LINESTATUS"_, "L_LINESTATUS"_, "L_TAX"_, "L_TAX"_)),
-                        "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
-                    "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
-                          "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                          "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
-                          "calc2"_, "Plus"_("L_TAX"_, 1.0))),
-                "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
-                      "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                      "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
-                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
-            "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_, "L_QUANTITY"_,
-                  "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
-                  "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
-                  "Times"_("disc_price"_, "calc2"_))),
-        "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
-        "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
-              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_,
-              "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_,
-              "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
-    CHECK(output ==
-          "Table"_("Column"_("L_RETURNFLAG"_, "List"_("N", "A")),  // NOLINT
-                   "Column"_("L_LINESTATUS"_, "List"_("O", "F")),  // NOLINT
-                   "Column"_("SUM_QTY"_, "List"_(17 + 21, 8 + 5)), // NOLINT
-                   "Column"_("SUM_BASE_PRICE"_,
-                             "List"_(17954.55 + 34850.16, 7712.48 + 25284.00)), // NOLINT
-                   "Column"_("SUM_DISC_PRICE"_,
-                             "List"_(17954.55 * (1.0 - 0.10) + 34850.16 * (1.0 - 0.05),  // NOLINT
-                                     7712.48 * (1.0 - 0.06) + 25284.00 * (1.0 - 0.06))), // NOLINT
-                   "Column"_("SUM_CHARGES"_,
-                             "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0) +             // NOLINT
-                                         34850.16 * (1.0 - 0.05) * (0.06 + 1.0),          // NOLINT
-                                     7712.48 * (1.0 - 0.06) * (0.02 + 1.0) +              // NOLINT
-                                         25284.00 * (1.0 - 0.06) * (0.06 + 1.0))),        // NOLINT
-                   "Column"_("AVG_PRICE"_, "List"_((17954.55 + 34850.16) / 2,             // NOLINT
-                                                   (7712.48 + 25284.00) / 2)),            // NOLINT
-                   "Column"_("AVG_DISC"_, "List"_((0.10 + 0.05) / 2, (0.06 + 0.06) / 2)), // NOLINT
-                   "Column"_("COUNT_ORDER"_, "List"_(2, 2))));                            // NOLINT
-  }
-
-  SECTION("Q1") {
-    auto output = eval("Order"_(
-        "Group"_(
-            "Project"_(
-                "Project"_(
-                    "Project"_(
-                        "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
+                                     "DateObject"_("1996-02-28"), "DateObject"_("1994-12-31")))));
+        }},
+       {"Q1 (Project only)",
+        [&]() {
+          return "Project"_(
+              "Project"_(shallowCopy(lineitem),
+                         "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                               "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_,
+                               "Plus"_("L_TAX"_, 1.0), "L_DISCOUNT"_, "L_DISCOUNT"_)),
+              "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                    "disc_price"_, "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "charge"_,
+                    "Times"_("L_EXTENDEDPRICE"_, "calc1"_, "calc2"_), "L_DISCOUNT"_,
+                    "L_DISCOUNT"_));
+        },
+        []() {
+          return "Table"_(
+              "Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)), // NOLINT
+              "Column"_("L_EXTENDEDPRICE"_,
+                        "List"_(17954.55, 34850.16, 7712.48, 25284.00)), // NOLINT
+              "Column"_("disc_price"_,
+                        "List"_(17954.55 * (1.0 - 0.10), 34850.16 * (1.0 - 0.05),    // NOLINT
+                                7712.48 * (1.0 - 0.06), 25284.00 * (1.0 - 0.06))),   // NOLINT
+              "Column"_("charge"_, "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),   // NOLINT
+                                           34850.16 * (1.0 - 0.05) * (0.06 + 1.0),   // NOLINT
+                                           7712.48 * (1.0 - 0.06) * (0.02 + 1.0),    // NOLINT
+                                           25284.00 * (1.0 - 0.06) * (0.06 + 1.0))), // NOLINT
+              "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)));            // NOLINT
+        }},
+       {"Q1 (Select-Project only)",
+        [&]() {
+          return "Project"_(
+              "Project"_(
+                  "Project"_(
+                      "Select"_("Project"_(shallowCopy(lineitem),
+                                           "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                                 "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                 "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_TAX"_,
+                                                 "L_TAX"_)),
+                                "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                      "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                            "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
+                            "calc2"_, "Plus"_("L_TAX"_, 1.0))),
+                  "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                        "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                        "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+              "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                    "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
+                    "Times"_("disc_price"_, "calc2"_)));
+        },
+        []() {
+          return "Table"_(
+              "Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)), // NOLINT
+              "Column"_("L_EXTENDEDPRICE"_,
+                        "List"_(17954.55, 34850.16, 7712.48, 25284.00)), // NOLINT
+              "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)), // NOLINT
+              "Column"_("disc_price"_,
+                        "List"_(17954.55 * (1.0 - 0.10), 34850.16 * (1.0 - 0.05),   // NOLINT
+                                7712.48 * (1.0 - 0.06), 25284.00 * (1.0 - 0.06))),  // NOLINT
+              "Column"_("calc"_, "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),    // NOLINT
+                                         34850.16 * (1.0 - 0.05) * (0.06 + 1.0),    // NOLINT
+                                         7712.48 * (1.0 - 0.06) * (0.02 + 1.0),     // NOLINT
+                                         25284.00 * (1.0 - 0.06) * (0.06 + 1.0)))); // NOLINT
+        }},
+       {"Q1 (No Order, No Strings)",
+        [&]() {
+          return "Group"_(
+              "Project"_(
+                  "Project"_(
+                      "Project"_(
+                          "Select"_(
+                              "Project"_(shallowCopy(lineitem),
+                                         "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                               "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                               "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                                               "L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_,
+                                               "L_LINESTATUS_INT"_, "L_LINESTATUS_INT"_, "L_TAX"_,
+                                               "L_TAX"_)),
+                              "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                          "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
+                                "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_,
+                                "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
+                                "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_,
+                                "Plus"_("L_TAX"_, 1.0))),
+                      "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
+                            "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
+                            "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                            "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+                  "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
+                        "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
+                        "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                        "disc_price"_, "calc"_, "Times"_("disc_price"_, "calc2"_))),
+              "By"_("L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_),
+              "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_,
+                    "Sum"_("L_EXTENDEDPRICE"_), "SUM_DISC_PRICE"_, "Sum"_("disc_price"_),
+                    "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_, "Avg"_("L_QUANTITY"_),
+                    "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_, "Avg"_("l_discount"_),
+                    "COUNT_ORDER"_, "Count"_("*"_)));
+        },
+        []() {
+          return "Table"_(
+              "Column"_("L_RETURNFLAG_INT"_, "List"_('N'_i64, 'A'_i64)), // NOLINT
+              "Column"_("L_LINESTATUS_INT"_, "List"_('O'_i64, 'F'_i64)), // NOLINT
+              "Column"_("SUM_QTY"_, "List"_(17 + 21, 8 + 5)),            // NOLINT
+              "Column"_("SUM_BASE_PRICE"_,
+                        "List"_(17954.55 + 34850.16, 7712.48 + 25284.00)), // NOLINT
+              "Column"_("SUM_DISC_PRICE"_,
+                        "List"_(17954.55 * (1.0 - 0.10) + 34850.16 * (1.0 - 0.05),  // NOLINT
+                                7712.48 * (1.0 - 0.06) + 25284.00 * (1.0 - 0.06))), // NOLINT
+              "Column"_("SUM_CHARGES"_,
+                        "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0) +             // NOLINT
+                                    34850.16 * (1.0 - 0.05) * (0.06 + 1.0),          // NOLINT
+                                7712.48 * (1.0 - 0.06) * (0.02 + 1.0) +              // NOLINT
+                                    25284.00 * (1.0 - 0.06) * (0.06 + 1.0))),        // NOLINT
+              "Column"_("AVG_PRICE"_, "List"_((17954.55 + 34850.16) / 2,             // NOLINT
+                                              (7712.48 + 25284.00) / 2)),            // NOLINT
+              "Column"_("AVG_DISC"_, "List"_((0.10 + 0.05) / 2, (0.06 + 0.06) / 2)), // NOLINT
+              "Column"_("COUNT_ORDER"_, "List"_(2, 2)));                             // NOLINT
+        }},
+       {"Q1 (No Order)",
+        [&]() {
+          return "Group"_(
+              "Project"_(
+                  "Project"_(
+                      "Project"_(
+                          "Select"_(
+                              "Project"_(shallowCopy(lineitem),
+                                         "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                               "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                               "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                                               "L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_,
+                                               "L_LINESTATUS"_, "L_TAX"_, "L_TAX"_)),
+                              "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                          "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
+                                "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
+                                "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_,
+                                "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0))),
+                      "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
+                            "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                            "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                            "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+                  "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
+                        "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                        "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
+                        "Times"_("disc_price"_, "calc2"_))),
+              "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
+              "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_,
+                    "Sum"_("L_EXTENDEDPRICE"_), "SUM_DISC_PRICE"_, "Sum"_("disc_price"_),
+                    "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_, "Avg"_("L_QUANTITY"_),
+                    "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_, "Avg"_("l_discount"_),
+                    "COUNT_ORDER"_, "Count"_("*"_)));
+        },
+        []() {
+          return "Table"_(
+              "Column"_("L_RETURNFLAG"_, "List"_("N", "A")),  // NOLINT
+              "Column"_("L_LINESTATUS"_, "List"_("O", "F")),  // NOLINT
+              "Column"_("SUM_QTY"_, "List"_(17 + 21, 8 + 5)), // NOLINT
+              "Column"_("SUM_BASE_PRICE"_,
+                        "List"_(17954.55 + 34850.16, 7712.48 + 25284.00)), // NOLINT
+              "Column"_("SUM_DISC_PRICE"_,
+                        "List"_(17954.55 * (1.0 - 0.10) + 34850.16 * (1.0 - 0.05),  // NOLINT
+                                7712.48 * (1.0 - 0.06) + 25284.00 * (1.0 - 0.06))), // NOLINT
+              "Column"_("SUM_CHARGES"_,
+                        "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0) +             // NOLINT
+                                    34850.16 * (1.0 - 0.05) * (0.06 + 1.0),          // NOLINT
+                                7712.48 * (1.0 - 0.06) * (0.02 + 1.0) +              // NOLINT
+                                    25284.00 * (1.0 - 0.06) * (0.06 + 1.0))),        // NOLINT
+              "Column"_("AVG_PRICE"_, "List"_((17954.55 + 34850.16) / 2,             // NOLINT
+                                              (7712.48 + 25284.00) / 2)),            // NOLINT
+              "Column"_("AVG_DISC"_, "List"_((0.10 + 0.05) / 2, (0.06 + 0.06) / 2)), // NOLINT
+              "Column"_("COUNT_ORDER"_, "List"_(2, 2)));                             // NOLINT
+        }},
+       {"Q1",
+        [&]() {
+          return "Order"_(
+              "Group"_(
+                  "Project"_(
+                      "Project"_(
+                          "Project"_(
+                              "Select"_(
+                                  "Project"_(shallowCopy(lineitem),
                                              "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
                                                    "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
                                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
@@ -1112,349 +1244,421 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                    "L_LINESTATUS"_, "L_LINESTATUS"_, "L_TAX"_,
                                                    "L_TAX"_)),
                                   "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
-                        "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
-                              "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                              "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
-                              "calc2"_, "Plus"_("L_TAX"_, 1.0))),
-                    "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
-                          "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                          "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
-                          "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
-                "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
-                      "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                      "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
-                      "Times"_("disc_price"_, "calc2"_))),
-            "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
-            "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
-                  "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_),
-                  "AVG_QTY"_, "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_),
-                  "AVG_DISC"_, "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))),
-        "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_)));
-    CHECK(output ==
-          "Table"_("Column"_("L_RETURNFLAG"_, "List"_("A", "N")),  // NOLINT
-                   "Column"_("L_LINESTATUS"_, "List"_("F", "O")),  // NOLINT
-                   "Column"_("SUM_QTY"_, "List"_(8 + 5, 17 + 21)), // NOLINT
-                   "Column"_("SUM_BASE_PRICE"_,
-                             "List"_(7712.48 + 25284.00, 17954.55 + 34850.16)), // NOLINT
-                   "Column"_("SUM_DISC_PRICE"_,
-                             "List"_(7712.48 * (1.0 - 0.06) + 25284.00 * (1.0 - 0.06),    // NOLINT
-                                     17954.55 * (1.0 - 0.10) + 34850.16 * (1.0 - 0.05))), // NOLINT
-                   "Column"_("SUM_CHARGES"_,
-                             "List"_(7712.48 * (1.0 - 0.06) * (0.02 + 1.0) +              // NOLINT
-                                         25284.00 * (1.0 - 0.06) * (0.06 + 1.0),          // NOLINT
-                                     17954.55 * (1.0 - 0.10) * (0.02 + 1.0) +             // NOLINT
-                                         34850.16 * (1.0 - 0.05) * (0.06 + 1.0))),        // NOLINT
-                   "Column"_("AVG_PRICE"_, "List"_((7712.48 + 25284.00) / 2,              // NOLINT
-                                                   (17954.55 + 34850.16) / 2)),           // NOLINT
-                   "Column"_("AVG_DISC"_, "List"_((0.06 + 0.06) / 2, (0.10 + 0.05) / 2)), // NOLINT
-                   "Column"_("COUNT_ORDER"_, "List"_(2, 2))));                            // NOLINT
-  }
-
-  SECTION("Q6 (No Grouping)") {
-    auto output = eval("Project"_(
-        "Select"_(
-            "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                       "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                             "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
-            "Where"_("And"_("Greater"_(24, "L_QUANTITY"_),      // NOLINT
-                            "Greater"_("L_DISCOUNT"_, 0.0499),  // NOLINT
-                            "Greater"_(0.07001, "L_DISCOUNT"_), // NOLINT
-                            "Greater"_("DateObject"_("1995-01-01"), "L_SHIPDATE"_),
-                            "Greater"_("L_SHIPDATE"_, "DateObject"_("1993-12-31"))))),
-        "As"_("revenue"_, "Times"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_))));
-    CHECK(output ==
-          "Table"_("Column"_("revenue"_, "List"_(34850.16 * 0.05, 25284.00 * 0.06)))); // NOLINT
-  }
-
-  SECTION("Q6") {
-    auto output = eval("Group"_(
-        "Project"_(
-            "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                 "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                                       "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
-                                       "L_EXTENDEDPRICE"_)),
-                      "Where"_("And"_("Greater"_(24, "L_QUANTITY"_),      // NOLINT
-                                      "Greater"_("L_DISCOUNT"_, 0.0499),  // NOLINT
-                                      "Greater"_(0.07001, "L_DISCOUNT"_), // NOLINT
-                                      "Greater"_("DateObject"_("1995-01-01"), "L_SHIPDATE"_),
-                                      "Greater"_("L_SHIPDATE"_, "DateObject"_("1993-12-31"))))),
-            "As"_("revenue"_, "Times"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_))),
-        "Sum"_("revenue"_)));
-    CHECK(output ==
-          "Table"_("Column"_("revenue"_, "List"_(34850.16 * 0.05 + 25284.00 * 0.06)))); // NOLINT
-  }
-
-  SECTION("Q3 (No Strings)") {
-    auto output = eval("Top"_(
-        "Group"_(
-            "Project"_(
-                "Join"_(
-                    "Project"_(
-                        "Join"_(
-                            "Project"_(
-                                "Select"_("Project"_(customer.clone(CloneReason::FOR_TESTING),
+                              "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_,
+                                    "L_LINESTATUS"_, "L_QUANTITY"_, "L_QUANTITY"_,
+                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
+                                    "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_,
+                                    "Plus"_("L_TAX"_, 1.0))),
+                          "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
+                                "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
+                                "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                                "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+                      "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
+                            "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                            "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
+                            "Times"_("disc_price"_, "calc2"_))),
+                  "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
+                  "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_,
+                        "Sum"_("L_EXTENDEDPRICE"_), "SUM_DISC_PRICE"_, "Sum"_("disc_price"_),
+                        "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_, "Avg"_("L_QUANTITY"_),
+                        "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_,
+                        "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))),
+              "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_));
+        },
+        []() {
+          return "Table"_(
+              "Column"_("L_RETURNFLAG"_, "List"_("A", "N")),  // NOLINT
+              "Column"_("L_LINESTATUS"_, "List"_("F", "O")),  // NOLINT
+              "Column"_("SUM_QTY"_, "List"_(8 + 5, 17 + 21)), // NOLINT
+              "Column"_("SUM_BASE_PRICE"_,
+                        "List"_(7712.48 + 25284.00, 17954.55 + 34850.16)), // NOLINT
+              "Column"_("SUM_DISC_PRICE"_,
+                        "List"_(7712.48 * (1.0 - 0.06) + 25284.00 * (1.0 - 0.06),    // NOLINT
+                                17954.55 * (1.0 - 0.10) + 34850.16 * (1.0 - 0.05))), // NOLINT
+              "Column"_("SUM_CHARGES"_,
+                        "List"_(7712.48 * (1.0 - 0.06) * (0.02 + 1.0) +              // NOLINT
+                                    25284.00 * (1.0 - 0.06) * (0.06 + 1.0),          // NOLINT
+                                17954.55 * (1.0 - 0.10) * (0.02 + 1.0) +             // NOLINT
+                                    34850.16 * (1.0 - 0.05) * (0.06 + 1.0))),        // NOLINT
+              "Column"_("AVG_PRICE"_, "List"_((7712.48 + 25284.00) / 2,              // NOLINT
+                                              (17954.55 + 34850.16) / 2)),           // NOLINT
+              "Column"_("AVG_DISC"_, "List"_((0.06 + 0.06) / 2, (0.10 + 0.05) / 2)), // NOLINT
+              "Column"_("COUNT_ORDER"_, "List"_(2, 2)));                             // NOLINT
+        }},
+       {"Q6 (No Grouping)",
+        [&]() {
+          return "Project"_(
+              "Select"_("Project"_(shallowCopy(lineitem),
+                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                         "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
+                                         "L_EXTENDEDPRICE"_)),
+                        "Where"_("And"_("Greater"_(24, "L_QUANTITY"_),      // NOLINT
+                                        "Greater"_("L_DISCOUNT"_, 0.0499),  // NOLINT
+                                        "Greater"_(0.07001, "L_DISCOUNT"_), // NOLINT
+                                        "Greater"_("DateObject"_("1995-01-01"), "L_SHIPDATE"_),
+                                        "Greater"_("L_SHIPDATE"_, "DateObject"_("1993-12-31"))))),
+              "As"_("revenue"_, "Times"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_)));
+        },
+        []() {
+          return "Table"_(
+              "Column"_("revenue"_, "List"_(34850.16 * 0.05, 25284.00 * 0.06))); // NOLINT
+        }},
+       {"Q6",
+        [&]() {
+          return "Group"_(
+              "Project"_("Select"_("Project"_(shallowCopy(lineitem),
+                                              "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                                    "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
+                                   "Where"_("And"_(
+                                       "Greater"_(24, "L_QUANTITY"_),      // NOLINT
+                                       "Greater"_("L_DISCOUNT"_, 0.0499),  // NOLINT
+                                       "Greater"_(0.07001, "L_DISCOUNT"_), // NOLINT
+                                       "Greater"_("DateObject"_("1995-01-01"), "L_SHIPDATE"_),
+                                       "Greater"_("L_SHIPDATE"_, "DateObject"_("1993-12-31"))))),
+                         "As"_("revenue"_, "Times"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_))),
+              "Sum"_("revenue"_));
+        },
+        []() {
+          return "Table"_(
+              "Column"_("revenue"_, "List"_(34850.16 * 0.05 + 25284.00 * 0.06))); // NOLINT
+        }},
+       {"Q3 (No Strings)",
+        [&]() {
+          return "Top"_(
+              "Group"_(
+                  "Project"_(
+                      "Join"_(
+                          "Project"_(
+                              "Join"_(
+                                  "Project"_(
+                                      "Select"_(
+                                          "Project"_(shallowCopy(customer),
                                                      "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_ACCTBAL"_,
                                                            "C_ACCTBAL"_)),
                                           "Where"_("Equal"_("C_ACCTBAL"_, 2866.83))), // NOLINT
-                                "As"_("C_CUSTKEY"_, "C_CUSTKEY"_)),
-                            "Select"_(
-                                "Project"_(orders.clone(CloneReason::FOR_TESTING),
-                                           "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
-                                                 "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
-                                                 "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-                                "Where"_("Greater"_("DateObject"_("1995-03-15"), "O_ORDERDATE"_))),
-                            "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
-                        "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
-                              "O_CUSTKEY"_, "O_CUSTKEY"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-                    "Project"_(
-                        "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
+                                      "As"_("C_CUSTKEY"_, "C_CUSTKEY"_)),
+                                  "Select"_(
+                                      "Project"_(shallowCopy(orders),
+                                                 "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
+                                                       "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
+                                                       "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
+                                      "Where"_(
+                                          "Greater"_("DateObject"_("1995-03-15"), "O_ORDERDATE"_))),
+                                  "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
+                              "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                    "O_CUSTKEY"_, "O_CUSTKEY"_, "O_SHIPPRIORITY"_,
+                                    "O_SHIPPRIORITY"_)),
+                          "Project"_(
+                              "Select"_(
+                                  "Project"_(shallowCopy(lineitem),
                                              "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_,
                                                    "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
                                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
                                   "Where"_("Greater"_("L_SHIPDATE"_, "DateObject"_("1993-03-15")))),
-                        "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                              "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
-                    "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
-                "As"_("Expr1009"_, "Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)),
-                      "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_ORDERKEY"_, "L_ORDERKEY"_,
-                      "O_ORDERDATE"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-            "By"_("L_ORDERKEY"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_),
-            "As"_("revenue"_, "Sum"_("Expr1009"_))),
-        "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10)); // NOLINT
-    CHECK(output == "Dummy"_());
-  }
-
-  SECTION("Q3") {
-    auto output = eval("Top"_(
-        "Group"_(
-            "Project"_(
-                "Join"_(
-                    "Project"_(
-                        "Join"_(
-                            "Project"_(
-                                "Select"_(
-                                    "Project"_(customer.clone(CloneReason::FOR_TESTING),
-                                               "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_MKTSEGMENT"_,
-                                                     "C_MKTSEGMENT"_)),
-                                    "Where"_("StringContainsQ"_("C_MKTSEGMENT"_, "BUILDING"))),
-                                "As"_("C_CUSTKEY"_, "C_CUSTKEY"_)),
-                            "Select"_(
-                                "Project"_(orders.clone(CloneReason::FOR_TESTING),
-                                           "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
-                                                 "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
-                                                 "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-                                "Where"_("Greater"_("DateObject"_("1995-03-15"), "O_ORDERDATE"_))),
-                            "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
-                        "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
-                              "O_CUSTKEY"_, "O_CUSTKEY"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-                    "Project"_(
-                        "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
+                              "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
+                          "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
+                      "As"_("Expr1009"_,
+                            "Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)), // NOLINT
+                            "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_ORDERKEY"_, "L_ORDERKEY"_,
+                            "O_ORDERDATE"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
+                  "By"_("L_ORDERKEY"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_),
+                  "As"_("revenue"_, "Sum"_("Expr1009"_))),
+              "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10); // NOLINT
+        },
+        []() { return "Dummy"_(); }},
+       {"Q3",
+        [&]() {
+          return "Top"_(
+              "Group"_(
+                  "Project"_(
+                      "Join"_(
+                          "Project"_(
+                              "Join"_(
+                                  "Project"_(
+                                      "Select"_("Project"_(shallowCopy(customer),
+                                                           "As"_("C_CUSTKEY"_, "C_CUSTKEY"_,
+                                                                 "C_MKTSEGMENT"_, "C_MKTSEGMENT"_)),
+                                                "Where"_("StringContainsQ"_("C_MKTSEGMENT"_,
+                                                                            "BUILDING"))),
+                                      "As"_("C_CUSTKEY"_, "C_CUSTKEY"_)),
+                                  "Select"_(
+                                      "Project"_(shallowCopy(orders),
+                                                 "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
+                                                       "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
+                                                       "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
+                                      "Where"_(
+                                          "Greater"_("DateObject"_("1995-03-15"), "O_ORDERDATE"_))),
+                                  "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
+                              "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                    "O_CUSTKEY"_, "O_CUSTKEY"_, "O_SHIPPRIORITY"_,
+                                    "O_SHIPPRIORITY"_)),
+                          "Project"_(
+                              "Select"_(
+                                  "Project"_(shallowCopy(lineitem),
                                              "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_,
                                                    "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
                                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
                                   "Where"_("Greater"_("L_SHIPDATE"_, "DateObject"_("1993-03-15")))),
-                        "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                              "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
-                    "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
-                "As"_("Expr1009"_, "Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)),
-                      "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_ORDERKEY"_, "L_ORDERKEY"_,
-                      "O_ORDERDATE"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-            "By"_("L_ORDERKEY"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_),
-            "As"_("revenue"_, "Sum"_("Expr1009"_))),
-        "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10)); // NOLINT
-    CHECK(output == "Dummy"_());
-  }
-
-  SECTION("Q9 (No Strings)") {
-    auto output = eval("Order"_(
-        "Group"_(
-            "Project"_(
-                "Join"_(
-                    "Project"_(
-                        "Join"_(
-                            "Project"_(
-                                "Join"_(
-                                    "Project"_(
-                                        "Select"_(
-                                            "Project"_(part.clone(CloneReason::FOR_TESTING),
-                                                       "As"_("P_PARTKEY"_, "P_PARTKEY"_,
-                                                             "P_RETAILPRICE"_, "P_RETAILPRICE"_)),
-                                            "Where"_("Equal"_("P_RETAILPRICE"_, 100.01))), // NOLINT
-                                        "As"_("P_PARTKEY"_, "P_PARTKEY"_)),
-                                    "Project"_(
-                                        "Join"_(
-                                            "Project"_(
-                                                "Join"_(
-                                                    "Project"_(
-                                                        nation.clone(CloneReason::FOR_TESTING),
-                                                        "As"_("N_REGIONKEY"_, "N_REGIONKEY"_,
-                                                              "N_NATIONKEY"_, "N_NATIONKEY"_)),
-                                                    "Project"_(
-                                                        supplier.clone(CloneReason::FOR_TESTING),
-                                                        "As"_("S_SUPPKEY"_, "S_SUPPKEY"_,
-                                                              "S_NATIONKEY"_, "S_NATIONKEY"_)),
-                                                    "Where"_(
-                                                        "Equal"_("N_NATIONKEY"_, "S_NATIONKEY"_))),
-                                                "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "S_SUPPKEY"_,
-                                                      "S_SUPPKEY"_)),
-                                            "Project"_(partsupp.clone(CloneReason::FOR_TESTING),
-                                                       "As"_("PS_PARTKEY"_, "PS_PARTKEY"_,
-                                                             "PS_SUPPKEY"_, "PS_SUPPKEY"_,
-                                                             "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
-                                            "Where"_("Equal"_("S_SUPPKEY"_, "PS_SUPPKEY"_))),
-                                        "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_PARTKEY"_,
-                                              "PS_PARTKEY"_, "PS_SUPPKEY"_, "PS_SUPPKEY"_,
-                                              "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
-                                    "Where"_("Equal"_("P_PARTKEY"_, "PS_PARTKEY"_))),
-                                "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_PARTKEY"_, "PS_PARTKEY"_,
-                                      "PS_SUPPKEY"_, "PS_SUPPKEY"_, "PS_SUPPLYCOST"_,
-                                      "PS_SUPPLYCOST"_)),
-                            "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                       "As"_("L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_, "L_SUPPKEY"_,
-                                             "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_,
-                                             "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                                             "L_QUANTITY"_, "L_QUANTITY"_)),
-                            "Where"_("Equal"_("List"_("PS_PARTKEY"_, "PS_SUPPKEY"_),
-                                              "List"_("L_PARTKEY"_, "L_SUPPKEY"_)))),
-                        "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_,
-                              "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                              "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_, "L_QUANTITY"_)),
-                    "Project"_(orders.clone(CloneReason::FOR_TESTING),
-                               "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_)),
-                    "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
-                "As"_("nation"_, "N_REGIONKEY"_, "O_YEAR"_, "Year"_("O_ORDERDATE"_), "amount"_,
-                      "Minus"_("Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)),
-                               "Times"_("PS_SUPPLYCOST"_, "L_QUANTITY"_)))),
-            "By"_("nation"_, "O_YEAR"_), "Sum"_("amount"_)),
-        "By"_("nation"_, "O_YEAR"_, "desc"_)));
-    CHECK(output == "Dummy"_());
-  }
-
-  SECTION("Q9") {
-    auto output = eval("Order"_(
-        "Group"_(
-            "Project"_(
-                "Join"_(
-                    "Project"_(
-                        "Join"_(
-                            "Project"_(
-                                "Join"_(
-                                    "Project"_(
-                                        "Select"_("Project"_(part.clone(CloneReason::FOR_TESTING),
+                              "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
+                          "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
+                      "As"_("Expr1009"_,
+                            "Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)), // NOLINT
+                            "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_ORDERKEY"_, "L_ORDERKEY"_,
+                            "O_ORDERDATE"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
+                  "By"_("L_ORDERKEY"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_),
+                  "As"_("revenue"_, "Sum"_("Expr1009"_))),
+              "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10); // NOLINT
+        },
+        []() { return "Dummy"_(); }},
+       {"Q3 Post-Filter (No Select)",
+        [&]() {
+          return "Project"_(
+              "Join"_(
+                  "Project"_("Join"_("Project"_(shallowCopy(customer),
+                                                "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_MKTSEGMENT"_,
+                                                      "C_MKTSEGMENT"_)),
+                                     "Project"_(shallowCopy(orders),
+                                                "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
+                                                      "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
+                                                      "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
+                                     "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
+                             "As"_("C_MKTSEGMENT"_, "C_MKTSEGMENT"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
+                                   "O_ORDERDATE"_, "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
+                                   "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
+                  "Project"_(shallowCopy(lineitem),
+                             "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                   "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
+                                   "L_EXTENDEDPRICE"_)),
+                  "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
+              "As"_("L_SHIPDATE"_, "L_SHIPDATE"_, "L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_,
+                    "L_DISCOUNT"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "O_ORDERKEY"_,
+                    "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_,
+                    "O_SHIPPRIORITY"_, "C_MKTSEGMENT"_, "C_MKTSEGMENT"_));
+        },
+        []() { return "Dummy"_(); }},
+       {"Q9 (No Strings)",
+        [&]() {
+          return "Order"_(
+              "Group"_(
+                  "Project"_(
+                      "Join"_(
+                          "Project"_(
+                              "Join"_(
+                                  "Project"_(
+                                      "Join"_(
+                                          "Project"_(
+                                              "Select"_("Project"_(shallowCopy(part),
+                                                                   "As"_("P_PARTKEY"_, "P_PARTKEY"_,
+                                                                         "P_RETAILPRICE"_,
+                                                                         "P_RETAILPRICE"_)),
+                                                        "Where"_("Equal"_("P_RETAILPRICE"_,
+                                                                          100.01))), // NOLINT
+                                              "As"_("P_PARTKEY"_, "P_PARTKEY"_)),
+                                          "Project"_(
+                                              "Join"_(
+                                                  "Project"_(
+                                                      "Join"_("Project"_(shallowCopy(nation),
+                                                                         "As"_("N_REGIONKEY"_,
+                                                                               "N_REGIONKEY"_,
+                                                                               "N_NATIONKEY"_,
+                                                                               "N_NATIONKEY"_)),
+                                                              "Project"_(shallowCopy(supplier),
+                                                                         "As"_("S_SUPPKEY"_,
+                                                                               "S_SUPPKEY"_,
+                                                                               "S_NATIONKEY"_,
+                                                                               "S_NATIONKEY"_)),
+                                                              "Where"_("Equal"_("N_NATIONKEY"_,
+                                                                                "S_NATIONKEY"_))),
+                                                      "As"_("N_REGIONKEY"_, "N_REGIONKEY"_,
+                                                            "S_SUPPKEY"_, "S_SUPPKEY"_)),
+                                                  "Project"_(shallowCopy(partsupp),
+                                                             "As"_("PS_PARTKEY"_, "PS_PARTKEY"_,
+                                                                   "PS_SUPPKEY"_, "PS_SUPPKEY"_,
+                                                                   "PS_SUPPLYCOST"_,
+                                                                   "PS_SUPPLYCOST"_)),
+                                                  "Where"_("Equal"_("S_SUPPKEY"_, "PS_SUPPKEY"_))),
+                                              "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_PARTKEY"_,
+                                                    "PS_PARTKEY"_, "PS_SUPPKEY"_, "PS_SUPPKEY"_,
+                                                    "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
+                                          "Where"_("Equal"_("P_PARTKEY"_, "PS_PARTKEY"_))),
+                                      "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_PARTKEY"_,
+                                            "PS_PARTKEY"_, "PS_SUPPKEY"_, "PS_SUPPKEY"_,
+                                            "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
+                                  "Project"_(shallowCopy(lineitem),
+                                             "As"_("L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_,
+                                                   "L_SUPPKEY"_, "L_ORDERKEY"_, "L_ORDERKEY"_,
+                                                   "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                                                   "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_,
+                                                   "L_QUANTITY"_)),
+                                  "Where"_("Equal"_("List"_("PS_PARTKEY"_, "PS_SUPPKEY"_),
+                                                    "List"_("L_PARTKEY"_, "L_SUPPKEY"_)))),
+                              "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_SUPPLYCOST"_,
+                                    "PS_SUPPLYCOST"_, "L_ORDERKEY"_, "L_ORDERKEY"_,
+                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
+                                    "L_DISCOUNT"_, "L_QUANTITY"_, "L_QUANTITY"_)),
+                          "Project"_(shallowCopy(orders), "As"_("O_ORDERKEY"_, "O_ORDERKEY"_,
+                                                                "O_ORDERDATE"_, "O_ORDERDATE"_)),
+                          "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
+                      "As"_("nation"_, "N_REGIONKEY"_, "O_YEAR"_, "Year"_("O_ORDERDATE"_),
+                            "amount"_,
+                            "Minus"_("Times"_("L_EXTENDEDPRICE"_,
+                                              "Minus"_(1.0, "L_DISCOUNT"_)), // NOLINT
+                                     "Times"_("PS_SUPPLYCOST"_, "L_QUANTITY"_)))),
+                  "By"_("nation"_, "O_YEAR"_), "Sum"_("amount"_)),
+              "By"_("nation"_, "O_YEAR"_, "desc"_));
+        },
+        []() { return "Dummy"_(); }},
+       {"Q9",
+        [&]() {
+          return "Order"_(
+              "Group"_(
+                  "Project"_(
+                      "Join"_(
+                          "Project"_(
+                              "Join"_(
+                                  "Project"_(
+                                      "Join"_(
+                                          "Project"_(
+                                              "Select"_(
+                                                  "Project"_(shallowCopy(part),
                                                              "As"_("P_PARTKEY"_, "P_PARTKEY"_,
                                                                    "P_NAME"_, "P_NAME"_)),
                                                   "Where"_("StringContainsQ"_("P_NAME"_, "green"))),
-                                        "As"_("P_PARTKEY"_, "P_PARTKEY"_)),
-                                    "Project"_(
-                                        "Join"_(
-                                            "Project"_(
-                                                "Join"_(
-                                                    "Project"_(
-                                                        nation.clone(CloneReason::FOR_TESTING),
-                                                        "As"_("N_NAME"_, "N_NAME"_, "N_NATIONKEY"_,
-                                                              "N_NATIONKEY"_)),
-                                                    "Project"_(
-                                                        supplier.clone(CloneReason::FOR_TESTING),
-                                                        "As"_("S_SUPPKEY"_, "S_SUPPKEY"_,
-                                                              "S_NATIONKEY"_, "S_NATIONKEY"_)),
-                                                    "Where"_(
-                                                        "Equal"_("N_NATIONKEY"_, "S_NATIONKEY"_))),
-                                                "As"_("N_NAME"_, "N_NAME"_, "S_SUPPKEY"_,
-                                                      "S_SUPPKEY"_)),
-                                            "Project"_(partsupp.clone(CloneReason::FOR_TESTING),
-                                                       "As"_("PS_PARTKEY"_, "PS_PARTKEY"_,
-                                                             "PS_SUPPKEY"_, "PS_SUPPKEY"_,
-                                                             "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
-                                            "Where"_("Equal"_("S_SUPPKEY"_, "PS_SUPPKEY"_))),
-                                        "As"_("N_NAME"_, "N_NAME"_, "PS_PARTKEY"_, "PS_PARTKEY"_,
-                                              "PS_SUPPKEY"_, "PS_SUPPKEY"_, "PS_SUPPLYCOST"_,
-                                              "PS_SUPPLYCOST"_)),
-                                    "Where"_("Equal"_("P_PARTKEY"_, "PS_PARTKEY"_))),
-                                "As"_("N_NAME"_, "N_NAME"_, "PS_PARTKEY"_, "PS_PARTKEY"_,
-                                      "PS_SUPPKEY"_, "PS_SUPPKEY"_, "PS_SUPPLYCOST"_,
-                                      "PS_SUPPLYCOST"_)),
-                            "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                       "As"_("L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_, "L_SUPPKEY"_,
-                                             "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_,
-                                             "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                                             "L_QUANTITY"_, "L_QUANTITY"_)),
-                            "Where"_("Equal"_("List"_("PS_PARTKEY"_, "PS_SUPPKEY"_),
-                                              "List"_("L_PARTKEY"_, "L_SUPPKEY"_)))),
-                        "As"_("N_NAME"_, "N_NAME"_, "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_,
-                              "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                              "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_, "L_QUANTITY"_)),
-                    "Project"_(orders.clone(CloneReason::FOR_TESTING),
-                               "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_)),
-                    "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
-                "As"_("nation"_, "N_NAME"_, "O_YEAR"_, "Year"_("O_ORDERDATE"_), "amount"_,
-                      "Minus"_("Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)),
-                               "Times"_("PS_SUPPLYCOST"_, "L_QUANTITY"_)))),
-            "By"_("nation"_, "O_YEAR"_), "Sum"_("amount"_)),
-        "By"_("nation"_, "O_YEAR"_, "desc"_)));
-    CHECK(output == "Dummy"_());
-  }
+                                              "As"_("P_PARTKEY"_, "P_PARTKEY"_)),
+                                          "Project"_(
+                                              "Join"_(
+                                                  "Project"_(
+                                                      "Join"_("Project"_(shallowCopy(nation),
+                                                                         "As"_("N_NAME"_, "N_NAME"_,
+                                                                               "N_NATIONKEY"_,
+                                                                               "N_NATIONKEY"_)),
+                                                              "Project"_(shallowCopy(supplier),
+                                                                         "As"_("S_SUPPKEY"_,
+                                                                               "S_SUPPKEY"_,
+                                                                               "S_NATIONKEY"_,
+                                                                               "S_NATIONKEY"_)),
+                                                              "Where"_("Equal"_("N_NATIONKEY"_,
+                                                                                "S_NATIONKEY"_))),
+                                                      "As"_("N_NAME"_, "N_NAME"_, "S_SUPPKEY"_,
+                                                            "S_SUPPKEY"_)),
+                                                  "Project"_(shallowCopy(partsupp),
+                                                             "As"_("PS_PARTKEY"_, "PS_PARTKEY"_,
+                                                                   "PS_SUPPKEY"_, "PS_SUPPKEY"_,
+                                                                   "PS_SUPPLYCOST"_,
+                                                                   "PS_SUPPLYCOST"_)),
+                                                  "Where"_("Equal"_("S_SUPPKEY"_, "PS_SUPPKEY"_))),
+                                              "As"_("N_NAME"_, "N_NAME"_, "PS_PARTKEY"_,
+                                                    "PS_PARTKEY"_, "PS_SUPPKEY"_, "PS_SUPPKEY"_,
+                                                    "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
+                                          "Where"_("Equal"_("P_PARTKEY"_, "PS_PARTKEY"_))),
+                                      "As"_("N_NAME"_, "N_NAME"_, "PS_PARTKEY"_, "PS_PARTKEY"_,
+                                            "PS_SUPPKEY"_, "PS_SUPPKEY"_, "PS_SUPPLYCOST"_,
+                                            "PS_SUPPLYCOST"_)),
+                                  "Project"_(shallowCopy(lineitem),
+                                             "As"_("L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_,
+                                                   "L_SUPPKEY"_, "L_ORDERKEY"_, "L_ORDERKEY"_,
+                                                   "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                                                   "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_,
+                                                   "L_QUANTITY"_)),
+                                  "Where"_("Equal"_("List"_("PS_PARTKEY"_, "PS_SUPPKEY"_),
+                                                    "List"_("L_PARTKEY"_, "L_SUPPKEY"_)))),
+                              "As"_("N_NAME"_, "N_NAME"_, "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_,
+                                    "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_,
+                                    "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_,
+                                    "L_QUANTITY"_)),
+                          "Project"_(shallowCopy(orders), "As"_("O_ORDERKEY"_, "O_ORDERKEY"_,
+                                                                "O_ORDERDATE"_, "O_ORDERDATE"_)),
+                          "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
+                      "As"_("nation"_, "N_NAME"_, "O_YEAR"_, "Year"_("O_ORDERDATE"_), "amount"_,
+                            "Minus"_("Times"_("L_EXTENDEDPRICE"_,
+                                              "Minus"_(1.0, "L_DISCOUNT"_)), // NOLINT
+                                     "Times"_("PS_SUPPLYCOST"_, "L_QUANTITY"_)))),
+                  "By"_("nation"_, "O_YEAR"_), "Sum"_("amount"_)),
+              "By"_("nation"_, "O_YEAR"_, "desc"_));
+        },
+        []() { return "Dummy"_(); }},
+       {"Q18 (No Strings)",
+        [&]() {
+          return "Top"_(
+              "Group"_(
+                  "Project"_(
+                      "Join"_(
+                          "Select"_("Group"_("Project"_(shallowCopy(lineitem),
+                                                        "As"_("L_ORDERKEY"_, "L_ORDERKEY"_,
+                                                              "L_QUANTITY"_, "L_QUANTITY"_)),
+                                             "By"_("L_ORDERKEY"_),
+                                             "As"_("sum_l_quantity"_, "Sum"_("L_QUANTITY"_))),
+                                    "Where"_("Greater"_("sum_l_quantity"_, 1.0))), // NOLINT
+                          "Project"_(
+                              "Join"_("Project"_(shallowCopy(customer),
+                                                 "As"_("C_ACCTBAL"_, "C_ACCTBAL"_, "C_CUSTKEY"_,
+                                                       "C_CUSTKEY"_)),
+                                      "Project"_(shallowCopy(orders),
+                                                 "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_CUSTKEY"_,
+                                                       "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                                       "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
+                                      "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
+                              "As"_("C_ACCTBAL"_, "C_ACCTBAL"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
+                                    "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                    "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
+                          "Where"_("Equal"_("L_ORDERKEY"_, "O_ORDERKEY"_))),
+                      "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                            "O_TOTALPRICE"_, "O_TOTALPRICE"_, "C_ACCTBAL"_, "C_ACCTBAL"_,
+                            "O_CUSTKEY"_, "O_CUSTKEY"_, "sum_l_quantity"_, "sum_l_quantity"_)),
+                  "By"_("C_ACCTBAL"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
+                  "Sum"_("sum_l_quantity"_)),
+              "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100); // NOLINT
+        },
+        []() { return "Dummy"_(); }},
+       {"Q18",
+        [&]() {
+          return "Top"_(
+              "Group"_(
+                  "Project"_(
+                      "Join"_(
+                          "Select"_("Group"_("Project"_(shallowCopy(lineitem),
+                                                        "As"_("L_ORDERKEY"_, "L_ORDERKEY"_,
+                                                              "L_QUANTITY"_, "L_QUANTITY"_)),
+                                             "By"_("L_ORDERKEY"_),
+                                             "As"_("sum_l_quantity"_, "Sum"_("L_QUANTITY"_))),
+                                    "Where"_("Greater"_("sum_l_quantity"_, 1.0))), // NOLINT
+                          "Project"_(
+                              "Join"_("Project"_(
+                                          shallowCopy(customer),
+                                          "As"_("C_NAME"_, "C_NAME"_, "C_CUSTKEY"_, "C_CUSTKEY"_)),
+                                      "Project"_(shallowCopy(orders),
+                                                 "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_CUSTKEY"_,
+                                                       "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                                       "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
+                                      "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
+                              "As"_("C_NAME"_, "C_NAME"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
+                                    "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                    "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
+                          "Where"_("Equal"_("L_ORDERKEY"_, "O_ORDERKEY"_))),
+                      "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                            "O_TOTALPRICE"_, "O_TOTALPRICE"_, "C_NAME"_, "C_NAME"_, "O_CUSTKEY"_,
+                            "O_CUSTKEY"_, "sum_l_quantity"_, "sum_l_quantity"_)),
+                  "By"_("C_NAME"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
+                  "Sum"_("sum_l_quantity"_)),
+              "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100); // NOLINT
+        },
+        []() { return "Dummy"_(); }}
 
-  SECTION("Q18 (No Strings)") {
-    auto output = eval("Top"_(
-        "Group"_(
-            "Project"_(
-                "Join"_("Select"_("Group"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                                      "As"_("L_ORDERKEY"_, "L_ORDERKEY"_,
-                                                            "L_QUANTITY"_, "L_QUANTITY"_)),
-                                           "By"_("L_ORDERKEY"_),
-                                           "As"_("sum_l_quantity"_, "Sum"_("L_QUANTITY"_))),
-                                  "Where"_("Greater"_("sum_l_quantity"_, 1.0))),
-                        "Project"_(
-                            "Join"_("Project"_(customer.clone(CloneReason::FOR_TESTING),
-                                               "As"_("C_ACCTBAL"_, "C_ACCTBAL"_, "C_CUSTKEY"_,
-                                                     "C_CUSTKEY"_)),
-                                    "Project"_(orders.clone(CloneReason::FOR_TESTING),
-                                               "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_CUSTKEY"_,
-                                                     "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
-                                                     "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
-                                    "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
-                            "As"_("C_ACCTBAL"_, "C_ACCTBAL"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
-                                  "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
-                                  "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
-                        "Where"_("Equal"_("L_ORDERKEY"_, "O_ORDERKEY"_))),
-                "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_, "O_TOTALPRICE"_,
-                      "O_TOTALPRICE"_, "C_ACCTBAL"_, "C_ACCTBAL"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
-                      "sum_l_quantity"_, "sum_l_quantity"_)),
-            "By"_("C_ACCTBAL"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
-            "Sum"_("sum_l_quantity"_)),
-        "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100)); // NOLINT
-    CHECK(output == "Dummy"_());
-  }
+      }));
 
-  SECTION("Q18") {
-    auto output = eval("Top"_(
-        "Group"_("Project"_(
-                     "Join"_("Select"_("Group"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                                           "As"_("L_ORDERKEY"_, "L_ORDERKEY"_,
-                                                                 "L_QUANTITY"_, "L_QUANTITY"_)),
-                                                "By"_("L_ORDERKEY"_),
-                                                "As"_("sum_l_quantity"_, "Sum"_("L_QUANTITY"_))),
-                                       "Where"_("Greater"_("sum_l_quantity"_, 1.0))), // NOLINT
-                             "Project"_("Join"_("Project"_(customer.clone(CloneReason::FOR_TESTING),
-                                                           "As"_("C_NAME"_, "C_NAME"_, "C_CUSTKEY"_,
-                                                                 "C_CUSTKEY"_)),
-                                                "Project"_(orders.clone(CloneReason::FOR_TESTING),
-                                                           "As"_("O_ORDERKEY"_, "O_ORDERKEY"_,
-                                                                 "O_CUSTKEY"_, "O_CUSTKEY"_,
-                                                                 "O_ORDERDATE"_, "O_ORDERDATE"_,
-                                                                 "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
-                                                "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
-                                        "As"_("C_NAME"_, "C_NAME"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
-                                              "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_,
-                                              "O_ORDERDATE"_, "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
-                             "Where"_("Equal"_("L_ORDERKEY"_, "O_ORDERKEY"_))),
-                     "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
-                           "O_TOTALPRICE"_, "O_TOTALPRICE"_, "C_NAME"_, "C_NAME"_, "O_CUSTKEY"_,
-                           "O_CUSTKEY"_, "sum_l_quantity"_, "sum_l_quantity"_)),
-                 "By"_("C_NAME"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
-                 "Sum"_("sum_l_quantity"_)),
-        "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100)); // NOLINT
-    CHECK(output == "Dummy"_());
+  DYNAMIC_SECTION(queryName << (useCache ? " - with cache" : " - no cache")
+                            << (multipleSpans ? " - multiple spans" : " - single span")) {
+    auto output1 = eval(query());
+    CHECK(output1 == expectedOutput());
+
+    auto output2 = eval(query());
+    CHECK(output2 == expectedOutput());
+
+    auto output3 = eval(query());
+    CHECK(output3 == expectedOutput());
   }
 }
 
