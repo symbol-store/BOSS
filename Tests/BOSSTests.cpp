@@ -25,6 +25,7 @@ using boss::expressions::generic::holds_alternative;
 namespace boss {
 using boss::expressions::atoms::Span;
 };
+using std::int32_t;
 using std::int64_t;
 
 namespace {
@@ -177,7 +178,7 @@ TEST_CASE("Complex expression's argument cast to more general expression system"
       "howdie");
   auto b2 = get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).cloneArgument(
       1, CloneReason::FOR_TESTING);
-  CHECK(get<int64_t>(b2) == 2);
+  CHECK(get<int32_t>(b2) == 2);
 }
 
 TEST_CASE("Extract typed arguments from complex expression (using std::accumulate)",
@@ -289,7 +290,7 @@ TEST_CASE("Merge a static and a dynamic complex expressions", "[expressions]") {
 TEST_CASE("holds_alternative for complex expression's arguments", "[expressions]") {
   auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   CHECK(holds_alternative<boss::ComplexExpression>(expr.getArguments().at(0)));
-  CHECK(holds_alternative<int64_t>(expr.getArguments().at(1)));
+  CHECK(holds_alternative<int32_t>(expr.getArguments().at(1)));
   CHECK(holds_alternative<boss::Symbol>(expr.getArguments().at(2)));
   CHECK(holds_alternative<std::string>(expr.getArguments().at(3)));
 }
@@ -301,7 +302,7 @@ TEST_CASE("get_if for complex expression's arguments", "[expressions]") {
   auto const& arg2 = expr.getArguments().at(2);
   auto const& arg3 = expr.getArguments().at(3);
   CHECK(get_if<boss::ComplexExpression>(&arg0) != nullptr);
-  CHECK(get_if<int64_t>(&arg1) != nullptr);
+  CHECK(get_if<int32_t>(&arg1) != nullptr);
   CHECK(get_if<boss::Symbol>(&arg2) != nullptr);
   CHECK(get_if<std::string>(&arg3) != nullptr);
   auto const& arg0args = get<boss::ComplexExpression>(arg0).getArguments();
@@ -314,7 +315,7 @@ TEST_CASE("move expression's arguments to a new expression", "[expressions]") {
   boss::ExpressionArguments args = movedExpr.getArguments();
   auto expr2 = boss::ComplexExpression(std::move(movedExpr.getHead()), std::move(args)); // NOLINT
   CHECK(get<boss::ComplexExpression>(expr2.getArguments().at(0)) == "howdie"_());
-  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 1);
+  CHECK(get<int32_t>(expr2.getArguments().at(1)) == 1);
   CHECK(get<boss::Symbol>(expr2.getArguments().at(2)) == "unknown"_);
   CHECK(get<std::string>(expr2.getArguments().at(3)) == "hello world"s);
 }
@@ -325,31 +326,31 @@ TEST_CASE("copy expression's arguments to a new expression", "[expressions]") {
       expr.getArguments(); // TODO: this one gets the reference to the arguments
                            // when it should be a copy.
                            // Any modification/move of args will be reflected in expr's arguments!
-  get<int64_t>(args.at(1)) = 2;
+  get<int32_t>(args.at(1)) = 2;
   auto expr2 = boss::ComplexExpression(expr.getHead(), args);
-  get<int64_t>(args.at(1)) = 3;
+  get<int32_t>(args.at(1)) = 3;
   auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args)); // NOLINT
   // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails for now (see above TODO)
-  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
-  CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
+  CHECK(get<int32_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int32_t>(expr3.getArguments().at(1)) == 3);
 }
 
 TEST_CASE("copy non-const expression's arguments to ExpressionArguments", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   boss::ExpressionArguments args = expr.getArguments(); // TODO: why is it moved?
-  get<int64_t>(args.at(1)) = 2;
+  get<int32_t>(args.at(1)) = 2;
   auto expr2 = boss::ComplexExpression(expr.getHead(), std::move(args));
   // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails because args was moved (see TODO)
-  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int32_t>(expr2.getArguments().at(1)) == 2);
 }
 
 TEST_CASE("copy const expression's arguments to ExpressionArguments)", "[expressions]") {
   auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   boss::ExpressionArguments args = expr.getArguments();
-  get<int64_t>(args.at(1)) = 2;
+  get<int32_t>(args.at(1)) = 2;
   auto expr2 = boss::ComplexExpression(expr.getHead(), std::move(args));
-  CHECK(get<int64_t>(expr.getArguments().at(1)) == 1);
-  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int32_t>(expr.getArguments().at(1)) == 1);
+  CHECK(get<int32_t>(expr2.getArguments().at(1)) == 2);
 }
 
 TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
@@ -370,7 +371,7 @@ TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,
+TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int32_t, std::int64_t,
                    std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto argument = vector<TestType>(input);
@@ -384,8 +385,8 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int64_t,
-                   std::double_t) {
+TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int32_t,
+                   std::int64_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto argument = vector<TestType>(input);
   auto s = boss::Span<TestType>(argument);
@@ -399,7 +400,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]
 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]",
-                   std::int64_t, std::double_t) {
+                   std::int32_t, std::int64_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto const argument = vector<TestType>(input);
   auto s = boss::Span<TestType const>(argument);
@@ -412,8 +413,8 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", std::int64_t,
-                   std::double_t) {
+TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", std::int32_t,
+                   std::int64_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto vectorExpression = "duh"_(boss::Span<TestType>(vector(input)));
   auto clonedVectorExpression = vectorExpression.clone(CloneReason::FOR_TESTING);
@@ -452,15 +453,15 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   }
 
   SECTION("Atomics") {
-    CHECK(get<std::int64_t>(eval(boss::Expression(9))) == 9); // NOLINT
+    CHECK(get<std::int32_t>(eval(boss::Expression(9))) == 9); // NOLINT
   }
 
   SECTION("Addition") {
-    CHECK(get<std::int64_t>(eval("Plus"_(5, 4))) == 9); // NOLINT
-    CHECK(get<std::int64_t>(eval("Plus"_(5, 2, 2))) == 9);
-    CHECK(get<std::int64_t>(eval("Plus"_(5, 2, 2))) == 9);
-    CHECK(get<std::int64_t>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
-    CHECK(get<std::int64_t>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
+    CHECK(get<std::int32_t>(eval("Plus"_(5, 4))) == 9); // NOLINT
+    CHECK(get<std::int32_t>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<std::int32_t>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<std::int32_t>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
+    CHECK(get<std::int32_t>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
   }
 
   SECTION("Strings") {
@@ -487,7 +488,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
         eval("UndefinedFunction"_(9))); // NOLINT(readability-magic-numbers)
 
     CHECK(expression.getHead().getName() == "UndefinedFunction");
-    CHECK(get<std::int64_t>(expression.getArguments().at(0)) == 9);
+    CHECK(get<std::int32_t>(expression.getArguments().at(0)) == 9);
 
     CHECK(get<std::string>(
               get<boss::ComplexExpression>(eval("UndefinedFunction"_((string) "Hello World!")))
@@ -1325,7 +1326,8 @@ TEST_CASE("TPC-H", "[tpch]") {
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::double_t) {
+TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int32_t, std::int64_t,
+                   std::double_t) {
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
