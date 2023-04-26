@@ -1323,6 +1323,28 @@ TEST_CASE("TPC-H", "[tpch]") {
           return "Table"_(
               "Column"_("revenue"_, "List"_(34850.16 * 0.05 + 25284.00 * 0.06))); // NOLINT
         }},
+       {"Q6 (AF Heuristics)",
+        [&]() {
+          return "Group"_(
+              "Project"_(
+                  "Select"_(
+                      "Select"_(
+                          "Select"_("Project"_(shallowCopy(lineitem),
+                                               "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                                     "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                     "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
+                                    "Where"_("Greater"_(24, "L_QUANTITY"_))),    // NOLINT
+                          "Where"_("And"_("Greater"_("L_DISCOUNT"_, 0.0499),     // NOLINT
+                                          "Greater"_(0.07001, "L_DISCOUNT"_)))), // NOLINT
+                      "Where"_("And"_("Greater"_("DateObject"_("1995-01-01"), "L_SHIPDATE"_),
+                                      "Greater"_("L_SHIPDATE"_, "DateObject"_("1993-12-31"))))),
+                  "As"_("revenue"_, "Times"_("L_EXTENDEDPRICE"_, "L_DISCOUNT"_))),
+              "Sum"_("revenue"_));
+        },
+        []() {
+          return "Table"_(
+              "Column"_("revenue"_, "List"_(34850.16 * 0.05 + 25284.00 * 0.06))); // NOLINT
+        }},
        {"Q3 (No Strings)",
         [&]() {
           return "Top"_(
@@ -1413,30 +1435,54 @@ TEST_CASE("TPC-H", "[tpch]") {
               "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10); // NOLINT
         },
         []() { return "Dummy"_(); }},
-       {"Q3 Post-Filter (No Select)",
+       {"Q3 Post-Filter",
         [&]() {
-          return "Project"_(
-              "Join"_(
-                  "Project"_("Join"_("Project"_(shallowCopy(customer),
-                                                "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_MKTSEGMENT"_,
-                                                      "C_MKTSEGMENT"_)),
-                                     "Project"_(shallowCopy(orders),
-                                                "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
-                                                      "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
-                                                      "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-                                     "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
-                             "As"_("C_MKTSEGMENT"_, "C_MKTSEGMENT"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
-                                   "O_ORDERDATE"_, "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
-                                   "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-                  "Project"_(shallowCopy(lineitem),
-                             "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                                   "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
-                                   "L_EXTENDEDPRICE"_)),
-                  "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
-              "As"_("L_SHIPDATE"_, "L_SHIPDATE"_, "L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_,
-                    "L_DISCOUNT"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "O_ORDERKEY"_,
-                    "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_,
-                    "O_SHIPPRIORITY"_, "C_MKTSEGMENT"_, "C_MKTSEGMENT"_));
+          return "Top"_(
+              "Group"_(
+                  "Project"_(
+                      "Select"_(
+                          "Select"_(
+                              "Select"_(
+                                  "Project"_(
+                                      "Join"_(
+                                          "Project"_(
+                                              "Join"_(
+                                                  "Project"_(shallowCopy(customer),
+                                                             "As"_("C_CUSTKEY"_, "C_CUSTKEY"_,
+                                                                   "C_MKTSEGMENT"_,
+                                                                   "C_MKTSEGMENT"_)),
+                                                  "Project"_(shallowCopy(orders),
+                                                             "As"_("O_ORDERKEY"_, "O_ORDERKEY"_,
+                                                                   "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                                                   "O_CUSTKEY"_, "O_CUSTKEY"_,
+                                                                   "O_SHIPPRIORITY"_,
+                                                                   "O_SHIPPRIORITY"_)),
+                                                  "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
+                                              "As"_("C_MKTSEGMENT"_, "C_MKTSEGMENT"_, "O_ORDERKEY"_,
+                                                    "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                                    "O_CUSTKEY"_, "O_CUSTKEY"_, "O_SHIPPRIORITY"_,
+                                                    "O_SHIPPRIORITY"_)),
+                                          "Project"_(shallowCopy(lineitem),
+                                                     "As"_("L_ORDERKEY"_, "L_ORDERKEY"_,
+                                                           "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                                           "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                           "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
+                                          "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
+                                      "As"_("L_SHIPDATE"_, "L_SHIPDATE"_, "L_ORDERKEY"_,
+                                            "L_ORDERKEY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                            "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "O_ORDERKEY"_,
+                                            "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                            "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_, "C_MKTSEGMENT"_,
+                                            "C_MKTSEGMENT"_)),
+                                  "Where"_("Greater"_("L_SHIPDATE"_, "DateObject"_("1993-03-15")))),
+                              "Where"_("Greater"_("DateObject"_("1995-03-15"), "O_ORDERDATE"_))),
+                          "Where"_("StringContainsQ"_("C_MKTSEGMENT"_, "BUILDING"))),
+                      "As"_("expr1009"_, "Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)),
+                            "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_ORDERKEY"_, "L_ORDERKEY"_,
+                            "O_ORDERDATE"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
+                  "By"_("L_ORDERKEY"_, "O_ORDERDATE"_, "O_SHIPPRIORITY"_),
+                  "As"_("revenue"_, "Sum"_("expr1009"_))),
+              "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10);
         },
         []() { return "Dummy"_(); }},
        {"Q9 (No Strings)",
@@ -1580,6 +1626,76 @@ TEST_CASE("TPC-H", "[tpch]") {
               "By"_("nation"_, "O_YEAR"_, "desc"_));
         },
         []() { return "Dummy"_(); }},
+       {"Q9 (AF Heuristics)",
+        [&]() {
+          return "Order"_(
+              "Group"_(
+                  "Project"_(
+                      "Join"_(
+                          "Project"_(
+                              "Select"_(
+                                  "Project"_(
+                                      "Join"_(
+                                          "Project"_(shallowCopy(part),
+                                                     "As"_("P_PARTKEY"_, "P_PARTKEY"_,
+                                                           "P_RETAILPRICE"_, "P_RETAILPRICE"_)),
+                                          "Project"_(
+                                              "Join"_(
+                                                  "Project"_(
+                                                      "Join"_("Project"_(shallowCopy(nation),
+                                                                         "As"_("N_NAME"_, "N_NAME"_,
+                                                                               "N_NATIONKEY"_,
+                                                                               "N_NATIONKEY"_)),
+                                                              "Project"_(shallowCopy(supplier),
+                                                                         "As"_("S_SUPPKEY"_,
+                                                                               "S_SUPPKEY"_,
+                                                                               "S_NATIONKEY"_,
+                                                                               "S_NATIONKEY"_)),
+                                                              "Where"_("Equal"_("N_NATIONKEY"_,
+                                                                                "S_NATIONKEY"_))),
+                                                      "As"_("N_NAME"_, "N_NAME"_, "S_SUPPKEY"_,
+                                                            "S_SUPPKEY"_)),
+                                                  "Project"_(shallowCopy(partsupp),
+                                                             "As"_("PS_PARTKEY"_, "PS_PARTKEY"_,
+                                                                   "PS_SUPPKEY"_, "PS_SUPPKEY"_,
+                                                                   "PS_SUPPLYCOST"_,
+                                                                   "PS_SUPPLYCOST"_)),
+                                                  "Where"_("Equal"_("S_SUPPKEY"_, "PS_SUPPKEY"_))),
+                                              "As"_("N_NAME"_, "N_NAME"_, "PS_PARTKEY"_,
+                                                    "PS_PARTKEY"_, "PS_SUPPKEY"_, "PS_SUPPKEY"_,
+                                                    "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
+                                          "Where"_("Equal"_("P_PARTKEY"_, "PS_PARTKEY"_))),
+                                      "As"_("N_NAME"_, "N_NAME"_, "PS_PARTKEY"_, "PS_PARTKEY"_,
+                                            "PS_SUPPKEY"_, "PS_SUPPKEY"_, "PS_SUPPLYCOST"_,
+                                            "PS_SUPPLYCOST"_, "P_RETAILPRICE"_, "P_RETAILPRICE"_)),
+                                  "Where"_("Equal"_("P_RETAILPRICE"_, 100.01))), // NOLINT
+                              "As"_("N_NAME"_, "N_NAME"_, "PS_PARTKEY"_, "PS_PARTKEY"_,
+                                    "PS_SUPPKEY"_, "PS_SUPPKEY"_, "PS_SUPPLYCOST"_,
+                                    "PS_SUPPLYCOST"_)),
+                          "Project"_(
+                              "Join"_("Project"_(shallowCopy(orders),
+                                                 "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
+                                                       "O_ORDERDATE"_)),
+                                      "Project"_(shallowCopy(lineitem),
+                                                 "As"_("L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_,
+                                                       "L_SUPPKEY"_, "L_ORDERKEY"_, "L_ORDERKEY"_,
+                                                       "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                                                       "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_,
+                                                       "L_QUANTITY"_)),
+                                      "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
+                              "As"_("O_ORDERDATE"_, "O_ORDERDATE"_, "L_EXTENDEDPRICE"_,
+                                    "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_,
+                                    "L_QUANTITY"_, "L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_,
+                                    "L_SUPPKEY"_)),
+                          "Where"_("Equal"_("List"_("PS_PARTKEY"_, "PS_SUPPKEY"_),
+                                            "List"_("L_PARTKEY"_, "L_SUPPKEY"_)))),
+                      "As"_("nation"_, "N_NAME"_, "o_year"_, "Year"_("O_ORDERDATE"_), "amount"_,
+                            "Minus"_("Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)),
+                                     "Times"_("PS_SUPPLYCOST"_, "L_QUANTITY"_)))),
+                  "By"_("nation"_, "o_year"_), "Sum"_("amount"_)),
+              "By"_("nation"_, "o_year"_, "desc"_));
+        },
+        []() { return "Dummy"_(); }},
        {"Q18 (No Strings)",
         [&]() {
           return "Top"_(
@@ -1645,9 +1761,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "Sum"_("sum_l_quantity"_)),
               "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100); // NOLINT
         },
-        []() { return "Dummy"_(); }}
-
-      }));
+        []() { return "Dummy"_(); }}}));
 
   DYNAMIC_SECTION(queryName << (useCache ? " - with cache" : " - no cache")
                             << (multipleSpans ? " - multiple spans" : " - single span")) {
