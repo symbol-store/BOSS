@@ -13,7 +13,6 @@ using std::string;
 using std::literals::string_literals::operator""s; // NOLINT(misc-unused-using-decls) clang-tidy bug
 using boss::utilities::operator""_;                // NOLINT(misc-unused-using-decls) clang-tidy bug
 using Catch::Generators::random;
-using Catch::Generators::table;
 using Catch::Generators::take;
 using Catch::Generators::values;
 using std::vector;
@@ -1045,11 +1044,31 @@ TEST_CASE("TPC-H", "[tpch]") {
     CHECK(eval("Set"_("CachedColumn"_, "O_TOTALPRICE"_)) == true);
   }
 
-  auto const& [queryName, query,
-               expectedOutput] = GENERATE_REF(table<std::string,
-                                                    std::function<boss::ComplexExpression(void)>,
-                                                    std::function<boss::Expression(void)>>(
-      {{"Q1 (Select only)",
+  enum {
+    TPCH_Q1_SELECT_ONLY,
+    TPCH_Q1_PROJECT_ONLY,
+    TPCH_Q1_SELECT_PROJECT_ONLY,
+    TPCH_Q1_NO_ORDER_NO_STRINGS,
+    TPCH_Q1_NO_ORDER,
+    TPCH_Q1,
+    TPCH_Q6_NO_GROUPING,
+    TPCH_Q6,
+    TPCH_Q6_AF_HEURISTICS,
+    TPCH_Q3_NO_STRINGS,
+    TPCH_Q3,
+    TPCH_Q3_POST_FILTER,
+    TPCH_Q9_NO_STRINGS,
+    TPCH_Q9,
+    TPCH_Q9_AF_HEURISTICS,
+    TPCH_Q18_NO_STRINGS,
+    TPCH_Q18,
+    TPCH_NUM,
+  };
+
+  auto queries = std::map<int, std::tuple<std::string, std::function<boss::ComplexExpression(void)>,
+                                          std::function<boss::Expression(void)>>>{
+      {TPCH_Q1_SELECT_ONLY,
+       {"Q1 (Select only)",
         [&]() {
           return "Select"_("Project"_(shallowCopy(lineitem), "As"_("L_SHIPDATE"_, "L_SHIPDATE"_)),
                            "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_)));
@@ -1058,7 +1077,8 @@ TEST_CASE("TPC-H", "[tpch]") {
           return eval("Table"_("Column"_(
               "L_SHIPDATE"_, "List"_("DateObject"_("1992-03-13"), "DateObject"_("1994-04-12"),
                                      "DateObject"_("1996-02-28"), "DateObject"_("1994-12-31")))));
-        }},
+        }}},
+      {TPCH_Q1_PROJECT_ONLY,
        {"Q1 (Project only)",
         [&]() {
           return "Project"_(
@@ -1084,7 +1104,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                                            7712.48 * (1.0 - 0.06) * (0.02 + 1.0),    // NOLINT
                                            25284.00 * (1.0 - 0.06) * (0.06 + 1.0))), // NOLINT
               "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)));            // NOLINT
-        }},
+        }}},
+      {TPCH_Q1_SELECT_PROJECT_ONLY,
        {"Q1 (Select-Project only)",
         [&]() {
           return "Project"_(
@@ -1119,7 +1140,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                                          34850.16 * (1.0 - 0.05) * (0.06 + 1.0),    // NOLINT
                                          7712.48 * (1.0 - 0.06) * (0.02 + 1.0),     // NOLINT
                                          25284.00 * (1.0 - 0.06) * (0.06 + 1.0)))); // NOLINT
-        }},
+        }}},
+      {TPCH_Q1_NO_ORDER_NO_STRINGS,
        {"Q1 (No Order, No Strings)",
         [&]() {
           return "Group"_(
@@ -1174,7 +1196,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                                               (7712.48 + 25284.00) / 2)),            // NOLINT
               "Column"_("AVG_DISC"_, "List"_((0.10 + 0.05) / 2, (0.06 + 0.06) / 2)), // NOLINT
               "Column"_("COUNT_ORDER"_, "List"_(2, 2)));                             // NOLINT
-        }},
+        }}},
+      {TPCH_Q1_NO_ORDER,
        {"Q1 (No Order)",
         [&]() {
           return "Group"_(
@@ -1227,7 +1250,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                                               (7712.48 + 25284.00) / 2)),            // NOLINT
               "Column"_("AVG_DISC"_, "List"_((0.10 + 0.05) / 2, (0.06 + 0.06) / 2)), // NOLINT
               "Column"_("COUNT_ORDER"_, "List"_(2, 2)));                             // NOLINT
-        }},
+        }}},
+      {TPCH_Q1,
        {"Q1",
         [&]() {
           return "Order"_(
@@ -1284,7 +1308,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                                               (17954.55 + 34850.16) / 2)),           // NOLINT
               "Column"_("AVG_DISC"_, "List"_((0.06 + 0.06) / 2, (0.10 + 0.05) / 2)), // NOLINT
               "Column"_("COUNT_ORDER"_, "List"_(2, 2)));                             // NOLINT
-        }},
+        }}},
+      {TPCH_Q6_NO_GROUPING,
        {"Q6 (No Grouping)",
         [&]() {
           return "Project"_(
@@ -1302,7 +1327,8 @@ TEST_CASE("TPC-H", "[tpch]") {
         []() {
           return "Table"_(
               "Column"_("revenue"_, "List"_(34850.16 * 0.05, 25284.00 * 0.06))); // NOLINT
-        }},
+        }}},
+      {TPCH_Q6,
        {"Q6",
         [&]() {
           return "Group"_(
@@ -1322,7 +1348,8 @@ TEST_CASE("TPC-H", "[tpch]") {
         []() {
           return "Table"_(
               "Column"_("revenue"_, "List"_(34850.16 * 0.05 + 25284.00 * 0.06))); // NOLINT
-        }},
+        }}},
+      {TPCH_Q6_AF_HEURISTICS,
        {"Q6 (AF Heuristics)",
         [&]() {
           return "Group"_(
@@ -1344,7 +1371,8 @@ TEST_CASE("TPC-H", "[tpch]") {
         []() {
           return "Table"_(
               "Column"_("revenue"_, "List"_(34850.16 * 0.05 + 25284.00 * 0.06))); // NOLINT
-        }},
+        }}},
+      {TPCH_Q3_NO_STRINGS,
        {"Q3 (No Strings)",
         [&]() {
           return "Top"_(
@@ -1389,7 +1417,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "As"_("revenue"_, "Sum"_("Expr1009"_))),
               "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10); // NOLINT
         },
-        []() { return "Dummy"_(); }},
+        []() { return "Dummy"_(); }}},
+      {TPCH_Q3,
        {"Q3",
         [&]() {
           return "Top"_(
@@ -1434,7 +1463,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "As"_("revenue"_, "Sum"_("Expr1009"_))),
               "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10); // NOLINT
         },
-        []() { return "Dummy"_(); }},
+        []() { return "Dummy"_(); }}},
+      {TPCH_Q3_POST_FILTER,
        {"Q3 Post-Filter",
         [&]() {
           return "Top"_(
@@ -1484,7 +1514,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "As"_("revenue"_, "Sum"_("expr1009"_))),
               "By"_("revenue"_, "desc"_, "O_ORDERDATE"_), 10);
         },
-        []() { return "Dummy"_(); }},
+        []() { return "Dummy"_(); }}},
+      {TPCH_Q9_NO_STRINGS,
        {"Q9 (No Strings)",
         [&]() {
           return "Order"_(
@@ -1556,7 +1587,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "By"_("nation"_, "O_YEAR"_), "Sum"_("amount"_)),
               "By"_("nation"_, "O_YEAR"_, "desc"_));
         },
-        []() { return "Dummy"_(); }},
+        []() { return "Dummy"_(); }}},
+      {TPCH_Q9,
        {"Q9",
         [&]() {
           return "Order"_(
@@ -1625,7 +1657,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "By"_("nation"_, "O_YEAR"_), "Sum"_("amount"_)),
               "By"_("nation"_, "O_YEAR"_, "desc"_));
         },
-        []() { return "Dummy"_(); }},
+        []() { return "Dummy"_(); }}},
+      {TPCH_Q9_AF_HEURISTICS,
        {"Q9 (AF Heuristics)",
         [&]() {
           return "Order"_(
@@ -1695,7 +1728,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "By"_("nation"_, "o_year"_), "Sum"_("amount"_)),
               "By"_("nation"_, "o_year"_, "desc"_));
         },
-        []() { return "Dummy"_(); }},
+        []() { return "Dummy"_(); }}},
+      {TPCH_Q18_NO_STRINGS,
        {"Q18 (No Strings)",
         [&]() {
           return "Top"_(
@@ -1728,7 +1762,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "Sum"_("sum_l_quantity"_)),
               "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100); // NOLINT
         },
-        []() { return "Dummy"_(); }},
+        []() { return "Dummy"_(); }}},
+      {TPCH_Q18,
        {"Q18",
         [&]() {
           return "Top"_(
@@ -1761,18 +1796,24 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "Sum"_("sum_l_quantity"_)),
               "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100); // NOLINT
         },
-        []() { return "Dummy"_(); }}}));
+        []() { return "Dummy"_(); }}}};
+
+  auto queryId = GENERATE(range(0, (int)TPCH_NUM));
+  auto const& [queryName, query, expectedOutput] = queries[queryId];
 
   DYNAMIC_SECTION(queryName << (useCache ? " - with cache" : " - no cache")
                             << (multipleSpans ? " - multiple spans" : " - single span")) {
     auto output1 = eval(query());
     CHECK(output1 == expectedOutput());
+    // to test for exceptions only:
+    // INFO(output1);
+    // CHECK(get<boss::ComplexExpression>(output1).getHead() != "ErrorWhenEvaluatingExpression"_);
 
     auto output2 = eval(query());
-    CHECK(output2 == expectedOutput());
+    CHECK(output2 == output1);
 
     auto output3 = eval(query());
-    CHECK(output3 == expectedOutput());
+    CHECK(output3 == output2);
   }
 }
 
