@@ -1,3 +1,4 @@
+#include "BOSS.hpp"
 #include <inttypes.h>
 extern "C" {
 #include "PortableBOSSSerialization.h"
@@ -244,4 +245,10 @@ public:
 
   ~SerializedExpression() { freeExpressionTree(root); }
 };
+
+namespace url {
+boss::Expression parse(std::string_view url, std::optional<boss::Expression>&& firstArgument = {});
+
+}
+
 } // namespace boss::serialization

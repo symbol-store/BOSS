@@ -94,6 +94,7 @@ static struct PortableBossExpression* makeExpression(struct PortableBossExpressi
 struct PortableBOSSExpressionRoot* serializeBOSSExpression(struct BOSSExpression*);
 struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSExpressionRoot*);
 struct BOSSExpression* BOSSEvaluate(struct BOSSExpression const* arg);
+struct BOSSExpression* parseURL(char const* url);
 
 #ifdef __cplusplus
 }
