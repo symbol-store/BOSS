@@ -1393,6 +1393,8 @@ TEST_CASE("URL Parsing") {
         "Group"_("lineitem"_, "By"_("l_quantity"_), "Count"_));
   CHECK(boss::serialization::url::parse("Customer/Select(Where(Greater(5,1)))") ==
         "Select"_("Customer"_, "Where"_("Greater"_(5, 1))));
+  CHECK(boss::serialization::url::parse("Customer/Select(Where(Equal(name,%22Holger%22)))") ==
+        "Select"_("Customer"_, "Where"_("Equal"_("name"_, "Holger"))));
 }
 
 int main(int argc, char* argv[]) {

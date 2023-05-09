@@ -221,7 +221,8 @@ foreach(Target IN LISTS AllTargets)
   if(UNIX AND NOT APPLE)
     target_link_libraries(${Target} rt)
     target_link_libraries(${Target} dl)
-  endif() 
+  endif()
+  target_link_libraries(${Target} curl)
 endforeach()
 
 

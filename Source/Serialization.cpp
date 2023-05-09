@@ -1,6 +1,7 @@
 #include "Serialization.hpp"
 #include <algorithm>
 #include <cassert>
+#include <curl/curl.h>
 #include <iterator>
 #include <string>
 #include <string_view>
@@ -32,6 +33,9 @@ Expression opportunisticallyParseExpression(std::string_view& url,
     if(std::all_of(head.begin(), head.end(), ::isdigit)) {
       return std::stol(std::string(head));
     }
+    if(head[0] == '\"') {
+      return std::string(head.substr(1, head.find('"', 1) - 1));
+    }
     return Symbol(std::string(head));
   }
   url.remove_prefix(1);
@@ -51,7 +55,10 @@ Expression parseComponent(std::string_view url, std::optional<Expression>&& firs
   return opportunisticallyParseExpression(url, std::move(firstArgument));
 }
 
-boss::Expression parse(std::string_view url, std::optional<Expression>&& firstArgument) {
+boss::Expression parse(std::string_view encodedUrl, std::optional<Expression>&& firstArgument) {
+  char* decoded = curl_easy_unescape(nullptr, encodedUrl.data(), (int)encodedUrl.length(), nullptr);
+  auto url = (std::string_view)(decoded);
+
   auto endOfComponent = url.find("/");
   Expression result = parseComponent(url.substr(0, endOfComponent));
   url.remove_prefix(endOfComponent == std::string_view::npos ? url.size() : endOfComponent + 1);
