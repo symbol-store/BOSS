@@ -149,6 +149,8 @@ class BootstrapEngine : public boss::Engine {
              algorithm::visitEach(expression.getArguments(), [this](auto&& engine) {
                if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
                  defaultEngine.push_back(engine);
+               } else {
+                 throw std::runtime_error("SetDefaultEnginePipeline received non-string argument");
                }
              });
              return "okay";

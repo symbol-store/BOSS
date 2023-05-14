@@ -143,9 +143,7 @@ Expression evaluate(Expression const& expr) {
 extern "C" {
 
 struct PortableBOSSExpressionRoot* serializeBOSSExpression(struct BOSSExpression* e) {
-  return boss::serialization::SerializedExpression(
-             std::move(get<boss::ComplexExpression>(e->delegate)))
-      .extractRoot();
+  return boss::serialization::SerializedExpression(std::move(e->delegate)).extractRoot();
 }
 struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSExpressionRoot* root) {
   return new BOSSExpression{.delegate = boss::serialization::SerializedExpression(root).deserialize()};

@@ -26,29 +26,25 @@ struct SerializedExpression {
     return (countArguments(std::get<Is>(tuple)) + ... + 0);
   };
 
-  template <typename T> static uint64_t countArguments(T const& /*unused*/) { return 1; }
-
-  static uint64_t countArguments(boss::ComplexExpression const& input) {
-    return countArgumentsInTuple(
-               input.getStaticArguments(),
-               std::make_index_sequence<
-                   std::tuple_size_v<std::decay_t<decltype(input.getStaticArguments())>>>()) +
-           std::accumulate(
-               input.getDynamicArguments().begin(), input.getDynamicArguments().end(), 0,
-               [](auto runningSum, auto const& argument) {
-                 return runningSum +
-                        std::visit(
-                            [](auto const& argument) -> uint64_t {
-                              if constexpr(boss::expressions::generic::isComplexExpression<
-                                               decltype(argument)>) {
-                                return 1 + countArguments(argument);
-                              } else {
-                                return 1;
-                              }
-                            },
-                            argument);
-               }) +
-           input.getSpanArguments().size();
+  static uint64_t countArguments(boss::Expression const& input) {
+    return std::visit(
+        [](auto& input) -> size_t {
+          if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
+            return 1 +
+                   countArgumentsInTuple(
+                       input.getStaticArguments(),
+                       std::make_index_sequence<std::tuple_size_v<
+                           std::decay_t<decltype(input.getStaticArguments())>>>()) +
+                   std::accumulate(input.getDynamicArguments().begin(),
+                                   input.getDynamicArguments().end(), 0,
+                                   [](auto runningSum, auto const& argument) {
+                                     return runningSum + countArguments(argument);
+                                   }) +
+                   input.getSpanArguments().size();
+          }
+          return 1;
+        },
+        input);
   }
 
   //////////////////////////////// Count Expressions ///////////////////////////////
@@ -61,27 +57,22 @@ struct SerializedExpression {
 
   template <typename T> static uint64_t countExpressions(T const& /*unused*/) { return 0; }
 
-  static uint64_t countExpressions(boss::ComplexExpression const& input) {
-    return 1 +
-           countArgumentsInTuple(
-               input.getStaticArguments(),
-               std::make_index_sequence<
-                   std::tuple_size_v<std::decay_t<decltype(input.getStaticArguments())>>>()) +
-           std::accumulate(
-               input.getDynamicArguments().begin(), input.getDynamicArguments().end(), 0,
-               [](auto runningSum, auto const& argument) {
-                 return runningSum +
-                        std::visit(
-                            [](auto const& argument) -> uint64_t {
-                              if constexpr(boss::expressions::generic::isComplexExpression<
-                                               decltype(argument)>) {
-                                return countExpressions(argument);
-                              } else {
-                                return 0;
-                              }
-                            },
-                            argument);
-               });
+  static uint64_t countExpressions(boss::Expression const& input) {
+    return std::visit(utilities::overload(
+                          [](boss::ComplexExpression const& input) -> uint64_t {
+                            return 1 +
+                                   countExpressionsInTuple(
+                                       input.getStaticArguments(),
+                                       std::make_index_sequence<std::tuple_size_v<
+                                           std::decay_t<decltype(input.getStaticArguments())>>>()) +
+                                   std::accumulate(input.getDynamicArguments().begin(),
+                                                   input.getDynamicArguments().end(), 0,
+                                                   [](auto runningSum, auto const& argument) {
+                                                     return runningSum + countExpressions(argument);
+                                                   });
+                          },
+                          [](auto const&) -> uint64_t { return 0; }),
+                      input);
   }
 
   //////////////////////////////   Flatten Arguments /////////////////////////////
@@ -170,18 +161,42 @@ struct SerializedExpression {
   ////////////////////////////////   Surface Area ////////////////////////////////
 
 public:
-  explicit SerializedExpression(boss::ComplexExpression&& input)
+  explicit SerializedExpression(boss::Expression&& input)
       : SerializedExpression(
-            allocateExpressionTree(countArguments(input) + 1, countExpressions(input) - 1)) {
-    auto argumentIterator = uint64_t{};
-    auto expressionIterator = uint64_t{};
-    flattenedArguments()[argumentIterator++] =
-        Argument{.type = Argument::SymbolType::SYMBOL,
-                 .asString = strdup(input.getHead().getName().c_str())};
-    auto inputs = std::vector<boss::ComplexExpression>();
-    inputs.push_back(std::move(input));
-    flattenArguments(flattenedArguments(), argumentIterator, std::move(inputs), expressionsBuffer(),
-                     expressionIterator);
+            allocateExpressionTree(countArguments(input), countExpressions(input))) {
+    std::visit(utilities::overload(
+                   [this](boss::ComplexExpression&& input) {
+                     auto argumentIterator = uint64_t{};
+                     auto expressionIterator = uint64_t{};
+                     expressionsBuffer()[expressionIterator++] = {
+                         .firstChildOffset = 1,
+                         .lastChildOffset = input.getDynamicArguments().size(),
+                         .headOffset = 0};
+                     flattenedArguments()[argumentIterator++] =
+                         Argument{.type = Argument::SymbolType::SYMBOL,
+                                  .asString = strdup(input.getHead().getName().c_str())};
+                     auto inputs = std::vector<boss::ComplexExpression>();
+                     inputs.push_back(std::move(input));
+                     flattenArguments(flattenedArguments(), argumentIterator, std::move(inputs),
+                                      expressionsBuffer(), expressionIterator);
+                   },
+                   [this](expressions::atoms::Symbol&& input) {
+                     flattenedArguments()[0] =
+                         Argument{.type = Argument::SymbolType::SYMBOL,
+                                  .asString = strdup(input.getName().c_str())};
+                   },
+                   [this](std::int64_t input) {
+                     flattenedArguments()[0] =
+                         Argument{.type = Argument::SymbolType::LONG, .asLong = input};
+                   },
+                   [this](std::double_t input) {
+                     flattenedArguments()[0] =
+                         Argument{.type = Argument::SymbolType::DOUBLE, .asDouble = input};
+                   },
+                   [](auto&& input) {
+                     throw std::logic_error("uncountered unknown type during serialization");
+                   }),
+               std::move(input));
   }
 
   explicit SerializedExpression(PortableBOSSExpressionRoot* root) : root(root) {}
@@ -192,49 +207,57 @@ public:
     boss::expressions::ExpressionArguments arguments;
     for(auto childIndex = firstChildOffset; childIndex <= lastChildOffset; childIndex++) {
       auto& arg = flattenedArguments()[childIndex];
-      arguments.push_back(std::map<Argument::SymbolType, std::function<boss::Expression()>>{
-          {Argument::LONG, [&] { return (arg.asLong); }},
-          {Argument::DOUBLE, [&] { return (arg.asDouble); }},
-          {Argument::SYMBOL,
-           [&]() -> boss::Expression {
-             while(expressionsBuffer()[unprocessedExpressionPointer].headOffset < childIndex) {
-               unprocessedExpressionPointer++;
-             }
-             if(expressionsBuffer()[unprocessedExpressionPointer].headOffset == childIndex) {
-               auto result = boss::expressions::ComplexExpression(
-                   boss::Symbol(arg.asString),
-                   deserializeArguments(
-                       expressionsBuffer()[unprocessedExpressionPointer].firstChildOffset,
-                       expressionsBuffer()[unprocessedExpressionPointer].lastChildOffset,
-                       unprocessedExpressionPointer + 1));
-               free(static_cast<void*>(arg.asString));
-               return result;
-             }
-             auto result = boss::Symbol(arg.asString);
-             free(static_cast<void*>(arg.asString));
-             return result;
-           }},
+      auto const functors =
+          std::unordered_map<Argument::SymbolType, std::function<boss::Expression()>>{
+              {Argument::SymbolType::LONG, [&] { return (arg.asLong); }},
+              {Argument::SymbolType::DOUBLE, [&] { return (arg.asDouble); }},
+              {Argument::SymbolType::SYMBOL,
+               [&]() -> boss::Expression {
+                 while(expressionsBuffer()[unprocessedExpressionPointer].headOffset < childIndex) {
+                   unprocessedExpressionPointer++;
+                 }
+                 if(expressionsBuffer()[unprocessedExpressionPointer].headOffset == childIndex) {
+                   auto result = boss::expressions::ComplexExpression(
+                       boss::Symbol(arg.asString),
+                       deserializeArguments(
+                           expressionsBuffer()[unprocessedExpressionPointer].firstChildOffset,
+                           expressionsBuffer()[unprocessedExpressionPointer].lastChildOffset,
+                           unprocessedExpressionPointer + 1));
+                   free(static_cast<void*>(arg.asString));
+                   return result;
+                 }
+                 auto result = boss::Symbol(arg.asString);
+                 free(static_cast<void*>(arg.asString));
+                 return result;
+               }},
 
-          {Argument::STRING, [&] {
-             auto result = std::string(arg.asString);
-             free(static_cast<void*>(arg.asString));
-             return result;
-           }}}.at(arg.type)());
+              {Argument::SymbolType::STRING, [&] {
+                 auto result = std::string(arg.asString);
+                 free(static_cast<void*>(arg.asString));
+                 return result;
+               }}};
+      arguments.push_back(functors.at(arg.type)());
     }
     return arguments;
   }
 
-  boss::ComplexExpression deserialize() && {
-
-    auto result = boss::ComplexExpression{
-        boss::Symbol(std::string(flattenedArguments()[0].asString)),
-        deserializeArguments(1,
-                             root->expressionCount == 0
-                                 ? root->argumentCount - 1
-                                 : expressionsBuffer()[0].firstChildOffset - 1,
-                             0)};
-    free(static_cast<void*>(flattenedArguments()[0].asString));
-    return result;
+  boss::Expression deserialize() && {
+    switch(flattenedArguments()[0].type) {
+    case PortableBossArgument::LONG:
+      return flattenedArguments()[0].asLong;
+    case PortableBossArgument::DOUBLE:
+      return flattenedArguments()[0].asDouble;
+    case PortableBossArgument::STRING:
+      return flattenedArguments()[0].asString;
+    case PortableBossArgument::SYMBOL:
+      auto s = boss::Symbol(std::string(flattenedArguments()[0].asString));
+      if(root->expressionCount == 0)
+        return s;
+      auto result = boss::ComplexExpression{
+          s, deserializeArguments(1, expressionsBuffer()[0].lastChildOffset, 1)};
+      free(static_cast<void*>(flattenedArguments()[0].asString));
+      return result;
+    }
   };
 
   PortableBOSSExpressionRoot* extractRoot() && {

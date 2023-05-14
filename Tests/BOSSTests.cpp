@@ -1348,7 +1348,7 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::d
 }
 
 TEST_CASE("Expression Serialization") {
-  auto const plans = std::array{
+  auto const plans = std::array<boss::Expression, 8>{"Yo"_,
       "Howdie"_("Yo"_(5, 17, "duh"_(3)), "Five"_(6), 9, 1),
       "Howdie"_(1, 4, 9, "You"_(1, 3), 9, 3),
       "Top"_("Group"_(
@@ -1380,10 +1380,11 @@ TEST_CASE("Expression Serialization") {
              "By"_("O_TOTALPRICE"_, "desc"_, "O_ORDERDATE"_), 100),
       "Table"_("Something"_(5, 17, "Sum"_(3, 9, 2)), "Else"_(6, "Date"_())),
       "Table"_(1, 5, 9),
+      Expression(3),
       "SetDefaultEnginePipeline"_(
           "/Users/hlgr/Temp/BOSSWolframEngine/Debug/libBOSSWolframEngine.so")};
   for(auto const& plan : plans) {
-    REQUIRE(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
+    CHECK(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
                 .deserialize() == plan);
   }
 }
