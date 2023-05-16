@@ -14,9 +14,6 @@ jobs:
     runs-on: [self-hosted, ARM64]
     container:
       image: silkeh/clang:16
-      credentials:
-         username: ${{ github.actor }}
-         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v3
       with:
