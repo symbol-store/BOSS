@@ -20,7 +20,7 @@ jobs:
       run: |
         /usr/bin/git config --global --add safe.directory $GITHUB_WORKSPACE
         find . \( -name '*.cpp' -or -name '*.hpp' \) -exec clang-format -i -style=file '{}' ';'
-        git status -s
+        git diff
         exit $(git status -s | wc -l)
 
   build:
