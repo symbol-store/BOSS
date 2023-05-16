@@ -11,9 +11,9 @@ on:
 
 jobs:
   format-check:
-    runs-on: self-hosted
+    runs-on: [self-hosted, ARM64]
     container:
-      image: docker.pkg.github.com/little-big-h/buildenvironment/ubuntujammybased
+      image: debian
       credentials:
          username: ${{ github.actor }}
          password: ${{ secrets.GITHUB_TOKEN }}
@@ -23,6 +23,7 @@ jobs:
         submodules: true
     - name: check
       run: |
+        apt update && DEBIAN_FRONTEND=noninteractive apt upgrade -yy && DEBIAN_FRONTEND=noninteractive apt install -yy clang-format clang-tidy clang cmake git curl
         /usr/bin/git config --global --add safe.directory $GITHUB_WORKSPACE
         find . \( -name '*.cpp' -or -name '*.hpp' \) -exec clang-format -i -style=file '{}' ';'
         git status -s
