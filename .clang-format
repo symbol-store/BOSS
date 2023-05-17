@@ -1,3 +1,4 @@
+---
 Language:        Cpp
 AccessModifierOffset: -2
 AlignAfterOpenBracket: Align
@@ -219,3 +220,5 @@ WhitespaceSensitiveMacros:
   - NS_SWIFT_NAME
   - PP_STRINGIZE
   - STRINGIZE
+...
+
