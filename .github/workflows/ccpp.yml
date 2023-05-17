@@ -19,6 +19,7 @@ jobs:
     - name: check
       run: |
         /usr/bin/git config --global --add safe.directory $GITHUB_WORKSPACE
+        find ${{ github.workspace }}
         clang-format -i -style=file:${{ github.workspace }}/.clang-format --dump-config
         find . \( -name '*.cpp' -or -name '*.hpp' \) -exec clang-format -i -style=file:${{ github.workspace }}/.clang-format '{}' ';'
         git diff
