@@ -101,8 +101,8 @@ static struct PortableBossExpression* makeExpression(struct PortableBossExpressi
   return &expressions[expressionOutputI];
 }
 
-struct PortableBOSSExpressionRoot* serializeBOSSExpression(struct BOSSExpression*);
-struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSExpressionRoot*);
+struct PortableBOSSExpressionRoot* serializeBOSSExpression(struct BOSSExpression* expression);
+struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSExpressionRoot* root);
 struct BOSSExpression* parseURL(char const* url);
 
 #ifdef __cplusplus

@@ -116,7 +116,7 @@ class BootstrapEngine : public boss::Engine {
           {boss::Symbol("EvaluateInEngines"),
            [this](auto&& e) -> boss::Expression {
              auto symbols = ::std::vector<BOSSExpression* (*)(BOSSExpression*)>();
-             auto&& args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
+             auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
              ::std::for_each(args.begin(), args.end(), [this, &e, &symbols](auto&& enginePath) {
                symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
                    libraries.at(get<::std::string>(enginePath)).evaluateFunction));

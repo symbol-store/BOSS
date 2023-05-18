@@ -120,7 +120,9 @@ arrowArrayToExpression(::std::shared_ptr<arrow::Array> const& arrowPtr) {
 static ::std::shared_ptr<arrow::Array> reconstructArrowArray(::std::int64_t addressAsLong) {
   static_assert(sizeof(void*) == sizeof(::std::int64_t),
                 "pointers are not 64-bit -- this might break in funky ways");
-  return *reinterpret_cast<::std::shared_ptr<arrow::Array> const*>(addressAsLong);
+  return *reinterpret_cast<                    // NOLINT(performance-no-int-to-ptr)
+      ::std::shared_ptr<arrow::Array> const*>( // NOLINT(performance-no-int-to-ptr)
+      addressAsLong);                          // NOLINT(performance-no-int-to-ptr)
 }
 } // namespace nasty
 

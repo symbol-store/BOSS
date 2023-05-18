@@ -897,7 +897,7 @@ public:
     if((index - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
       return arguments.at(index - std::tuple_size_v<StaticArgumentsContainer>);
     }
-    getSpanArgument(index);
+    return getSpanArgument(index);
   }
 
   operator // NOLINT(hicpp-explicit-conversions)

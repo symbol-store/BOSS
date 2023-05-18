@@ -43,5 +43,5 @@ void freeBOSSString(char* string);
 }
 
 namespace boss {
-expressions::Expression evaluate(expressions::Expression const&);
+expressions::Expression evaluate(expressions::Expression const& expr);
 }
