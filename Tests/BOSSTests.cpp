@@ -30,6 +30,7 @@ namespace {
 std::vector<string> librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 }
 // NOLINTBEGIN(readability-magic-numbers)
+// NOLINTBEGIN(bugprone-exception-escape)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // TODO: @Hubert, can you reduce the complexity of the tests, please?
 TEST_CASE("Subspans work correctly", "[spans]") {
@@ -1384,11 +1385,12 @@ TEST_CASE("URL Parsing") {
 int main(int argc, char* argv[]) {
   Catch::Session session;
   session.cli(session.cli() | Catch::clara::Opt(librariesToTest, "library")["--library"]);
-  int returnCode = session.applyCommandLine(argc, argv);
+  auto const returnCode = session.applyCommandLine(argc, argv);
   if(returnCode != 0) {
     return returnCode;
   }
   return session.run();
 }
+// NOLINTEND(bugprone-exception-escape)
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-magic-numbers)
