@@ -1067,7 +1067,7 @@ public:
             typename... T>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms<OtherTuple, T...>&& other)
-      : head(std::move(other).getHead()) {
+      : head(other.getHead()) {
     auto [_unused, otherStatics, otherDynamics, otherSpans] = std::move(other).decompose();
     arguments.reserve(std::tuple_size_v<OtherTuple> + otherDynamics.size());
     // move statics

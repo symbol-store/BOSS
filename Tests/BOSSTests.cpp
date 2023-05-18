@@ -26,9 +26,12 @@ using boss::expressions::atoms::Span;
 };
 using std::int64_t;
 
-static std::vector<string>
-    librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-
+namespace {
+std::vector<string> librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+}
+// NOLINTBEGIN(readability-magic-numbers)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// TODO: @Hubert, can you reduce the complexity of the tests, please?
 TEST_CASE("Subspans work correctly", "[spans]") {
   auto input = boss::Span<int64_t>{std::vector<int64_t>{1, 2, 4, 3}};
   auto subrange = std::move(input).subspan(1, 3);
@@ -62,7 +65,7 @@ TEST_CASE("Expressions", "[expressions]") {
   SECTION("span expression arguments") {
     std::array<int64_t, 2> values = {v1, v2};
     SpanArguments args;
-    args.emplace_back(Span<int64_t>(&values[0], 2, nullptr));
+    args.emplace_back(Span<int64_t>(values.data(), 2, nullptr));
     auto spanArgumentExpression =
         boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
     CHECK(e == spanArgumentExpression);
@@ -71,10 +74,10 @@ TEST_CASE("Expressions", "[expressions]") {
   SECTION("nested span expression arguments") {
     std::array<int64_t, 2> values = {v1, v2};
     SpanArguments args;
-    args.emplace_back(Span<int64_t const>(&values[0], 2, nullptr));
+    args.emplace_back(Span<int64_t const>(values.data(), 2, nullptr));
     auto nested = boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
     boss::expressions::ExpressionArguments subExpressions;
-    subExpressions.push_back(std::move(nested));
+    subExpressions.emplace_back(std::move(nested));
     auto spanArgumentExpression =
         boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, std::move(subExpressions), {});
     CHECK("UnevaluatedPlus"_("UnevaluatedPlus"_(v1, v2)) == spanArgumentExpression);
@@ -721,7 +724,9 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   }
 }
 
-static int64_t operator""_i64(char c) { return static_cast<int64_t>(c); };
+namespace {
+int64_t operator""_i64(char c) { return static_cast<int64_t>(c); };
+} // namespace
 
 TEST_CASE("TPC-H", "[tpch]") {
   auto engine = boss::engines::BootstrapEngine();
@@ -1385,3 +1390,5 @@ int main(int argc, char* argv[]) {
   }
   return session.run();
 }
+// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(readability-magic-numbers)
