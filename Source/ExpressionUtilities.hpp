@@ -1,7 +1,6 @@
 #pragma once
 #include "Expression.hpp"
 #include "Utilities.hpp"
-#include <arrow/array.h>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -108,22 +107,5 @@ using ExpressionBuilder = ExtensibleExpressionBuilder<>;
 static ExpressionBuilder operator""_(const char* name, size_t /*unused*/) {
   return ExpressionBuilder(name);
 };
-
-namespace nasty {
-// the ownership model is unclear -- we really need to fix that
-static boss::ComplexExpressionWithStaticArguments<::std::int64_t>
-arrowArrayToExpression(::std::shared_ptr<arrow::Array> const& arrowPtr) {
-  static_assert(sizeof(void*) == sizeof(::std::int64_t),
-                "pointers are not 64-bit -- this might break in funky ways");
-  return "ArrowArrayPtr"_(reinterpret_cast<::std::int64_t>(&arrowPtr));
-}
-static ::std::shared_ptr<arrow::Array> reconstructArrowArray(::std::int64_t addressAsLong) {
-  static_assert(sizeof(void*) == sizeof(::std::int64_t),
-                "pointers are not 64-bit -- this might break in funky ways");
-  return *reinterpret_cast<                    // NOLINT(performance-no-int-to-ptr)
-      ::std::shared_ptr<arrow::Array> const*>( // NOLINT(performance-no-int-to-ptr)
-      addressAsLong);                          // NOLINT(performance-no-int-to-ptr)
-}
-} // namespace nasty
 
 } // namespace boss::utilities

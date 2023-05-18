@@ -4,8 +4,6 @@
 #include "../Source/BootstrapEngine.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include "../Source/Serialization.hpp"
-#include <arrow/array.h>
-#include <arrow/builder.h>
 #include <catch2/catch.hpp>
 #include <numeric>
 #include <variant>
@@ -387,27 +385,6 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
   auto const argument = vector<TestType>(input);
   auto s = boss::Span<TestType const>(argument);
   auto const vectorExpression = "duh"_(std::move(s));
-  REQUIRE(vectorExpression.getArguments().size() == input.size());
-  for(auto i = 0U; i < input.size(); i++) {
-    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
-    CHECK(vectorExpression.getArguments()[i] == input[i]);
-  }
-}
-
-// NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Complex Expressions with numeric Arrow Spans", "[spans][arrow]", std::int64_t,
-                   std::double_t) {
-  auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
-  auto s = [&input]() {
-    std::conditional_t<std::is_same_v<TestType, std::int64_t>, arrow::Int64Builder,
-                       arrow::DoubleBuilder>
-        builder;
-    auto status = builder.AppendValues(begin(input), end(input));
-    auto thingy = builder.Finish().ValueOrDie();
-    auto* argument = thingy->data()->template GetMutableValues<TestType>(1);
-    return boss::Span<TestType>(argument, thingy->length(), [thingy]() {});
-  }();
-  auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
     CHECK(vectorExpression.getArguments().at(i) == input.at(i));
