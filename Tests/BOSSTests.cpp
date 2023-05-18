@@ -1391,6 +1391,6 @@ int main(int argc, char* argv[]) {
   }
   return session.run();
 }
-// NOLINTEND(bugprone-exception-escape)
 // NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(bugprone-exception-escape)
 // NOLINTEND(readability-magic-numbers)
