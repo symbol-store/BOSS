@@ -3,6 +3,8 @@
 #include <iterator>
 #include <type_traits>
 #include <utility>
+#include <string.h>
+#include <optional>
 extern "C" {
 #include "PortableBOSSSerialization.h"
 }
