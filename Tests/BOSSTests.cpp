@@ -9,8 +9,8 @@
 #include <variant>
 using boss::Expression;
 using std::string;
-using std::literals::string_literals::operator""s;
-using boss::utilities::operator""_;
+using std::literals::string_literals::operator""s; // NOLINT(misc-unused-using-decls) clang-tidy bug
+using boss::utilities::operator""_;                // NOLINT(misc-unused-using-decls) clang-tidy bug
 using Catch::Generators::random;
 using Catch::Generators::take;
 using Catch::Generators::values;
