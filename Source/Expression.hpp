@@ -40,7 +40,7 @@ class Symbol {
   std::string name;
 
 public:
-  explicit Symbol(std::string name) : name(std::move(name)){};
+  explicit Symbol(std::string name) noexcept : name(std::move(name)){};
   std::string const& getName() const& { return name; };
   std::string getName() && { return std::move(name); };
   inline bool operator==(Symbol const& other) const { return getName() == other.getName(); };
@@ -180,7 +180,7 @@ public: // surface
     if(destructor) {
       try {
         destructor();
-      } catch (...){
+      } catch(...) {
       }
     }
   };
