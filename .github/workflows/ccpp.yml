@@ -31,9 +31,6 @@ jobs:
         build-type: [Release, Debug, Sanitize]
     container:
       image: holgerpirk/bossbuild
-      credentials:
-         username: ${{ github.actor }}
-         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v2
       with:
