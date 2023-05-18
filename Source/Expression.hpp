@@ -280,9 +280,9 @@ public:
                   return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
                       std::forward<decltype(unpacked)>(unpacked));
                 }),
-            (typename boss::utilities::variant_amend<
-                AtomicExpressionWithAdditionalCustomAtoms<T...>,
-                ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...>>::type&&)
+            (std::add_rvalue_reference_t<typename boss::utilities::variant_amend<
+                 AtomicExpressionWithAdditionalCustomAtoms<T...>,
+                 ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...>>::type>)
                 std::move(o))) {}
 
   ~ExpressionWithAdditionalCustomAtoms() = default;
@@ -1500,8 +1500,9 @@ decltype(auto) visit(Func&& func,
                      typename boss::expressions::generic::ExpressionWithAdditionalCustomAtoms<
                          AdditionalCustomAtoms...>&& e) {
   return visit(::std::forward<Func>(func),
-               (typename boss::expressions::generic::ExpressionWithAdditionalCustomAtoms<
-                   AdditionalCustomAtoms...>::SuperType&&)::std::move(e));
+               (std::add_rvalue_reference_t<
+                   typename boss::expressions::generic::ExpressionWithAdditionalCustomAtoms<
+                       AdditionalCustomAtoms...>::SuperType>)::std::move(e));
 };
 template <> struct hash<boss::expressions::Symbol> {
   ::std::size_t operator()(boss::expressions::Symbol const& s) const noexcept {
