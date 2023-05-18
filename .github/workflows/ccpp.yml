@@ -25,12 +25,12 @@ jobs:
         exit $(git status -s | wc -l)
 
   build:
-    runs-on: [self-hosted, X64]
+    runs-on: [self-hosted, ARM64]
     strategy:
       matrix:
         build-type: [Release, Debug, Sanitize]
     container:
-      image: docker.pkg.github.com/little-big-h/buildenvironment/wolframbased:latest
+      image: holgerpirk/bossbuild
       credentials:
          username: ${{ github.actor }}
          password: ${{ secrets.GITHUB_TOKEN }}
@@ -42,7 +42,7 @@ jobs:
       run: |
         mkdir ${{ matrix.build-type }}
         cd ${{ matrix.build-type }}
-        CXX=clang++-11 CC=clang-11 cmake -DCMAKE_INSTALL_PREFIX=../install -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_CLANG_TIDY=clang-tidy-11 ..
+        CXX=clang++ CC=clang cmake -DCMAKE_INSTALL_PREFIX=../install -DRacket_ROOT=/usr -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_CXX_CLANG_TIDY=clang-tidy ..
         cd ..
     - name: build
       run: |
