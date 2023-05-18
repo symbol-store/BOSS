@@ -1,9 +1,12 @@
 #include "BOSS.hpp"
 #include <inttypes.h>
+#include <utility>
 extern "C" {
 #include "PortableBOSSSerialization.h"
 }
 namespace boss::serialization {
+// NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
+
 using Argument = PortableBossArgument;
 using Expression = PortableBossExpression;
 /**
@@ -81,7 +84,7 @@ struct SerializedExpression {
   static void flattenArgumentsInTuple(Argument* buffer, TupleLike&& tuple,
                                       std::index_sequence<Is...> /*unused*/,
                                       uint64_t& argumentOutputI) {
-    (flattenArguments(std::get<Is>(tuple), argumentOutputI), ...);
+    (flattenArguments(buffer, std::get<Is>(tuple), argumentOutputI), ...);
   };
 
   static uint64_t flattenArguments(Argument* buffer, uint64_t argumentOutputI,
@@ -129,7 +132,7 @@ struct SerializedExpression {
                         *makeSymbolArgument(buffer, argumentOutputI++) =
                             strdup(argument.getHead().getName().c_str());
                         childrenCountRunningSum += childrenCount;
-                        children.push_back(std::move(argument));
+                        children.push_back(std::forward<decltype(argument)>(argument));
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          long long>) {
                         *makeLongArgument(buffer, argumentOutputI++) = argument;
@@ -169,9 +172,9 @@ public:
                      auto argumentIterator = uint64_t{};
                      auto expressionIterator = uint64_t{};
                      expressionsBuffer()[expressionIterator++] = {
+                         .headOffset = 0,
                          .firstChildOffset = 1,
-                         .lastChildOffset = input.getDynamicArguments().size(),
-                         .headOffset = 0};
+                         .lastChildOffset = input.getDynamicArguments().size()};
                      flattenedArguments()[argumentIterator++] =
                          Argument{.type = Argument::SymbolType::SYMBOL,
                                   .asString = strdup(input.getHead().getName().c_str())};
@@ -193,7 +196,7 @@ public:
                      flattenedArguments()[0] =
                          Argument{.type = Argument::SymbolType::DOUBLE, .asDouble = input};
                    },
-                   [](auto&& input) {
+                   [](auto&&) {
                      throw std::logic_error("uncountered unknown type during serialization");
                    }),
                std::move(input));
@@ -223,17 +226,20 @@ public:
                            expressionsBuffer()[unprocessedExpressionPointer].firstChildOffset,
                            expressionsBuffer()[unprocessedExpressionPointer].lastChildOffset,
                            unprocessedExpressionPointer + 1));
-                   free(static_cast<void*>(arg.asString));
+                   free(static_cast<void*>( // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
+                       arg.asString));
                    return result;
                  }
                  auto result = boss::Symbol(arg.asString);
-                 free(static_cast<void*>(arg.asString));
+                 free(static_cast<void*>( // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
+                     arg.asString));
                  return result;
                }},
 
               {Argument::SymbolType::STRING, [&] {
                  auto result = std::string(arg.asString);
-                 free(static_cast<void*>(arg.asString));
+                 free(static_cast<void*>( // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
+                     arg.asString));
                  return result;
                }}};
       arguments.push_back(functors.at(arg.type)());
@@ -251,17 +257,19 @@ public:
       return flattenedArguments()[0].asString;
     case PortableBossArgument::SYMBOL:
       auto s = boss::Symbol(std::string(flattenedArguments()[0].asString));
-      if(root->expressionCount == 0)
+      if(root->expressionCount == 0) {
         return s;
+      }
       auto result = boss::ComplexExpression{
           s, deserializeArguments(1, expressionsBuffer()[0].lastChildOffset, 1)};
-      free(static_cast<void*>(flattenedArguments()[0].asString));
+      free(static_cast<void*>( // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
+          flattenedArguments()[0].asString));
       return result;
     }
   };
 
   PortableBOSSExpressionRoot* extractRoot() && {
-    auto root = this->root;
+    auto* root = this->root;
     this->root = nullptr;
     return root;
   };
@@ -273,5 +281,5 @@ namespace url {
 boss::Expression parse(std::string_view url, std::optional<boss::Expression>&& firstArgument = {});
 
 }
-
+// NOLINTEND(cppcoreguidelines-pro-type-union-access)
 } // namespace boss::serialization

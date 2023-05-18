@@ -40,12 +40,11 @@ class Symbol {
   std::string name;
 
 public:
-  explicit Symbol(std::string const& name) : name(name){};
-  explicit Symbol(std::string&& name) : name(std::move(name)){};
+  explicit Symbol(std::string name) : name(std::move(name)){};
   std::string const& getName() const& { return name; };
   std::string getName() && { return std::move(name); };
-  inline bool operator==(Symbol const& s2) const { return getName() == s2.getName(); };
-  inline bool operator!=(Symbol const& s2) const { return getName() != s2.getName(); };
+  inline bool operator==(Symbol const& other) const { return getName() == other.getName(); };
+  inline bool operator!=(Symbol const& other) const { return getName() != other.getName(); };
   friend ::std::ostream& operator<<(::std::ostream& out, Symbol const& thing) {
     return out << thing.getName();
   }
@@ -65,24 +64,24 @@ private: // state
 public: // surface
   using element_type = Scalar;
   size_t size() const { return _end - _begin; }
-  constexpr auto operator[](size_t i) const -> decltype(auto) { return *(_begin + i); }
-  constexpr auto operator[](size_t i) -> decltype(auto) { return *(_begin + i); }
+  constexpr auto operator[](size_t index) const -> decltype(auto) { return *(_begin + index); }
+  constexpr auto operator[](size_t index) -> decltype(auto) { return *(_begin + index); }
   auto begin() const { return _begin; }
   auto end() const { return _end; }
 
-  constexpr auto at(size_t i) const -> decltype(auto) {
+  constexpr auto at(size_t index) const -> decltype(auto) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
-    if(_begin + i < _end) {
-      return (*this)[i];
+    if(_begin + index < _end) {
+      return (*this)[index];
     }
-    throw std::out_of_range("Span has no element with index " + std::to_string(i));
+    throw std::out_of_range("Span has no element with index " + std::to_string(index));
   }
-  constexpr auto at(size_t i) -> decltype(auto) {
+  constexpr auto at(size_t index) -> decltype(auto) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
-    if(_begin + i < _end) {
-      return (*this)[i];
+    if(_begin + index < _end) {
+      return (*this)[index];
     }
-    throw std::out_of_range("Span has no element with index " + std::to_string(i));
+    throw std::out_of_range("Span has no element with index " + std::to_string(index));
   }
 
   constexpr Span<Scalar> subspan(size_t offset, size_t size) && {
@@ -106,7 +105,7 @@ public: // surface
             return adaptee.data();
           }
         }()),
-        _end(_begin + adaptee.size()), destructor([v = std::move(adaptee)]() {}) {}
+        _end(_begin + adaptee.size()), destructor([owner = std::move(adaptee)]() {}) {}
 
   /**
    * The span does not take ownership of the adaptee. The vector better not be modified while the
@@ -179,11 +178,16 @@ public: // surface
   Span& operator=(Span const&) = delete;
   ~Span() {
     if(destructor) {
-      destructor();
+      try {
+        destructor();
+      } catch (...){
+      }
     }
   };
 
-  friend std::ostream& operator<<(std::ostream& s, Span const& span) { return s << span.size; }
+  friend std::ostream& operator<<(std::ostream& stream, Span const& span) {
+    return stream << span.size;
+  }
 };
 } // namespace atoms
 using atoms::Span;
@@ -202,14 +206,14 @@ template <typename... T> ArgumentTypeMismatch(::std::string const&) -> ArgumentT
 template <typename TargetType> class ArgumentTypeMismatch : public ArgumentTypeMismatch<void> {
 public:
   template <typename VariantType>
-  explicit ArgumentTypeMismatch(VariantType const& v)
-      : ArgumentTypeMismatch<void>([&v]() {
-          ::std::stringstream s;
-          s << "expected and actual type mismatch in expression \"";
-          if(!v.valueless_by_exception()) {
-            s << v;
+  explicit ArgumentTypeMismatch(VariantType const& variant)
+      : ArgumentTypeMismatch<void>([&variant]() {
+          ::std::stringstream output;
+          output << "expected and actual type mismatch in expression \"";
+          if(!variant.valueless_by_exception()) {
+            output << variant;
           } else {
-            s << "valueless by exception";
+            output << "valueless by exception";
           }
           static auto typenames =
               ::std::map<::std::type_index, char const*>{{typeid(int64_t), "long"},
@@ -217,10 +221,10 @@ public:
                                                          {typeid(bool), "bool"},
                                                          {typeid(double_t), "double"},
                                                          {typeid(::std::string), "string"}};
-          s << "\", expected "
-            << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
-                                                    : typeid(TargetType).name());
-          return s.str();
+          output << "\", expected "
+                 << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
+                                                         : typeid(TargetType).name());
+          return output.str();
         }()) {}
 };
 
@@ -262,12 +266,12 @@ public:
           std::conjunction_v<std::disjunction<std::is_same<T, int32_t>, std::is_same<T, float_t>>,
                              std::negation<std::is_constructible<SuperType, T>>>,
           std::conditional_t<std::is_integral_v<T>, int64_t, double_t>>>
-  explicit ExpressionWithAdditionalCustomAtoms(T v) noexcept
-      : ExpressionWithAdditionalCustomAtoms(U(v)) {}
+  explicit ExpressionWithAdditionalCustomAtoms(T value) noexcept
+      : ExpressionWithAdditionalCustomAtoms(U(value)) {}
 
   template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
-      ExpressionWithAdditionalCustomAtoms<T...>&& o) noexcept
+      ExpressionWithAdditionalCustomAtoms<T...>&& other) noexcept
       : SuperType(std::visit(
             boss::utilities::overload(
                 [](ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...>&& unpacked)
@@ -283,7 +287,7 @@ public:
             (std::add_rvalue_reference_t<typename boss::utilities::variant_amend<
                  AtomicExpressionWithAdditionalCustomAtoms<T...>,
                  ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, T...>>::type>)
-                std::move(o))) {}
+                std::move(other))) {}
 
   ~ExpressionWithAdditionalCustomAtoms() = default;
   ExpressionWithAdditionalCustomAtoms(ExpressionWithAdditionalCustomAtoms&&) noexcept = default;
@@ -388,8 +392,9 @@ template <class T> class MovableReferenceWrapper {
 public:
   typedef T type;
 
-  explicit MovableReferenceWrapper(std::reference_wrapper<T>&& ref) {
-    _ptr = std::addressof(ref.get());
+  explicit MovableReferenceWrapper(std::reference_wrapper<T>&& ref)
+      : _ptr(std::addressof(ref.get())) {
+    ;
   }
 
   MovableReferenceWrapper(MovableReferenceWrapper const&) noexcept = default;
@@ -487,18 +492,18 @@ public:
   operator // NOLINT(hicpp-explicit-conversions)
       ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>() && {
     return std::move(std::visit(
-        [](auto&& e) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-          if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(e)>,
+        [](auto&& expression) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+          if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(expression)>,
                                                              MovableReferenceWrapper>::value) {
-            return std::forward<decltype(e)>(e).get();
+            return std::forward<decltype(expression)>(expression).get();
           } else if constexpr(::std::disjunction_v<
-                                  ::std::is_same<::std::decay_t<decltype(e)>,
+                                  ::std::is_same<::std::decay_t<decltype(expression)>,
                                                  ::std::vector<bool>::reference>,
-                                  ::std::is_same<::std::decay_t<decltype(e)>,
+                                  ::std::is_same<::std::decay_t<decltype(expression)>,
                                                  ::std::vector<bool>::const_reference>>) {
-            return (bool)e;
+            return (bool)expression;
           } else {
-            return std::forward<decltype(e)>(e);
+            return std::forward<decltype(expression)>(expression);
           }
         },
         std::move(argument)));
@@ -538,34 +543,37 @@ public:
 
   bool valueless_by_exception() const { return argument.valueless_by_exception(); }
 
-  auto at(size_t i) {
-    return std::visit(boss::utilities::overload([i](auto&& arg) { return arg.at(i); }));
+  auto at(size_t index) {
+    return std::visit(boss::utilities::overload([index](auto&& arg) { return arg.at(index); }));
   }
 
   template <typename... Reason> auto clone(Reason... reason) const {
     checkCloneWithoutReason(reason...);
-    static auto unwrap = [reason...](auto const& b) {
+    static auto unwrap = [reason...](auto const& argument) {
       if constexpr(boss::utilities::isInstanceOfTemplate<
-                       std::decay_t<decltype(b)>, ExpressionWithAdditionalCustomAtoms>::value) {
-        return b.clone(reason...);
+                       std::decay_t<decltype(argument)>,
+                       ExpressionWithAdditionalCustomAtoms>::value) {
+        return argument.clone(reason...);
       } else {
-        return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(b);
+        return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(argument);
       }
     };
     return std::visit(
-        boss::utilities::overload([reason...](auto const& a) -> ExpressionWithAdditionalCustomAtoms<
-                                                                 AdditionalCustomAtoms...> {
-          if constexpr(boss::utilities::isInstanceOfTemplate<
-                           std::decay_t<decltype(a)>, ExpressionWithAdditionalCustomAtoms>::value) {
-            return a.get().clone(reason...);
-          }
-          if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(a)>,
-                                                             MovableReferenceWrapper>::value) {
-            return unwrap(a.get());
-          } else {
-            return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(a);
-          }
-        }),
+        boss::utilities::overload(
+            [reason...](auto const& argument)
+                -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+              if constexpr(boss::utilities::isInstanceOfTemplate<
+                               std::decay_t<decltype(argument)>,
+                               ExpressionWithAdditionalCustomAtoms>::value) {
+                return argument.get().clone(reason...);
+              }
+              if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(argument)>,
+                                                                 MovableReferenceWrapper>::value) {
+                return unwrap(argument.get());
+              } else {
+                return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(argument);
+              }
+            }),
         argument);
   }
 
@@ -700,27 +708,27 @@ public:
     std::conditional_t<IsConstIterator, ExpressionArgumentsWithAdditionalCustomAtomsWrapper const,
                        ExpressionArgumentsWithAdditionalCustomAtomsWrapper>
         container;
-    size_t i;
+    size_t index;
     Iterator next() const {
       auto result = *this;
       result++;
       return result;
     }
-    Iterator operator+(int i) const {
+    Iterator operator+(int index) const {
       auto result = *this;
-      result.i += i;
+      result.index += index;
       return result;
     }
     Iterator& operator++() {
-      i++;
+      index++;
       return *this;
     }
     Iterator& operator--() {
-      i--;
+      index--;
       return *this;
     }
     Iterator& operator+=(difference_type n) {
-      i += n;
+      index += n;
       return *this;
     }
     Iterator operator++(int) {
@@ -733,22 +741,22 @@ public:
       --*this;
       return before;
     }
-    std::ptrdiff_t operator-(Iterator const& other) const { return i - other.i; }
+    std::ptrdiff_t operator-(Iterator const& other) const { return index - other.index; }
 
     ArgumentWrapper<IsConstIterator, AdditionalAtoms...> operator*() const {
-      return container.at(i);
+      return container.at(index);
     }
-    bool operator==(Iterator const& other) const { return i == other.i; }
-    bool operator!=(Iterator const& other) const { return i != other.i; }
-    bool operator<(Iterator const& other) const { return i < other.i; }
-    bool operator>(Iterator const& other) const { return i > other.i; }
+    bool operator==(Iterator const& other) const { return index == other.index; }
+    bool operator!=(Iterator const& other) const { return index != other.index; }
+    bool operator<(Iterator const& other) const { return index < other.index; }
+    bool operator>(Iterator const& other) const { return index > other.index; }
 
     // assignment operator required by some implementations of std::transform (e.g. on msvc)
     Iterator& operator=(Iterator&& other) noexcept {
       if(&other == this) {
         return *this;
       }
-      i = other.i;
+      index = other.index;
       static_assert(std::is_trivially_destructible_v<decltype(container)>);
       new(&container) decltype(container)(other.container.staticArguments,
                                           other.container.arguments, other.container.spanArguments);
@@ -758,7 +766,7 @@ public:
       if(&other == this) {
         return *this;
       }
-      i = other.i;
+      index = other.index;
       static_assert(std::is_trivially_destructible_v<decltype(container)>);
       new(&container) decltype(container)(other.container.staticArguments,
                                           other.container.arguments, other.container.spanArguments);
@@ -770,8 +778,8 @@ public:
                                 ExpressionArgumentsWithAdditionalCustomAtomsWrapper const,
                                 ExpressionArgumentsWithAdditionalCustomAtomsWrapper>
                  container,
-             size_t i)
-        : container(container), i(i) {}
+             size_t index)
+        : container(container), index(index) {}
     ~Iterator() = default;
   };
 
@@ -781,34 +789,35 @@ public:
 
   template <size_t... I>
   constexpr ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>
-  getStaticArgument(size_t i, std::index_sequence<I...> /*unused*/) const {
+  getStaticArgument(size_t index, std::index_sequence<I...> /*unused*/) const {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
     return std::move(std::array<ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>, sizeof...(I)>{
-        std::get<I>(staticArguments)...}[i]);
+        std::get<I>(staticArguments)...}[index]);
   }
 
   template <size_t... I>
-  constexpr ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> getStaticArgument(size_t i) const {
+  constexpr ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>
+  getStaticArgument(size_t index) const {
     return getStaticArgument(
-        i, std::make_index_sequence<std::tuple_size_v<StaticArgumentsContainer>>());
+        index, std::make_index_sequence<std::tuple_size_v<StaticArgumentsContainer>>());
   }
 
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> front() const { return at(0); }
 
-  ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> operator[](size_t i) const {
+  ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> operator[](size_t index) const {
     if constexpr((std::tuple_size_v<StaticArgumentsContainer>) > 0) {
-      if(i < std::tuple_size_v<StaticArgumentsContainer>) {
-        return getStaticArgument(i);
+      if(index < std::tuple_size_v<StaticArgumentsContainer>) {
+        return getStaticArgument(index);
       }
-    } else if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
-      return arguments[i - std::tuple_size_v<StaticArgumentsContainer>];
+    } else if((index - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
+      return arguments[index - std::tuple_size_v<StaticArgumentsContainer>];
     } else {
       auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
       for(auto& spanArgument : spanArguments) {
-        if(i >= argumentPrefixScan &&
-           i < argumentPrefixScan +
-                   std::visit([](auto&& spanArgument) { return spanArgument.size(); },
-                              spanArgument)) {
+        if(index >= argumentPrefixScan &&
+           index < argumentPrefixScan +
+                       std::visit([](auto&& spanArgument) { return spanArgument.size(); },
+                                  spanArgument)) {
           return std::visit(
               [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
                 if constexpr((std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
@@ -819,7 +828,7 @@ public:
                                    0))>>)&&!IsConstWrapper)) {
                   throw std::runtime_error("cannot convert const span to non-const argument");
                 } else {
-                  return spanArgument[i - argumentPrefixScan];
+                  return spanArgument[index - argumentPrefixScan];
                 }
               },
               spanArgument);
@@ -835,19 +844,13 @@ public:
 #endif
   }
 
-  ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> at(size_t i) const {
-    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) > 0) {
-      if(i < std::tuple_size_v<StaticArgumentsContainer>) {
-        return getStaticArgument(i);
-      }
-    }
-    if((i - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
-      return arguments.at(i - std::tuple_size_v<StaticArgumentsContainer>);
-    }
+  ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> getSpanArgument(size_t index) const {
     auto argumentPrefixScan = std::tuple_size_v<StaticArgumentsContainer> + arguments.size();
+
     for(auto& spanArgument : spanArguments) {
-      if(i >= argumentPrefixScan &&
-         i < argumentPrefixScan + std::visit([](auto& t) { return t.size(); }, spanArgument)) {
+      if(index >= argumentPrefixScan &&
+         index < argumentPrefixScan +
+                     std::visit([](auto& span) { return span.size(); }, spanArgument)) {
         return std::visit(
             [&](auto&& spanArgument) -> ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> {
               if constexpr((!IsConstWrapper &&
@@ -867,12 +870,12 @@ public:
                              std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
                                             std::vector<bool>::const_reference>) {
                   return std::vector<bool>::const_reference(
-                      spanArgument.at(i - argumentPrefixScan));
+                      spanArgument.at(index - argumentPrefixScan));
                 } else {
-                  return std::vector<bool>::reference(spanArgument.at(i - argumentPrefixScan));
+                  return std::vector<bool>::reference(spanArgument.at(index - argumentPrefixScan));
                 }
               } else {
-                return spanArgument.at(i - argumentPrefixScan);
+                return spanArgument.at(index - argumentPrefixScan);
               }
             },
             spanArgument);
@@ -880,7 +883,18 @@ public:
       argumentPrefixScan +=
           std::visit([](auto&& spanArgument) { return spanArgument.size(); }, spanArgument);
     }
-    throw std::out_of_range("Expression has no argument with index " + std::to_string(i));
+    throw std::out_of_range("Expression has no argument with index " + std::to_string(index));
+  }
+  ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> at(size_t index) const {
+    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) > 0) {
+      if(index < std::tuple_size_v<StaticArgumentsContainer>) {
+        return getStaticArgument(index);
+      }
+    }
+    if((index - std::tuple_size_v<StaticArgumentsContainer>) < arguments.size()) {
+      return arguments.at(index - std::tuple_size_v<StaticArgumentsContainer>);
+    }
+    getSpanArgument(index);
   }
 
   operator // NOLINT(hicpp-explicit-conversions)
@@ -929,9 +943,9 @@ public:
     return std::move(result);
   }
 
-  template <typename T> void emplace_back(T t) {
+  template <typename T> void emplace_back(T value) {
     assert(spanArguments.size() == 0);
-    arguments.emplace_back(t);
+    arguments.emplace_back(value);
   }
 };
 
@@ -1103,7 +1117,7 @@ public:
   auto const& getSpanArguments() const& { return spanArguments; }
   auto getSpanArguments() && { return std::move(spanArguments); }
 
-  ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getArgument(size_t i) && {
+  ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> getArgument(size_t index) && {
     return visit(
         [](auto&& unwrapped) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
           if constexpr(boss::utilities::isInstanceOfTemplate<::std::decay_t<decltype(unwrapped)>,
@@ -1133,13 +1147,13 @@ public:
             return ::std::forward<decltype(unwrapped)>(unwrapped);
           }
         },
-        std::forward<decltype(getArguments().at(i).getArgument())>(
-            getArguments().at(i).getArgument()));
+        std::forward<decltype(getArguments().at(index).getArgument())>(
+            getArguments().at(index).getArgument()));
   }
 
   template <typename... Reason>
   ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>
-  cloneArgument(size_t i, Reason... reason) const {
+  cloneArgument(size_t index, Reason... reason) const {
     checkCloneWithoutReason(reason...);
     return visit(
         [reason...](auto const& unwrapped)
@@ -1178,7 +1192,7 @@ public:
             return unwrapped;
           }
         },
-        getArguments().at(i).getArgument());
+        getArguments().at(index).getArgument());
   }
 
   Symbol const& getHead() const& { return head; };

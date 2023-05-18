@@ -6,16 +6,16 @@ extern "C" {
 struct BOSSSymbol {
   boss::Symbol delegate;
 };
-BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i);
+BOSSSymbol* symbolNameToNewBOSSSymbol(char const*);
 char const* symbolToNewString(BOSSSymbol const* arg);
 
 struct BOSSExpression {
   boss::Expression delegate;
 };
-BOSSExpression* longToNewBOSSExpression(int64_t i);
-BOSSExpression* doubleToNewBOSSExpression(double i);
-BOSSExpression* stringToNewBOSSExpression(char const* i);
-BOSSExpression* symbolNameToNewBOSSExpression(char const* i);
+BOSSExpression* longToNewBOSSExpression(int64_t);
+BOSSExpression* doubleToNewBOSSExpression(double);
+BOSSExpression* stringToNewBOSSExpression(char const*);
+BOSSExpression* symbolNameToNewBOSSExpression(char const*);
 
 BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                                          BOSSExpression* arguments[]);
@@ -36,12 +36,12 @@ size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg);
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg);
 
 BOSSExpression* BOSSEvaluate(BOSSExpression const* arg);
-void freeBOSSExpression(BOSSExpression* e);
-void freeBOSSArguments(BOSSExpression** e);
-void freeBOSSSymbol(BOSSSymbol* s);
-void freeBOSSString(char* s);
+void freeBOSSExpression(BOSSExpression*);
+void freeBOSSArguments(BOSSExpression**);
+void freeBOSSSymbol(BOSSSymbol*);
+void freeBOSSString(char*);
 }
 
 namespace boss {
-expressions::Expression evaluate(expressions::Expression const& e);
+expressions::Expression evaluate(expressions::Expression const&);
 }

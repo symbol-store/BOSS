@@ -55,7 +55,7 @@ Expression parseComponent(std::string_view url, std::optional<Expression>&& firs
   return opportunisticallyParseExpression(url, std::move(firstArgument));
 }
 
-boss::Expression parse(std::string_view encodedUrl, std::optional<Expression>&& firstArgument) {
+boss::Expression parse(std::string_view encodedUrl, std::optional<Expression>&& /*firstArgument*/) {
   char* decoded = curl_easy_unescape(nullptr, encodedUrl.data(), (int)encodedUrl.length(), nullptr);
   auto url = (std::string_view)(decoded);
 

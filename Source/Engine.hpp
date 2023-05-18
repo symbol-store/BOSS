@@ -4,7 +4,7 @@ namespace boss {
 namespace engines {
 class Engine {
 public:
-  expressions::Expression evaluate(expressions::Expression const& e);
+  expressions::Expression evaluate(expressions::Expression const&);
 };
 } // namespace engines
 using boss::engines::Engine; // NOLINT(misc-unused-using-decls)

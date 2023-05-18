@@ -3,6 +3,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+// NOLINTBEGIN(hicpp-use-auto,cppcoreguidelines-pro-type-union-access)
 
 #include <inttypes.h>
 #include <stdlib.h>
@@ -31,27 +32,34 @@ struct PortableBOSSExpressionRoot {
 struct PortableBOSSExpressionRoot* getDummySerializedExpression();
 static struct PortableBossArgument*
 getExpressionArguments(struct PortableBOSSExpressionRoot* root) {
-  return root->arguments;
+  return (struct PortableBossArgument*)root->arguments;
 }
 
 static struct PortableBossExpression*
 getExpressionSubexpressions(struct PortableBOSSExpressionRoot* root) {
 
-  return (struct PortableBossExpression*)&root->arguments[root->argumentCount];
+  return (struct PortableBossExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      &root->arguments[root->argumentCount];
 }
 
 static struct PortableBOSSExpressionRoot* allocateExpressionTree(uint64_t argumentCount,
                                                                  uint64_t expressionCount) {
-  struct PortableBOSSExpressionRoot* root = (struct PortableBOSSExpressionRoot*)malloc(
-      sizeof(argumentCount) + sizeof(expressionCount) +
-      sizeof(struct PortableBossArgument) * argumentCount +
-      sizeof(struct PortableBossExpression) * expressionCount);
-  *((uint64_t*)&root->argumentCount) = argumentCount;
-  *((uint64_t*)&root->expressionCount) = expressionCount;
+  struct PortableBOSSExpressionRoot* root =
+      (struct PortableBOSSExpressionRoot*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      malloc(                              // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
+          sizeof(argumentCount) + sizeof(expressionCount) +
+          sizeof(struct PortableBossArgument) * argumentCount +
+          sizeof(struct PortableBossExpression) * expressionCount);
+  *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      argumentCount;
+  *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      expressionCount;
   return root;
 }
 
-static void freeExpressionTree(struct PortableBOSSExpressionRoot* root) { free(root); }
+static void freeExpressionTree(struct PortableBOSSExpressionRoot* root) {
+  free(root); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
+}
 
 static int64_t* makeLongArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
 #ifdef __cplusplus
@@ -93,10 +101,11 @@ static struct PortableBossExpression* makeExpression(struct PortableBossExpressi
 
 struct PortableBOSSExpressionRoot* serializeBOSSExpression(struct BOSSExpression*);
 struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSExpressionRoot*);
-struct BOSSExpression* BOSSEvaluate(struct BOSSExpression const* arg);
 struct BOSSExpression* parseURL(char const* url);
 
 #ifdef __cplusplus
 }
 #endif
+// NOLINTEND(hicpp-use-auto,cppcoreguidelines-pro-type-union-access)
+
 #endif /* PORTABLEBOSSSERIALIZATION_H */

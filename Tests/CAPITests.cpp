@@ -27,8 +27,8 @@ TEST_CASE("Build expression, with strings", "[api]") {
   auto* result = getArgumentsFromBOSSExpression(res);
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
   char* argument1 = getNewStringValueFromBOSSExpression(result[0]);
-  std::string str1 = std::string(argument1);
-  std::string str2 = std::string("test string");
+  auto const str1 = std::string(argument1);
+  auto const str2 = std::string("test string");
 
   freeBOSSExpression(c);
   freeBOSSSymbol(s);
