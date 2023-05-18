@@ -1,10 +1,10 @@
 #include "BOSS.hpp"
 #include <inttypes.h>
 #include <iterator>
+#include <optional>
+#include <string.h>
 #include <type_traits>
 #include <utility>
-#include <string.h>
-#include <optional>
 extern "C" {
 #include "PortableBOSSSerialization.h"
 }
