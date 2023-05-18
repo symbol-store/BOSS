@@ -1,5 +1,7 @@
 #include "BOSS.hpp"
 #include <inttypes.h>
+#include <iterator>
+#include <type_traits>
 #include <utility>
 extern "C" {
 #include "PortableBOSSSerialization.h"
@@ -110,7 +112,7 @@ struct SerializedExpression {
               std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
               argumentOutputI);
           std::for_each(
-              dynamics.begin(), dynamics.end(),
+              std::make_move_iterator(dynamics.begin()), std::make_move_iterator(dynamics.end()),
               [buffer, &argumentOutputI, &children, expressions, &expressionOutputI,
                nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
                 std::visit(
@@ -151,7 +153,7 @@ struct SerializedExpression {
                         throw std::runtime_error("unknown type");
                       }
                     },
-                    argument);
+                    std::forward<decltype(argument)>(argument));
               });
         });
     if(!children.empty()) {
@@ -274,6 +276,10 @@ public:
     return root;
   };
 
+  SerializedExpression(SerializedExpression&&) = default;
+  SerializedExpression(SerializedExpression const&) = delete;
+  SerializedExpression& operator=(SerializedExpression&&) = default;
+  SerializedExpression& operator=(SerializedExpression const&) = delete;
   ~SerializedExpression() { freeExpressionTree(root); }
 };
 

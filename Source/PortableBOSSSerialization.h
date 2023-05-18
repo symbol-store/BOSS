@@ -2,10 +2,12 @@
 #define PORTABLEBOSSSERIALIZATION_H
 #ifdef __cplusplus
 extern "C" {
+#include <cinttypes>
+#else
+#include <inttypes.h>
 #endif
 // NOLINTBEGIN(hicpp-use-auto,cppcoreguidelines-pro-type-union-access)
 
-#include <inttypes.h>
 #include <stdlib.h>
 
 struct PortableBossArgument {

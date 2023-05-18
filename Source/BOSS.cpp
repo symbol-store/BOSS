@@ -31,20 +31,22 @@ BOSSExpression* BOSSEvaluate(BOSSExpression const* arg) {
         arg->delegate.clone(CloneReason::EXPRESSION_WRAPPING), e.what())};
   }
 };
-BOSSExpression* longToNewBOSSExpression(int64_t i) {
-  return new BOSSExpression{boss::Expression(i)};
+BOSSExpression* longToNewBOSSExpression(int64_t value) {
+  return new BOSSExpression{boss::Expression(value)};
 }
-BOSSExpression* doubleToNewBOSSExpression(double i) {
-  return new BOSSExpression{boss::Expression(i)};
+BOSSExpression* doubleToNewBOSSExpression(double value) {
+  return new BOSSExpression{boss::Expression(value)};
 }
-BOSSExpression* stringToNewBOSSExpression(char const* i) {
-  return new BOSSExpression{boss::Expression(::std::string(i))};
+BOSSExpression* stringToNewBOSSExpression(char const* string) {
+  return new BOSSExpression{boss::Expression(::std::string(string))};
 }
-BOSSExpression* bossSymbolNameToNewBOSSExpression(char const* i) {
-  return new BOSSExpression{boss::Expression(boss::Symbol(i))};
+BOSSExpression* bossSymbolNameToNewBOSSExpression(char const* name) {
+  return new BOSSExpression{boss::Expression(boss::Symbol(name))};
 }
 
-BOSSSymbol* symbolNameToNewBOSSSymbol(char const* i) { return new BOSSSymbol{boss::Symbol(i)}; }
+BOSSSymbol* symbolNameToNewBOSSSymbol(char const* name) {
+  return new BOSSSymbol{boss::Symbol(name)};
+}
 
 BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                                          BOSSExpression* arguments[]) {
@@ -112,20 +114,20 @@ BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
   return result;
 }
 
-void freeBOSSExpression(BOSSExpression* e) {
-  delete e; // NOLINT
+void freeBOSSExpression(BOSSExpression* expression) {
+  delete expression; // NOLINT
 }
-void freeBOSSArguments(BOSSExpression** e) {
-  for(auto i = 0U; e[i] != nullptr; i++) {
-    delete e[i];
+void freeBOSSArguments(BOSSExpression** arguments) {
+  for(auto i = 0U; arguments[i] != nullptr; i++) {
+    delete arguments[i];
   }
-  delete[] e; // NOLINT
+  delete[] arguments; // NOLINT
 }
-void freeBOSSSymbol(BOSSSymbol* s) {
-  delete s; // NOLINT
+void freeBOSSSymbol(BOSSSymbol* symbol) {
+  delete symbol; // NOLINT
 }
-void freeBOSSString(char* s) {
-  ::std::free(reinterpret_cast<void*>(s)); // NOLINT
+void freeBOSSString(char* string) {
+  ::std::free(reinterpret_cast<void*>(string)); // NOLINT
 }
 }
 
