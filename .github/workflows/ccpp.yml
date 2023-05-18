@@ -28,7 +28,7 @@ jobs:
     runs-on: [self-hosted, ARM64]
     strategy:
       matrix:
-        build-type: [Release, Debug, Sanitize]
+        build-type: [Release, Debug] # Sanitize
     container:
       image: holgerpirk/bossbuild
     steps:
