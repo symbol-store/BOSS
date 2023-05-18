@@ -36,6 +36,8 @@ static void checkCloneWithoutReason(CloneReason reason) {}
 [[deprecated("Provide a reason type instead")]] static void checkCloneWithoutReason() {}
 
 namespace atoms {
+// NOLINTBEGIN(bugprone-exception-escape)
+// see https://github.com/llvm/llvm-project/issues/54668
 class Symbol {
   std::string name;
 
@@ -49,6 +51,7 @@ public:
     return out << thing.getName();
   }
 };
+// NOLINTEND(bugprone-exception-escape)
 
 template <typename Scalar> struct Span {
 private: // state
@@ -176,14 +179,14 @@ public: // surface
    * see comment on the copy constructor about copying Spans
    */
   Span& operator=(Span const&) = delete;
+  // NOLINTBEGIN(bugprone-exception-escape)
+
   ~Span() {
     if(destructor) {
-      try {
-        destructor();
-      } catch(...) {
-      }
+      destructor();
     }
   };
+  // NOLINTEND(bugprone-exception-escape)
 
   friend std::ostream& operator<<(std::ostream& stream, Span const& span) {
     return stream << span.size;
@@ -949,6 +952,8 @@ public:
   }
 };
 
+// NOLINTBEGIN(bugprone-exception-escape)
+// see https://github.com/llvm/llvm-project/issues/54668
 template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms {
 private:
@@ -1269,6 +1274,7 @@ public:
   ComplexExpressionWithAdditionalCustomAtoms&
   operator=(ComplexExpressionWithAdditionalCustomAtoms const&) = delete;
 };
+// NOLINTEND(bugprone-exception-escape)
 
 template <typename... AdditionalCustomAtoms> class ExtensibleExpressionSystem {
 public:
