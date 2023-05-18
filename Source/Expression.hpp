@@ -796,7 +796,7 @@ public:
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> front() const { return at(0); }
 
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> operator[](size_t i) const {
-    if constexpr(std::tuple_size_v<StaticArgumentsContainer> > 0) {
+    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) > 0) {
       if(i < std::tuple_size_v<StaticArgumentsContainer>) {
         return getStaticArgument(i);
       }
