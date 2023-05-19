@@ -21,6 +21,7 @@ using Expression = PortableBossExpression;
 struct SerializedExpression {
   PortableBOSSExpressionRoot* root;
   uint64_t argumentCount() const { return root->argumentCount; };
+  uint64_t expressionCount() const { return root->expressionCount; };
 
   Argument* flattenedArguments() const { return getExpressionArguments(root); }
   Expression* expressionsBuffer() const { return getExpressionSubexpressions(root); }
@@ -220,10 +221,13 @@ public:
               {Argument::SymbolType::DOUBLE, [&] { return (arg.asDouble); }},
               {Argument::SymbolType::SYMBOL,
                [&]() -> boss::Expression {
-                 while(expressionsBuffer()[unprocessedExpressionPointer].headOffset < childIndex) {
+                 while(unprocessedExpressionPointer < expressionCount() &&
+
+                       expressionsBuffer()[unprocessedExpressionPointer].headOffset < childIndex) {
                    unprocessedExpressionPointer++;
                  }
-                 if(expressionsBuffer()[unprocessedExpressionPointer].headOffset == childIndex) {
+                 if(unprocessedExpressionPointer < expressionCount() &&
+                    expressionsBuffer()[unprocessedExpressionPointer].headOffset == childIndex) {
                    auto result = boss::expressions::ComplexExpression(
                        boss::Symbol(arg.asString),
                        deserializeArguments(
