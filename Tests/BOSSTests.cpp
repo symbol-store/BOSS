@@ -48,6 +48,7 @@ TEST_CASE("Subspans work correctly", "[spans]") {
 TEST_CASE("Expressions", "[expressions]") {
   using SpanArguments = boss::expressions::ExpressionSpanArguments;
   using SpanArgument = boss::expressions::ExpressionSpanArgument;
+  using ExpressionArguments = boss::expressions::ExpressionArguments;
   using boss::expressions::atoms::Span;
   auto const v1 = GENERATE(take(3, random<std::int64_t>(1, 100)));
   auto const v2 = GENERATE(take(3, random<std::int64_t>(1, 100)));
@@ -63,12 +64,25 @@ TEST_CASE("Expressions", "[expressions]") {
     CHECK(e == staticArgumentExpression);
   }
 
+  SECTION("dynamic in-place initialized expression arguments") {
+    auto spanArgumentExpression =
+        boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, ExpressionArguments(v1, v2));
+    CHECK(e == spanArgumentExpression);
+  }
+
   SECTION("span expression arguments") {
     std::array<int64_t, 2> values = {v1, v2};
     SpanArguments args;
     args.emplace_back(Span<int64_t>(values.data(), 2, nullptr));
     auto spanArgumentExpression =
         boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
+    CHECK(e == spanArgumentExpression);
+  }
+
+  SECTION("in-place initialized span expression arguments") {
+    std::array<int64_t, 2> values = {v1, v2};
+    auto spanArgumentExpression = boss::expressions::ComplexExpression(
+        "UnevaluatedPlus"_, {}, {}, SpanArguments(Span<int64_t>(values.data(), 2, nullptr)));
     CHECK(e == spanArgumentExpression);
   }
 

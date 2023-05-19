@@ -351,8 +351,23 @@ public:
 };
 
 template <typename... AdditionalCustomAtoms>
-using ExpressionArgumentsWithAdditionalCustomAtoms =
-    std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>;
+class ExpressionArgumentsWithAdditionalCustomAtoms
+    : public std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>> {
+public:
+  using std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::vector;
+
+  template <typename... ArgType,
+            std::enable_if_t<(std::is_convertible_v<ArgType, ExpressionWithAdditionalCustomAtoms<
+                                                                 AdditionalCustomAtoms...>> &&
+                              ...),
+                             bool> = false>
+  ExpressionArgumentsWithAdditionalCustomAtoms(ArgType&&... arg) {
+
+    (std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::emplace_back(
+         std::move(arg)),
+     ...);
+  }
+};
 
 template <typename... AdditionalCustomAtoms>
 using ExpressionSpanArgumentWithAdditionalCustomAtoms =
@@ -368,6 +383,19 @@ class ExpressionSpanArgumentsWithAdditionalCustomAtoms
 public:
   using std::vector<
       ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::vector;
+
+  template <typename... ArgType,
+            std::enable_if_t<
+                (std::is_convertible_v<ArgType, ExpressionSpanArgumentWithAdditionalCustomAtoms<
+                                                    AdditionalCustomAtoms...>> &&
+                 ...),
+                bool> = false>
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms(ArgType&&... arg) {
+
+    (std::vector<ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::
+         emplace_back(std::move(arg)),
+     ...);
+  }
 
   // The Spans are not copyable anyway,
   // but we need to remove the copy constructors
