@@ -1,8 +1,9 @@
 #ifndef PORTABLEBOSSSERIALIZATION_H
 #define PORTABLEBOSSSERIALIZATION_H
 #ifdef __cplusplus
-extern "C" {
 #include <cinttypes>
+#include <cstring>
+extern "C" {
 #else
 #include <inttypes.h>
 #endif
@@ -12,13 +13,15 @@ extern "C" {
 
 //////////////////////////////// Data Structures ///////////////////////////////
 
+typedef size_t PortableBOSSString;
+
 union PortableBOSSArgumentValue {
   int64_t asLong;
   double asDouble;
-  char* asString;
+  PortableBOSSString asString;
 };
 
-enum PortableBOSSArgumentType { LONG, DOUBLE, STRING, SYMBOL };
+enum PortableBOSSArgumentType : size_t { LONG, DOUBLE, STRING, SYMBOL };
 
 struct PortableBOSSExpression {
   uint64_t headOffset;
@@ -34,12 +37,18 @@ struct PortableBOSSExpression {
 struct PortableBOSSRootExpression {
   uint64_t const argumentCount;
   uint64_t const expressionCount;
+  void* const originalAddress;
+  /**
+   * The index of the last used byte in the arguments buffer relative to the pointer returned by
+   * getStringBuffer()
+   */
+  size_t stringArgumentsFillIndex = 0;
 
   /**
    * This buffer holds all data associated with the expression in a single untyped array. As the
    * three kinds of data (ArgumentsValues, ArgumentTypes and Expressions) have different sizes,
-   * holding them in an array of unions would waste a lot of memory. A union of variable-sized arrays
-   * is not supported in ANSI C. So it is held in an untyped buffer which is essentially a
+   * holding them in an array of unions would waste a lot of memory. A union of variable-sized
+   * arrays is not supported in ANSI C. So it is held in an untyped buffer which is essentially a
    * concatenation of the three types of buffers that are required. Utility functions exist to
    * extract the different sub-arrays.
    */
@@ -49,7 +58,8 @@ struct PortableBOSSRootExpression {
 //////////////////////////////// Part Extraction ///////////////////////////////
 
 struct PortableBOSSRootExpression* getDummySerializedExpression();
-static union PortableBOSSArgumentValue* getExpressionArguments(struct PortableBOSSRootExpression* root) {
+static union PortableBOSSArgumentValue*
+getExpressionArguments(struct PortableBOSSRootExpression* root) {
   return (union PortableBOSSArgumentValue*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       root->arguments;
 }
@@ -62,8 +72,15 @@ static enum PortableBOSSArgumentType* getArgumentTypes(struct PortableBOSSRootEx
 static struct PortableBOSSExpression*
 getExpressionSubexpressions(struct PortableBOSSRootExpression* root) {
   return (struct PortableBOSSExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentCount *
-                       (sizeof(union PortableBOSSArgumentValue) + sizeof(enum PortableBOSSArgumentType))];
+      &root->arguments[root->argumentCount * (sizeof(union PortableBOSSArgumentValue) +
+                                              sizeof(enum PortableBOSSArgumentType))];
+}
+
+static char* getStringBuffer(struct PortableBOSSRootExpression* root) {
+  return (char*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      &root->arguments[root->argumentCount * (sizeof(union PortableBOSSArgumentValue) +
+                                              sizeof(enum PortableBOSSArgumentType)) +
+                       root->expressionCount * (sizeof(PortableBOSSExpression))];
 }
 
 //////////////////////////////   Memory Management /////////////////////////////
@@ -73,7 +90,7 @@ static struct PortableBOSSRootExpression* allocateExpressionTree(uint64_t argume
   struct PortableBOSSRootExpression* root =
       (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       malloc(                              // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
-          sizeof(argumentCount) + sizeof(expressionCount) +
+          sizeof(struct PortableBOSSRootExpression) +
           sizeof(union PortableBOSSArgumentValue) * argumentCount +
           sizeof(PortableBOSSArgumentType) * argumentCount +
           sizeof(struct PortableBOSSExpression) * expressionCount);
@@ -81,14 +98,16 @@ static struct PortableBOSSRootExpression* allocateExpressionTree(uint64_t argume
       argumentCount;
   *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       expressionCount;
+  *((uint64_t*)&root->stringArgumentsFillIndex) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      0;
+  *((void**)&root->originalAddress) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      root;
   return root;
 }
 
 static void freeExpressionTree(struct PortableBOSSRootExpression* root) {
   free(root); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 }
-
-////////////////////////////// Argument Modifiers //////////////////////////////
 
 static int64_t* makeLongArgument(struct PortableBOSSRootExpression* root,
                                  uint64_t argumentOutputI) {
@@ -100,8 +119,8 @@ static int64_t* makeLongArgument(struct PortableBOSSRootExpression* root,
   return &getExpressionArguments(root)[argumentOutputI].asLong;
 };
 
-static char** makeSymbolArgument(struct PortableBOSSRootExpression* root,
-                                 uint64_t argumentOutputI) {
+static size_t* makeSymbolArgument(struct PortableBOSSRootExpression* root,
+                                  uint64_t argumentOutputI) {
 #ifdef __cplusplus
   auto SYMBOL = PortableBOSSArgumentType::SYMBOL;
 #endif
@@ -109,8 +128,8 @@ static char** makeSymbolArgument(struct PortableBOSSRootExpression* root,
   return &getExpressionArguments(root)[argumentOutputI].asString;
 };
 
-static char** makeStringArgument(struct PortableBOSSRootExpression* root,
-                                 uint64_t argumentOutputI) {
+static size_t* makeStringArgument(struct PortableBOSSRootExpression* root,
+                                  uint64_t argumentOutputI) {
 #ifdef __cplusplus
   auto STRING = PortableBOSSArgumentType::STRING;
 #endif
@@ -131,6 +150,23 @@ static struct PortableBOSSExpression* makeExpression(struct PortableBOSSExpressi
                                                      uint64_t expressionOutputI) {
   return &expressions[expressionOutputI];
 }
+
+static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString) {
+  *root = (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      realloc(*root, // NOLINT(hicpp-no-malloc, cppcoreguidelines-no-malloc)
+              ((char*)(getStringBuffer(*root)) -
+               ((char*)*root)) + // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+                  (*root)->stringArgumentsFillIndex +
+                  strlen(inputString) + 1);
+  char const* result =
+      strcpy(getStringBuffer(*root) + (*root)->stringArgumentsFillIndex, inputString);
+  (*root)->stringArgumentsFillIndex += strlen(inputString) + 1;
+  return result - getStringBuffer(*root);
+};
+
+static char const* viewString(struct PortableBOSSRootExpression* root, size_t inputStringOffset) {
+  return getStringBuffer(root) + inputStringOffset;
+};
 
 struct PortableBOSSRootExpression* serializeBOSSExpression(struct BOSSExpression* expression);
 struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSRootExpression* root);

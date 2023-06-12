@@ -136,8 +136,9 @@ struct SerializedExpression {
                                 .firstChildOffset = nextLayerOffset + childrenCountRunningSum,
                                 .lastChildOffset =
                                     nextLayerOffset + childrenCountRunningSum + childrenCount - 1};
-                        *makeSymbolArgument(root, argumentOutputI++) =
-                            strdup(argument.getHead().getName().c_str());
+                        auto storedString =
+                            storeString(&root, argument.getHead().getName().c_str());
+                        *makeSymbolArgument(root, argumentOutputI++) = storedString;
                         childrenCountRunningSum += childrenCount;
                         children.push_back(std::forward<decltype(argument)>(argument));
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
@@ -145,11 +146,12 @@ struct SerializedExpression {
                         *makeLongArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          boss::Symbol>) {
-                        *makeSymbolArgument(root, argumentOutputI++) =
-                            strdup(argument.getName().c_str());
+                        auto storedString = storeString(&root, argument.getName().c_str());
+                        *makeSymbolArgument(root, argumentOutputI++) = storedString;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          std::string>) {
-                        *makeStringArgument(root, argumentOutputI++) = strdup(argument.c_str());
+                        auto storedString = storeString(&root, argument.c_str());
+                        *makeStringArgument(root, argumentOutputI++) = storedString;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          double>) {
                         *makeDoubleArgument(root, argumentOutputI++) = argument;
@@ -181,15 +183,16 @@ public:
                          .headOffset = 0,
                          .firstChildOffset = 1,
                          .lastChildOffset = input.getDynamicArguments().size()};
-                     flattenedArguments()[argumentIterator].asString =
-                         strdup(input.getHead().getName().c_str());
+                     auto storedString = storeString(&root, input.getHead().getName().c_str());
+                     flattenedArguments()[argumentIterator].asString = storedString;
                      flattenedArgumentTypes()[argumentIterator++] = ArgumentType::SYMBOL;
                      auto inputs = std::vector<boss::ComplexExpression>();
                      inputs.push_back(std::move(input));
                      flattenArguments(argumentIterator, std::move(inputs), expressionIterator);
                    },
                    [this](expressions::atoms::Symbol&& input) {
-                     flattenedArguments()[0].asString = strdup(input.getName().c_str());
+                     auto storedString = storeString(&root, input.getName().c_str());
+                     flattenedArguments()[0].asString = storedString;
                      flattenedArgumentTypes()[0] = ArgumentType::SYMBOL;
                    },
                    [this](std::int64_t input) {
@@ -228,26 +231,19 @@ public:
              if(unprocessedExpressionPointer < expressionCount() &&
                 expressionsBuffer()[unprocessedExpressionPointer].headOffset == childIndex) {
                auto result = boss::expressions::ComplexExpression(
-                   boss::Symbol(arg.asString),
+                   boss::Symbol(viewString(root, arg.asString)),
                    deserializeArguments(
                        expressionsBuffer()[unprocessedExpressionPointer].firstChildOffset,
                        expressionsBuffer()[unprocessedExpressionPointer].lastChildOffset,
                        unprocessedExpressionPointer + 1));
-               free(static_cast<void*>( // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
-                   arg.asString));
                return result;
              }
-             auto result = boss::Symbol(arg.asString);
-             free(static_cast<void*>( // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
-                 arg.asString));
+             auto result = boss::Symbol(viewString(root, arg.asString));
              return result;
            }},
 
           {ArgumentType::STRING, [&] {
-             auto result = std::string(arg.asString);
-             free(static_cast<void*>( // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
-                 arg.asString));
-             return result;
+            return std::string(viewString(root, arg.asString));
            }}};
       arguments.push_back(functors.at(type)());
     }
@@ -261,16 +257,14 @@ public:
     case ArgumentType::DOUBLE:
       return flattenedArguments()[0].asDouble;
     case ArgumentType::STRING:
-      return flattenedArguments()[0].asString;
+      return viewString(root, flattenedArguments()[0].asString);
     case ArgumentType::SYMBOL:
-      auto s = boss::Symbol(std::string(flattenedArguments()[0].asString));
+      auto s = boss::Symbol(viewString(root, flattenedArguments()[0].asString));
       if(root->expressionCount == 0) {
         return s;
       }
       auto result = boss::ComplexExpression{
           s, deserializeArguments(1, expressionsBuffer()[0].lastChildOffset, 1)};
-      free(static_cast<void*>( // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
-          flattenedArguments()[0].asString));
       return result;
     }
   };
