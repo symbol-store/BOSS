@@ -1,7 +1,7 @@
 #pragma once
+#include "BOSS.h"
 #include "Engine.hpp"
 #include "Expression.hpp"
-#include "BOSS.h"
 
 struct BOSSExpression {
   boss::Expression delegate;
