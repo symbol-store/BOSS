@@ -10,48 +10,73 @@ extern "C" {
 
 #include <stdlib.h>
 
-struct PortableBossArgument {
-  enum SymbolType { LONG, DOUBLE, STRING, SYMBOL } type;
-  union {
-    int64_t asLong;
-    double asDouble;
-    char* asString;
-  };
+//////////////////////////////// Data Structures ///////////////////////////////
+
+union PortableBOSSArgumentValue {
+  int64_t asLong;
+  double asDouble;
+  char* asString;
 };
 
-struct PortableBossExpression {
+enum PortableBOSSArgumentType { LONG, DOUBLE, STRING, SYMBOL };
+
+struct PortableBOSSExpression {
   uint64_t headOffset;
   uint64_t firstChildOffset;
   uint64_t lastChildOffset;
 };
 
-struct PortableBOSSExpressionRoot {
+/**
+ * A single-allocation representation of an expression, including its arguments (i.e., a flattened
+ * array of all arguments, another flattened array of argument types and an array of
+ * PortableExpressions to encode the structure)
+ */
+struct PortableBOSSRootExpression {
   uint64_t const argumentCount;
   uint64_t const expressionCount;
-  struct PortableBossArgument arguments[];
+
+  /**
+   * This buffer holds all data associated with the expression in a single untyped array. As the
+   * three kinds of data (ArgumentsValues, ArgumentTypes and Expressions) have different sizes,
+   * holding them in an array of unions would waste a lot of memory. A union of variable-sized arrays
+   * is not supported in ANSI C. So it is held in an untyped buffer which is essentially a
+   * concatenation of the three types of buffers that are required. Utility functions exist to
+   * extract the different sub-arrays.
+   */
+  char arguments[];
 };
 
-struct PortableBOSSExpressionRoot* getDummySerializedExpression();
-static struct PortableBossArgument*
-getExpressionArguments(struct PortableBOSSExpressionRoot* root) {
-  return (struct PortableBossArgument*)root->arguments;
+//////////////////////////////// Part Extraction ///////////////////////////////
+
+struct PortableBOSSRootExpression* getDummySerializedExpression();
+static union PortableBOSSArgumentValue* getExpressionArguments(struct PortableBOSSRootExpression* root) {
+  return (union PortableBOSSArgumentValue*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      root->arguments;
 }
 
-static struct PortableBossExpression*
-getExpressionSubexpressions(struct PortableBOSSExpressionRoot* root) {
-
-  return (struct PortableBossExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentCount];
+static enum PortableBOSSArgumentType* getArgumentTypes(struct PortableBOSSRootExpression* root) {
+  return (enum PortableBOSSArgumentType*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      &root->arguments[root->argumentCount * sizeof(union PortableBOSSArgumentValue)];
 }
 
-static struct PortableBOSSExpressionRoot* allocateExpressionTree(uint64_t argumentCount,
+static struct PortableBOSSExpression*
+getExpressionSubexpressions(struct PortableBOSSRootExpression* root) {
+  return (struct PortableBOSSExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      &root->arguments[root->argumentCount *
+                       (sizeof(union PortableBOSSArgumentValue) + sizeof(enum PortableBOSSArgumentType))];
+}
+
+//////////////////////////////   Memory Management /////////////////////////////
+
+static struct PortableBOSSRootExpression* allocateExpressionTree(uint64_t argumentCount,
                                                                  uint64_t expressionCount) {
-  struct PortableBOSSExpressionRoot* root =
-      (struct PortableBOSSExpressionRoot*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  struct PortableBOSSRootExpression* root =
+      (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       malloc(                              // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
           sizeof(argumentCount) + sizeof(expressionCount) +
-          sizeof(struct PortableBossArgument) * argumentCount +
-          sizeof(struct PortableBossExpression) * expressionCount);
+          sizeof(union PortableBOSSArgumentValue) * argumentCount +
+          sizeof(PortableBOSSArgumentType) * argumentCount +
+          sizeof(struct PortableBOSSExpression) * expressionCount);
   *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       argumentCount;
   *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
@@ -59,50 +84,56 @@ static struct PortableBOSSExpressionRoot* allocateExpressionTree(uint64_t argume
   return root;
 }
 
-static void freeExpressionTree(struct PortableBOSSExpressionRoot* root) {
+static void freeExpressionTree(struct PortableBOSSRootExpression* root) {
   free(root); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 }
 
-static int64_t* makeLongArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
+////////////////////////////// Argument Modifiers //////////////////////////////
+
+static int64_t* makeLongArgument(struct PortableBOSSRootExpression* root,
+                                 uint64_t argumentOutputI) {
 #ifdef __cplusplus
-  auto LONG = PortableBossArgument::SymbolType::LONG;
+  auto LONG = PortableBOSSArgumentType::LONG;
 #endif
 
-  buffer[argumentOutputI].type = LONG;
-  return &buffer[argumentOutputI].asLong;
+  getArgumentTypes(root)[argumentOutputI] = LONG;
+  return &getExpressionArguments(root)[argumentOutputI].asLong;
 };
 
-static char** makeSymbolArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
+static char** makeSymbolArgument(struct PortableBOSSRootExpression* root,
+                                 uint64_t argumentOutputI) {
 #ifdef __cplusplus
-  auto SYMBOL = PortableBossArgument::SymbolType::SYMBOL;
+  auto SYMBOL = PortableBOSSArgumentType::SYMBOL;
 #endif
-  buffer[argumentOutputI].type = SYMBOL;
-  return &buffer[argumentOutputI].asString;
+  getArgumentTypes(root)[argumentOutputI] = SYMBOL;
+  return &getExpressionArguments(root)[argumentOutputI].asString;
 };
 
-static char** makeStringArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
+static char** makeStringArgument(struct PortableBOSSRootExpression* root,
+                                 uint64_t argumentOutputI) {
 #ifdef __cplusplus
-  auto STRING = PortableBossArgument::SymbolType::STRING;
+  auto STRING = PortableBOSSArgumentType::STRING;
 #endif
-  buffer[argumentOutputI].type = STRING;
-  return &buffer[argumentOutputI].asString;
+  getArgumentTypes(root)[argumentOutputI] = STRING;
+  return &getExpressionArguments(root)[argumentOutputI].asString;
 };
 
-static double* makeDoubleArgument(struct PortableBossArgument* buffer, uint64_t argumentOutputI) {
+static double* makeDoubleArgument(struct PortableBOSSRootExpression* root,
+                                  uint64_t argumentOutputI) {
 #ifdef __cplusplus
-  auto DOUBLE = PortableBossArgument::SymbolType::DOUBLE;
+  auto DOUBLE = PortableBOSSArgumentType::DOUBLE;
 #endif
-  buffer[argumentOutputI].type = DOUBLE;
-  return &buffer[argumentOutputI].asDouble;
+  getArgumentTypes(root)[argumentOutputI] = DOUBLE;
+  return &getExpressionArguments(root)[argumentOutputI].asDouble;
 };
 
-static struct PortableBossExpression* makeExpression(struct PortableBossExpression* expressions,
+static struct PortableBOSSExpression* makeExpression(struct PortableBOSSExpression* expressions,
                                                      uint64_t expressionOutputI) {
   return &expressions[expressionOutputI];
 }
 
-struct PortableBOSSExpressionRoot* serializeBOSSExpression(struct BOSSExpression* expression);
-struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSExpressionRoot* root);
+struct PortableBOSSRootExpression* serializeBOSSExpression(struct BOSSExpression* expression);
+struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSRootExpression* root);
 struct BOSSExpression* parseURL(char const* url);
 
 #ifdef __cplusplus

@@ -1,8 +1,9 @@
 #ifndef BOSS_H
 #define BOSS_H
 #ifdef __cplusplus
-extern "C" {
 #include <cinttypes>
+#include <cstddef>
+extern "C" {
 #else
 #include <inttypes.h>
 #include <stdbool.h>
