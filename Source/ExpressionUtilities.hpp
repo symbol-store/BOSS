@@ -63,7 +63,8 @@ public:
     typename ExpressionSystem::ExpressionArguments argList;
     argList.reserve(sizeof...(Ts));
     (argList.push_back(
-         convertConstCharToStringAndOnToExpression(::std::forward<decltype(args)>(args))),
+         convertConstCharToStringAndOnToExpression( // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+             ::std::forward<decltype(args)>(args))),
      ...);
     return {s, {}, ::std::move(argList)};
   }

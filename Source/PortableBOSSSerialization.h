@@ -157,7 +157,7 @@ static struct PortableBOSSExpression* makeExpression(struct PortableBOSSExpressi
 }
 
 static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString) {
-  size_t inputStringLength = strlen(inputString);
+  size_t const inputStringLength = strlen(inputString);
   *root = (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       realloc(*root, // NOLINT(hicpp-no-malloc, cppcoreguidelines-no-malloc)
               ((char*)(getStringBuffer(*root)) -

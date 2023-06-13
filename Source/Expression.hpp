@@ -391,7 +391,7 @@ public:
                                                     AdditionalCustomAtoms...>> &&
                  ...),
                 bool> = false>
-  ExpressionSpanArgumentsWithAdditionalCustomAtoms(ArgType&&... arg) {
+  explicit ExpressionSpanArgumentsWithAdditionalCustomAtoms(ArgType&&... arg) {
 
     (std::vector<ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::
          emplace_back(std::move(arg)),
