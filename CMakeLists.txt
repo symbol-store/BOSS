@@ -78,13 +78,11 @@ find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-find_package(CURL REQUIRED)
-
 ############################### Executable Targets ###############################
 
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
-set(ImplementationFiles Source/BOSS.cpp Source/Serialization.cpp)
+set(ImplementationFiles Source/BOSS.cpp)
 set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
@@ -146,8 +144,6 @@ foreach(Target IN LISTS AllTargets)
     target_link_libraries(${Target} rt)
     target_link_libraries(${Target} dl)
   endif()
-  target_include_directories(${Target} SYSTEM PUBLIC ${CURL_INCLUDE_DIRS})
-  target_link_libraries(${Target} ${CURL_LIBRARIES})
 endforeach()
 
 
