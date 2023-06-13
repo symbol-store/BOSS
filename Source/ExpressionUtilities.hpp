@@ -1,6 +1,7 @@
 #pragma once
 #include "Expression.hpp"
 #include "Utilities.hpp"
+#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>

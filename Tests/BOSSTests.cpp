@@ -4,6 +4,7 @@
 #include "../Source/BootstrapEngine.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include "../Source/Serialization.hpp"
+#include <array>
 #include <catch2/catch.hpp>
 #include <numeric>
 #include <variant>
