@@ -35,7 +35,7 @@ public:
   }
   template <typename T>
   typename ExpressionSystem::Expression
-  convertConstCharToStringAndOnToExpression(typename ExpressionSystem::Expression&& v) const {
+  convertConstCharToStringAndOnToExpression(T&& v) const {
     return std::move(v);
   }
 
@@ -63,7 +63,7 @@ public:
   operator()(Ts&&... args /*a*/) const {
     typename ExpressionSystem::ExpressionArguments argList;
     argList.reserve(sizeof...(Ts));
-    (argList.push_back(convertConstCharToStringAndOnToExpression<decltype(args)>(
+    (argList.push_back(convertConstCharToStringAndOnToExpression(
          ::std::forward<decltype(args)>(args))),
      ...);
     return {s, {}, ::std::move(argList)};

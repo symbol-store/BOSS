@@ -129,13 +129,12 @@ struct SerializedExpression {
                                 std::decay_t<decltype(argument.getStaticArguments())>> +
                             argument.getDynamicArguments().size() +
                             argument.getSpanArguments().size();
-
+                        auto const headOffset = argumentOutputI;
+                        auto const firstChildOffset = nextLayerOffset + childrenCountRunningSum;
+                        auto const lastChildOffset =
+                            nextLayerOffset + childrenCountRunningSum + childrenCount - 1;
                         *makeExpression(expressionsBuffer(), expressionOutputI++) =
-                            PortableBOSSExpression{
-                                .headOffset = argumentOutputI,
-                                .firstChildOffset = nextLayerOffset + childrenCountRunningSum,
-                                .lastChildOffset =
-                                    nextLayerOffset + childrenCountRunningSum + childrenCount - 1};
+                            PortableBOSSExpression{headOffset, firstChildOffset, lastChildOffset};
                         auto storedString =
                             storeString(&root, argument.getHead().getName().c_str());
                         *makeSymbolArgument(root, argumentOutputI++) = storedString;
@@ -156,7 +155,6 @@ struct SerializedExpression {
                                                          double>) {
                         *makeDoubleArgument(root, argumentOutputI++) = argument;
                       } else {
-                        __builtin_debugtrap();
                         throw std::runtime_error("unknown type");
                       }
                     },
@@ -179,10 +177,11 @@ public:
                    [this](boss::ComplexExpression&& input) {
                      auto argumentIterator = uint64_t{};
                      auto expressionIterator = uint64_t{};
-                     expressionsBuffer()[expressionIterator++] = {
-                         .headOffset = 0,
-                         .firstChildOffset = 1,
-                         .lastChildOffset = input.getDynamicArguments().size()};
+                     auto const headOffset = 0;
+                     auto const firstChildOffset = 1;
+                     auto const lastChildOffset = input.getDynamicArguments().size();
+                     expressionsBuffer()[expressionIterator++] = {headOffset, firstChildOffset,
+                                                                  lastChildOffset};
                      auto storedString = storeString(&root, input.getHead().getName().c_str());
                      flattenedArguments()[argumentIterator].asString = storedString;
                      flattenedArgumentTypes()[argumentIterator++] = ArgumentType::SYMBOL;
@@ -242,9 +241,7 @@ public:
              return result;
            }},
 
-          {ArgumentType::STRING, [&] {
-            return std::string(viewString(root, arg.asString));
-           }}};
+          {ArgumentType::STRING, [&] { return std::string(viewString(root, arg.asString)); }}};
       arguments.push_back(functors.at(type)());
     }
     return arguments;
@@ -282,9 +279,5 @@ public:
   ~SerializedExpression() { freeExpressionTree(root); }
 };
 
-namespace url {
-boss::Expression parse(std::string_view url, std::optional<boss::Expression>&& firstArgument = {});
-
-}
 // NOLINTEND(cppcoreguidelines-pro-type-union-access)
 } // namespace boss::serialization

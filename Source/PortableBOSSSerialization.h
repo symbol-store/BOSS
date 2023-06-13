@@ -21,7 +21,7 @@ union PortableBOSSArgumentValue {
   PortableBOSSString asString;
 };
 
-enum PortableBOSSArgumentType : size_t { LONG, DOUBLE, STRING, SYMBOL };
+enum class PortableBOSSArgumentType : size_t { LONG, DOUBLE, STRING, SYMBOL };
 
 struct PortableBOSSExpression {
   uint64_t headOffset;

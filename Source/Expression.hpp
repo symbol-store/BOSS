@@ -580,31 +580,30 @@ public:
 
   template <typename... Reason> auto clone(Reason... reason) const {
     checkCloneWithoutReason(reason...);
-    static auto unwrap = [reason...](auto const& argument) {
+    static auto unwrap = [reason...](auto const& refWrapper) {
       if constexpr(boss::utilities::isInstanceOfTemplate<
-                       std::decay_t<decltype(argument)>,
+                       std::decay_t<decltype(refWrapper)>,
                        ExpressionWithAdditionalCustomAtoms>::value) {
-        return argument.clone(reason...);
+        return refWrapper.clone(reason...);
       } else {
-        return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(argument);
+        return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(refWrapper);
       }
     };
     return std::visit(
-        boss::utilities::overload(
-            [reason...](auto const& argument)
-                -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
-              if constexpr(boss::utilities::isInstanceOfTemplate<
-                               std::decay_t<decltype(argument)>,
-                               ExpressionWithAdditionalCustomAtoms>::value) {
-                return argument.get().clone(reason...);
-              }
-              if constexpr(boss::utilities::isInstanceOfTemplate<std::decay_t<decltype(argument)>,
-                                                                 MovableReferenceWrapper>::value) {
-                return unwrap(argument.get());
-              } else {
-                return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(argument);
-              }
-            }),
+        [reason...](
+            auto const& typedArg) -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
+          if constexpr(boss::utilities::isInstanceOfTemplate<
+                           std::decay_t<decltype(typedArg)>,
+                           ExpressionWithAdditionalCustomAtoms>::value) {
+            return typedArg.get().clone(reason...);
+          } else if constexpr(boss::utilities::isInstanceOfTemplate<
+                                  std::decay_t<decltype(typedArg)>,
+                                  MovableReferenceWrapper>::value) {
+            return unwrap(typedArg.get());
+          } else {
+            return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(typedArg);
+          }
+        },
         argument);
   }
 
@@ -1104,16 +1103,15 @@ public:
         std::move(otherStatics));
     // move dynamics
     for(auto&& arg : otherDynamics) {
-      std::visit(
-          boss::utilities::overload(
-              [this](ComplexExpressionWithAdditionalCustomAtoms<OtherTuple, T...>&& typedArg) {
-                arguments.emplace_back(
-                    ComplexExpressionWithAdditionalCustomAtoms(std::move(typedArg)));
-              },
-              [this](auto&& typedArg) {
-                arguments.emplace_back(std::forward<decltype(typedArg)>(typedArg));
-              }),
-          std::move(arg));
+      visit(boss::utilities::overload(
+                [this](ComplexExpressionWithAdditionalCustomAtoms<OtherTuple, T...>&& typedArg) {
+                  arguments.emplace_back(
+                      ComplexExpressionWithAdditionalCustomAtoms(std::move(typedArg)));
+                },
+                [this](auto&& typedArg) {
+                  arguments.emplace_back(std::forward<decltype(typedArg)>(typedArg));
+                }),
+            std::move(arg));
     }
     spanArguments.reserve(otherSpans.size());
     for(auto&& span : otherSpans) {

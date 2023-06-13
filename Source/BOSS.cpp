@@ -148,7 +148,6 @@ struct PortableBOSSRootExpression* serializeBOSSExpression(struct BOSSExpression
   return boss::serialization::SerializedExpression(std::move(e->delegate)).extractRoot();
 }
 struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSRootExpression* root) {
-  return new BOSSExpression{.delegate =
-                                boss::serialization::SerializedExpression(root).deserialize()};
+  return new BOSSExpression{boss::serialization::SerializedExpression(root).deserialize()};
 }
 }
