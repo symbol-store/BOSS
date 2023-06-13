@@ -184,7 +184,8 @@ public:
                                                                   lastChildOffset};
                      auto storedString = storeString(&root, input.getHead().getName().c_str());
                      flattenedArguments()[argumentIterator].asString = storedString;
-                     flattenedArgumentTypes()[argumentIterator++] = ArgumentType::SYMBOL;
+                     flattenedArgumentTypes()[argumentIterator++] =
+                         ArgumentType::ARGUMENT_TYPE_SYMBOL;
                      auto inputs = std::vector<boss::ComplexExpression>();
                      inputs.push_back(std::move(input));
                      flattenArguments(argumentIterator, std::move(inputs), expressionIterator);
@@ -192,15 +193,15 @@ public:
                    [this](expressions::atoms::Symbol&& input) {
                      auto storedString = storeString(&root, input.getName().c_str());
                      flattenedArguments()[0].asString = storedString;
-                     flattenedArgumentTypes()[0] = ArgumentType::SYMBOL;
+                     flattenedArgumentTypes()[0] = ArgumentType::ARGUMENT_TYPE_SYMBOL;
                    },
                    [this](std::int64_t input) {
                      flattenedArguments()[0].asLong = input;
-                     flattenedArgumentTypes()[0] = ArgumentType::LONG;
+                     flattenedArgumentTypes()[0] = ArgumentType::ARGUMENT_TYPE_LONG;
                    },
                    [this](std::double_t input) {
                      flattenedArguments()[0].asDouble = input;
-                     flattenedArgumentTypes()[0] = ArgumentType::DOUBLE;
+                     flattenedArgumentTypes()[0] = ArgumentType::ARGUMENT_TYPE_DOUBLE;
                    },
                    [](auto&&) {
                      throw std::logic_error("uncountered unknown type during serialization");
@@ -218,9 +219,9 @@ public:
       auto& arg = flattenedArguments()[childIndex];
       auto& type = flattenedArgumentTypes()[childIndex];
       auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
-          {ArgumentType::LONG, [&] { return (arg.asLong); }},
-          {ArgumentType::DOUBLE, [&] { return (arg.asDouble); }},
-          {ArgumentType::SYMBOL,
+          {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
+          {ArgumentType::ARGUMENT_TYPE_DOUBLE, [&] { return (arg.asDouble); }},
+          {ArgumentType::ARGUMENT_TYPE_SYMBOL,
            [&]() -> boss::Expression {
              while(unprocessedExpressionPointer < expressionCount() &&
 
@@ -240,8 +241,8 @@ public:
              auto result = boss::Symbol(viewString(root, arg.asString));
              return result;
            }},
-
-          {ArgumentType::STRING, [&] { return std::string(viewString(root, arg.asString)); }}};
+          {ArgumentType::ARGUMENT_TYPE_STRING,
+           [&] { return std::string(viewString(root, arg.asString)); }}};
       arguments.push_back(functors.at(type)());
     }
     return arguments;
@@ -249,13 +250,13 @@ public:
 
   boss::Expression deserialize() && {
     switch(flattenedArgumentTypes()[0]) {
-    case ArgumentType::LONG:
+    case ArgumentType::ARGUMENT_TYPE_LONG:
       return flattenedArguments()[0].asLong;
-    case ArgumentType::DOUBLE:
+    case ArgumentType::ARGUMENT_TYPE_DOUBLE:
       return flattenedArguments()[0].asDouble;
-    case ArgumentType::STRING:
+    case ArgumentType::ARGUMENT_TYPE_STRING:
       return viewString(root, flattenedArguments()[0].asString);
-    case ArgumentType::SYMBOL:
+    case ArgumentType::ARGUMENT_TYPE_SYMBOL:
       auto s = boss::Symbol(viewString(root, flattenedArguments()[0].asString));
       if(root->expressionCount == 0) {
         return s;
