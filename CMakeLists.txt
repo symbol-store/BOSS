@@ -82,7 +82,7 @@ find_package(Threads REQUIRED)
 
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
-set(ImplementationFiles Source/BOSS.cpp)
+set(ImplementationFiles Source/BOSS.cpp Source/Serialization.cpp)
 set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
