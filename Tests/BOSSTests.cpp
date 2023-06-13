@@ -4,6 +4,7 @@
 #include "../Source/BootstrapEngine.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include "../Source/Serialization.hpp"
+#include <array>
 #include <catch2/catch.hpp>
 #include <numeric>
 #include <variant>
@@ -1385,15 +1386,6 @@ TEST_CASE("Expression Serialization") {
     CHECK(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
               .deserialize() == plan);
   }
-}
-
-TEST_CASE("URL Parsing") {
-  CHECK(boss::serialization::url::parse("lineitem/Group(By(l_quantity),Count)") ==
-        "Group"_("lineitem"_, "By"_("l_quantity"_), "Count"_));
-  CHECK(boss::serialization::url::parse("Customer/Select(Where(Greater(5,1)))") ==
-        "Select"_("Customer"_, "Where"_("Greater"_(5, 1))));
-  CHECK(boss::serialization::url::parse("Customer/Select(Where(Equal(name,%22Holger%22)))") ==
-        "Select"_("Customer"_, "Where"_("Equal"_("name"_, "Holger"))));
 }
 
 int main(int argc, char* argv[]) {

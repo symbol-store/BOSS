@@ -21,7 +21,12 @@ union PortableBOSSArgumentValue {
   PortableBOSSString asString;
 };
 
-enum PortableBOSSArgumentType : size_t { LONG, DOUBLE, STRING, SYMBOL };
+enum PortableBOSSArgumentType : size_t {
+  ARGUMENT_TYPE_LONG,
+  ARGUMENT_TYPE_DOUBLE,
+  ARGUMENT_TYPE_STRING,
+  ARGUMENT_TYPE_SYMBOL
+};
 
 struct PortableBOSSExpression {
   uint64_t headOffset;
@@ -112,37 +117,37 @@ static void freeExpressionTree(struct PortableBOSSRootExpression* root) {
 static int64_t* makeLongArgument(struct PortableBOSSRootExpression* root,
                                  uint64_t argumentOutputI) {
 #ifdef __cplusplus
-  auto LONG = PortableBOSSArgumentType::LONG;
+  auto ARGUMENT_TYPE_LONG = PortableBOSSArgumentType::ARGUMENT_TYPE_LONG;
 #endif
 
-  getArgumentTypes(root)[argumentOutputI] = LONG;
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_LONG;
   return &getExpressionArguments(root)[argumentOutputI].asLong;
 };
 
 static size_t* makeSymbolArgument(struct PortableBOSSRootExpression* root,
                                   uint64_t argumentOutputI) {
 #ifdef __cplusplus
-  auto SYMBOL = PortableBOSSArgumentType::SYMBOL;
+  auto ARGUMENT_TYPE_SYMBOL = PortableBOSSArgumentType::ARGUMENT_TYPE_SYMBOL;
 #endif
-  getArgumentTypes(root)[argumentOutputI] = SYMBOL;
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_SYMBOL;
   return &getExpressionArguments(root)[argumentOutputI].asString;
 };
 
 static size_t* makeStringArgument(struct PortableBOSSRootExpression* root,
                                   uint64_t argumentOutputI) {
 #ifdef __cplusplus
-  auto STRING = PortableBOSSArgumentType::STRING;
+  auto ARGUMENT_TYPE_STRING = PortableBOSSArgumentType::ARGUMENT_TYPE_STRING;
 #endif
-  getArgumentTypes(root)[argumentOutputI] = STRING;
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_STRING;
   return &getExpressionArguments(root)[argumentOutputI].asString;
 };
 
 static double* makeDoubleArgument(struct PortableBOSSRootExpression* root,
                                   uint64_t argumentOutputI) {
 #ifdef __cplusplus
-  auto DOUBLE = PortableBOSSArgumentType::DOUBLE;
+  auto ARGUMENT_TYPE_DOUBLE = PortableBOSSArgumentType::ARGUMENT_TYPE_DOUBLE;
 #endif
-  getArgumentTypes(root)[argumentOutputI] = DOUBLE;
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_DOUBLE;
   return &getExpressionArguments(root)[argumentOutputI].asDouble;
 };
 

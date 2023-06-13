@@ -78,8 +78,6 @@ find_path(ITT_NOTIFY_INCLUDE_DIR "ittnotify.h" HINTS ${VTune_DIR}/include)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-find_package(CURL REQUIRED)
-
 ############################### Executable Targets ###############################
 
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -146,13 +144,22 @@ foreach(Target IN LISTS AllTargets)
     target_link_libraries(${Target} rt)
     target_link_libraries(${Target} dl)
   endif()
-  target_include_directories(${Target} SYSTEM PUBLIC ${CURL_INCLUDE_DIRS})
-  target_link_libraries(${Target} ${CURL_LIBRARIES})
 endforeach()
 
 
 #################################### Install ###################################
-set_target_properties(BOSS PROPERTIES PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.h;${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp;${CMAKE_CURRENT_SOURCE_DIR}/Source/Algorithm.hpp")
+set(PUBLIC_HEADER_LIST
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.h;
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp;
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Algorithm.hpp;
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
+)
+set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
 
 if(WIN32)
   install(TARGETS BOSS PUBLIC_HEADER DESTINATION include)
