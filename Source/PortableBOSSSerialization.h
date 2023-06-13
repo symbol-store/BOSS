@@ -16,7 +16,7 @@ extern "C" {
 typedef size_t PortableBOSSString;
 
 union PortableBOSSArgumentValue {
-  int64_t asLong;
+  int64_t asLong = 0;
   double asDouble;
   PortableBOSSString asString;
 };
@@ -29,9 +29,9 @@ enum PortableBOSSArgumentType : size_t {
 };
 
 struct PortableBOSSExpression {
-  uint64_t headOffset;
-  uint64_t firstChildOffset;
-  uint64_t lastChildOffset;
+  uint64_t headOffset = 0;
+  uint64_t firstChildOffset = 0;
+  uint64_t lastChildOffset = 0;
 };
 
 /**
@@ -40,9 +40,9 @@ struct PortableBOSSExpression {
  * PortableExpressions to encode the structure)
  */
 struct PortableBOSSRootExpression {
-  uint64_t const argumentCount;
-  uint64_t const expressionCount;
-  void* const originalAddress;
+  uint64_t const argumentCount = 0;
+  uint64_t const expressionCount = 0;
+  void* const originalAddress = nullptr;
   /**
    * The index of the last used byte in the arguments buffer relative to the pointer returned by
    * getStringBuffer()
@@ -157,15 +157,16 @@ static struct PortableBOSSExpression* makeExpression(struct PortableBOSSExpressi
 }
 
 static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString) {
+  size_t inputStringLength = strlen(inputString);
   *root = (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       realloc(*root, // NOLINT(hicpp-no-malloc, cppcoreguidelines-no-malloc)
               ((char*)(getStringBuffer(*root)) -
                ((char*)*root)) + // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
                   (*root)->stringArgumentsFillIndex +
-                  strlen(inputString) + 1);
-  char const* result =
-      strcpy(getStringBuffer(*root) + (*root)->stringArgumentsFillIndex, inputString);
-  (*root)->stringArgumentsFillIndex += strlen(inputString) + 1;
+                  inputStringLength + 1);
+  char const* result = strncpy(getStringBuffer(*root) + (*root)->stringArgumentsFillIndex,
+                               inputString, inputStringLength);
+  (*root)->stringArgumentsFillIndex += inputStringLength + 1;
   return result - getStringBuffer(*root);
 };
 

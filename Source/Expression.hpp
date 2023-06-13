@@ -354,6 +354,7 @@ template <typename... AdditionalCustomAtoms>
 class ExpressionArgumentsWithAdditionalCustomAtoms
     : public std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>> {
 public:
+  ExpressionArgumentsWithAdditionalCustomAtoms() = default;
   using std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::vector;
 
   template <typename... ArgType,
@@ -361,7 +362,7 @@ public:
                                                                  AdditionalCustomAtoms...>> &&
                               ...),
                              bool> = false>
-  ExpressionArgumentsWithAdditionalCustomAtoms(ArgType&&... arg) {
+  explicit ExpressionArgumentsWithAdditionalCustomAtoms(ArgType&&... arg) {
 
     (std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::emplace_back(
          std::move(arg)),

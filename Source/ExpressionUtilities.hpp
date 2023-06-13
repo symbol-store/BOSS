@@ -35,7 +35,7 @@ public:
   }
   template <typename T>
   typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {
-    return std::move(v);
+    return std::forward<T>(v);
   }
 
   template <typename Ts>
