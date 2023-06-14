@@ -248,6 +248,33 @@ public:
     return arguments;
   }
 
+  template <typename... Types> class variant {
+    size_t const* typeTag;
+    void* value;
+
+  public:
+    variant(size_t const* typeTag, void* value) : typeTag(typeTag), value(value) {}
+  };
+
+  class LazilyDeserializedExpression {
+    SerializedExpression const& buffer;
+    size_t expressionPosition;
+
+  public:
+    LazilyDeserializedExpression(SerializedExpression const& buffer, size_t expressionPosition)
+        : buffer(buffer), expressionPosition(expressionPosition) {}
+
+    bool operator==(boss::Expression const& other) const {
+      return other.index() ==
+          buffer
+              .flattenedArgumentTypes()[buffer.expressionsBuffer()[expressionPosition].headOffset];
+
+      ;
+    }
+  };
+
+  LazilyDeserializedExpression lazilyDeserialize() & { return {*this, 0}; };
+
   boss::Expression deserialize() && {
     switch(flattenedArgumentTypes()[0]) {
     case ArgumentType::ARGUMENT_TYPE_LONG:
