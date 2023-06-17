@@ -165,7 +165,7 @@ static size_t storeString(struct PortableBOSSRootExpression** root, char const* 
                   (*root)->stringArgumentsFillIndex +
                   inputStringLength + 1);
   char const* result = strncpy(getStringBuffer(*root) + (*root)->stringArgumentsFillIndex,
-                               inputString, inputStringLength);
+                               inputString, inputStringLength + 1);
   (*root)->stringArgumentsFillIndex += inputStringLength + 1;
   return result - getStringBuffer(*root);
 };
