@@ -14,22 +14,27 @@ extern "C" {
 //////////////////////////////// Data Structures ///////////////////////////////
 
 typedef size_t PortableBOSSString;
+typedef size_t PortableBOSSExpressionIndex;
 
 union PortableBOSSArgumentValue {
+  bool asBool;
   int64_t asLong = 0;
   double asDouble;
   PortableBOSSString asString;
+  PortableBOSSExpressionIndex asExpression;
 };
 
 enum PortableBOSSArgumentType : size_t {
+  ARGUMENT_TYPE_BOOL,
   ARGUMENT_TYPE_LONG,
   ARGUMENT_TYPE_DOUBLE,
   ARGUMENT_TYPE_STRING,
-  ARGUMENT_TYPE_SYMBOL
+  ARGUMENT_TYPE_SYMBOL,
+  ARGUMENT_TYPE_EXPRESSION
 };
 
 struct PortableBOSSExpression {
-  uint64_t headOffset = 0;
+  uint64_t symbolNameOffset = 0;
   uint64_t firstChildOffset = 0;
   uint64_t lastChildOffset = 0;
 };
@@ -130,6 +135,15 @@ static size_t* makeSymbolArgument(struct PortableBOSSRootExpression* root,
   auto ARGUMENT_TYPE_SYMBOL = PortableBOSSArgumentType::ARGUMENT_TYPE_SYMBOL;
 #endif
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_SYMBOL;
+  return &getExpressionArguments(root)[argumentOutputI].asString;
+};
+
+static size_t* makeExpressionArgument(struct PortableBOSSRootExpression* root,
+                                  uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_SYMBOL = PortableBOSSArgumentType::ARGUMENT_TYPE_EXPRESSION;
+#endif
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_EXPRESSION;
   return &getExpressionArguments(root)[argumentOutputI].asString;
 };
 

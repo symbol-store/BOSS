@@ -1390,9 +1390,9 @@ TEST_CASE("Expression Serialization") {
 
 TEST_CASE("Laxy Expression Serialization") {
   auto const plans = std::array<boss::Expression, 8>{
-      "Yo"_,
+      "HiThere"_(1, 4, 9, "You"_(1, 3), 9, 3),
       "Howdie"_("Yo"_(5, 17, "duh"_(3)), "Five"_(6), 9, 1),
-      "Howdie"_(1, 4, 9, "You"_(1, 3), 9, 3),
+      "Yo"_,
       "Top"_("Group"_(
                  "Project"_(
                      "Join"_("Select"_("Group"_("Project"_("lineitem"_,
@@ -1425,9 +1425,26 @@ TEST_CASE("Laxy Expression Serialization") {
       Expression(3),
       "SetDefaultEnginePipeline"_(
           "/Users/hlgr/Temp/BOSSWolframEngine/Debug/libBOSSWolframEngine.so")};
+
+  {
+    auto e = boss::serialization::SerializedExpression(Expression(3));
+    CHECK(!(e.lazilyDeserialize() == "Thingy"_));
+  }
+  {
+    auto e = boss::serialization::SerializedExpression(
+        "H"_("O"_("W"_(1, 5, 9)), "D"_("I"_(6, 1), "E"_(2))));
+    CHECK(e.lazilyDeserialize() ==
+          (Expression) "H"_("O"_("W"_(1, 5, 9)), "D"_("I"_(6, 1), "E"_(2))));
+  }
+  {
+    auto e = boss::serialization::SerializedExpression("Table"_(1, 5, 9));
+    CHECK(!(e.lazilyDeserialize() == "Table"_(1, 5, 10)));
+  }
+
   for(auto const& plan : plans) {
     auto e = boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING));
     CHECK(e.lazilyDeserialize() == plan);
+    CHECK(!(e.lazilyDeserialize() == "Thingy"_));
   }
 }
 
