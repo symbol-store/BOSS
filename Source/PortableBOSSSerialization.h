@@ -95,11 +95,12 @@ static char* getStringBuffer(struct PortableBOSSRootExpression* root) {
 
 //////////////////////////////   Memory Management /////////////////////////////
 
-static struct PortableBOSSRootExpression* allocateExpressionTree(uint64_t argumentCount,
-                                                                 uint64_t expressionCount) {
+static struct PortableBOSSRootExpression*
+allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount,
+                       void* (*allocateFunction)(size_t)) {
   struct PortableBOSSRootExpression* root =
       (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      malloc(                              // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
+      allocateFunction(                    // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
           sizeof(struct PortableBOSSRootExpression) +
           sizeof(union PortableBOSSArgumentValue) * argumentCount +
           sizeof(PortableBOSSArgumentType) * argumentCount +
@@ -115,8 +116,9 @@ static struct PortableBOSSRootExpression* allocateExpressionTree(uint64_t argume
   return root;
 }
 
-static void freeExpressionTree(struct PortableBOSSRootExpression* root) {
-  free(root); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
+static void freeExpressionTree(struct PortableBOSSRootExpression* root,
+                               void (*freeFunction)(void*)) {
+  freeFunction(root); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 }
 
 static int64_t* makeLongArgument(struct PortableBOSSRootExpression* root,
@@ -139,7 +141,7 @@ static size_t* makeSymbolArgument(struct PortableBOSSRootExpression* root,
 };
 
 static size_t* makeExpressionArgument(struct PortableBOSSRootExpression* root,
-                                  uint64_t argumentOutputI) {
+                                      uint64_t argumentOutputI) {
 #ifdef __cplusplus
   auto ARGUMENT_TYPE_SYMBOL = PortableBOSSArgumentType::ARGUMENT_TYPE_EXPRESSION;
 #endif
@@ -170,14 +172,15 @@ static struct PortableBOSSExpression* makeExpression(struct PortableBOSSExpressi
   return &expressions[expressionOutputI];
 }
 
-static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString) {
+static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString,
+                          void* (*reallocateFunction)(void*, size_t)) {
   size_t const inputStringLength = strlen(inputString);
   *root = (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      realloc(*root, // NOLINT(hicpp-no-malloc, cppcoreguidelines-no-malloc)
-              ((char*)(getStringBuffer(*root)) -
-               ((char*)*root)) + // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-                  (*root)->stringArgumentsFillIndex +
-                  inputStringLength + 1);
+      reallocateFunction(*root, // NOLINT(hicpp-no-malloc, cppcoreguidelines-no-malloc)
+                         ((char*)(getStringBuffer(*root)) -
+                          ((char*)*root)) + // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+                             (*root)->stringArgumentsFillIndex +
+                             inputStringLength + 1);
   char const* result = strncpy(getStringBuffer(*root) + (*root)->stringArgumentsFillIndex,
                                inputString, inputStringLength + 1);
   (*root)->stringArgumentsFillIndex += inputStringLength + 1;

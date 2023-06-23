@@ -1,6 +1,7 @@
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "Utilities.hpp"
+#include <cstdlib>
 #include <inttypes.h>
 #include <iterator>
 #include <optional>
@@ -36,6 +37,9 @@ using RootExpression = PortableBOSSRootExpression;
  * The buffer contains no pointers so it can be safely written to disk or passed to a different
  * processing using shared memory
  */
+template <void* (*allocateFunction)(size_t) = std::malloc,
+          void* (*reallocateFunction)(void*, size_t) = std::realloc,
+          void (*freeFunction)(void*) = std::free>
 struct SerializedExpression {
   RootExpression* root;
   uint64_t argumentCount() const { return root->argumentCount; };
@@ -149,8 +153,8 @@ struct SerializedExpression {
                         auto const firstChildOffset = nextLayerOffset + childrenCountRunningSum;
                         auto const lastChildOffset =
                             nextLayerOffset + childrenCountRunningSum + childrenCount - 1;
-                        auto storedString =
-                            storeString(&root, argument.getHead().getName().c_str());
+                        auto storedString = storeString(&root, argument.getHead().getName().c_str(),
+                                                        reallocateFunction);
                         *makeExpression(expressionsBuffer(), expressionOutputI) =
                             PortableBOSSExpression{storedString, firstChildOffset, lastChildOffset};
                         *makeExpressionArgument(root, argumentOutputI++) = expressionOutputI++;
@@ -162,11 +166,13 @@ struct SerializedExpression {
                         *makeLongArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          boss::Symbol>) {
-                        auto storedString = storeString(&root, argument.getName().c_str());
+                        auto storedString =
+                            storeString(&root, argument.getName().c_str(), reallocateFunction);
                         *makeSymbolArgument(root, argumentOutputI++) = storedString;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          std::string>) {
-                        auto storedString = storeString(&root, argument.c_str());
+                        auto storedString =
+                            storeString(&root, argument.c_str(), reallocateFunction);
                         *makeStringArgument(root, argumentOutputI++) = storedString;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          double>) {
@@ -188,8 +194,8 @@ struct SerializedExpression {
 
 public:
   explicit SerializedExpression(boss::Expression&& input)
-      : SerializedExpression(
-            allocateExpressionTree(countArguments(input), countExpressions(input))) {
+      : SerializedExpression(allocateExpressionTree(countArguments(input), countExpressions(input),
+                                                    allocateFunction)) {
     std::visit(utilities::overload(
                    [this](boss::ComplexExpression&& input) {
                      auto argumentIterator = uint64_t{};
@@ -197,7 +203,8 @@ public:
                      auto const headOffset = 0;
                      auto const firstChildOffset = 1;
                      auto const lastChildOffset = input.getDynamicArguments().size();
-                     auto storedString = storeString(&root, input.getHead().getName().c_str());
+                     auto storedString =
+                         storeString(&root, input.getHead().getName().c_str(), reallocateFunction);
                      expressionsBuffer()[expressionIterator] = {storedString, firstChildOffset,
                                                                 lastChildOffset};
                      flattenedArguments()[argumentIterator].asExpression = expressionIterator++;
@@ -208,7 +215,8 @@ public:
                      flattenArguments(argumentIterator, std::move(inputs), expressionIterator);
                    },
                    [this](expressions::atoms::Symbol&& input) {
-                     auto storedString = storeString(&root, input.getName().c_str());
+                     auto storedString =
+                         storeString(&root, input.getName().c_str(), reallocateFunction);
                      flattenedArguments()[0].asString = storedString;
                      flattenedArgumentTypes()[0] = ArgumentType::ARGUMENT_TYPE_SYMBOL;
                    },
@@ -349,7 +357,7 @@ public:
   SerializedExpression(SerializedExpression const&) = delete;
   SerializedExpression& operator=(SerializedExpression&&) = default;
   SerializedExpression& operator=(SerializedExpression const&) = delete;
-  ~SerializedExpression() { freeExpressionTree(root); }
+  ~SerializedExpression() { freeExpressionTree(root, freeFunction); }
 };
 
 // NOLINTEND(cppcoreguidelines-pro-type-union-access)
