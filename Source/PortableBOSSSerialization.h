@@ -5,6 +5,8 @@
 #include <cstring>
 extern "C" {
 #else
+#include <stdbool.h>
+#include <string.h>
 #include <inttypes.h>
 #endif
 // NOLINTBEGIN(hicpp-use-auto,cppcoreguidelines-pro-type-union-access)
@@ -18,7 +20,7 @@ typedef size_t PortableBOSSExpressionIndex;
 
 union PortableBOSSArgumentValue {
   bool asBool;
-  int64_t asLong = 0;
+  int64_t asLong;
   double asDouble;
   PortableBOSSString asString;
   PortableBOSSExpressionIndex asExpression;
@@ -34,9 +36,9 @@ enum PortableBOSSArgumentType : size_t {
 };
 
 struct PortableBOSSExpression {
-  uint64_t symbolNameOffset = 0;
-  uint64_t firstChildOffset = 0;
-  uint64_t lastChildOffset = 0;
+  uint64_t symbolNameOffset;
+  uint64_t firstChildOffset;
+  uint64_t lastChildOffset;
 };
 
 /**
@@ -45,14 +47,14 @@ struct PortableBOSSExpression {
  * PortableExpressions to encode the structure)
  */
 struct PortableBOSSRootExpression {
-  uint64_t const argumentCount = 0;
-  uint64_t const expressionCount = 0;
-  void* const originalAddress = nullptr;
+  uint64_t const argumentCount;
+  uint64_t const expressionCount;
+  void* const originalAddress;
   /**
    * The index of the last used byte in the arguments buffer relative to the pointer returned by
    * getStringBuffer()
    */
-  size_t stringArgumentsFillIndex = 0;
+  size_t stringArgumentsFillIndex;
 
   /**
    * This buffer holds all data associated with the expression in a single untyped array. As the
@@ -90,7 +92,7 @@ static char* getStringBuffer(struct PortableBOSSRootExpression* root) {
   return (char*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       &root->arguments[root->argumentCount * (sizeof(union PortableBOSSArgumentValue) +
                                               sizeof(enum PortableBOSSArgumentType)) +
-                       root->expressionCount * (sizeof(PortableBOSSExpression))];
+                       root->expressionCount * (sizeof(struct PortableBOSSExpression))];
 }
 
 //////////////////////////////   Memory Management /////////////////////////////
@@ -103,7 +105,7 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount,
       allocateFunction(                    // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
           sizeof(struct PortableBOSSRootExpression) +
           sizeof(union PortableBOSSArgumentValue) * argumentCount +
-          sizeof(PortableBOSSArgumentType) * argumentCount +
+          sizeof(enum PortableBOSSArgumentType) * argumentCount +
           sizeof(struct PortableBOSSExpression) * expressionCount);
   *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       argumentCount;
