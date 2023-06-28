@@ -180,16 +180,14 @@ static void SetRLEArgumentType(struct PortableBOSSRootExpression* root, uint64_t
                                uint32_t size) {
   if(size < PortableBOSSArgumentType_RLE_MINIMUM_SIZE) {
     // RLE is not supported, fallback to set the argument types
-    auto type = getArgumentTypes(root)[argumentOutputI];
-    for(auto i = argumentOutputI + 1; i < argumentOutputI + size; ++i) {
+    PortableBOSSArgumentType type = getArgumentTypes(root)[argumentOutputI];
+    for(uint64_t i = argumentOutputI + 1; i < argumentOutputI + size; ++i) {
       getArgumentTypes(root)[i] = type;
     }
     return;
   }
-  reinterpret_cast<size_t&>(getArgumentTypes(root)[argumentOutputI]) |=
-      PortableBOSSArgumentType_RLE_BIT;
-  reinterpret_cast<size_t&>(getArgumentTypes(root)[argumentOutputI + 1]) =
-      static_cast<size_t>(size);
+  (*(size_t*)(&getArgumentTypes(root)[argumentOutputI])) |= PortableBOSSArgumentType_RLE_BIT;
+  (*(size_t*)(&getArgumentTypes(root)[argumentOutputI + 1])) = static_cast<size_t>(size);
 }
 
 static int64_t* makeLongArguments(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI,
@@ -227,14 +225,9 @@ static double* makeDoubleArguments(struct PortableBOSSRootExpression* root,
   return value;
 }
 
-static struct PortableBOSSExpression* makeExpression(struct PortableBOSSExpression* expressions,
-                                                     uint64_t expressionOutputI) {
-  return &expressions[expressionOutputI];
-}
-
 static struct PortableBOSSExpression* makeExpression(struct PortableBOSSRootExpression* root,
                                                      uint64_t expressionOutputI) {
-  return makeExpression(getExpressionSubexpressions(root), expressionOutputI);
+  return &getExpressionSubexpressions(root)[expressionOutputI];
 }
 
 static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString,
