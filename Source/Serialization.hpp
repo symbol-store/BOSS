@@ -1,6 +1,7 @@
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "Utilities.hpp"
+#include <cassert>
 #include <cstdlib>
 #include <inttypes.h>
 #include <iterator>
@@ -150,13 +151,13 @@ struct SerializedExpression {
                             argument.getDynamicArguments().size() +
                             argument.getSpanArguments().size();
                         auto const headOffset = argumentOutputI;
-                        auto const firstChildOffset = nextLayerOffset + childrenCountRunningSum;
-                        auto const lastChildOffset =
-                            nextLayerOffset + childrenCountRunningSum + childrenCount - 1;
+                        auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
+                        auto const endChildOffset =
+                            nextLayerOffset + childrenCountRunningSum + childrenCount;
                         auto storedString = storeString(&root, argument.getHead().getName().c_str(),
                                                         reallocateFunction);
-                        *makeExpression(expressionsBuffer(), expressionOutputI) =
-                            PortableBOSSExpression{storedString, firstChildOffset, lastChildOffset};
+                        *makeExpression(root, expressionOutputI) =
+                            PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
                         *makeExpressionArgument(root, argumentOutputI++) = expressionOutputI++;
                         auto head = viewString(root, storedString);
                         childrenCountRunningSum += childrenCount;
@@ -201,15 +202,14 @@ public:
                      auto argumentIterator = uint64_t{};
                      auto expressionIterator = uint64_t{};
                      auto const headOffset = 0;
-                     auto const firstChildOffset = 1;
-                     auto const lastChildOffset = input.getDynamicArguments().size();
+                     auto const startChildOffset = 1;
+                     auto const endChildOffset =
+                         startChildOffset + input.getDynamicArguments().size();
                      auto storedString =
                          storeString(&root, input.getHead().getName().c_str(), reallocateFunction);
-                     expressionsBuffer()[expressionIterator] = {storedString, firstChildOffset,
-                                                                lastChildOffset};
-                     flattenedArguments()[argumentIterator].asExpression = expressionIterator++;
-                     flattenedArgumentTypes()[argumentIterator++] =
-                         ArgumentType::ARGUMENT_TYPE_EXPRESSION;
+                     *makeExpression(root, expressionIterator) =
+                         PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
+                     *makeExpressionArgument(root, argumentIterator) = expressionIterator++;
                      auto inputs = std::vector<boss::ComplexExpression>();
                      inputs.push_back(std::move(input));
                      flattenArguments(argumentIterator, std::move(inputs), expressionIterator);
@@ -217,17 +217,10 @@ public:
                    [this](expressions::atoms::Symbol&& input) {
                      auto storedString =
                          storeString(&root, input.getName().c_str(), reallocateFunction);
-                     flattenedArguments()[0].asString = storedString;
-                     flattenedArgumentTypes()[0] = ArgumentType::ARGUMENT_TYPE_SYMBOL;
+                     *makeStringArgument(root, 0) = storedString;
                    },
-                   [this](std::int64_t input) {
-                     flattenedArguments()[0].asLong = input;
-                     flattenedArgumentTypes()[0] = ArgumentType::ARGUMENT_TYPE_LONG;
-                   },
-                   [this](std::double_t input) {
-                     flattenedArguments()[0].asDouble = input;
-                     flattenedArgumentTypes()[0] = ArgumentType::ARGUMENT_TYPE_DOUBLE;
-                   },
+                   [this](std::int64_t input) { *makeLongArgument(root, 0) = input; },
+                   [this](std::double_t input) { *makeDoubleArgument(root, 0) = input; },
                    [](auto&&) {
                      throw std::logic_error("uncountered unknown type during serialization");
                    }),
@@ -236,10 +229,10 @@ public:
 
   explicit SerializedExpression(RootExpression* root) : root(root) {}
 
-  boss::expressions::ExpressionArguments deserializeArguments(uint64_t firstChildOffset,
-                                                              uint64_t lastChildOffset) {
+  boss::expressions::ExpressionArguments deserializeArguments(uint64_t startChildOffset,
+                                                              uint64_t endChildOffset) {
     boss::expressions::ExpressionArguments arguments;
-    for(auto childIndex = firstChildOffset; childIndex <= lastChildOffset; childIndex++) {
+    for(auto childIndex = startChildOffset; childIndex < endChildOffset; childIndex++) {
       auto const& arg = flattenedArguments()[childIndex];
       auto const& type = flattenedArgumentTypes()[childIndex];
       auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
@@ -252,8 +245,8 @@ public:
              auto result = boss::expressions::ComplexExpression(
                  boss::Symbol(
                      viewString(root, expressionsBuffer()[arg.asExpression].symbolNameOffset)),
-                 deserializeArguments(expressionsBuffer()[arg.asExpression].firstChildOffset,
-                                      expressionsBuffer()[arg.asExpression].lastChildOffset));
+                 deserializeArguments(expressionsBuffer()[arg.asExpression].startChildOffset,
+                                      expressionsBuffer()[arg.asExpression].endChildOffset));
              return result;
            }},
           {ArgumentType::ARGUMENT_TYPE_STRING,
@@ -299,20 +292,18 @@ public:
                             [&argument, this](boss::ComplexExpression const& e) {
                               auto expressionPosition = argument.asExpression;
                               assert(expressionPosition < buffer.expressionCount());
-                              auto firstChildOffset =
-                                  buffer.expressionsBuffer()[expressionPosition].firstChildOffset;
-                              auto numberOfChildren =
-                                  buffer.expressionsBuffer()[expressionPosition].lastChildOffset -
-                                  firstChildOffset + 1;
+                              auto& startChildOffset = buffer.expressionsBuffer()[expressionPosition].startChildOffset;
+                              auto& endChildOffset = buffer.expressionsBuffer()[expressionPosition].endChildOffset;
+                              auto numberOfChildren = endChildOffset - startChildOffset;
                               if(numberOfChildren != e.getArguments().size()) {
                                 return false;
                               }
                               auto result = true;
-                              for(auto i = 0U; i < numberOfChildren; i++) {
-                                auto subExpressionPosition = firstChildOffset + i;
+                              for(auto subExpressionPosition = startChildOffset;
+                                subExpressionPosition < endChildOffset; subExpressionPosition++) {
                                 result &=
                                     (LazilyDeserializedExpression(buffer, subExpressionPosition) ==
-                                     e.getDynamicArguments().at(i));
+                                     e.getDynamicArguments().at(subExpressionPosition - numberOfChildren));
                               }
                               return result;
                             },
@@ -342,7 +333,7 @@ public:
         return s;
       }
       auto result = boss::ComplexExpression{
-          s, deserializeArguments(1, expressionsBuffer()[0].lastChildOffset)};
+          s, deserializeArguments(1, expressionsBuffer()[0].endChildOffset)};
       return result;
     }
   };

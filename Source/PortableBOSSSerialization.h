@@ -5,9 +5,9 @@
 #include <cstring>
 extern "C" {
 #else
+#include <inttypes.h>
 #include <stdbool.h>
 #include <string.h>
-#include <inttypes.h>
 #endif
 // NOLINTBEGIN(hicpp-use-auto,cppcoreguidelines-pro-type-union-access)
 
@@ -37,8 +37,8 @@ enum PortableBOSSArgumentType : size_t {
 
 struct PortableBOSSExpression {
   uint64_t symbolNameOffset;
-  uint64_t firstChildOffset;
-  uint64_t lastChildOffset;
+  uint64_t startChildOffset;
+  uint64_t endChildOffset;
 };
 
 /**
@@ -172,6 +172,11 @@ static double* makeDoubleArgument(struct PortableBOSSRootExpression* root,
 static struct PortableBOSSExpression* makeExpression(struct PortableBOSSExpression* expressions,
                                                      uint64_t expressionOutputI) {
   return &expressions[expressionOutputI];
+}
+
+static struct PortableBOSSExpression* makeExpression(struct PortableBOSSRootExpression* root,
+                                                     uint64_t expressionOutputI) {
+  return makeExpression(getExpressionSubexpressions(root), expressionOutputI);
 }
 
 static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString,
