@@ -180,14 +180,14 @@ static void SetRLEArgumentType(struct PortableBOSSRootExpression* root, uint64_t
                                uint32_t size) {
   if(size < PortableBOSSArgumentType_RLE_MINIMUM_SIZE) {
     // RLE is not supported, fallback to set the argument types
-    PortableBOSSArgumentType type = getArgumentTypes(root)[argumentOutputI];
+    enum PortableBOSSArgumentType type = getArgumentTypes(root)[argumentOutputI];
     for(uint64_t i = argumentOutputI + 1; i < argumentOutputI + size; ++i) {
       getArgumentTypes(root)[i] = type;
     }
     return;
   }
   (*(size_t*)(&getArgumentTypes(root)[argumentOutputI])) |= PortableBOSSArgumentType_RLE_BIT;
-  (*(size_t*)(&getArgumentTypes(root)[argumentOutputI + 1])) = static_cast<size_t>(size);
+  (*(size_t*)(&getArgumentTypes(root)[argumentOutputI + 1])) = (size_t)size;
 }
 
 static int64_t* makeLongArguments(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI,
