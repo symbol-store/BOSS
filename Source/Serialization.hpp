@@ -209,7 +209,7 @@ public:
                          storeString(&root, input.getHead().getName().c_str(), reallocateFunction);
                      *makeExpression(root, expressionIterator) =
                          PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
-                     *makeExpressionArgument(root, argumentIterator) = expressionIterator++;
+                     *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
                      auto inputs = std::vector<boss::ComplexExpression>();
                      inputs.push_back(std::move(input));
                      flattenArguments(argumentIterator, std::move(inputs), expressionIterator);
@@ -217,7 +217,7 @@ public:
                    [this](expressions::atoms::Symbol&& input) {
                      auto storedString =
                          storeString(&root, input.getName().c_str(), reallocateFunction);
-                     *makeStringArgument(root, 0) = storedString;
+                     *makeSymbolArgument(root, 0) = storedString;
                    },
                    [this](std::int64_t input) { *makeLongArgument(root, 0) = input; },
                    [this](std::double_t input) { *makeDoubleArgument(root, 0) = input; },
@@ -303,7 +303,7 @@ public:
                                 subExpressionPosition < endChildOffset; subExpressionPosition++) {
                                 result &=
                                     (LazilyDeserializedExpression(buffer, subExpressionPosition) ==
-                                     e.getDynamicArguments().at(subExpressionPosition - numberOfChildren));
+                                     e.getDynamicArguments().at(subExpressionPosition - startChildOffset));
                               }
                               return result;
                             },
