@@ -5,9 +5,9 @@
 #include <cstring>
 extern "C" {
 #else
+#include <inttypes.h>
 #include <stdbool.h>
 #include <string.h>
-#include <inttypes.h>
 #endif
 // NOLINTBEGIN(hicpp-use-auto,cppcoreguidelines-pro-type-union-access)
 
@@ -35,10 +35,17 @@ enum PortableBOSSArgumentType : size_t {
   ARGUMENT_TYPE_EXPRESSION
 };
 
+static size_t PortableBOSSArgumentType_RLE_MINIMUM_SIZE =
+    5; // assuming PortableBOSSArgumentType ideally stored in 1 byte only,
+       // to store RLE-type, need 1 byte to declare the type and 4 bytes to define the length
+
+static size_t PortableBOSSArgumentType_RLE_BIT =
+    0x80; // first bit of PortableBOSSArgumentType to set RLE on/off
+
 struct PortableBOSSExpression {
   uint64_t symbolNameOffset;
-  uint64_t firstChildOffset;
-  uint64_t lastChildOffset;
+  uint64_t startChildOffset;
+  uint64_t endChildOffset;
 };
 
 /**
@@ -169,9 +176,58 @@ static double* makeDoubleArgument(struct PortableBOSSRootExpression* root,
   return &getExpressionArguments(root)[argumentOutputI].asDouble;
 };
 
-static struct PortableBOSSExpression* makeExpression(struct PortableBOSSExpression* expressions,
+static void SetRLEArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI,
+                               uint32_t size) {
+  if(size < PortableBOSSArgumentType_RLE_MINIMUM_SIZE) {
+    // RLE is not supported, fallback to set the argument types
+    enum PortableBOSSArgumentType type = getArgumentTypes(root)[argumentOutputI];
+    for(uint64_t i = argumentOutputI + 1; i < argumentOutputI + size; ++i) {
+      getArgumentTypes(root)[i] = type;
+    }
+    return;
+  }
+  (*(size_t*)(&getArgumentTypes(root)[argumentOutputI])) |= PortableBOSSArgumentType_RLE_BIT;
+  (*(size_t*)(&getArgumentTypes(root)[argumentOutputI + 1])) = (size_t)size;
+}
+
+static int64_t* makeLongArguments(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI,
+                                  uint32_t size) {
+  int64_t* value = makeLongArgument(root, argumentOutputI);
+  SetRLEArgumentType(root, argumentOutputI, size);
+  return value;
+}
+
+static size_t* makeSymbolArguments(struct PortableBOSSRootExpression* root,
+                                   uint64_t argumentOutputI, uint32_t size) {
+  size_t* value = makeSymbolArgument(root, argumentOutputI);
+  SetRLEArgumentType(root, argumentOutputI, size);
+  return value;
+}
+
+static size_t* makeExpressionArguments(struct PortableBOSSRootExpression* root,
+                                       uint64_t argumentOutputI, uint64_t size) {
+  size_t* value = makeExpressionArgument(root, argumentOutputI);
+  SetRLEArgumentType(root, argumentOutputI, size);
+  return value;
+}
+
+static size_t* makeStringArguments(struct PortableBOSSRootExpression* root,
+                                   uint64_t argumentOutputI, uint64_t size) {
+  size_t* value = makeStringArgument(root, argumentOutputI);
+  SetRLEArgumentType(root, argumentOutputI, size);
+  return value;
+}
+
+static double* makeDoubleArguments(struct PortableBOSSRootExpression* root,
+                                   uint64_t argumentOutputI, uint64_t size) {
+  double* value = makeDoubleArgument(root, argumentOutputI);
+  SetRLEArgumentType(root, argumentOutputI, size);
+  return value;
+}
+
+static struct PortableBOSSExpression* makeExpression(struct PortableBOSSRootExpression* root,
                                                      uint64_t expressionOutputI) {
-  return &expressions[expressionOutputI];
+  return &getExpressionSubexpressions(root)[expressionOutputI];
 }
 
 static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString,
