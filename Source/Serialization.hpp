@@ -288,27 +288,29 @@ public:
         return false;
       }
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
-      return std::visit(utilities::overload(
-                            [&argument, this](boss::ComplexExpression const& e) {
-                              auto expressionPosition = argument.asExpression;
-                              assert(expressionPosition < buffer.expressionCount());
-                              auto& startChildOffset = buffer.expressionsBuffer()[expressionPosition].startChildOffset;
-                              auto& endChildOffset = buffer.expressionsBuffer()[expressionPosition].endChildOffset;
-                              auto numberOfChildren = endChildOffset - startChildOffset;
-                              if(numberOfChildren != e.getArguments().size()) {
-                                return false;
-                              }
-                              auto result = true;
-                              for(auto subExpressionPosition = startChildOffset;
-                                subExpressionPosition < endChildOffset; subExpressionPosition++) {
-                                result &=
-                                    (LazilyDeserializedExpression(buffer, subExpressionPosition) ==
-                                     e.getDynamicArguments().at(subExpressionPosition - startChildOffset));
-                              }
-                              return result;
-                            },
-                            [&](auto v) { return as<decltype(v)>(argument) == v; }),
-                        other);
+      return std::visit(
+          utilities::overload(
+              [&argument, this](boss::ComplexExpression const& e) {
+                auto expressionPosition = argument.asExpression;
+                assert(expressionPosition < buffer.expressionCount());
+                auto& startChildOffset =
+                    buffer.expressionsBuffer()[expressionPosition].startChildOffset;
+                auto& endChildOffset =
+                    buffer.expressionsBuffer()[expressionPosition].endChildOffset;
+                auto numberOfChildren = endChildOffset - startChildOffset;
+                if(numberOfChildren != e.getArguments().size()) {
+                  return false;
+                }
+                auto result = true;
+                for(auto subExpressionPosition = startChildOffset;
+                    subExpressionPosition < endChildOffset; subExpressionPosition++) {
+                  result &= (LazilyDeserializedExpression(buffer, subExpressionPosition) ==
+                             e.getDynamicArguments().at(subExpressionPosition - startChildOffset));
+                }
+                return result;
+              },
+              [&](auto v) { return as<decltype(v)>(argument) == v; }),
+          other);
       ;
     }
   };
