@@ -35,11 +35,11 @@ enum PortableBOSSArgumentType : size_t {
   ARGUMENT_TYPE_EXPRESSION
 };
 
-static size_t PortableBOSSArgumentType_RLE_MINIMUM_SIZE =
+static size_t const PortableBOSSArgumentType_RLE_MINIMUM_SIZE =
     5; // assuming PortableBOSSArgumentType ideally stored in 1 byte only,
        // to store RLE-type, need 1 byte to declare the type and 4 bytes to define the length
 
-static size_t PortableBOSSArgumentType_RLE_BIT =
+static size_t const PortableBOSSArgumentType_RLE_BIT =
     0x80; // first bit of PortableBOSSArgumentType to set RLE on/off
 
 struct PortableBOSSExpression {
@@ -180,14 +180,16 @@ static void SetRLEArgumentType(struct PortableBOSSRootExpression* root, uint64_t
                                uint32_t size) {
   if(size < PortableBOSSArgumentType_RLE_MINIMUM_SIZE) {
     // RLE is not supported, fallback to set the argument types
-    enum PortableBOSSArgumentType type = getArgumentTypes(root)[argumentOutputI];
+    enum PortableBOSSArgumentType const type = getArgumentTypes(root)[argumentOutputI];
     for(uint64_t i = argumentOutputI + 1; i < argumentOutputI + size; ++i) {
       getArgumentTypes(root)[i] = type;
     }
     return;
   }
-  (*(size_t*)(&getArgumentTypes(root)[argumentOutputI])) |= PortableBOSSArgumentType_RLE_BIT;
-  (*(size_t*)(&getArgumentTypes(root)[argumentOutputI + 1])) = (size_t)size;
+  (*(size_t*)(&getArgumentTypes( // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      root)[argumentOutputI])) |= PortableBOSSArgumentType_RLE_BIT;
+  (*(size_t*)(&getArgumentTypes( // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      root)[argumentOutputI + 1])) = (size_t)size;
 }
 
 static int64_t* makeLongArguments(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI,

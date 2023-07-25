@@ -42,7 +42,7 @@ template <void* (*allocateFunction)(size_t) = std::malloc,
           void* (*reallocateFunction)(void*, size_t) = std::realloc,
           void (*freeFunction)(void*) = std::free>
 struct SerializedExpression {
-  RootExpression* root;
+  RootExpression* root = nullptr;
   uint64_t argumentCount() const { return root->argumentCount; };
   uint64_t expressionCount() const { return root->expressionCount; };
 
@@ -346,9 +346,9 @@ public:
     return root;
   };
 
-  SerializedExpression(SerializedExpression&&) = default;
+  SerializedExpression(SerializedExpression&&)  noexcept = default;
   SerializedExpression(SerializedExpression const&) = delete;
-  SerializedExpression& operator=(SerializedExpression&&) = default;
+  SerializedExpression& operator=(SerializedExpression&&)  noexcept = default;
   SerializedExpression& operator=(SerializedExpression const&) = delete;
   ~SerializedExpression() { freeExpressionTree(root, freeFunction); }
 };
