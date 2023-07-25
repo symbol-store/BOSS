@@ -346,9 +346,9 @@ public:
     return root;
   };
 
-  SerializedExpression(SerializedExpression&&)  noexcept = default;
+  SerializedExpression(SerializedExpression&&) noexcept = default;
   SerializedExpression(SerializedExpression const&) = delete;
-  SerializedExpression& operator=(SerializedExpression&&)  noexcept = default;
+  SerializedExpression& operator=(SerializedExpression&&) noexcept = default;
   SerializedExpression& operator=(SerializedExpression const&) = delete;
   ~SerializedExpression() { freeExpressionTree(root, freeFunction); }
 };
