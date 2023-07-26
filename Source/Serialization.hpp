@@ -163,7 +163,7 @@ struct SerializedExpression {
                         childrenCountRunningSum += childrenCount;
                         children.push_back(std::forward<decltype(argument)>(argument));
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                         long long>) {
+                                                         int64_t>) {
                         *makeLongArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          boss::Symbol>) {
