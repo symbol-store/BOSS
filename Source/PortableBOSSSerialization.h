@@ -176,8 +176,8 @@ static double* makeDoubleArgument(struct PortableBOSSRootExpression* root,
   return &getExpressionArguments(root)[argumentOutputI].asDouble;
 };
 
-static void SetRLEArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI,
-                               uint32_t size) {
+static void setRLEArgumentFlagOrPropagateTypes(struct PortableBOSSRootExpression* root,
+                                               uint64_t argumentOutputI, uint32_t size) {
   if(size < PortableBOSSArgumentType_RLE_MINIMUM_SIZE) {
     // RLE is not supported, fallback to set the argument types
     enum PortableBOSSArgumentType const type = getArgumentTypes(root)[argumentOutputI];
@@ -192,38 +192,38 @@ static void SetRLEArgumentType(struct PortableBOSSRootExpression* root, uint64_t
       root)[argumentOutputI + 1])) = (size_t)size;
 }
 
-static int64_t* makeLongArguments(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI,
-                                  uint32_t size) {
+static int64_t* makeLongArgumentsRun(struct PortableBOSSRootExpression* root,
+                                     uint64_t argumentOutputI, uint32_t size) {
   int64_t* value = makeLongArgument(root, argumentOutputI);
-  SetRLEArgumentType(root, argumentOutputI, size);
+  setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI, size);
   return value;
 }
 
-static size_t* makeSymbolArguments(struct PortableBOSSRootExpression* root,
-                                   uint64_t argumentOutputI, uint32_t size) {
+static size_t* makeSymbolArgumentsRun(struct PortableBOSSRootExpression* root,
+                                      uint64_t argumentOutputI, uint32_t size) {
   size_t* value = makeSymbolArgument(root, argumentOutputI);
-  SetRLEArgumentType(root, argumentOutputI, size);
+  setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI, size);
   return value;
 }
 
-static size_t* makeExpressionArguments(struct PortableBOSSRootExpression* root,
-                                       uint64_t argumentOutputI, uint64_t size) {
+static size_t* makeExpressionArgumentsRun(struct PortableBOSSRootExpression* root,
+                                          uint64_t argumentOutputI, uint64_t size) {
   size_t* value = makeExpressionArgument(root, argumentOutputI);
-  SetRLEArgumentType(root, argumentOutputI, size);
+  setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI, size);
   return value;
 }
 
-static size_t* makeStringArguments(struct PortableBOSSRootExpression* root,
-                                   uint64_t argumentOutputI, uint64_t size) {
+static size_t* makeStringArgumentsRun(struct PortableBOSSRootExpression* root,
+                                      uint64_t argumentOutputI, uint64_t size) {
   size_t* value = makeStringArgument(root, argumentOutputI);
-  SetRLEArgumentType(root, argumentOutputI, size);
+  setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI, size);
   return value;
 }
 
-static double* makeDoubleArguments(struct PortableBOSSRootExpression* root,
-                                   uint64_t argumentOutputI, uint64_t size) {
+static double* makeDoubleArgumentsRun(struct PortableBOSSRootExpression* root,
+                                      uint64_t argumentOutputI, uint64_t size) {
   double* value = makeDoubleArgument(root, argumentOutputI);
-  SetRLEArgumentType(root, argumentOutputI, size);
+  setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI, size);
   return value;
 }
 
