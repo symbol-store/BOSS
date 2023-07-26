@@ -129,9 +129,9 @@ struct SerializedExpression {
 
     std::for_each(
         std::move_iterator(inputs.begin()), std::move_iterator(inputs.end()),
-        [&](boss::ComplexExpression&& input) {
+        [this, &argumentOutputI, &children, &expressionOutputI, nextLayerOffset,
+         &childrenCountRunningSum](boss::ComplexExpression&& input) {
           auto [head, statics, dynamics, spans] = std::move(input).decompose();
-
           flattenArgumentsInTuple(
               statics,
               std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
@@ -239,9 +239,9 @@ public:
           {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
           {ArgumentType::ARGUMENT_TYPE_DOUBLE, [&] { return (arg.asDouble); }},
           {ArgumentType::ARGUMENT_TYPE_SYMBOL,
-           [&] { return boss::Symbol(viewString(root, arg.asString)); }},
+           [&arg, this] { return boss::Symbol(viewString(root, arg.asString)); }},
           {ArgumentType::ARGUMENT_TYPE_EXPRESSION,
-           [&]() -> boss::Expression {
+           [&arg, this]() -> boss::Expression {
              auto result = boss::expressions::ComplexExpression(
                  boss::Symbol(
                      viewString(root, expressionsBuffer()[arg.asExpression].symbolNameOffset)),
@@ -250,7 +250,7 @@ public:
              return result;
            }},
           {ArgumentType::ARGUMENT_TYPE_STRING,
-           [&] { return std::string(viewString(root, arg.asString)); }}};
+           [&arg, this] { return std::string(viewString(root, arg.asString)); }}};
       arguments.push_back(functors.at(type)());
     }
     return arguments;

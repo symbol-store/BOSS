@@ -177,7 +177,7 @@ public:
     ::std::transform(::std::make_move_iterator(begin(expr.getArguments())),
                      ::std::make_move_iterator(end(expr.getArguments())),
                      begin(expr.getArguments()),
-                     [&](auto&& e) { return evaluate(::std::forward<decltype(e)>(e), false); });
+                     [this](auto&& e) { return evaluate(::std::forward<decltype(e)>(e), false); });
     return ::std::move(expr);
   }
 
