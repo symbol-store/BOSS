@@ -71,7 +71,7 @@ char const* bossSymbolToNewString(BOSSSymbol const* arg) {
 }
 
 /**
- *     bool = 0, int = 1, long = 2, double = 3 , ::std::string = 4, Symbol = 5 , ComplexExpression = 6
+ *   bool = 0, int = 1, long = 2, double = 3 , ::std::string = 4, Symbol = 5 , ComplexExpression = 6
  */
 size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
   static_assert(

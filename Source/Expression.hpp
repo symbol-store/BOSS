@@ -218,13 +218,10 @@ public:
           } else {
             output << "valueless by exception";
           }
-          static auto typenames =
-              ::std::map<::std::type_index, char const*>{{typeid(int32_t), "int"},
-                                                         {typeid(int64_t), "long"},
-                                                         {typeid(Symbol), "Symbol"},
-                                                         {typeid(bool), "bool"},
-                                                         {typeid(double_t), "double"},
-                                                         {typeid(::std::string), "string"}};
+          static auto typenames = ::std::map<::std::type_index, char const*>{
+              {typeid(int32_t), "int"},     {typeid(int64_t), "long"},
+              {typeid(Symbol), "Symbol"},   {typeid(bool), "bool"},
+              {typeid(double_t), "double"}, {typeid(::std::string), "string"}};
           output << "\", expected "
                  << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
                                                          : typeid(TargetType).name());
