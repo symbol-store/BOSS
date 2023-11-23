@@ -372,7 +372,7 @@ TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int32_t, std::int64_t,
-                   std::double_t) {
+                   std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto argument = vector<TestType>(input);
   auto s = boss::Span<TestType>(std::move(argument));
@@ -386,7 +386,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int32_t,
-                   std::int64_t, std::double_t) {
+                   std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto argument = vector<TestType>(input);
   auto s = boss::Span<TestType>(argument);
@@ -400,7 +400,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]
 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]",
-                   std::int32_t, std::int64_t, std::double_t) {
+                   std::int32_t, std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto const argument = vector<TestType>(input);
   auto s = boss::Span<TestType const>(argument);
@@ -414,7 +414,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", std::int32_t,
-                   std::int64_t, std::double_t) {
+                   std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto vectorExpression = "duh"_(boss::Span<TestType>(vector(input)));
   auto clonedVectorExpression = vectorExpression.clone(CloneReason::FOR_TESTING);
@@ -1327,7 +1327,7 @@ TEST_CASE("TPC-H", "[tpch]") {
 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int32_t, std::int64_t,
-                   std::double_t) {
+                   std::float_t, std::double_t) {
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {
