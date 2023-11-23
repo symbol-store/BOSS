@@ -223,9 +223,9 @@ public:
               {typeid(int64_t), "long"},    {typeid(float_t), "float"},
               {typeid(double_t), "double"}, {typeid(::std::string), "string"},
               {typeid(Symbol), "Symbol"}};
-          output << "\", expected ",
-              << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
-                                                      : typeid(TargetType).name());
+          output << "\", expected "
+                 << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
+                                                         : typeid(TargetType).name());
           return output.str();
         }()) {}
 };

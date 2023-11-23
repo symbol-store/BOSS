@@ -257,7 +257,10 @@ public:
       auto const& arg = flattenedArguments()[childIndex];
       auto const& type = flattenedArgumentTypes()[childIndex];
       auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
+        {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
+        {ArgumentType::ARGUMENT_TYPE_INT, [&] { return (arg.asInt); }},
           {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
+          {ArgumentType::ARGUMENT_TYPE_FLOAT, [&] { return (arg.asFloat); }},
           {ArgumentType::ARGUMENT_TYPE_DOUBLE, [&] { return (arg.asDouble); }},
           {ArgumentType::ARGUMENT_TYPE_SYMBOL,
            [&arg, this] { return boss::Symbol(viewString(root, arg.asString)); }},
@@ -344,8 +347,12 @@ public:
     switch(flattenedArgumentTypes()[0]) {
     case ArgumentType::ARGUMENT_TYPE_BOOL:
       return flattenedArguments()[0].asBool;
+    case ArgumentType::ARGUMENT_TYPE_INT:
+      return flattenedArguments()[0].asInt;
     case ArgumentType::ARGUMENT_TYPE_LONG:
       return flattenedArguments()[0].asLong;
+    case ArgumentType::ARGUMENT_TYPE_FLOAT:
+      return flattenedArguments()[0].asFloat;
     case ArgumentType::ARGUMENT_TYPE_DOUBLE:
       return flattenedArguments()[0].asDouble;
     case ArgumentType::ARGUMENT_TYPE_STRING:

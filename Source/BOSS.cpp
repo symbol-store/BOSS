@@ -77,21 +77,29 @@ char const* bossSymbolToNewString(BOSSSymbol const* arg) {
  *  bool = 0, int = 1, long = 2, float = 3, double = 4 , std::string = 5, Symbol = 6,
  *  ComplexExpression = 7
  */
+
 size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
   static_assert(
-      ::std::is_same_v<bool, ::std::variant_alternative_t<0, boss::Expression::SuperType>>);
-  static_assert(::std::is_same_v<::std::int32_t,
-                                 ::std::variant_alternative_t<1, boss::Expression::SuperType>>);
-  static_assert(::std::is_same_v<::std::int64_t,
-                                 ::std::variant_alternative_t<2, boss::Expression::SuperType>>);
-  static_assert(::std::is_same_v<::std::float_t,
-                                 ::std::variant_alternative_t<3, boss::Expression::SuperType>>);
-  static_assert(::std::is_same_v<::std::double_t,
-                                 ::std::variant_alternative_t<4, boss::Expression::SuperType>>);
-  static_assert(::std::is_same_v<::std::string,
-                                 ::std::variant_alternative_t<5, boss::Expression::SuperType>>);
+      ::std::is_same_v<bool,
+                       ::std::variant_alternative_t<0, boss::Expression::SuperType>>); // NOLINT
   static_assert(
-      ::std::is_same_v<boss::Symbol, ::std::variant_alternative_t<6, boss::Expression::SuperType>>);
+      ::std::is_same_v<::std::int32_t,
+                       ::std::variant_alternative_t<1, boss::Expression::SuperType>>); // NOLINT
+  static_assert(
+      ::std::is_same_v<::std::int64_t,
+                       ::std::variant_alternative_t<2, boss::Expression::SuperType>>); // NOLINT
+  static_assert(
+      ::std::is_same_v<::std::float_t,
+                       ::std::variant_alternative_t<3, boss::Expression::SuperType>>); // NOLINT
+  static_assert(
+      ::std::is_same_v<::std::double_t,
+                       ::std::variant_alternative_t<4, boss::Expression::SuperType>>); // NOLINT
+  static_assert(
+      ::std::is_same_v<::std::string,
+                       ::std::variant_alternative_t<5, boss::Expression::SuperType>>); // NOLINT
+  static_assert(
+      ::std::is_same_v<boss::Symbol,
+                       ::std::variant_alternative_t<6, boss::Expression::SuperType>>); // NOLINT
   static_assert(
       ::std::is_same_v<boss::ComplexExpression,
                        ::std::variant_alternative_t<7, boss::Expression::SuperType>>); // NOLINT
