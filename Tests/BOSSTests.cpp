@@ -288,11 +288,12 @@ TEST_CASE("Merge a static and a dynamic complex expressions", "[expressions]") {
 }
 
 TEST_CASE("holds_alternative for complex expression's arguments", "[expressions]") {
-  auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto const& expr = "List"_("howdie"_(), 1, (int64_t)1, "unknown"_, "hello world"s);
   CHECK(holds_alternative<boss::ComplexExpression>(expr.getArguments().at(0)));
   CHECK(holds_alternative<int32_t>(expr.getArguments().at(1)));
-  CHECK(holds_alternative<boss::Symbol>(expr.getArguments().at(2)));
-  CHECK(holds_alternative<std::string>(expr.getArguments().at(3)));
+  CHECK(holds_alternative<int64_t>(expr.getArguments().at(2)));
+  CHECK(holds_alternative<boss::Symbol>(expr.getArguments().at(3)));
+  CHECK(holds_alternative<std::string>(expr.getArguments().at(4)));
 }
 
 TEST_CASE("get_if for complex expression's arguments", "[expressions]") {
