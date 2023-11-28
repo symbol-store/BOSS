@@ -171,8 +171,7 @@ struct SerializedExpression {
                         auto head = viewString(root, storedString);
                         childrenCountRunningSum += childrenCount;
                         children.push_back(std::forward<decltype(argument)>(argument));
-                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                         bool>) {
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>, bool>) {
                         *makeBoolArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          int32_t>) {
@@ -257,8 +256,8 @@ public:
       auto const& arg = flattenedArguments()[childIndex];
       auto const& type = flattenedArgumentTypes()[childIndex];
       auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
-        {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
-        {ArgumentType::ARGUMENT_TYPE_INT, [&] { return (arg.asInt); }},
+          {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
+          {ArgumentType::ARGUMENT_TYPE_INT, [&] { return (arg.asInt); }},
           {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
           {ArgumentType::ARGUMENT_TYPE_FLOAT, [&] { return (arg.asFloat); }},
           {ArgumentType::ARGUMENT_TYPE_DOUBLE, [&] { return (arg.asDouble); }},
