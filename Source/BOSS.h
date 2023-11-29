@@ -15,6 +15,7 @@ char const* symbolToNewString(struct BOSSSymbol const* arg);
 
 struct BOSSExpression;
 struct BOSSExpression* boolToNewBOSSExpression(bool value);
+struct BOSSExpression* charToNewBOSSExpression(int8_t value);
 struct BOSSExpression* intToNewBOSSExpression(int32_t value);
 struct BOSSExpression* longToNewBOSSExpression(int64_t value);
 struct BOSSExpression* floatToNewBOSSExpression(float value);
@@ -26,12 +27,13 @@ struct BOSSExpression* newComplexBOSSExpression(struct BOSSSymbol* head, size_t 
                                                 struct BOSSExpression* arguments[]);
 
 /**
- *  bool = 0, int = 1, long = 2, float = 3, double = 4 , std::string = 5, Symbol = 6,
- *  ComplexExpression = 7
+ *  bool = 0, char = 1, int = 2, long = 3, float = 4, double = 5, std::string = 6, Symbol = 7,
+ *  ComplexExpression = 8
  */
 size_t getBOSSExpressionTypeID(struct BOSSExpression const* arg);
 
 bool getBoolValueFromBOSSExpression(struct BOSSExpression const* arg);
+int8_t getCharValueFromBOSSExpression(struct BOSSExpression const* arg);
 int32_t getIntValueFromBOSSExpression(struct BOSSExpression const* arg);
 int64_t getLongValueFromBOSSExpression(struct BOSSExpression const* arg);
 float getFloatValueFromBOSSExpression(struct BOSSExpression const* arg);
