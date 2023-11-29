@@ -25,9 +25,9 @@ using boss::expressions::generic::holds_alternative;
 namespace boss {
 using boss::expressions::atoms::Span;
 };
-using std::int8_t;
 using std::int32_t;
 using std::int64_t;
+using std::int8_t;
 
 namespace {
 std::vector<string> librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
