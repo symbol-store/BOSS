@@ -20,6 +20,9 @@ static_assert(
     std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_BOOL, boss::Expression>, bool>,
     "type ids wrong");
 static_assert(
+    std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_CHAR, boss::Expression>, std::int8_t>,
+    "type ids wrong");
+static_assert(
     std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_INT, boss::Expression>, std::int32_t>,
     "type ids wrong");
 static_assert(
@@ -174,6 +177,9 @@ struct SerializedExpression {
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>, bool>) {
                         *makeBoolArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                         int8_t>) {
+                        *makeCharArgument(root, argumentOutputI++) = argument;
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          int32_t>) {
                         *makeIntArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
@@ -237,6 +243,7 @@ public:
                      *makeSymbolArgument(root, 0) = storedString;
                    },
                    [this](bool input) { *makeBoolArgument(root, 0) = input; },
+                   [this](std::int8_t input) { *makeCharArgument(root, 0) = input; },
                    [this](std::int32_t input) { *makeIntArgument(root, 0) = input; },
                    [this](std::int64_t input) { *makeLongArgument(root, 0) = input; },
                    [this](std::float_t input) { *makeFloatArgument(root, 0) = input; },
@@ -257,6 +264,7 @@ public:
       auto const& type = flattenedArgumentTypes()[childIndex];
       auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
           {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
+          {ArgumentType::ARGUMENT_TYPE_CHAR, [&] { return (arg.asChar); }},
           {ArgumentType::ARGUMENT_TYPE_INT, [&] { return (arg.asInt); }},
           {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
           {ArgumentType::ARGUMENT_TYPE_FLOAT, [&] { return (arg.asFloat); }},
@@ -293,6 +301,7 @@ public:
 
     template <typename T> T as(Argument const& arg) const;
     template <> bool as<bool>(Argument const& arg) const { return arg.asBool; };
+    template <> std::int8_t as<std::int8_t>(Argument const& arg) const { return arg.asChar; };
     template <> std::int32_t as<std::int32_t>(Argument const& arg) const { return arg.asInt; };
     template <> std::int64_t as<std::int64_t>(Argument const& arg) const { return arg.asLong; };
     template <> std::float_t as<std::float_t>(Argument const& arg) const { return arg.asFloat; };
@@ -346,6 +355,8 @@ public:
     switch(flattenedArgumentTypes()[0]) {
     case ArgumentType::ARGUMENT_TYPE_BOOL:
       return flattenedArguments()[0].asBool;
+    case ArgumentType::ARGUMENT_TYPE_CHAR:
+      return flattenedArguments()[0].asChar;
     case ArgumentType::ARGUMENT_TYPE_INT:
       return flattenedArguments()[0].asInt;
     case ArgumentType::ARGUMENT_TYPE_LONG:

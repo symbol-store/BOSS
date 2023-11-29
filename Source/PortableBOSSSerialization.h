@@ -20,6 +20,7 @@ typedef size_t PortableBOSSExpressionIndex;
 
 union PortableBOSSArgumentValue {
   bool asBool;
+  int8_t asChar;
   int32_t asInt;
   int64_t asLong;
   float asFloat;
@@ -30,6 +31,7 @@ union PortableBOSSArgumentValue {
 
 enum PortableBOSSArgumentType : size_t {
   ARGUMENT_TYPE_BOOL,
+  ARGUMENT_TYPE_CHAR,
   ARGUMENT_TYPE_INT,
   ARGUMENT_TYPE_LONG,
   ARGUMENT_TYPE_FLOAT,
@@ -143,6 +145,15 @@ static bool* makeBoolArgument(struct PortableBOSSRootExpression* root, uint64_t 
   return &getExpressionArguments(root)[argumentOutputI].asBool;
 };
 
+static int8_t* makeCharArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_CHAR = PortableBOSSArgumentType::ARGUMENT_TYPE_CHAR;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_CHAR;
+  return &getExpressionArguments(root)[argumentOutputI].asChar;
+};
+  
 static int32_t* makeIntArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
 #ifdef __cplusplus
   auto ARGUMENT_TYPE_INT = PortableBOSSArgumentType::ARGUMENT_TYPE_INT;
@@ -222,6 +233,13 @@ static void setRLEArgumentFlagOrPropagateTypes(struct PortableBOSSRootExpression
       root)[argumentOutputI + 1])) = (size_t)size;
 }
 
+static int8_t* makeCharArgumentsRun(struct PortableBOSSRootExpression* root,
+                                    uint64_t argumentOutputI, uint32_t size) {
+  int8_t* value = makeCharArgument(root, argumentOutputI);
+  setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI, size);
+  return value;
+}
+  
 static int32_t* makeIntArgumentsRun(struct PortableBOSSRootExpression* root,
                                     uint64_t argumentOutputI, uint32_t size) {
   int32_t* value = makeIntArgument(root, argumentOutputI);
