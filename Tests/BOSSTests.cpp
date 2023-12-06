@@ -1352,11 +1352,10 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int32_t, std::i
   auto input = GENERATE(take(3, chunk(50, random<TestType>(1, 1000))));
   auto sum = std::accumulate(begin(input), end(input), TestType());
 
-  if constexpr(std::is_same_v<TestType, std::float_t> || std::is_same_v<TestType, std::double_t>) {
-    auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
-    CHECK(get<std::TestType>(result) == Catch::Detail::Approx((std::TestType)sum));
+  auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
+  if constexpr(std::is_floating_point_v<TestType>) {
+    CHECK(get<TestType>(result) == Catch::Detail::Approx((TestType)sum));
   } else {
-    auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
     CHECK(get<TestType>(result) == sum);
   }
 }
