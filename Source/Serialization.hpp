@@ -66,7 +66,7 @@ struct SerializedExpression {
   };
 
   static uint64_t countArguments(boss::Expression const& input) {
-    uint64_t res = std::visit(
+    return std::visit(
         [](auto& input) -> size_t {
           if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
             return 1 +
@@ -90,7 +90,6 @@ struct SerializedExpression {
           return 1;
         },
         input);
-    return res;
   }
 
   //////////////////////////////// Count Expressions ///////////////////////////////
@@ -308,7 +307,7 @@ public:
 
       if(isRLE) {
 
-        ArgumentType const argType = (ArgumentType)(type & 0x0f);
+        auto const argType = (ArgumentType)(type & (~ArgumentType_RLE_BIT));
         size_t size = flattenedArgumentTypes()[childIndex + 1];
         auto prevChildIndex = childIndex;
 
