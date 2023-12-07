@@ -4,7 +4,6 @@
 #include <cassert>
 #include <cstdlib>
 #include <inttypes.h>
-#include <iostream>
 #include <iterator>
 #include <optional>
 #include <string.h>
