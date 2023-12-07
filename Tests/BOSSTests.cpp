@@ -1448,6 +1448,25 @@ TEST_CASE("Laxy Expression Serialization") {
   }
 }
 
+TEST_CASE("Expression Serialization With Spans") {
+  
+  auto const dataSetSize = 10;
+  std::vector<int64_t> vec1(dataSetSize);
+  std::vector<int64_t> vec2(dataSetSize);
+  std::iota(vec1.begin(), vec1.end(), 0);
+  std::iota(vec2.begin(), vec2.end(), dataSetSize);
+  auto const plans = std::array<boss::Expression, 2>{
+    "Table"_("List"_(boss::Span<int64_t>(vector(vec1))),
+	     "List"_(boss::Span<int64_t>(vector(vec2)))),
+    "Table"_("Column"_("List"_(boss::Span<int64_t>(vector(vec1)))),
+		       "Column"_("List"_(boss::Span<int64_t>(vector(vec2)))))};
+
+  for(auto const& plan : plans) {
+    CHECK(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
+              .deserialize() == plan);
+  }
+}
+
 int main(int argc, char* argv[]) {
   Catch::Session session;
   session.cli(session.cli() | Catch::clara::Opt(librariesToTest, "library")["--library"]);
