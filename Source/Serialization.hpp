@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <inttypes.h>
+#include <iostream>
 #include <iterator>
 #include <optional>
 #include <string.h>
@@ -33,6 +34,9 @@ using Argument = PortableBOSSArgumentValue;
 using ArgumentType = PortableBOSSArgumentType;
 using Expression = PortableBOSSExpression;
 using RootExpression = PortableBOSSRootExpression;
+
+static const size_t& ArgumentType_RLE_MINIMUM_SIZE = PortableBOSSArgumentType_RLE_MINIMUM_SIZE;
+static const size_t& ArgumentType_RLE_BIT = PortableBOSSArgumentType_RLE_BIT;
 /**
  * Implements serialization/deserialization of a (complex) expression to/from a c-allocated buffer.
  * The buffer contains no pointers so it can be safely written to disk or passed to a different
@@ -42,6 +46,9 @@ template <void* (*allocateFunction)(size_t) = std::malloc,
           void* (*reallocateFunction)(void*, size_t) = std::realloc,
           void (*freeFunction)(void*) = std::free>
 struct SerializedExpression {
+  using BOSSArgumentPair =
+      std::pair<boss::expressions::ExpressionArguments, boss::expressions::ExpressionSpanArguments>;
+
   RootExpression* root = nullptr;
   uint64_t argumentCount() const { return root->argumentCount; };
   uint64_t expressionCount() const { return root->expressionCount; };
@@ -59,7 +66,7 @@ struct SerializedExpression {
   };
 
   static uint64_t countArguments(boss::Expression const& input) {
-    return std::visit(
+    uint64_t res = std::visit(
         [](auto& input) -> size_t {
           if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
             return 1 +
@@ -72,11 +79,18 @@ struct SerializedExpression {
                                    [](auto runningSum, auto const& argument) {
                                      return runningSum + countArguments(argument);
                                    }) +
-                   input.getSpanArguments().size();
+                   std::accumulate(
+                       input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
+                       [](auto runningSum, auto const& argument) {
+                         return runningSum +
+                                std::visit([&](auto const& argument) { return argument.size(); },
+                                           std::forward<decltype(argument)>(argument));
+                       });
           }
           return 1;
         },
         input);
+    return res;
   }
 
   //////////////////////////////// Count Expressions ///////////////////////////////
@@ -117,12 +131,21 @@ struct SerializedExpression {
 
   uint64_t flattenArguments(uint64_t argumentOutputI, std::vector<boss::ComplexExpression>&& inputs,
                             uint64_t& expressionOutputI) {
+    for(auto& input : inputs) {
+    }
     auto const nextLayerOffset =
         argumentOutputI +
         std::accumulate(inputs.begin(), inputs.end(), 0, [](auto count, auto const& expression) {
           return count +
                  std::tuple_size_v<std::decay_t<decltype(expression.getStaticArguments())>> +
-                 expression.getDynamicArguments().size() + expression.getSpanArguments().size();
+                 expression.getDynamicArguments().size() +
+                 std::accumulate(
+                     expression.getSpanArguments().begin(), expression.getSpanArguments().end(), 0,
+                     [](auto runningSum, auto const& spanArg) {
+                       return runningSum +
+                              std::visit([&](auto const& spanArg) { return spanArg.size(); },
+                                         std::forward<decltype(spanArg)>(spanArg));
+                     });
         });
     auto children = std::vector<boss::ComplexExpression>();
     auto childrenCountRunningSum = 0UL;
@@ -149,7 +172,15 @@ struct SerializedExpression {
                             std::tuple_size_v<
                                 std::decay_t<decltype(argument.getStaticArguments())>> +
                             argument.getDynamicArguments().size() +
-                            argument.getSpanArguments().size();
+                            std::accumulate(
+                                argument.getSpanArguments().begin(),
+                                argument.getSpanArguments().end(), 0,
+                                [](auto runningSum, auto const& spanArg) {
+                                  return runningSum +
+                                         std::visit(
+                                             [&](auto const& spanArg) { return spanArg.size(); },
+                                             std::forward<decltype(spanArg)>(spanArg));
+                                });
                         auto const headOffset = argumentOutputI;
                         auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
                         auto const endChildOffset =
@@ -180,6 +211,45 @@ struct SerializedExpression {
                         *makeDoubleArgument(root, argumentOutputI++) = argument;
                       } else {
                         throw std::runtime_error("unknown type");
+                      }
+                    },
+                    std::forward<decltype(argument)>(argument));
+              });
+          std::for_each(
+              std::make_move_iterator(spans.begin()), std::make_move_iterator(spans.end()),
+              [this, &argumentOutputI](auto&& argument) {
+                std::visit(
+                    [&](auto&& spanArgument) {
+                      auto spanSize = spanArgument.size();
+                      if(spanSize >= ArgumentType_RLE_MINIMUM_SIZE) {
+                        auto const& arg0 = spanArgument[0];
+                        if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
+                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                            *makeLongArgument(root, argumentOutputI++) = arg;
+                          });
+                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, double>) {
+                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                            *makeDoubleArgument(root, argumentOutputI++) = arg;
+                          });
+                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
+                                                           std::string>) {
+                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                            auto storedString = storeString(&root, arg.c_str(), reallocateFunction);
+                            *makeStringArgument(root, argumentOutputI++) = storedString;
+                          });
+                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
+                                                           boss::Symbol>) {
+                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                            auto storedString =
+                                storeString(&root, arg.getName().c_str(), reallocateFunction);
+                            *makeSymbolArgument(root, argumentOutputI++) = storedString;
+                          });
+                        } else {
+                          throw std::runtime_error("unknown type");
+                        }
+                        setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI - spanSize,
+                                                           spanSize);
+                        //  CHECK HERE NEXT
                       }
                     },
                     std::forward<decltype(argument)>(argument));
@@ -229,31 +299,90 @@ public:
 
   explicit SerializedExpression(RootExpression* root) : root(root) {}
 
-  boss::expressions::ExpressionArguments deserializeArguments(uint64_t startChildOffset,
-                                                              uint64_t endChildOffset) {
+  BOSSArgumentPair deserializeArguments(uint64_t startChildOffset, uint64_t endChildOffset) {
     boss::expressions::ExpressionArguments arguments;
+    boss::expressions::ExpressionSpanArguments spanArguments;
     for(auto childIndex = startChildOffset; childIndex < endChildOffset; childIndex++) {
-      auto const& arg = flattenedArguments()[childIndex];
       auto const& type = flattenedArgumentTypes()[childIndex];
-      auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
-          {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
-          {ArgumentType::ARGUMENT_TYPE_DOUBLE, [&] { return (arg.asDouble); }},
-          {ArgumentType::ARGUMENT_TYPE_SYMBOL,
-           [&arg, this] { return boss::Symbol(viewString(root, arg.asString)); }},
-          {ArgumentType::ARGUMENT_TYPE_EXPRESSION,
-           [&arg, this]() -> boss::Expression {
-             auto result = boss::expressions::ComplexExpression(
-                 boss::Symbol(
-                     viewString(root, expressionsBuffer()[arg.asExpression].symbolNameOffset)),
-                 deserializeArguments(expressionsBuffer()[arg.asExpression].startChildOffset,
-                                      expressionsBuffer()[arg.asExpression].endChildOffset));
-             return result;
-           }},
-          {ArgumentType::ARGUMENT_TYPE_STRING,
-           [&arg, this] { return std::string(viewString(root, arg.asString)); }}};
-      arguments.push_back(functors.at(type)());
+      auto const& isRLE = type & ArgumentType_RLE_BIT;
+
+      if(isRLE) {
+
+        ArgumentType const argType = (ArgumentType)(type & 0x0f);
+        size_t size = flattenedArgumentTypes()[childIndex + 1];
+        auto prevChildIndex = childIndex;
+
+        auto const spanFunctors =
+            std::unordered_map<ArgumentType,
+                               std::function<boss::expressions::ExpressionSpanArgument()>>{
+                {ArgumentType::ARGUMENT_TYPE_LONG,
+                 [&] {
+                   std::vector<int64_t> data;
+                   data.reserve(size);
+                   for(; childIndex < prevChildIndex + size; childIndex++) {
+                     auto const& arg = flattenedArguments()[childIndex];
+                     data.push_back(arg.asLong);
+                   }
+                   return boss::expressions::Span<int64_t>(std::move(data));
+                 }},
+                {ArgumentType::ARGUMENT_TYPE_DOUBLE,
+                 [&] {
+                   std::vector<double_t> data;
+                   data.reserve(size);
+                   for(; childIndex < prevChildIndex + size; childIndex++) {
+                     auto const& arg = flattenedArguments()[childIndex];
+                     data.push_back(arg.asDouble);
+                   }
+                   return boss::expressions::Span<double_t>(std::move(data));
+                 }},
+                {ArgumentType::ARGUMENT_TYPE_SYMBOL,
+                 [&childIndex, &prevChildIndex, &size, this] {
+                   std::vector<boss::Symbol> data;
+                   data.reserve(size);
+                   auto spanArgument = boss::expressions::Span<boss::Symbol>();
+                   for(; childIndex < prevChildIndex + size; childIndex++) {
+                     auto const& arg = flattenedArguments()[childIndex];
+                     data.push_back(boss::Symbol(viewString(root, arg.asString)));
+                   }
+                   return boss::expressions::Span<boss::Symbol>(std::move(data));
+                 }},
+                {ArgumentType::ARGUMENT_TYPE_STRING, [&childIndex, &prevChildIndex, &size, this] {
+                   std::vector<std::string> data;
+                   data.reserve(size);
+                   for(; childIndex < prevChildIndex + size; childIndex++) {
+                     auto const& arg = flattenedArguments()[childIndex];
+                     data.push_back(std::string(viewString(root, arg.asString)));
+                   }
+                   return boss::expressions::Span<std::string>(std::move(data));
+                 }}};
+
+        spanArguments.push_back(spanFunctors.at(argType)());
+
+      } else {
+        auto const& arg = flattenedArguments()[childIndex];
+
+        auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
+            {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
+            {ArgumentType::ARGUMENT_TYPE_DOUBLE, [&] { return (arg.asDouble); }},
+            {ArgumentType::ARGUMENT_TYPE_SYMBOL,
+             [&arg, this] { return boss::Symbol(viewString(root, arg.asString)); }},
+            {ArgumentType::ARGUMENT_TYPE_EXPRESSION,
+             [&arg, this]() -> boss::Expression {
+               auto [args, spanArgs] =
+                   deserializeArguments(expressionsBuffer()[arg.asExpression].startChildOffset,
+                                        expressionsBuffer()[arg.asExpression].endChildOffset);
+               auto result = boss::expressions::ComplexExpression(
+                   boss::Symbol(
+                       viewString(root, expressionsBuffer()[arg.asExpression].symbolNameOffset)),
+                   {}, std::move(args), std::move(spanArgs));
+               return result;
+             }},
+            {ArgumentType::ARGUMENT_TYPE_STRING,
+             [&arg, this] { return std::string(viewString(root, arg.asString)); }}};
+        arguments.push_back(functors.at(type)());
+      }
     }
-    return arguments;
+    return std::make_pair(std::move(arguments), std::move(spanArguments));
   }
 
   template <typename... Types> class variant {
@@ -334,8 +463,8 @@ public:
       if(root->expressionCount == 0) {
         return s;
       }
-      auto result = boss::ComplexExpression{
-          s, deserializeArguments(1, expressionsBuffer()[0].endChildOffset)};
+      auto [args, spanArgs] = deserializeArguments(1, expressionsBuffer()[0].endChildOffset);
+      auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
       return result;
     }
   };
