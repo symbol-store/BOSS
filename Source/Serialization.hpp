@@ -350,7 +350,7 @@ public:
                    }
                    return boss::expressions::Span<bool>(std::move(data));
                  }},
-		{ArgumentType::ARGUMENT_TYPE_CHAR,
+                {ArgumentType::ARGUMENT_TYPE_CHAR,
                  [&] {
                    std::vector<int8_t> data;
                    data.reserve(size);
@@ -360,7 +360,7 @@ public:
                    }
                    return boss::expressions::Span<int8_t>(std::move(data));
                  }},
-		{ArgumentType::ARGUMENT_TYPE_INT,
+                {ArgumentType::ARGUMENT_TYPE_INT,
                  [&] {
                    std::vector<int32_t> data;
                    data.reserve(size);
@@ -370,7 +370,7 @@ public:
                    }
                    return boss::expressions::Span<int32_t>(std::move(data));
                  }},
-		{ArgumentType::ARGUMENT_TYPE_LONG,
+                {ArgumentType::ARGUMENT_TYPE_LONG,
                  [&] {
                    std::vector<int64_t> data;
                    data.reserve(size);
@@ -380,7 +380,7 @@ public:
                    }
                    return boss::expressions::Span<int64_t>(std::move(data));
                  }},
-		{ArgumentType::ARGUMENT_TYPE_FLOAT,
+                {ArgumentType::ARGUMENT_TYPE_FLOAT,
                  [&] {
                    std::vector<float> data;
                    data.reserve(size);
@@ -425,27 +425,28 @@ public:
 
       } else {
         auto const& arg = flattenedArguments()[childIndex];
-	auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
-          {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
-          {ArgumentType::ARGUMENT_TYPE_CHAR, [&] { return (arg.asChar); }},
-          {ArgumentType::ARGUMENT_TYPE_INT, [&] { return (arg.asInt); }},
-          {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
-          {ArgumentType::ARGUMENT_TYPE_FLOAT, [&] { return (arg.asFloat); }},
-          {ArgumentType::ARGUMENT_TYPE_DOUBLE, [&] { return (arg.asDouble); }},
-          {ArgumentType::ARGUMENT_TYPE_SYMBOL,
-           [&arg, this] { return boss::Symbol(viewString(root, arg.asString)); }},
-          {ArgumentType::ARGUMENT_TYPE_EXPRESSION,
-           [&arg, this]() -> boss::Expression {
-	     auto [args, spanArgs] = deserializeArguments(expressionsBuffer()[arg.asExpression].startChildOffset,
-							  expressionsBuffer()[arg.asExpression].endChildOffset);
-             auto result = boss::expressions::ComplexExpression(
-                 boss::Symbol(
-			      viewString(root, expressionsBuffer()[arg.asExpression].symbolNameOffset)), {}, std::move(args), std::move(spanArgs)
-                 );
-             return result;
-           }},
-          {ArgumentType::ARGUMENT_TYPE_STRING,
-           [&arg, this] { return std::string(viewString(root, arg.asString)); }}};
+        auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
+            {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
+            {ArgumentType::ARGUMENT_TYPE_CHAR, [&] { return (arg.asChar); }},
+            {ArgumentType::ARGUMENT_TYPE_INT, [&] { return (arg.asInt); }},
+            {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
+            {ArgumentType::ARGUMENT_TYPE_FLOAT, [&] { return (arg.asFloat); }},
+            {ArgumentType::ARGUMENT_TYPE_DOUBLE, [&] { return (arg.asDouble); }},
+            {ArgumentType::ARGUMENT_TYPE_SYMBOL,
+             [&arg, this] { return boss::Symbol(viewString(root, arg.asString)); }},
+            {ArgumentType::ARGUMENT_TYPE_EXPRESSION,
+             [&arg, this]() -> boss::Expression {
+               auto [args, spanArgs] =
+                   deserializeArguments(expressionsBuffer()[arg.asExpression].startChildOffset,
+                                        expressionsBuffer()[arg.asExpression].endChildOffset);
+               auto result = boss::expressions::ComplexExpression(
+                   boss::Symbol(
+                       viewString(root, expressionsBuffer()[arg.asExpression].symbolNameOffset)),
+                   {}, std::move(args), std::move(spanArgs));
+               return result;
+             }},
+            {ArgumentType::ARGUMENT_TYPE_STRING,
+             [&arg, this] { return std::string(viewString(root, arg.asString)); }}};
         arguments.push_back(functors.at(type)());
       }
     }
