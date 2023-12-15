@@ -472,10 +472,18 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
           "howdie world");
   }
 
-  SECTION("Doubles") {
+  SECTION("Floats") {
     auto const twoAndAHalf = 2.5F;
     auto const two = 2.0F;
     auto const quantum = 0.001F;
+    CHECK(std::fabs(get<float>(eval("Plus"_(twoAndAHalf, twoAndAHalf))) - two * twoAndAHalf) <
+          quantum);
+  }
+
+  SECTION("Doubles") {
+    auto const twoAndAHalf = 2.5;
+    auto const two = 2.0;
+    auto const quantum = 0.001;
     CHECK(std::fabs(get<double>(eval("Plus"_(twoAndAHalf, twoAndAHalf))) - two * twoAndAHalf) <
           quantum);
   }
@@ -1329,11 +1337,10 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int32_t, std::i
   auto input = GENERATE(take(3, chunk(50, random<TestType>(1, 1000))));
   auto sum = std::accumulate(begin(input), end(input), TestType());
 
-  if constexpr(std::is_same_v<TestType, std::double_t>) {
-    auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
-    CHECK(get<std::double_t>(result) == Catch::Detail::Approx((std::double_t)sum));
+  auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
+  if constexpr(std::is_floating_point_v<TestType>) {
+    CHECK(get<TestType>(result) == Catch::Detail::Approx((TestType)sum));
   } else {
-    auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
     CHECK(get<TestType>(result) == sum);
   }
 }
