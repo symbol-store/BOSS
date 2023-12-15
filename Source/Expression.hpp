@@ -219,11 +219,14 @@ public:
             output << "valueless by exception";
           }
           static auto typenames =
-              ::std::map<::std::type_index, char const*>{{typeid(int64_t), "long"},
-                                                         {typeid(Symbol), "Symbol"},
-                                                         {typeid(bool), "bool"},
+              ::std::map<::std::type_index, char const*>{{typeid(bool), "bool"},
+                                                         {typeid(int8_t), "char"},
+                                                         {typeid(int32_t), "int"},
+                                                         {typeid(int64_t), "long"},
+                                                         {typeid(float_t), "float"},
                                                          {typeid(double_t), "double"},
-                                                         {typeid(::std::string), "string"}};
+                                                         {typeid(::std::string), "string"},
+                                                         {typeid(Symbol), "Symbol"}};
           output << "\", expected "
                  << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
                                                          : typeid(TargetType).name());
@@ -233,7 +236,8 @@ public:
 
 template <typename... AdditionalCustomAtoms>
 using AtomicExpressionWithAdditionalCustomAtoms =
-    std::variant<bool, std::int64_t, std::double_t, std::string, Symbol, AdditionalCustomAtoms...>;
+    std::variant<bool, std::int8_t, std::int32_t, std::int64_t, std::float_t, std::double_t,
+                 std::string, Symbol, AdditionalCustomAtoms...>;
 
 namespace generic {
 
@@ -372,10 +376,12 @@ public:
 
 template <typename... AdditionalCustomAtoms>
 using ExpressionSpanArgumentWithAdditionalCustomAtoms =
-    std::variant<Span<bool>, Span<std::int64_t>, Span<std::double_t>, Span<std::string>,
-                 Span<Symbol>, Span<AdditionalCustomAtoms>..., Span<bool const>,
-                 Span<std::int64_t const>, Span<std::double_t const>, Span<std::string const>,
-                 Span<Symbol const>, Span<AdditionalCustomAtoms const>...>;
+    std::variant<Span<bool>, Span<std::int8_t>, Span<std::int32_t>, Span<std::int64_t>,
+                 Span<std::float_t>, Span<std::double_t>, Span<std::string>, Span<Symbol>,
+                 Span<AdditionalCustomAtoms>..., Span<bool const>, Span<std::int8_t const>,
+                 Span<std::int32_t const>, Span<std::int64_t const>, Span<std::float_t const>,
+                 Span<std::double_t const>, Span<std::string const>, Span<Symbol const>,
+                 Span<AdditionalCustomAtoms const>...>;
 
 template <typename... AdditionalCustomAtoms>
 class ExpressionSpanArgumentsWithAdditionalCustomAtoms

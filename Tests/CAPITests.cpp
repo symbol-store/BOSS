@@ -10,7 +10,6 @@ TEST_CASE("Build Expression", "[api]") {
   auto* res = BOSSEvaluate(c);
   auto* result = getArgumentsFromBOSSExpression(res);
   auto secondArgument = getLongValueFromBOSSExpression(result[1]);
-  freeBOSSExpression(c);
   freeBOSSSymbol(s);
   freeBOSSExpression(res);
   freeBOSSExpression(input[0]);
@@ -29,8 +28,6 @@ TEST_CASE("Build expression, with strings", "[api]") {
   char* argument1 = getNewStringValueFromBOSSExpression(result[0]);
   auto const str1 = std::string(argument1);
   auto const str2 = std::string("test string");
-
-  freeBOSSExpression(c);
   freeBOSSSymbol(s);
   freeBOSSString(argument1);
   freeBOSSExpression(res);

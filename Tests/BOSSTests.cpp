@@ -25,7 +25,9 @@ using boss::expressions::generic::holds_alternative;
 namespace boss {
 using boss::expressions::atoms::Span;
 };
+using std::int32_t;
 using std::int64_t;
+using std::int8_t;
 
 namespace {
 std::vector<string> librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -177,7 +179,7 @@ TEST_CASE("Complex expression's argument cast to more general expression system"
       "howdie");
   auto b2 = get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).cloneArgument(
       1, CloneReason::FOR_TESTING);
-  CHECK(get<int64_t>(b2) == 2);
+  CHECK(get<int32_t>(b2) == 2);
 }
 
 TEST_CASE("Extract typed arguments from complex expression (using std::accumulate)",
@@ -287,11 +289,13 @@ TEST_CASE("Merge a static and a dynamic complex expressions", "[expressions]") {
 }
 
 TEST_CASE("holds_alternative for complex expression's arguments", "[expressions]") {
-  auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
+  auto const& expr = "List"_("howdie"_(), (int8_t)1, 1, (int64_t)1, "unknown"_, "hello world"s);
   CHECK(holds_alternative<boss::ComplexExpression>(expr.getArguments().at(0)));
-  CHECK(holds_alternative<int64_t>(expr.getArguments().at(1)));
-  CHECK(holds_alternative<boss::Symbol>(expr.getArguments().at(2)));
-  CHECK(holds_alternative<std::string>(expr.getArguments().at(3)));
+  CHECK(holds_alternative<int8_t>(expr.getArguments().at(1)));
+  CHECK(holds_alternative<int32_t>(expr.getArguments().at(2)));
+  CHECK(holds_alternative<int64_t>(expr.getArguments().at(3)));
+  CHECK(holds_alternative<boss::Symbol>(expr.getArguments().at(4)));
+  CHECK(holds_alternative<std::string>(expr.getArguments().at(5)));
 }
 
 TEST_CASE("get_if for complex expression's arguments", "[expressions]") {
@@ -301,7 +305,7 @@ TEST_CASE("get_if for complex expression's arguments", "[expressions]") {
   auto const& arg2 = expr.getArguments().at(2);
   auto const& arg3 = expr.getArguments().at(3);
   CHECK(get_if<boss::ComplexExpression>(&arg0) != nullptr);
-  CHECK(get_if<int64_t>(&arg1) != nullptr);
+  CHECK(get_if<int32_t>(&arg1) != nullptr);
   CHECK(get_if<boss::Symbol>(&arg2) != nullptr);
   CHECK(get_if<std::string>(&arg3) != nullptr);
   auto const& arg0args = get<boss::ComplexExpression>(arg0).getArguments();
@@ -314,7 +318,7 @@ TEST_CASE("move expression's arguments to a new expression", "[expressions]") {
   boss::ExpressionArguments args = movedExpr.getArguments();
   auto expr2 = boss::ComplexExpression(std::move(movedExpr.getHead()), std::move(args)); // NOLINT
   CHECK(get<boss::ComplexExpression>(expr2.getArguments().at(0)) == "howdie"_());
-  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 1);
+  CHECK(get<int32_t>(expr2.getArguments().at(1)) == 1);
   CHECK(get<boss::Symbol>(expr2.getArguments().at(2)) == "unknown"_);
   CHECK(get<std::string>(expr2.getArguments().at(3)) == "hello world"s);
 }
@@ -325,31 +329,31 @@ TEST_CASE("copy expression's arguments to a new expression", "[expressions]") {
       expr.getArguments(); // TODO: this one gets the reference to the arguments
                            // when it should be a copy.
                            // Any modification/move of args will be reflected in expr's arguments!
-  get<int64_t>(args.at(1)) = 2;
+  get<int32_t>(args.at(1)) = 2;
   auto expr2 = boss::ComplexExpression(expr.getHead(), args);
-  get<int64_t>(args.at(1)) = 3;
+  get<int32_t>(args.at(1)) = 3;
   auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args)); // NOLINT
   // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails for now (see above TODO)
-  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
-  CHECK(get<int64_t>(expr3.getArguments().at(1)) == 3);
+  CHECK(get<int32_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int32_t>(expr3.getArguments().at(1)) == 3);
 }
 
 TEST_CASE("copy non-const expression's arguments to ExpressionArguments", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   boss::ExpressionArguments args = expr.getArguments(); // TODO: why is it moved?
-  get<int64_t>(args.at(1)) = 2;
+  get<int32_t>(args.at(1)) = 2;
   auto expr2 = boss::ComplexExpression(expr.getHead(), std::move(args));
   // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails because args was moved (see TODO)
-  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int32_t>(expr2.getArguments().at(1)) == 2);
 }
 
 TEST_CASE("copy const expression's arguments to ExpressionArguments)", "[expressions]") {
   auto const& expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   boss::ExpressionArguments args = expr.getArguments();
-  get<int64_t>(args.at(1)) = 2;
+  get<int32_t>(args.at(1)) = 2;
   auto expr2 = boss::ComplexExpression(expr.getHead(), std::move(args));
-  CHECK(get<int64_t>(expr.getArguments().at(1)) == 1);
-  CHECK(get<int64_t>(expr2.getArguments().at(1)) == 2);
+  CHECK(get<int32_t>(expr.getArguments().at(1)) == 1);
+  CHECK(get<int32_t>(expr2.getArguments().at(1)) == 2);
 }
 
 TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
@@ -370,8 +374,8 @@ TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int64_t,
-                   std::double_t) {
+TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int32_t, std::int64_t,
+                   std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto argument = vector<TestType>(input);
   auto s = boss::Span<TestType>(std::move(argument));
@@ -384,8 +388,8 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int64_t,
-                   std::double_t) {
+TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int32_t,
+                   std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto argument = vector<TestType>(input);
   auto s = boss::Span<TestType>(argument);
@@ -399,7 +403,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]
 
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[spans]",
-                   std::int64_t, std::double_t) {
+                   std::int32_t, std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto const argument = vector<TestType>(input);
   auto s = boss::Span<TestType const>(argument);
@@ -412,8 +416,8 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", std::int64_t,
-                   std::double_t) {
+TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", std::int32_t,
+                   std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto vectorExpression = "duh"_(boss::Span<TestType>(vector(input)));
   auto clonedVectorExpression = vectorExpression.clone(CloneReason::FOR_TESTING);
@@ -452,15 +456,15 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   }
 
   SECTION("Atomics") {
-    CHECK(get<std::int64_t>(eval(boss::Expression(9))) == 9); // NOLINT
+    CHECK(get<std::int32_t>(eval(boss::Expression(9))) == 9); // NOLINT
   }
 
   SECTION("Addition") {
-    CHECK(get<std::int64_t>(eval("Plus"_(5, 4))) == 9); // NOLINT
-    CHECK(get<std::int64_t>(eval("Plus"_(5, 2, 2))) == 9);
-    CHECK(get<std::int64_t>(eval("Plus"_(5, 2, 2))) == 9);
-    CHECK(get<std::int64_t>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
-    CHECK(get<std::int64_t>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
+    CHECK(get<std::int32_t>(eval("Plus"_(5, 4))) == 9); // NOLINT
+    CHECK(get<std::int32_t>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<std::int32_t>(eval("Plus"_(5, 2, 2))) == 9);
+    CHECK(get<std::int32_t>(eval("Plus"_("Plus"_(2, 3), 2, 2))) == 9);
+    CHECK(get<std::int32_t>(eval("Plus"_("Plus"_(3, 2), 2, 2))) == 9);
   }
 
   SECTION("Strings") {
@@ -487,7 +491,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
         eval("UndefinedFunction"_(9))); // NOLINT(readability-magic-numbers)
 
     CHECK(expression.getHead().getName() == "UndefinedFunction");
-    CHECK(get<std::int64_t>(expression.getArguments().at(0)) == 9);
+    CHECK(get<std::int32_t>(expression.getArguments().at(0)) == 9);
 
     CHECK(get<std::string>(
               get<boss::ComplexExpression>(eval("UndefinedFunction"_((string) "Hello World!")))
@@ -832,63 +836,65 @@ TEST_CASE("TPC-H", "[tpch]") {
   SECTION("Q1 (Select-Project only)") {
     auto output = eval("Project"_(
         "Project"_(
-            "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                 "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                                       "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
-                                       "L_EXTENDEDPRICE"_, "L_TAX"_, "L_TAX"_)),
-                      "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
-            "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "calc1"_,
-                  "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0), "L_DISCOUNT"_,
-                  "L_DISCOUNT"_)),
-        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "disc_price"_,
-              "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "charge"_,
-              "Times"_("L_EXTENDEDPRICE"_, "calc1"_, "calc2"_), "L_DISCOUNT"_, "L_DISCOUNT"_)));
-    CHECK(
-        output ==
-        "Table"_("L_QUANTITY"_("List"_(17, 21, 8, 5)),                                    // NOLINT
-                 "L_EXTENDEDPRICE"_("List"_(17954.55, 34850.16, 7712.48, 25284.00)),      // NOLINT
-                 "disc_price"_("List"_(17954.55 * (1.0 - 0.10), 34850.16 * (1.0 - 0.05),  // NOLINT
-                                       7712.48 * (1.0 - 0.06), 25284.00 * (1.0 - 0.06))), // NOLINT
-                 "charge"_("List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),                // NOLINT
-                                   34850.16 * (1.0 - 0.05) * (0.06 + 1.0),                // NOLINT
-                                   7712.48 * (1.0 - 0.06) * (0.02 + 1.0),                 // NOLINT
-                                   25284.00 * (1.0 - 0.06) * (0.06 + 1.0))),              // NOLINT
-                 "L_DISCOUNT"_("List"_(0.10, 0.05, 0.06, 0.06))));                        // NOLINT
+            "Project"_("Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
+                                            "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                                  "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                  "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_TAX"_,
+                                                  "L_TAX"_)),
+                                 "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                       "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                             "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
+                             "calc2"_, "Plus"_("L_TAX"_, 1.0))),
+            "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                  "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                  "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
+              "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
+              "Times"_("disc_price"_, "calc2"_))));
+    CHECK(output ==
+          "Table"_("Column"_("L_QUANTITY"_, "List"_(17, 21, 8, 5)), // NOLINT
+                   "Column"_("L_EXTENDEDPRICE"_,
+                             "List"_(17954.55, 34850.16, 7712.48, 25284.00)), // NOLINT
+                   "Column"_("L_DISCOUNT"_, "List"_(0.10, 0.05, 0.06, 0.06)), // NOLINT
+                   "Column"_("disc_price"_,
+                             "List"_(17954.55 * (1.0 - 0.10), 34850.16 * (1.0 - 0.05),    // NOLINT
+                                     7712.48 * (1.0 - 0.06), 25284.00 * (1.0 - 0.06))),   // NOLINT
+                   "Column"_("calc"_, "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),     // NOLINT
+                                              34850.16 * (1.0 - 0.05) * (0.06 + 1.0),     // NOLINT
+                                              7712.48 * (1.0 - 0.06) * (0.02 + 1.0),      // NOLINT
+                                              25284.00 * (1.0 - 0.06) * (0.06 + 1.0))))); // NOLINT
   }
 
   SECTION("Q1 (No Order, No Strings)") {
-    auto output = eval("Project"_(
-        "Group"_(
+    auto output = eval("Group"_(
+        "Project"_(
             "Project"_(
                 "Project"_(
                     "Select"_(
                         "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                   "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_,
-                                         "L_LINESTATUS_INT"_, "L_LINESTATUS_INT"_, "L_QUANTITY"_,
-                                         "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "L_SHIPDATE"_,
-                                         "L_SHIPDATE"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                                         "L_TAX"_, "L_TAX"_)),
+                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                         "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
+                                         "L_EXTENDEDPRICE"_, "L_RETURNFLAG_INT"_,
+                                         "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
+                                         "L_LINESTATUS_INT"_, "L_TAX"_, "L_TAX"_)),
                         "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
                     "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
                           "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
-                          "L_EXTENDEDPRICE"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_,
-                          "Plus"_("L_TAX"_, 1.0), "L_DISCOUNT"_, "L_DISCOUNT"_)),
+                          "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_,
+                          "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0))),
                 "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
                       "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
-                      "L_EXTENDEDPRICE"_, "disc_price"_, "Times"_("L_EXTENDEDPRICE"_, "calc1"_),
-                      "charge"_, "Times"_("L_EXTENDEDPRICE"_, "calc1"_, "calc2"_), "L_DISCOUNT"_,
-                      "L_DISCOUNT"_)),
-            "By"_("L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_),
-            "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
-                  "SUM_DISC_PRICE"_, "Sum"_("DISC_PRICE"_), "SUM_CHARGES"_,
-                  "Sum"_("Times"_("DISC_PRICE"_, "calc"_)), "SUM_DISC"_, "Sum"_("L_DISCOUNT"_),
-                  "COUNT_ORDER"_, "Count"_)),
-        "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_, "L_LINESTATUS_INT"_,
-              "SUM_QTY"_, "SUM_QTY"_, "SUM_BASE_PRICE"_, "SUM_BASE_PRICE"_, "SUM_DISC_PRICE"_,
-              "SUM_DISC_PRICE"_, "SUM_CHARGES"_, "SUM_CHARGES"_, "AVG_QTY"_,
-              "Divide"_("SUM_QTY"_, "COUNT_ORDER"_), "AVG_PRICE"_,
-              "Divide"_("SUM_BASE_PRICE"_, "COUNT_ORDER"_), "AVG_DISC"_,
-              "Divide"_("SUM_DISC"_, "COUNT_ORDER"_), "COUNT_ORDER"_, "COUNT_ORDER"_)));
+                      "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+            "As"_("L_RETURNFLAG_INT"_, "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
+                  "L_LINESTATUS_INT"_, "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
+                  "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_,
+                  "calc"_, "Times"_("disc_price"_, "calc2"_))),
+        "By"_("L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_),
+        "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
+              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_,
+              "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_,
+              "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
     CHECK(output ==
           "Table"_("L_RETURNFLAG_INT"_("List"_('N'_i64, 'A'_i64)),                      // NOLINT
                    "L_LINESTATUS_INT"_("List"_('O'_i64, 'F'_i64)),                      // NOLINT
@@ -908,37 +914,34 @@ TEST_CASE("TPC-H", "[tpch]") {
   }
 
   SECTION("Q1 (No Order)") {
-    auto output = eval("Project"_(
-        "Group"_(
+    auto output = eval("Group"_(
+        "Project"_(
             "Project"_(
                 "Project"_(
-                    "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                         "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_,
-                                               "L_LINESTATUS"_, "L_QUANTITY"_, "L_QUANTITY"_,
-                                               "L_DISCOUNT"_, "L_DISCOUNT"_, "L_SHIPDATE"_,
-                                               "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
-                                               "L_EXTENDEDPRICE"_, "L_TAX"_, "L_TAX"_)),
-                              "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                    "Select"_(
+                        "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
+                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
+                                         "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
+                                         "L_EXTENDEDPRICE"_, "L_RETURNFLAG"_, "L_RETURNFLAG"_,
+                                         "L_LINESTATUS"_, "L_LINESTATUS"_, "L_TAX"_, "L_TAX"_)),
+                        "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
                     "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
                           "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                          "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0),
-                          "L_DISCOUNT"_, "L_DISCOUNT"_)),
+                          "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
+                          "calc2"_, "Plus"_("L_TAX"_, 1.0))),
                 "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
                       "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                      "disc_price"_, "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "charge"_,
-                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_, "calc2"_), "L_DISCOUNT"_,
-                      "L_DISCOUNT"_)),
-            "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
-            "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
-                  "SUM_DISC_PRICE"_, "Sum"_("DISC_PRICE"_), "SUM_CHARGES"_,
-                  "Sum"_("Times"_("DISC_PRICE"_, "calc"_)), "SUM_DISC"_, "Sum"_("L_DISCOUNT"_),
-                  "COUNT_ORDER"_, "Count"_)),
-        "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_, "SUM_QTY"_,
-              "SUM_QTY"_, "SUM_BASE_PRICE"_, "SUM_BASE_PRICE"_, "SUM_DISC_PRICE"_,
-              "SUM_DISC_PRICE"_, "SUM_CHARGES"_, "SUM_CHARGES"_, "AVG_QTY"_,
-              "Divide"_("SUM_QTY"_, "COUNT_ORDER"_), "AVG_PRICE"_,
-              "Divide"_("SUM_BASE_PRICE"_, "COUNT_ORDER"_), "AVG_DISC"_,
-              "Divide"_("SUM_DISC"_, "COUNT_ORDER"_), "COUNT_ORDER"_, "COUNT_ORDER"_)));
+                      "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
+            "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_, "L_QUANTITY"_,
+                  "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
+                  "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
+                  "Times"_("disc_price"_, "calc2"_))),
+        "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
+        "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
+              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_,
+              "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_,
+              "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
     CHECK(output ==
           "Table"_("L_RETURNFLAG"_("List"_("N", "A")),                                  // NOLINT
                    "L_LINESTATUS"_("List"_("O", "F")),                                  // NOLINT
@@ -958,32 +961,37 @@ TEST_CASE("TPC-H", "[tpch]") {
   }
 
   SECTION("Q1") {
-    auto output = eval("Order"_("Project"_(
+    auto output = eval("Order"_(
         "Group"_(
             "Project"_(
                 "Project"_(
-                    "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                         "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
-                                               "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
-                                               "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                                               "L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_,
-                                               "L_LINESTATUS"_, "L_TAX"_, "L_TAX"_)),
-                              "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                    "Project"_(
+                        "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
+                                             "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
+                                                   "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
+                                                   "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                                                   "L_RETURNFLAG"_, "L_RETURNFLAG"_,
+                                                   "L_LINESTATUS"_, "L_LINESTATUS"_, "L_TAX"_,
+                                                   "L_TAX"_)),
+                                  "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                        "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
+                              "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                              "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
+                              "calc2"_, "Plus"_("L_TAX"_, 1.0))),
                     "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
                           "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                          "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
-                          "calc2"_, "Plus"_(1.0, "L_TAX"_))),
+                          "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
+                          "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
                 "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
                       "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                      "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
-                      "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc"_,
+                      "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
                       "Times"_("disc_price"_, "calc2"_))),
             "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
-            "As"_("sum_qty"_, "Sum"_("L_QUANTITY"_), "sum_base_price"_, "Sum"_("L_EXTENDEDPRICE"_),
-                  "sum_disc_price"_, "Sum"_("disc_price"_), "sum_charges"_, "Sum"_("calc"_),
-                  "avg_qty"_, "Avg"_("L_QUANTITY"_), "avg_price"_, "Avg"_("L_EXTENDEDPRICE"_),
-                  "avg_disc"_, "Avg"_("L_DISCOUNT"_), "count_order"_, "Count"_)),
-        "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_))));
+            "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
+                  "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_),
+                  "AVG_QTY"_, "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_),
+                  "AVG_DISC"_, "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))),
+        "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_)));
     CHECK(output ==
           "Table"_("L_RETURNFLAG"_("List"_("A", "N")),                                  // NOLINT
                    "L_LINESTATUS"_("List"_("F", "O")),                                  // NOLINT
@@ -1084,7 +1092,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                             "Project"_(
                                 "Select"_(
                                     "Project"_(customer.clone(CloneReason::FOR_TESTING),
-                                               "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_ACCTBAL"_,
+                                               "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_MKTSEGMENT"_,
                                                      "C_MKTSEGMENT"_)),
                                     "Where"_("StringContainsQ"_("C_MKTSEGMENT"_, "BUILDING"))),
                                 "As"_("C_CUSTKEY"_, "C_CUSTKEY"_)),
@@ -1309,7 +1317,8 @@ TEST_CASE("TPC-H", "[tpch]") {
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int64_t, std::double_t) {
+TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int32_t, std::int64_t,
+                   std::float_t, std::double_t) {
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
   auto eval = [&engine](auto&& expression) mutable {

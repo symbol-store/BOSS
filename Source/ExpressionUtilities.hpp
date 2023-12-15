@@ -25,13 +25,9 @@ public:
    * libraries convert char const* to int or bool, not to ::std::string -- so I do
    * it explicitly
    */
-
   typename ExpressionSystem::Expression
   convertConstCharToStringAndOnToExpression(char const* v) const {
     return ::std::string((char const*)v);
-  }
-  typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(int v) const {
-    return int64_t(v);
   }
   template <typename T>
   typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {

@@ -17,7 +17,19 @@ namespace boss::serialization {
 // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
 
 static_assert(
+    std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_BOOL, boss::Expression>, bool>,
+    "type ids wrong");
+static_assert(
+    std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_CHAR, boss::Expression>, std::int8_t>,
+    "type ids wrong");
+static_assert(
+    std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_INT, boss::Expression>, std::int32_t>,
+    "type ids wrong");
+static_assert(
     std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_LONG, boss::Expression>, std::int64_t>,
+    "type ids wrong");
+static_assert(
+    std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_FLOAT, boss::Expression>, std::float_t>,
     "type ids wrong");
 static_assert(std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_DOUBLE, boss::Expression>,
                              std::double_t>,
@@ -162,22 +174,33 @@ struct SerializedExpression {
                         auto head = viewString(root, storedString);
                         childrenCountRunningSum += childrenCount;
                         children.push_back(std::forward<decltype(argument)>(argument));
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>, bool>) {
+                        *makeBoolArgument(root, argumentOutputI++) = argument;
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                         int8_t>) {
+                        *makeCharArgument(root, argumentOutputI++) = argument;
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                         int32_t>) {
+                        *makeIntArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          int64_t>) {
                         *makeLongArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                         boss::Symbol>) {
-                        auto storedString =
-                            storeString(&root, argument.getName().c_str(), reallocateFunction);
-                        *makeSymbolArgument(root, argumentOutputI++) = storedString;
+                                                         float_t>) {
+                        *makeFloatArgument(root, argumentOutputI++) = argument;
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                         double_t>) {
+                        *makeDoubleArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          std::string>) {
                         auto storedString =
                             storeString(&root, argument.c_str(), reallocateFunction);
                         *makeStringArgument(root, argumentOutputI++) = storedString;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
-                                                         double>) {
-                        *makeDoubleArgument(root, argumentOutputI++) = argument;
+                                                         boss::Symbol>) {
+                        auto storedString =
+                            storeString(&root, argument.getName().c_str(), reallocateFunction);
+                        *makeSymbolArgument(root, argumentOutputI++) = storedString;
                       } else {
                         throw std::runtime_error("unknown type");
                       }
@@ -219,7 +242,11 @@ public:
                          storeString(&root, input.getName().c_str(), reallocateFunction);
                      *makeSymbolArgument(root, 0) = storedString;
                    },
+                   [this](bool input) { *makeBoolArgument(root, 0) = input; },
+                   [this](std::int8_t input) { *makeCharArgument(root, 0) = input; },
+                   [this](std::int32_t input) { *makeIntArgument(root, 0) = input; },
                    [this](std::int64_t input) { *makeLongArgument(root, 0) = input; },
+                   [this](std::float_t input) { *makeFloatArgument(root, 0) = input; },
                    [this](std::double_t input) { *makeDoubleArgument(root, 0) = input; },
                    [](auto&&) {
                      throw std::logic_error("uncountered unknown type during serialization");
@@ -236,7 +263,11 @@ public:
       auto const& arg = flattenedArguments()[childIndex];
       auto const& type = flattenedArgumentTypes()[childIndex];
       auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
+          {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
+          {ArgumentType::ARGUMENT_TYPE_CHAR, [&] { return (arg.asChar); }},
+          {ArgumentType::ARGUMENT_TYPE_INT, [&] { return (arg.asInt); }},
           {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
+          {ArgumentType::ARGUMENT_TYPE_FLOAT, [&] { return (arg.asFloat); }},
           {ArgumentType::ARGUMENT_TYPE_DOUBLE, [&] { return (arg.asDouble); }},
           {ArgumentType::ARGUMENT_TYPE_SYMBOL,
            [&arg, this] { return boss::Symbol(viewString(root, arg.asString)); }},
@@ -270,7 +301,10 @@ public:
 
     template <typename T> T as(Argument const& arg) const;
     template <> bool as<bool>(Argument const& arg) const { return arg.asBool; };
+    template <> std::int8_t as<std::int8_t>(Argument const& arg) const { return arg.asChar; };
+    template <> std::int32_t as<std::int32_t>(Argument const& arg) const { return arg.asInt; };
     template <> std::int64_t as<std::int64_t>(Argument const& arg) const { return arg.asLong; };
+    template <> std::float_t as<std::float_t>(Argument const& arg) const { return arg.asFloat; };
     template <> std::double_t as<std::double_t>(Argument const& arg) const { return arg.asDouble; };
     template <> std::string as<std::string>(Argument const& arg) const {
       return viewString(buffer.root, arg.asString);
@@ -321,8 +355,14 @@ public:
     switch(flattenedArgumentTypes()[0]) {
     case ArgumentType::ARGUMENT_TYPE_BOOL:
       return flattenedArguments()[0].asBool;
+    case ArgumentType::ARGUMENT_TYPE_CHAR:
+      return flattenedArguments()[0].asChar;
+    case ArgumentType::ARGUMENT_TYPE_INT:
+      return flattenedArguments()[0].asInt;
     case ArgumentType::ARGUMENT_TYPE_LONG:
       return flattenedArguments()[0].asLong;
+    case ArgumentType::ARGUMENT_TYPE_FLOAT:
+      return flattenedArguments()[0].asFloat;
     case ArgumentType::ARGUMENT_TYPE_DOUBLE:
       return flattenedArguments()[0].asDouble;
     case ArgumentType::ARGUMENT_TYPE_STRING:
