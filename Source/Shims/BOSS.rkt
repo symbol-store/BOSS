@@ -29,6 +29,7 @@
                                            r))))
 
 
+(define charToNewExpression (get-ffi-obj "charToNewBOSSExpression" libBoss (_fun _int8  -> _pointer)))
 (define longToNewExpression (get-ffi-obj "longToNewBOSSExpression" libBoss (_fun _int64  -> _pointer)))
 (define doubleToNewExpression
   (get-ffi-obj "doubleToNewBOSSExpression" libBoss (_fun _double  -> _pointer)))
@@ -57,6 +58,7 @@
      (gcExpression
       (newComplexExpression head (length arguments)
                             (list->cblock (map convert-to-boss-expression arguments) _pointer)))]
+    [(and c (? char?)) (gcExpression (charToNewExpression c))]
     [(and i (? exact-integer?)) (gcExpression (longToNewExpression i))]
     [(and f (? real?)) (gcExpression (doubleToNewExpression f))]
     [(and s (? string?)) (gcExpression (stringToNewExpression s))]
@@ -78,12 +80,14 @@
     )
   )
 
-(define bossTypeID (_enum '(bool long double string symbol complexExpression))
+(define bossTypeID (_enum '(bool char long double string symbol complexExpression))
   )
 
 (define getTypeID (get-ffi-obj "getBOSSExpressionTypeID" libBoss (_fun _pointer -> bossTypeID)))
 (define getBoolValueFromExpression (get-ffi-obj "getBoolValueFromBOSSExpression" libBoss
                                                 (_fun _pointer -> _bool)))
+(define getCharValueFromExpression (get-ffi-obj "getCharValueFromBOSSExpression" libBoss
+                                                (_fun _pointer -> _int8)))
 (define getLongValueFromExpression (get-ffi-obj "getLongValueFromBOSSExpression" libBoss
                                                (_fun _pointer -> _int64)))
 (define getDoubleValueFromExpression (get-ffi-obj "getDoubleValueFromBOSSExpression" libBoss
@@ -104,6 +108,7 @@
 (define (convert-from-boss-expression x)
   (case (getTypeID x)
     ['bool (getBoolValueFromExpression x)]
+    ['char (getCharValueFromExpression x)]
     ['long (getLongValueFromExpression x)]
     ['double (getDoubleValueFromExpression x)]
     ['string (let ([r (getStringValueFromExpression x)])
