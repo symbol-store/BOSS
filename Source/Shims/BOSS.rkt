@@ -29,8 +29,12 @@
                                            r))))
 
 
+(define boolToNewExpression (get-ffi-obj "boolToNewBOSSExpression" libBoss (_fun _bool  -> _pointer)))
 (define charToNewExpression (get-ffi-obj "charToNewBOSSExpression" libBoss (_fun _int8  -> _pointer)))
+(define intToNewExpression (get-ffi-obj "intToNewBOSSExpression" libBoss (_fun _int32  -> _pointer)))
 (define longToNewExpression (get-ffi-obj "longToNewBOSSExpression" libBoss (_fun _int64  -> _pointer)))
+(define floatToNewExpression
+  (get-ffi-obj "floatToNewBOSSExpression" libBoss (_fun _float  -> _pointer)))
 (define doubleToNewExpression
   (get-ffi-obj "doubleToNewBOSSExpression" libBoss (_fun _double  -> _pointer)))
 (define stringToNewExpression
@@ -58,6 +62,7 @@
      (gcExpression
       (newComplexExpression head (length arguments)
                             (list->cblock (map convert-to-boss-expression arguments) _pointer)))]
+    [(and b (? boolean?)) (gcExpression (boolToNewExpression b))]
     [(and c (? char?)) (gcExpression (charToNewExpression c))]
     [(and i (? exact-integer?)) (gcExpression (longToNewExpression i))]
     [(and f (? real?)) (gcExpression (doubleToNewExpression f))]
@@ -80,7 +85,7 @@
     )
   )
 
-(define bossTypeID (_enum '(bool char long double string symbol complexExpression))
+(define bossTypeID (_enum '(bool char int long float double string symbol complexExpression))
   )
 
 (define getTypeID (get-ffi-obj "getBOSSExpressionTypeID" libBoss (_fun _pointer -> bossTypeID)))
@@ -88,8 +93,12 @@
                                                 (_fun _pointer -> _bool)))
 (define getCharValueFromExpression (get-ffi-obj "getCharValueFromBOSSExpression" libBoss
                                                 (_fun _pointer -> _int8)))
+(define getIntValueFromExpression (get-ffi-obj "getIntValueFromBOSSExpression" libBoss
+                                                (_fun _pointer -> _int32)))
 (define getLongValueFromExpression (get-ffi-obj "getLongValueFromBOSSExpression" libBoss
                                                (_fun _pointer -> _int64)))
+(define getFloatValueFromExpression (get-ffi-obj "getFloatValueFromBOSSExpression" libBoss
+                                                 (_fun _pointer -> _float)))
 (define getDoubleValueFromExpression (get-ffi-obj "getDoubleValueFromBOSSExpression" libBoss
                                                  (_fun _pointer -> _double)))
 (define getStringValueFromExpression (get-ffi-obj "getNewStringValueFromBOSSExpression" libBoss
@@ -109,7 +118,9 @@
   (case (getTypeID x)
     ['bool (getBoolValueFromExpression x)]
     ['char (getCharValueFromExpression x)]
+    ['int (getIntValueFromExpression x)]
     ['long (getLongValueFromExpression x)]
+    ['float (getFloatValueFromExpression x)]
     ['double (getDoubleValueFromExpression x)]
     ['string (let ([r (getStringValueFromExpression x)])
                r) ]
