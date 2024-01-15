@@ -297,7 +297,7 @@ public:
 
   explicit SerializedExpression(RootExpression* root) : root(root) {}
 
-  BOSSArgumentPair deserializeArguments(uint64_t startChildOffset, uint64_t endChildOffset) {
+  BOSSArgumentPair deserializeArguments(uint64_t startChildOffset, uint64_t endChildOffset) const {
     boss::expressions::ExpressionArguments arguments;
     boss::expressions::ExpressionSpanArguments spanArguments;
     for(auto childIndex = startChildOffset; childIndex < endChildOffset; childIndex++) {
@@ -439,6 +439,67 @@ public:
                             [&argument, this](auto v) { return as<decltype(v)>(argument) == v; }),
                         other);
       ;
+    }
+
+    LazilyDeserializedExpression operator[](size_t childOffset) const {
+      auto const& expr = expression();
+      assert(childOffset < expr.startChildOffset - expr.endChildOffset);
+      return {buffer, expr.startChildOffset + childOffset};
+    }
+
+    LazilyDeserializedExpression operator[](std::string const& keyName) const {
+          auto const& expr = expression();
+	  auto const& arguments = getExpressionArguments(buffer.root);
+	  auto const& argumentTypes = getArgumentTypes(buffer.root);
+	  auto const& expressions = getExpressionSubexpressions(buffer.root);
+	  for (auto i = expr.startChildOffset; i < expr.endChildOffset; ++i) {
+	    if (argumentTypes[i] != ArgumentType::ARGUMENT_TYPE_EXPRESSION) {
+	      continue;
+	    }
+	    auto const& child = expressions[arguments[i].asExpression];
+	    auto const& key = viewString(buffer.root, child.symbolNameOffset);
+	    if (std::string_view{key} == keyName) {
+	      return {buffer, i};
+	    }
+	  }
+	  throw std::runtime_error(keyName + " not found.");
+    }
+
+    // could use * operator for this
+    boss::Expression getCurrentExpression() && {
+      auto const& argument = buffer.flattenedArguments()[argumentIndex];
+      auto const& argumentType = buffer.flattenedArgumentTypes()[argumentIndex];
+      switch(argumentType) {
+      case ArgumentType::ARGUMENT_TYPE_BOOL:
+	return argument.asBool;
+      case ArgumentType::ARGUMENT_TYPE_LONG:
+	return argument.asLong;
+      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+	return argument.asDouble;
+      case ArgumentType::ARGUMENT_TYPE_STRING:
+	return viewString(buffer.root, argument.asString);
+      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+	return boss::Symbol(viewString(buffer.root, argument.asString));
+      case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
+	auto s = boss::Symbol(viewString(buffer.root, argument.asString));
+	if(buffer.root->expressionCount == 0) {
+	  return s;
+	}
+	auto const& expr = expression();
+	// +1 to startOffset?
+	auto [args, spanArgs] = buffer.deserializeArguments(expr.startChildOffset, expr.endChildOffset);
+	auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
+	return result;
+      }
+    }
+
+  private:
+    Expression const& expression() const {
+      auto const& arguments = getExpressionArguments(buffer.root);
+      auto const& argumentTypes = getArgumentTypes(buffer.root);
+      auto const& expressions = getExpressionSubexpressions(buffer.root);
+      assert(argumentTypes[argumentIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
+      return expressions[arguments[argumentIndex].asExpression];
     }
   };
 
