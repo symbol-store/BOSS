@@ -509,6 +509,11 @@ public:
       }
       virtual ~Iterator() = default;
 
+      Iterator(Iterator&&) noexcept = default;
+      Iterator(Iterator const&) = delete;
+      Iterator& operator=(Iterator&&) noexcept = default;
+      Iterator& operator=(Iterator const&) = delete;
+
       Iterator operator++(int) { return Iterator(buffer.root, incrementIndex(1)); }
       Iterator& operator++() {
         incrementIndex(1);
@@ -548,7 +553,8 @@ public:
 
       void updateValidIndexEnd() {
         if(argumentIndex >= validIndexEnd) {
-          if(argumentTypes[argumentIndex] & ArgumentType_RLE_BIT) {
+          auto const& isRLE = argumentTypes[argumentIndex] & ArgumentType_RLE_BIT;
+          if(isRLE) {
             if((argumentTypes[argumentIndex] & ~ArgumentType_RLE_BIT) == expectedArgumentType()) {
               validIndexEnd =
                   argumentIndex + static_cast<uint32_t>(argumentTypes[argumentIndex + 1]);
