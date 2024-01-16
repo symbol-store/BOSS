@@ -29,7 +29,6 @@ BOSSExpression* BOSSEvaluate(BOSSExpression* arg) {
     return output;
   } catch(::std::exception const& e) {
     auto args = boss::ExpressionArguments();
-    args.reserve(2);
     args.emplace_back(std::move(arg->delegate));
     args.emplace_back(std::string{e.what()});
     return new BOSSExpression{
