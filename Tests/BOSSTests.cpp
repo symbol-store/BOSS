@@ -1439,25 +1439,37 @@ TEST_CASE("Lazy Expression Serialization") {
     CHECK(e.lazilyDeserialize() ==
           (Expression) "H"_("O"_("W"_(1, 5, 9)), "D"_("I"_(6, 1), "E"_(2))));
   }
-  {
+  SECTION("Lazy Nested Indexing") {
     auto e = boss::serialization::SerializedExpression(
         "H"_("O"_("W"_(1, 5, 9)), "D"_("I"_(6, 1), "E"_(2))));
-    CHECK(e.lazilyDeserialize()[0] ==
+    auto lazy_e = e.lazilyDeserialize();
+    CHECK(lazy_e[0] ==
           (Expression) "O"_("W"_(1, 5, 9)));
-    CHECK(e.lazilyDeserialize()[0][0] ==
+    CHECK(lazy_e[0].getCurrentExpression() == "O"_("W"_(1, 5, 9)));
+    CHECK(lazy_e[0][0] ==
           (Expression) "W"_(1, 5, 9));
-    CHECK(e.lazilyDeserialize()[0][0][0] == 1);
+    CHECK(lazy_e[0][0][0] == 1);
   }
   {
     auto e = boss::serialization::SerializedExpression("Table"_(1, 5, 9));
     CHECK(!(e.lazilyDeserialize() == "Table"_(1, 5, 10)));
   }
-  {
+  SECTION("Simple Lazy Indexing") {
     auto e = boss::serialization::SerializedExpression("Table"_(1, 5, 9));
-    CHECK(e.lazilyDeserialize()[0] == 1);
-    CHECK(e.lazilyDeserialize()[1] == 5);
-    CHECK(e.lazilyDeserialize()[2] == 9);
-    CHECK(e.lazilyDeserialize()[0].getCurrentExpression() == (int64_t) 1);
+    auto lazy_e = e.lazilyDeserialize();
+    CHECK(lazy_e[0] == 1);
+    CHECK(lazy_e[1] == 5);
+    CHECK(lazy_e[2] == 9);
+    CHECK(lazy_e[0].getCurrentExpression() == (int64_t) 1);
+  }
+  SECTION("Simple Lazy Iterating") {
+    auto e = boss::serialization::SerializedExpression("Table"_(1, 5, 9));
+    auto lazy_e = e.lazilyDeserialize();
+    int64_t agg = 0;
+    for (auto it = lazy_e.begin<int64_t>(); it != lazy_e.end<int64_t>(); ++it) {
+      agg += *it;
+    }
+    CHECK(agg == 15);
   }
 
   for(auto const& plan : plans) {
