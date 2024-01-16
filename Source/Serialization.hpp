@@ -4,12 +4,12 @@
 #include <cassert>
 #include <cstdlib>
 #include <inttypes.h>
+#include <iostream>
 #include <iterator>
 #include <optional>
 #include <string.h>
 #include <type_traits>
 #include <utility>
-#include <iostream>
 #include <variant>
 extern "C" {
 #include "PortableBOSSSerialization.h"
@@ -367,13 +367,12 @@ public:
              [&arg, this] { return boss::Symbol(viewString(root, arg.asString)); }},
             {ArgumentType::ARGUMENT_TYPE_EXPRESSION,
              [&arg, this]() -> boss::Expression {
-	       auto const& expr = expressionsBuffer()[arg.asExpression];
+               auto const& expr = expressionsBuffer()[arg.asExpression];
                auto [args, spanArgs] =
                    deserializeArguments(expr.startChildOffset, expr.endChildOffset);
                auto result = boss::expressions::ComplexExpression(
-                   boss::Symbol(
-                       viewString(root, expr.symbolNameOffset)),
-                   {}, std::move(args), std::move(spanArgs));
+                   boss::Symbol(viewString(root, expr.symbolNameOffset)), {}, std::move(args),
+                   std::move(spanArgs));
                return result;
              }},
             {ArgumentType::ARGUMENT_TYPE_STRING,
@@ -449,21 +448,21 @@ public:
     }
 
     LazilyDeserializedExpression operator[](std::string const& keyName) const {
-          auto const& expr = expression();
-	  auto const& arguments = buffer.flattenedArguments();
-	  auto const& argumentTypes = buffer.flattenedArgumentTypes();
-	  auto const& expressions = buffer.expressionsBuffer();
-	  for (auto i = expr.startChildOffset; i < expr.endChildOffset; ++i) {
-	    if (argumentTypes[i] != ArgumentType::ARGUMENT_TYPE_EXPRESSION) {
-	      continue;
-	    }
-	    auto const& child = expressions[arguments[i].asExpression];
-	    auto const& key = viewString(buffer.root, child.symbolNameOffset);
-	    if (std::string_view{key} == keyName) {
-	      return {buffer, i};
-	    }
-	  }
-	  throw std::runtime_error(keyName + " not found.");
+      auto const& expr = expression();
+      auto const& arguments = buffer.flattenedArguments();
+      auto const& argumentTypes = buffer.flattenedArgumentTypes();
+      auto const& expressions = buffer.expressionsBuffer();
+      for(auto i = expr.startChildOffset; i < expr.endChildOffset; ++i) {
+        if(argumentTypes[i] != ArgumentType::ARGUMENT_TYPE_EXPRESSION) {
+          continue;
+        }
+        auto const& child = expressions[arguments[i].asExpression];
+        auto const& key = viewString(buffer.root, child.symbolNameOffset);
+        if(std::string_view{key} == keyName) {
+          return {buffer, i};
+        }
+      }
+      throw std::runtime_error(keyName + " not found.");
     }
 
     // could use * operator for this
@@ -472,25 +471,25 @@ public:
       auto const& argumentType = buffer.flattenedArgumentTypes()[argumentIndex];
       switch(argumentType) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
-	return argument.asBool;
+        return argument.asBool;
       case ArgumentType::ARGUMENT_TYPE_LONG:
-	return argument.asLong;
+        return argument.asLong;
       case ArgumentType::ARGUMENT_TYPE_DOUBLE:
-	return argument.asDouble;
+        return argument.asDouble;
       case ArgumentType::ARGUMENT_TYPE_STRING:
-	return viewString(buffer.root, argument.asString);
+        return viewString(buffer.root, argument.asString);
       case ArgumentType::ARGUMENT_TYPE_SYMBOL:
-	return boss::Symbol(viewString(buffer.root, argument.asString));
+        return boss::Symbol(viewString(buffer.root, argument.asString));
       case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
-	auto const& expr = expression();
-	auto s = boss::Symbol(viewString(buffer.root, expr.symbolNameOffset));
-	if(buffer.expressionCount() == 0) {
-	  return s;
-	}
-	// +1 to startOffset?
-	auto [args, spanArgs] = buffer.deserializeArguments(expr.startChildOffset, expr.endChildOffset);
-	auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
-	return result;
+        auto const& expr = expression();
+        auto s = boss::Symbol(viewString(buffer.root, expr.symbolNameOffset));
+        if(buffer.expressionCount() == 0) {
+          return s;
+        }
+        auto [args, spanArgs] =
+            buffer.deserializeArguments(expr.startChildOffset, expr.endChildOffset);
+        auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
+        return result;
       }
     }
 
@@ -501,28 +500,31 @@ public:
       using difference_type = std::ptrdiff_t;
       using pointer = T*;
       using reference = T&;
-      
-      Iterator(SerializedExpression const& buffer, size_t argumentIndex) : buffer(buffer), arguments(buffer.flattenedArguments()), argumentTypes(buffer.flattenedArgumentTypes()), argumentIndex(argumentIndex), validIndexEnd(argumentIndex) {
-	updateValidIndexEnd();
+
+      Iterator(SerializedExpression const& buffer, size_t argumentIndex)
+          : buffer(buffer), arguments(buffer.flattenedArguments()),
+            argumentTypes(buffer.flattenedArgumentTypes()), argumentIndex(argumentIndex),
+            validIndexEnd(argumentIndex) {
+        updateValidIndexEnd();
       }
       virtual ~Iterator() = default;
 
       Iterator operator++(int) { return Iterator(buffer.root, incrementIndex(1)); }
       Iterator& operator++() {
-	incrementIndex(1);
-	return *this;
+        incrementIndex(1);
+        return *this;
       }
 
       bool isValid() { return argumentIndex < validIndexEnd; }
 
       T& operator*() const {
-	if constexpr(std::is_same_v<T, int64_t>) {
-	  return arguments[argumentIndex].asLong;
-	} else if constexpr(std::is_same_v<T, double_t>) {
-	  return arguments[argumentIndex].asDouble;
-	} else {
-	  throw std::runtime_error("non-numerical types not yet implemented");
-	}
+        if constexpr(std::is_same_v<T, int64_t>) {
+          return arguments[argumentIndex].asLong;
+        } else if constexpr(std::is_same_v<T, double_t>) {
+          return arguments[argumentIndex].asDouble;
+        } else {
+          throw std::runtime_error("non-numerical types not yet implemented");
+        }
       }
 
       T* operator->() const { return &operator*(); }
@@ -539,33 +541,34 @@ public:
       size_t validIndexEnd;
 
       size_t incrementIndex(std::ptrdiff_t increment) {
-	argumentIndex += increment;
-	updateValidIndexEnd();
-	return argumentIndex;
+        argumentIndex += increment;
+        updateValidIndexEnd();
+        return argumentIndex;
       }
 
       void updateValidIndexEnd() {
-	if (argumentIndex >= validIndexEnd) {
-	  if (argumentTypes[argumentIndex] & ArgumentType_RLE_BIT) {
-	    if ((argumentTypes[argumentIndex] & ~ArgumentType_RLE_BIT) == expectedArgumentType()) {
-	      validIndexEnd = argumentIndex + static_cast<uint32_t>(argumentTypes[argumentIndex + 1]);
-	    }
-	  } else {
-	    if (argumentTypes[argumentIndex] == expectedArgumentType()) {
-	      validIndexEnd = argumentIndex + 1;
-	    }
-	  }
-	}
+        if(argumentIndex >= validIndexEnd) {
+          if(argumentTypes[argumentIndex] & ArgumentType_RLE_BIT) {
+            if((argumentTypes[argumentIndex] & ~ArgumentType_RLE_BIT) == expectedArgumentType()) {
+              validIndexEnd =
+                  argumentIndex + static_cast<uint32_t>(argumentTypes[argumentIndex + 1]);
+            }
+          } else {
+            if(argumentTypes[argumentIndex] == expectedArgumentType()) {
+              validIndexEnd = argumentIndex + 1;
+            }
+          }
+        }
       }
 
       constexpr ArgumentType expectedArgumentType() {
-	if constexpr(std::is_same_v<T, int64_t>) {
-	  return ArgumentType::ARGUMENT_TYPE_LONG;
-	} else if constexpr(std::is_same_v<T, double_t>) {
-	  return ArgumentType::ARGUMENT_TYPE_DOUBLE;
-	} else if constexpr(std::is_same_v<T, std::string>) {
-	  return ArgumentType::ARGUMENT_TYPE_STRING;
-	}
+        if constexpr(std::is_same_v<T, int64_t>) {
+          return ArgumentType::ARGUMENT_TYPE_LONG;
+        } else if constexpr(std::is_same_v<T, double_t>) {
+          return ArgumentType::ARGUMENT_TYPE_DOUBLE;
+        } else if constexpr(std::is_same_v<T, std::string>) {
+          return ArgumentType::ARGUMENT_TYPE_STRING;
+        }
       }
     };
 
