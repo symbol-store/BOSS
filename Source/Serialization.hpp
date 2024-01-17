@@ -553,7 +553,7 @@ public:
 
       void updateValidIndexEnd() {
         if(argumentIndex >= validIndexEnd) {
-          auto const& isRLE = argumentTypes[argumentIndex] & ArgumentType_RLE_BIT;
+          bool isRLE = argumentTypes[argumentIndex] & ArgumentType_RLE_BIT;
           if(isRLE) {
             if((argumentTypes[argumentIndex] & ~ArgumentType_RLE_BIT) == expectedArgumentType()) {
               validIndexEnd =
