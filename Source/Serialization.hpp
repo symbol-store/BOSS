@@ -303,7 +303,7 @@ public:
     boss::expressions::ExpressionSpanArguments spanArguments;
     for(auto childIndex = startChildOffset; childIndex < endChildOffset; childIndex++) {
       auto const& type = flattenedArgumentTypes()[childIndex];
-      auto const& isRLE = type & ArgumentType_RLE_BIT;
+      auto const& isRLE = (type & ArgumentType_RLE_BIT) != 0u;
 
       if(isRLE) {
 
@@ -553,8 +553,7 @@ public:
 
       void updateValidIndexEnd() {
         if(argumentIndex >= validIndexEnd) {
-          bool isRLE = argumentTypes[argumentIndex] & ArgumentType_RLE_BIT;
-          if(isRLE) {
+          if((argumentTypes[argumentIndex] & ArgumentType_RLE_BIT) != 0u) {
             if((argumentTypes[argumentIndex] & ~ArgumentType_RLE_BIT) == expectedArgumentType()) {
               validIndexEnd =
                   argumentIndex + static_cast<uint32_t>(argumentTypes[argumentIndex + 1]);
