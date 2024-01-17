@@ -443,7 +443,7 @@ public:
 
     LazilyDeserializedExpression operator[](size_t childOffset) const {
       auto const& expr = expression();
-      assert(childOffset < expr.startChildOffset - expr.endChildOffset);
+      assert(childOffset < expr.endChildOffset - expr.startChildOffset);
       return {buffer, expr.startChildOffset + childOffset};
     }
 
