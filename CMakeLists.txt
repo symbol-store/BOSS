@@ -123,8 +123,6 @@ foreach(Target IN LISTS AllTargets)
     # also using -E option to expose all symbols with the symbol table when dynamically loading the plugins (https://stackoverflow.com/a/9445178)
     if(APPLE)
       target_link_libraries(${Target} "-Wl,-export_dynamic")
-      target_link_libraries(${Target} "-Wl,-all_load")
-      target_link_libraries(${Target} "-Wl,-noall_load")
     endif()
   else()  
     # for Windows, we need to generate an "import library" for the plugins to link against it
