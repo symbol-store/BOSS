@@ -8,6 +8,9 @@
 #include <catch2/catch.hpp>
 #include <numeric>
 #include <variant>
+
+#include <iomanip>
+
 using boss::Expression;
 using std::string;
 using std::literals::string_literals::operator""s; // NOLINT(misc-unused-using-decls) clang-tidy bug
@@ -1390,7 +1393,7 @@ TEST_CASE("Expression Serialization") {
   }
 }
 
-TEST_CASE("Laxy Expression Serialization") {
+TEST_CASE("Lazy Expression Serialization") {
   auto const plans = std::array<boss::Expression, 8>{
       "HiThere"_(1, 4, 9, "You"_(1, 3), 9, 3),
       "Howdie"_("Yo"_(5, 17, "duh"_(3)), "Five"_(6), 9, 1),
@@ -1438,9 +1441,35 @@ TEST_CASE("Laxy Expression Serialization") {
     CHECK(e.lazilyDeserialize() ==
           (Expression) "H"_("O"_("W"_(1, 5, 9)), "D"_("I"_(6, 1), "E"_(2))));
   }
+  SECTION("Lazy Nested Indexing") {
+    auto e = boss::serialization::SerializedExpression(
+        "H"_("O"_("W"_(1, 5, 9)), "D"_("I"_(6, 1), "E"_(2))));
+    auto lazy_e = e.lazilyDeserialize();
+    CHECK(lazy_e[0] == (Expression) "O"_("W"_(1, 5, 9)));
+    CHECK(lazy_e[0].getCurrentExpression() == "O"_("W"_(1, 5, 9)));
+    CHECK(lazy_e[0][0] == (Expression) "W"_(1, 5, 9));
+    CHECK(lazy_e[0][0][0] == 1);
+  }
   {
     auto e = boss::serialization::SerializedExpression("Table"_(1, 5, 9));
     CHECK(!(e.lazilyDeserialize() == "Table"_(1, 5, 10)));
+  }
+  SECTION("Simple Lazy Indexing") {
+    auto e = boss::serialization::SerializedExpression("Table"_(1, 5, 9));
+    auto lazy_e = e.lazilyDeserialize();
+    CHECK(lazy_e[0] == 1);
+    CHECK(lazy_e[1] == 5);
+    CHECK(lazy_e[2] == 9);
+    CHECK(lazy_e[0].getCurrentExpression() == 1);
+  }
+  SECTION("Simple Lazy Iterating") {
+    auto e = boss::serialization::SerializedExpression("Table"_(1, 5, 9));
+    auto lazy_e = e.lazilyDeserialize();
+    int32_t agg = 0;
+    for(auto it = lazy_e.begin<int32_t>(); it != lazy_e.end<int32_t>(); ++it) {
+      agg += *it;
+    }
+    CHECK(agg == 15);
   }
 
   for(auto const& plan : plans) {
@@ -1479,7 +1508,6 @@ TEST_CASE("DELEGATE BOOTSTRAPPING", "[]") {
     std::cout << res << std::endl;
 
 }
-
 int main(int argc, char* argv[]) {
   Catch::Session session;
   session.cli(session.cli() | Catch::clara::Opt(librariesToTest, "library")["--library"]);
