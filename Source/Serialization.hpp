@@ -10,7 +10,6 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
-#include <iostream>
 extern "C" {
 #include "PortableBOSSSerialization.h"
 }
@@ -332,24 +331,11 @@ public:
       auto const& type = flattenedArgumentTypes()[childIndex];
       auto const& isRLE = type & ArgumentType_RLE_BIT;
       
-      std::cout << "BOOL: " << ArgumentType::ARGUMENT_TYPE_BOOL << std::endl;
-      std::cout << "CHAR: " << ArgumentType::ARGUMENT_TYPE_CHAR << std::endl;
-      std::cout << "INT: " << ArgumentType::ARGUMENT_TYPE_INT << std::endl;
-      std::cout << "LONG: " << ArgumentType::ARGUMENT_TYPE_LONG << std::endl;
-      std::cout << "FLOAT: " << ArgumentType::ARGUMENT_TYPE_FLOAT << std::endl;
-      std::cout << "DOUBLE: " << ArgumentType::ARGUMENT_TYPE_DOUBLE << std::endl;
-      std::cout << "SYMBOL: " << ArgumentType::ARGUMENT_TYPE_SYMBOL << std::endl;
-      std::cout << "STRING: " << ArgumentType::ARGUMENT_TYPE_STRING << std::endl;
-      std::cout << "EXPRESSION: " << ArgumentType::ARGUMENT_TYPE_EXPRESSION << std::endl;
-      std::cout << "TYPE: " << type << std::endl;
-      
       if(isRLE) {
 
         auto const argType = (ArgumentType)(type & (~ArgumentType_RLE_BIT));
         size_t size = flattenedArgumentTypes()[childIndex + 1];
         auto prevChildIndex = childIndex;
-	std::cout << "SPAN" << std::endl;
-	std::cout << "ARGTYPE: " << argType << std::endl;
 
         auto const spanFunctors =
             std::unordered_map<ArgumentType,
