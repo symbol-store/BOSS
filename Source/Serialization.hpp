@@ -544,6 +544,7 @@ public:
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
       auto const& argumentType = buffer.flattenedArgumentTypes()[argumentIndex];
       std::cout << "ARG TYPE: " << argumentType << std::endl;
+      std::cout << "ARG TYPE With RLE: " << (argumentType & (~ArgumentType_RLE_BIT)) << std::endl;
       std::cout << "B TYPE: " << ArgumentType::ARGUMENT_TYPE_BOOL << std::endl;
       std::cout << "C TYPE: " << ArgumentType::ARGUMENT_TYPE_CHAR << std::endl;
       std::cout << "I TYPE: " << ArgumentType::ARGUMENT_TYPE_INT << std::endl;
