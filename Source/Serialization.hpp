@@ -61,7 +61,7 @@ struct SerializedExpression {
   using BOSSArgumentPair =
       std::pair<boss::expressions::ExpressionArguments, boss::expressions::ExpressionSpanArguments>;
 
-  RootExpression* root = nullptr;
+  RootExpression* root = nullptr; 
   uint64_t argumentCount() const { return root->argumentCount; };
   uint64_t expressionCount() const { return root->expressionCount; };
 
@@ -723,7 +723,7 @@ public:
   SerializedExpression(SerializedExpression const&) = delete;
   SerializedExpression& operator=(SerializedExpression&&) noexcept = default;
   SerializedExpression& operator=(SerializedExpression const&) = delete;
-  ~SerializedExpression() { freeExpressionTree(root, freeFunction); }
+  ~SerializedExpression() { if (freeFunction) freeExpressionTree(root, freeFunction); }
 };
 
 // NOLINTEND(cppcoreguidelines-pro-type-union-access)
