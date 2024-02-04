@@ -555,21 +555,21 @@ public:
       std::cout << "SY TYPE: " << ArgumentType::ARGUMENT_TYPE_SYMBOL << std::endl;
       std::cout << "E TYPE: " << ArgumentType::ARGUMENT_TYPE_EXPRESSION << std::endl;
       switch(argumentType) {
-      case ArgumentType::ARGUMENT_TYPE_BOOL:
+      case ArgumentType::ARGUMENT_TYPE_BOOL: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_BOOL | ArgumentType_RLE_BIT)):
         return argument.asBool;
-      case ArgumentType::ARGUMENT_TYPE_CHAR:
+      case ArgumentType::ARGUMENT_TYPE_CHAR: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_CHAR | ArgumentType_RLE_BIT)):
         return argument.asChar;
-      case ArgumentType::ARGUMENT_TYPE_INT:
+      case ArgumentType::ARGUMENT_TYPE_INT: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_INT | ArgumentType_RLE_BIT)):
         return argument.asInt;
-      case ArgumentType::ARGUMENT_TYPE_LONG:
+      case ArgumentType::ARGUMENT_TYPE_LONG: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_LONG | ArgumentType_RLE_BIT)):
         return argument.asLong;
-      case ArgumentType::ARGUMENT_TYPE_FLOAT:
+      case ArgumentType::ARGUMENT_TYPE_FLOAT: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_FLOAT | ArgumentType_RLE_BIT)):
         return argument.asFloat;
-      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+      case ArgumentType::ARGUMENT_TYPE_DOUBLE: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_DOUBLE | ArgumentType_RLE_BIT)):
         return argument.asDouble;
-      case ArgumentType::ARGUMENT_TYPE_STRING:
+      case ArgumentType::ARGUMENT_TYPE_STRING: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_STRING | ArgumentType_RLE_BIT)):
         return viewString(buffer.root, argument.asString);
-      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+      case ArgumentType::ARGUMENT_TYPE_SYMBOL: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_SYMBOL | ArgumentType_RLE_BIT)):
         return boss::Symbol(viewString(buffer.root, argument.asString));
       case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
         auto const& expr = expression();
