@@ -537,9 +537,10 @@ public:
       }
       throw std::runtime_error(keyName + " not found.");
     }
-
+    
     // could use * operator for this
-    boss::Expression getCurrentExpression() && {
+    // should this be && qualified?
+    boss::Expression getCurrentExpression() const {
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
       auto const& argumentType = buffer.flattenedArgumentTypes()[argumentIndex];
       switch(argumentType) {
