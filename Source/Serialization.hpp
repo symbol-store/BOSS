@@ -483,6 +483,10 @@ public:
     LazilyDeserializedExpression(SerializedExpression const& buffer, size_t argumentIndex)
         : buffer(buffer), argumentIndex(argumentIndex) {}
 
+    size_t getArgumentIndex() const {
+      return argumentIndex;
+    }
+
     bool operator==(boss::Expression const& other) const {
       if(other.index() != buffer.flattenedArgumentTypes()[argumentIndex]) {
         return false;
@@ -537,23 +541,31 @@ public:
       }
       throw std::runtime_error(keyName + " not found.");
     }
+
+    Expression const& expression() const {
+      auto const& arguments = buffer.flattenedArguments();
+      auto const& argumentTypes = buffer.flattenedArgumentTypes();
+      auto const& expressions = buffer.expressionsBuffer();
+      assert(argumentTypes[argumentIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
+      return expressions[arguments[argumentIndex].asExpression];
+    }
     
     // could use * operator for this
     // should this be && qualified?
     boss::Expression getCurrentExpression() const {
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
       auto const& argumentType = buffer.flattenedArgumentTypes()[argumentIndex];
-      std::cout << "ARG TYPE: " << argumentType << std::endl;
-      std::cout << "ARG TYPE With RLE: " << (argumentType & (~ArgumentType_RLE_BIT)) << std::endl;
-      std::cout << "B TYPE: " << ArgumentType::ARGUMENT_TYPE_BOOL << std::endl;
-      std::cout << "C TYPE: " << ArgumentType::ARGUMENT_TYPE_CHAR << std::endl;
-      std::cout << "I TYPE: " << ArgumentType::ARGUMENT_TYPE_INT << std::endl;
-      std::cout << "L TYPE: " << ArgumentType::ARGUMENT_TYPE_LONG << std::endl;
-      std::cout << "F TYPE: " << ArgumentType::ARGUMENT_TYPE_FLOAT << std::endl;
-      std::cout << "D TYPE: " << ArgumentType::ARGUMENT_TYPE_DOUBLE << std::endl;
-      std::cout << "ST TYPE: " << ArgumentType::ARGUMENT_TYPE_STRING << std::endl;
-      std::cout << "SY TYPE: " << ArgumentType::ARGUMENT_TYPE_SYMBOL << std::endl;
-      std::cout << "E TYPE: " << ArgumentType::ARGUMENT_TYPE_EXPRESSION << std::endl;
+      // std::cout << "ARG TYPE: " << argumentType << std::endl;
+      // std::cout << "ARG TYPE With RLE: " << (argumentType & (~ArgumentType_RLE_BIT)) << std::endl;
+      // std::cout << "B TYPE: " << ArgumentType::ARGUMENT_TYPE_BOOL << std::endl;
+      // std::cout << "C TYPE: " << ArgumentType::ARGUMENT_TYPE_CHAR << std::endl;
+      // std::cout << "I TYPE: " << ArgumentType::ARGUMENT_TYPE_INT << std::endl;
+      // std::cout << "L TYPE: " << ArgumentType::ARGUMENT_TYPE_LONG << std::endl;
+      // std::cout << "F TYPE: " << ArgumentType::ARGUMENT_TYPE_FLOAT << std::endl;
+      // std::cout << "D TYPE: " << ArgumentType::ARGUMENT_TYPE_DOUBLE << std::endl;
+      // std::cout << "ST TYPE: " << ArgumentType::ARGUMENT_TYPE_STRING << std::endl;
+      // std::cout << "SY TYPE: " << ArgumentType::ARGUMENT_TYPE_SYMBOL << std::endl;
+      // std::cout << "E TYPE: " << ArgumentType::ARGUMENT_TYPE_EXPRESSION << std::endl;
       switch(argumentType) {
       case ArgumentType::ARGUMENT_TYPE_BOOL: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_BOOL | ArgumentType_RLE_BIT)):
         return argument.asBool;
@@ -684,13 +696,6 @@ public:
     }
 
   private:
-    Expression const& expression() const {
-      auto const& arguments = buffer.flattenedArguments();
-      auto const& argumentTypes = buffer.flattenedArgumentTypes();
-      auto const& expressions = buffer.expressionsBuffer();
-      assert(argumentTypes[argumentIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
-      return expressions[arguments[argumentIndex].asExpression];
-    }
   };
 
   LazilyDeserializedExpression lazilyDeserialize() & { return {*this, 0}; };
