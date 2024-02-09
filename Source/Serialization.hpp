@@ -551,7 +551,7 @@ public:
     }
 
     bool currentIsExpression() const {
-      auto const& argumentType = buffer.flattenedArgumentTypes[argumentIndex];
+      auto const& argumentType = buffer.flattenedArgumentTypes()[argumentIndex];
       return argumentType == ArgumentType::ARGUMENT_TYPE_EXPRESSION;
     }
 
