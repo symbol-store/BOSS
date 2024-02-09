@@ -549,7 +549,24 @@ public:
       assert(argumentTypes[argumentIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
       return expressions[arguments[argumentIndex].asExpression];
     }
-    
+
+    bool currentIsExpression() const {
+      auto const& argumentType = buffer.flattenedArgumentTypes[argumentIndex];
+      return argumentType == ArgumentType::ARGUMENT_TYPE_EXPRESSION;
+    }
+
+    size_t currentIsRLE() const {
+      auto const& argumentTypes = buffer.flattenedArgumentTypes();
+      auto const& type = argumentTypes[argumentIndex];
+      auto const& isRLE = (type & ArgumentType_RLE_BIT) != 0u;
+      return isRLE ? argumentTypes[argumentIndex + 1] : 0;
+    }
+
+    boss::Symbol getCurrentExpressionHead() const {
+      auto const& expr = expression();
+      return boss::Symbol(viewString(buffer.root, expr.symbolNameOffset));
+    }
+ 
     // could use * operator for this
     // should this be && qualified?
     boss::Expression getCurrentExpression() const {
