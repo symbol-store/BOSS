@@ -582,6 +582,13 @@ public:
       auto const& expr = expression();
       return boss::Symbol(viewString(buffer.root, expr.symbolNameOffset));
     }
+
+    ArgumentType getCurrentExpressionType() const {
+      auto const& argumentTypes = buffer.flattenedArgumentTypes();
+      auto const& type = argumentTypes[argumentIndex];
+      auto const& isRLE = (type & ArgumentType_RLE_BIT) != 0u;
+      return isRLE ? (type & (~ArgumentType_RLE_BIT)) : type;
+    }
  
     // could use * operator for this
     // should this be && qualified?
