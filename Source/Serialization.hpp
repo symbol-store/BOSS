@@ -566,6 +566,12 @@ public:
       return expressions[arguments[argumentIndex].asExpression];
     }
 
+    size_t getCurrentExpressionAsString() const {
+      auto const& type = buffer.flattenedArgumentTypes()[argumentIndex];
+      assert(type == ArgumentType::ARGUMENT_TYPE_STRING);
+      return buffer.flattenedArguments()[argumentIndex].asString;
+    }
+
     bool currentIsExpression() const {
       auto const& argumentType = buffer.flattenedArgumentTypes()[argumentIndex];
       return argumentType == ArgumentType::ARGUMENT_TYPE_EXPRESSION;
