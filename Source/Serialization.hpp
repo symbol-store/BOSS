@@ -584,10 +584,9 @@ public:
     }
 
     ArgumentType getCurrentExpressionType() const {
-      auto const& argumentTypes = buffer.flattenedArgumentTypes();
+      auto const& argumentTypes = buffer.flattenedArgumentTypes()[argumentIndex];
       auto const& type = argumentTypes[argumentIndex];
-      auto const& isRLE = (type & ArgumentType_RLE_BIT) != 0u;
-      return isRLE ? (type & (~ArgumentType_RLE_BIT)) : type;
+      return static_cast<ArgumentType>((type & (~ArgumentType_RLE_BIT)));
     }
  
     // could use * operator for this
