@@ -567,7 +567,7 @@ public:
     }
 
     size_t getCurrentExpressionAsString() const {
-      auto const& type = buffer.flattenedArgumentTypes()[argumentIndex];
+      auto const& type = getCurrentExpressionType();
       assert(type == ArgumentType::ARGUMENT_TYPE_STRING);
       return buffer.flattenedArguments()[argumentIndex].asString;
     }
