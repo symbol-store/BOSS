@@ -92,7 +92,7 @@ class BootstrapEngine : public boss::Engine {
     }
     ~LibraryCache() {
       for(const auto& [name, library] : *this) {
-        if(library.resetFunction) {
+        if(library.resetFunction != nullptr) {
           reinterpret_cast<void (*)(void)>(library.resetFunction)();
         }
         dlclose(library.library);
