@@ -8,12 +8,37 @@
 #include <iterator>
 #include <optional>
 #include <string.h>
-#include <type_traits>
+#include <typeinfo>
 #include <utility>
 #include <variant>
+
+#ifndef _MSC_VER
+#include <cxxabi.h>
+#include <memory>
+#endif
+
 extern "C" {
 #include "PortableBOSSSerialization.h"
 }
+
+template<typename T>
+void print_type_name() {
+    const char* typeName = typeid(T).name();
+
+    #ifndef _MSC_VER
+    // Demangle the type name on GCC/Clang
+    int status = -1;
+    std::unique_ptr<char, void(*)(void*)> res{
+        abi::__cxa_demangle(typeName, nullptr, nullptr, &status),
+        std::free
+    };
+    std::cout << (status == 0 ? res.get() : typeName) << std::endl;
+    #else
+    // On MSVC, typeid().name() returns a human-readable name.
+    std::cout << typeName << std::endl;
+    #endif
+}
+
 namespace boss::serialization {
 // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
 
@@ -232,6 +257,7 @@ struct SerializedExpression {
                             storeString(&root, argument.getName().c_str(), reallocateFunction);
                         *makeSymbolArgument(root, argumentOutputI++) = storedString;
                       } else {
+			print_type_name<std::decay_t<decltype(argument)>>();
                         throw std::runtime_error("unknown type");
                       }
                     },
@@ -283,6 +309,7 @@ struct SerializedExpression {
                             *makeSymbolArgument(root, argumentOutputI++) = storedString;
                           });
                         } else {
+			  print_type_name<std::decay_t<decltype(arg0)>>();
                           throw std::runtime_error("unknown type");
                         }
                         setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI - spanSize,
