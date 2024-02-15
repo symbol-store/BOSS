@@ -271,7 +271,7 @@ struct SerializedExpression {
                       auto spanSize = spanArgument.size();
                       if(spanSize >= ArgumentType_RLE_MINIMUM_SIZE) {
                         auto const& arg0 = spanArgument[0];
-                        if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool>) {
+                        if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> || std::is_same_v<std::decay_t<decltype(arg0)>, std::_Bit_reference>) {
                           std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
                             *makeBoolArgument(root, argumentOutputI++) = arg;
                           });
