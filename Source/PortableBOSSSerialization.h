@@ -111,7 +111,7 @@ static char* getStringBuffer(struct PortableBOSSRootExpression* root) {
 //////////////////////////////   Memory Management /////////////////////////////
 
 static struct PortableBOSSRootExpression*
-allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount,
+allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount, uint64_t stringBytesCount,
                        void* (*allocateFunction)(size_t)) {
   struct PortableBOSSRootExpression* root =
       (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
@@ -119,7 +119,8 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount,
           sizeof(struct PortableBOSSRootExpression) +
           sizeof(union PortableBOSSArgumentValue) * argumentCount +
           sizeof(enum PortableBOSSArgumentType) * argumentCount +
-          sizeof(struct PortableBOSSExpression) * expressionCount);
+          sizeof(struct PortableBOSSExpression) * expressionCount +
+					   stringBytesCount);
   *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       argumentCount;
   *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
@@ -294,7 +295,15 @@ static struct PortableBOSSExpression* makeExpression(struct PortableBOSSRootExpr
   return &getExpressionSubexpressions(root)[expressionOutputI];
 }
 
-static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString,
+static size_t storeString(struct PortableBOSSRootExpression** root, char const* inputString) {
+  size_t const inputStringLength = strlen(inputString);
+  char const* result = strncpy(getStringBuffer(*root) + (*root)->stringArgumentsFillIndex,
+                               inputString, inputStringLength + 1);
+  (*root)->stringArgumentsFillIndex += inputStringLength + 1;
+  return result - getStringBuffer(*root);
+};
+
+static size_t storeStringReallocation(struct PortableBOSSRootExpression** root, char const* inputString,
                           void* (*reallocateFunction)(void*, size_t)) {
   size_t const inputStringLength = strlen(inputString);
   *root = (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)

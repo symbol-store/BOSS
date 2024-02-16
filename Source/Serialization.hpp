@@ -21,22 +21,19 @@ extern "C" {
 #include "PortableBOSSSerialization.h"
 }
 
-template<typename T>
-void print_type_name() {
-    const char* typeName = typeid(T).name();
+template <typename T> void print_type_name() {
+  const char* typeName = typeid(T).name();
 
-    #ifndef _MSC_VER
-    // Demangle the type name on GCC/Clang
-    int status = -1;
-    std::unique_ptr<char, void(*)(void*)> res{
-        abi::__cxa_demangle(typeName, nullptr, nullptr, &status),
-        std::free
-    };
-    std::cout << (status == 0 ? res.get() : typeName) << std::endl;
-    #else
-    // On MSVC, typeid().name() returns a human-readable name.
-    std::cout << typeName << std::endl;
-    #endif
+#ifndef _MSC_VER
+  // Demangle the type name on GCC/Clang
+  int status = -1;
+  std::unique_ptr<char, void (*)(void*)> res{
+      abi::__cxa_demangle(typeName, nullptr, nullptr, &status), std::free};
+  std::cout << (status == 0 ? res.get() : typeName) << std::endl;
+#else
+  // On MSVC, typeid().name() returns a human-readable name.
+  std::cout << typeName << std::endl;
+#endif
 }
 
 namespace boss::serialization {
@@ -86,7 +83,7 @@ struct SerializedExpression {
   using BOSSArgumentPair =
       std::pair<boss::expressions::ExpressionArguments, boss::expressions::ExpressionSpanArguments>;
 
-  RootExpression* root = nullptr; 
+  RootExpression* root = nullptr;
   uint64_t argumentCount() const { return root->argumentCount; };
   uint64_t expressionCount() const { return root->expressionCount; };
 
@@ -157,6 +154,57 @@ struct SerializedExpression {
                       input);
   }
 
+  //////////////////////////////// Count String Bytes ///////////////////////////////
+
+  template <typename TupleLike, uint64_t... Is>
+  static uint64_t countStringBytesInTuple(TupleLike const& tuple,
+                                          std::index_sequence<Is...> /*unused*/) {
+    return (countStringBytes(std::get<Is>(tuple)) + ... + 0);
+  };
+
+  static uint64_t countStringBytes(boss::Expression const& input) {
+    return std::visit(
+        [](auto& input) -> size_t {
+          if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
+            return strlen(input.getHead().getName().c_str()) + 1 +
+                   countStringBytesInTuple(
+                       input.getStaticArguments(),
+                       std::make_index_sequence<std::tuple_size_v<
+                           std::decay_t<decltype(input.getStaticArguments())>>>()) +
+                   std::accumulate(input.getDynamicArguments().begin(),
+                                   input.getDynamicArguments().end(), 0,
+                                   [](auto runningSum, auto const& argument) {
+                                     return runningSum + countStringBytes(argument);
+                                   }) +
+                   std::accumulate(
+                       input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
+                       [](auto runningSum, auto const& argument) {
+                         return runningSum +
+                                std::visit(
+                                    [&](auto const& argument) {
+                                      if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                                  boss::Span<std::string>>) {
+                                        return std::accumulate(
+                                            argument.begin(), argument.end(), 0,
+                                            [](auto innerRunningSum, auto const& stringArgument) {
+                                              return innerRunningSum +
+                                                     strlen(stringArgument.c_str()) + 1;
+                                            });
+                                      }
+                                      return 0;
+                                    },
+                                    std::forward<decltype(argument)>(argument));
+                       });
+          } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::Symbol>) {
+            return strlen(input.getName().c_str()) + 1;
+          } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, std::string>) {
+            return strlen(input.c_str()) + 1;
+          }
+          return 0;
+        },
+        input);
+  }
+
   //////////////////////////////   Flatten Arguments /////////////////////////////
 
   template <typename TupleLike, uint64_t... Is>
@@ -221,8 +269,8 @@ struct SerializedExpression {
                         auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
                         auto const endChildOffset =
                             nextLayerOffset + childrenCountRunningSum + childrenCount;
-                        auto storedString = storeString(&root, argument.getHead().getName().c_str(),
-                                                        reallocateFunction);
+                        auto storedString =
+                            storeString(&root, argument.getHead().getName().c_str());
                         *makeExpression(root, expressionOutputI) =
                             PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
                         *makeExpressionArgument(root, argumentOutputI++) = expressionOutputI++;
@@ -248,16 +296,14 @@ struct SerializedExpression {
                         *makeDoubleArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          std::string>) {
-                        auto storedString =
-                            storeString(&root, argument.c_str(), reallocateFunction);
+                        auto storedString = storeString(&root, argument.c_str());
                         *makeStringArgument(root, argumentOutputI++) = storedString;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          boss::Symbol>) {
-                        auto storedString =
-                            storeString(&root, argument.getName().c_str(), reallocateFunction);
+                        auto storedString = storeString(&root, argument.getName().c_str());
                         *makeSymbolArgument(root, argumentOutputI++) = storedString;
                       } else {
-			print_type_name<std::decay_t<decltype(argument)>>();
+                        print_type_name<std::decay_t<decltype(argument)>>();
                         throw std::runtime_error("unknown type");
                       }
                     },
@@ -271,7 +317,9 @@ struct SerializedExpression {
                       auto spanSize = spanArgument.size();
                       if(spanSize >= ArgumentType_RLE_MINIMUM_SIZE) {
                         auto const& arg0 = spanArgument[0];
-                        if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> || std::is_same_v<std::decay_t<decltype(arg0)>, std::_Bit_reference>) {
+                        if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
+                                     std::is_same_v<std::decay_t<decltype(arg0)>,
+                                                    std::_Bit_reference>) {
                           std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
                             *makeBoolArgument(root, argumentOutputI++) = arg;
                           });
@@ -291,25 +339,25 @@ struct SerializedExpression {
                           std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
                             *makeFloatArgument(root, argumentOutputI++) = arg;
                           });
-                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, double_t>) {
+                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
+                                                           double_t>) {
                           std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
                             *makeDoubleArgument(root, argumentOutputI++) = arg;
                           });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            std::string>) {
                           std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            auto storedString = storeString(&root, arg.c_str(), reallocateFunction);
+                            auto storedString = storeString(&root, arg.c_str());
                             *makeStringArgument(root, argumentOutputI++) = storedString;
                           });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            boss::Symbol>) {
                           std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            auto storedString =
-                                storeString(&root, arg.getName().c_str(), reallocateFunction);
+                            auto storedString = storeString(&root, arg.getName().c_str());
                             *makeSymbolArgument(root, argumentOutputI++) = storedString;
                           });
                         } else {
-			  print_type_name<std::decay_t<decltype(arg0)>>();
+                          print_type_name<std::decay_t<decltype(arg0)>>();
                           throw std::runtime_error("unknown type");
                         }
                         setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI - spanSize,
@@ -331,7 +379,7 @@ struct SerializedExpression {
 public:
   explicit SerializedExpression(boss::Expression&& input)
       : SerializedExpression(allocateExpressionTree(countArguments(input), countExpressions(input),
-                                                    allocateFunction)) {
+                                                    countStringBytes(input), allocateFunction)) {
     std::visit(utilities::overload(
                    [this](boss::ComplexExpression&& input) {
                      auto argumentIterator = uint64_t{};
@@ -340,8 +388,7 @@ public:
                      auto const startChildOffset = 1;
                      auto const endChildOffset =
                          startChildOffset + input.getDynamicArguments().size();
-                     auto storedString =
-                         storeString(&root, input.getHead().getName().c_str(), reallocateFunction);
+                     auto storedString = storeString(&root, input.getHead().getName().c_str());
                      *makeExpression(root, expressionIterator) =
                          PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
                      *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
@@ -350,8 +397,7 @@ public:
                      flattenArguments(argumentIterator, std::move(inputs), expressionIterator);
                    },
                    [this](expressions::atoms::Symbol&& input) {
-                     auto storedString =
-                         storeString(&root, input.getName().c_str(), reallocateFunction);
+                     auto storedString = storeString(&root, input.getName().c_str());
                      *makeSymbolArgument(root, 0) = storedString;
                    },
                    [this](bool input) { *makeBoolArgument(root, 0) = input; },
@@ -367,7 +413,7 @@ public:
   }
 
   explicit SerializedExpression(RootExpression* root) : root(root) {}
-  
+
   BOSSArgumentPair deserializeArguments(uint64_t startChildOffset, uint64_t endChildOffset) const {
     boss::expressions::ExpressionArguments arguments;
     boss::expressions::ExpressionSpanArguments spanArguments;
@@ -526,9 +572,7 @@ public:
     LazilyDeserializedExpression(SerializedExpression const& buffer, size_t argumentIndex)
         : buffer(buffer), argumentIndex(argumentIndex) {}
 
-    size_t getArgumentIndex() const {
-      return argumentIndex;
-    }
+    size_t getArgumentIndex() const { return argumentIndex; }
 
     bool operator==(boss::Expression const& other) const {
       if(other.index() != buffer.flattenedArgumentTypes()[argumentIndex]) {
@@ -620,15 +664,15 @@ public:
       auto const& type = buffer.flattenedArgumentTypes()[argumentIndex];
       return static_cast<ArgumentType>((type & (~ArgumentType_RLE_BIT)));
     }
- 
+
     // could use * operator for this
     // should this be && qualified?
     boss::Expression getCurrentExpression() const {
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
       auto const& argumentType = buffer.flattenedArgumentTypes()[argumentIndex];
       // std::cout << "ARG TYPE: " << argumentType << std::endl;
-      // std::cout << "ARG TYPE With RLE: " << (argumentType & (~ArgumentType_RLE_BIT)) << std::endl;
-      // std::cout << "B TYPE: " << ArgumentType::ARGUMENT_TYPE_BOOL << std::endl;
+      // std::cout << "ARG TYPE With RLE: " << (argumentType & (~ArgumentType_RLE_BIT)) <<
+      // std::endl; std::cout << "B TYPE: " << ArgumentType::ARGUMENT_TYPE_BOOL << std::endl;
       // std::cout << "C TYPE: " << ArgumentType::ARGUMENT_TYPE_CHAR << std::endl;
       // std::cout << "I TYPE: " << ArgumentType::ARGUMENT_TYPE_INT << std::endl;
       // std::cout << "L TYPE: " << ArgumentType::ARGUMENT_TYPE_LONG << std::endl;
@@ -638,21 +682,29 @@ public:
       // std::cout << "SY TYPE: " << ArgumentType::ARGUMENT_TYPE_SYMBOL << std::endl;
       // std::cout << "E TYPE: " << ArgumentType::ARGUMENT_TYPE_EXPRESSION << std::endl;
       switch(argumentType) {
-      case ArgumentType::ARGUMENT_TYPE_BOOL: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_BOOL | ArgumentType_RLE_BIT)):
+      case ArgumentType::ARGUMENT_TYPE_BOOL:
+      case((ArgumentType)(ArgumentType::ARGUMENT_TYPE_BOOL | ArgumentType_RLE_BIT)):
         return argument.asBool;
-      case ArgumentType::ARGUMENT_TYPE_CHAR: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_CHAR | ArgumentType_RLE_BIT)):
+      case ArgumentType::ARGUMENT_TYPE_CHAR:
+      case((ArgumentType)(ArgumentType::ARGUMENT_TYPE_CHAR | ArgumentType_RLE_BIT)):
         return argument.asChar;
-      case ArgumentType::ARGUMENT_TYPE_INT: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_INT | ArgumentType_RLE_BIT)):
+      case ArgumentType::ARGUMENT_TYPE_INT:
+      case((ArgumentType)(ArgumentType::ARGUMENT_TYPE_INT | ArgumentType_RLE_BIT)):
         return argument.asInt;
-      case ArgumentType::ARGUMENT_TYPE_LONG: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_LONG | ArgumentType_RLE_BIT)):
+      case ArgumentType::ARGUMENT_TYPE_LONG:
+      case((ArgumentType)(ArgumentType::ARGUMENT_TYPE_LONG | ArgumentType_RLE_BIT)):
         return argument.asLong;
-      case ArgumentType::ARGUMENT_TYPE_FLOAT: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_FLOAT | ArgumentType_RLE_BIT)):
+      case ArgumentType::ARGUMENT_TYPE_FLOAT:
+      case((ArgumentType)(ArgumentType::ARGUMENT_TYPE_FLOAT | ArgumentType_RLE_BIT)):
         return argument.asFloat;
-      case ArgumentType::ARGUMENT_TYPE_DOUBLE: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_DOUBLE | ArgumentType_RLE_BIT)):
+      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+      case((ArgumentType)(ArgumentType::ARGUMENT_TYPE_DOUBLE | ArgumentType_RLE_BIT)):
         return argument.asDouble;
-      case ArgumentType::ARGUMENT_TYPE_STRING: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_STRING | ArgumentType_RLE_BIT)):
+      case ArgumentType::ARGUMENT_TYPE_STRING:
+      case((ArgumentType)(ArgumentType::ARGUMENT_TYPE_STRING | ArgumentType_RLE_BIT)):
         return viewString(buffer.root, argument.asString);
-      case ArgumentType::ARGUMENT_TYPE_SYMBOL: case ((ArgumentType) (ArgumentType::ARGUMENT_TYPE_SYMBOL | ArgumentType_RLE_BIT)):
+      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+      case((ArgumentType)(ArgumentType::ARGUMENT_TYPE_SYMBOL | ArgumentType_RLE_BIT)):
         return boss::Symbol(viewString(buffer.root, argument.asString));
       case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
         auto const& expr = expression();
@@ -811,7 +863,10 @@ public:
   SerializedExpression(SerializedExpression const&) = delete;
   SerializedExpression& operator=(SerializedExpression&&) noexcept = default;
   SerializedExpression& operator=(SerializedExpression const&) = delete;
-  ~SerializedExpression() { if (freeFunction) freeExpressionTree(root, freeFunction); }
+  ~SerializedExpression() {
+    if(freeFunction)
+      freeExpressionTree(root, freeFunction);
+  }
 };
 
 // NOLINTEND(cppcoreguidelines-pro-type-union-access)
