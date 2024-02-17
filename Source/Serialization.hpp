@@ -637,9 +637,11 @@ public:
       return expressions[arguments[argumentIndex].asExpression];
     }
 
-    size_t getCurrentExpressionAsString() const {
+    size_t getCurrentExpressionAsString(bool partOfRLE) const {
       auto const& type = getCurrentExpressionType();
-      assert(type == ArgumentType::ARGUMENT_TYPE_STRING || type == ArgumentType::ARGUMENT_TYPE_SYMBOL);
+      if (!partOfRLE) {
+	assert(type == ArgumentType::ARGUMENT_TYPE_STRING || type == ArgumentType::ARGUMENT_TYPE_SYMBOL);
+      }
       return buffer.flattenedArguments()[argumentIndex].asString;
     }
 
