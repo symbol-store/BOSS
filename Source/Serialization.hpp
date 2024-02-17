@@ -639,7 +639,7 @@ public:
 
     size_t getCurrentExpressionAsString() const {
       auto const& type = getCurrentExpressionType();
-      assert(type == ArgumentType::ARGUMENT_TYPE_STRING);
+      assert(type == ArgumentType::ARGUMENT_TYPE_STRING || type == ArgumentType::ARGUMENT_TYPE_STRING);
       return buffer.flattenedArguments()[argumentIndex].asString;
     }
 
