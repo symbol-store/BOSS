@@ -421,15 +421,10 @@ public:
       auto const& type = flattenedArgumentTypes()[childIndex];
       auto const& isRLE = (type & ArgumentType_RLE_BIT) != 0U;
 
-      std::cout << "\nTYPE: " << type << std::endl;
-      
-      std::cout << "isRLE: " << isRLE << std::endl;
-
       if(isRLE) {
 
         auto const argType = (ArgumentType)(type & (~ArgumentType_RLE_BIT));
 	
-	std::cout << "RLE TYPE: " << argType << std::endl;
         size_t size = flattenedArgumentTypes()[childIndex + 1];
         auto prevChildIndex = childIndex;
 
@@ -914,7 +909,6 @@ public:
   LazilyDeserializedExpression lazilyDeserialize() & { return {*this, 0}; };
 
   boss::Expression deserialize() && {
-    std::cout << "DESERIALISING EXPR" << std::endl;
     switch(flattenedArgumentTypes()[0]) {
     case ArgumentType::ARGUMENT_TYPE_BOOL:
       return flattenedArguments()[0].asBool;
@@ -938,9 +932,7 @@ public:
       if(root->expressionCount == 0) {
         return s;
       }
-      std::cout << "ABOUT TO DESERIALISE ARGS" << std::endl;
       auto [args, spanArgs] = deserializeArguments(1, expr.endChildOffset);
-      std::cout << "DESERIALISED ARGS" << std::endl;
       auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
       return result;
     }
