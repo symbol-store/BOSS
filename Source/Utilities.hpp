@@ -70,4 +70,13 @@ using comparability = decltype(std::declval<L>() == std::declval<R>());
 template <typename L, typename R>
 struct is_comparable<L, R, void_t<comparability<L, R>>> : std::true_type {};
 
+template <typename ReturnType, typename VisitorType, typename InputType,
+          typename = std::enable_if<std::is_invocable_v<VisitorType, ReturnType>>>
+ReturnType opportunisticVisitAndTransform(VisitorType&& visitor, InputType&& x) {
+  if(std::holds_alternative<ReturnType>(x)) {
+    return std::forward<VisitorType>(visitor)(std::get<ReturnType>(std::forward<InputType>(x)));
+  }
+  return std::forward<InputType>(x);
+};
+
 } // namespace boss::utilities

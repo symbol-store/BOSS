@@ -31,13 +31,7 @@ static void* dlopen(LPCSTR lpLibFileName, int /*flags*/) {
     return LoadLibraryEx(lpAbsFileName, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
   }
 }
-static auto dlclose(void* hModule) {
-  auto resetFunction = GetProcAddress((HMODULE)hModule, "reset");
-  if(resetFunction != NULL) {
-    (*reinterpret_cast<void (*)()>(resetFunction))();
-  }
-  return FreeLibrary((HMODULE)hModule);
-}
+static auto dlclose(void* hModule) { return FreeLibrary((HMODULE)hModule); }
 static auto dlerror() {
   auto errorCode = GetLastError();
   LPSTR pBuffer = NULL;
@@ -75,17 +69,18 @@ namespace {
 
 class BootstrapEngine : public boss::Engine {
 
-  struct LibraryAndEvaluateFunction {
-    void *library, *evaluateFunction;
+  struct LibraryAndFunctions {
+    void *library, *evaluateFunction, *resetFunction;
   };
 
-  struct LibraryCache : private ::std::unordered_map<::std::string, LibraryAndEvaluateFunction> {
-    LibraryAndEvaluateFunction const& at(::std::string const& libraryPath) {
+  struct LibraryCache : private ::std::unordered_map<::std::string, LibraryAndFunctions> {
+    LibraryAndFunctions const& at(::std::string const& libraryPath) {
       if(count(libraryPath) == 0) {
         const auto* n = libraryPath.c_str();
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
-          if(auto* sym = dlsym(library, "evaluate")) {
-            emplace(libraryPath, LibraryAndEvaluateFunction{library, sym});
+          if(auto* evalSym = dlsym(library, "evaluate")) {
+            auto* resetSym = dlsym(library, "reset");
+            emplace(libraryPath, LibraryAndFunctions{library, evalSym, resetSym});
           } else {
             throw ::std::runtime_error("library \"" + libraryPath +
                                        "\" does not provide an evaluate function: " + dlerror());
@@ -97,10 +92,17 @@ class BootstrapEngine : public boss::Engine {
       };
       return unordered_map::at(libraryPath);
     }
-    ~LibraryCache() {
+
+    ~LibraryCache() { clear(); }
+
+    void clear() {
       for(const auto& [name, library] : *this) {
+        if(library.resetFunction != nullptr) {
+          reinterpret_cast<void (*)(void)>(library.resetFunction)();
+        }
         dlclose(library.library);
       }
+      ::std::unordered_map<::std::string, LibraryAndFunctions>::clear();
     }
 
     LibraryCache() = default;
@@ -188,6 +190,10 @@ class BootstrapEngine : public boss::Engine {
              auto result = ::std::move(wrapper->delegate);
              freeBOSSExpression(wrapper);
              return ::std::move(result);
+	  }},
+          {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {
+             libraries.clear();
+             return "okay";
            }}};
   bool isBootstrapCommand(boss::Expression const& expression) {
     return visit(utilities::overload(
