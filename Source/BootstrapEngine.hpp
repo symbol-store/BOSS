@@ -90,13 +90,17 @@ class BootstrapEngine : public boss::Engine {
       };
       return unordered_map::at(libraryPath);
     }
-    ~LibraryCache() {
+
+    ~LibraryCache() { clear(); }
+
+    void clear() {
       for(const auto& [name, library] : *this) {
         if(library.resetFunction != nullptr) {
           reinterpret_cast<void (*)(void)>(library.resetFunction)();
         }
         dlclose(library.library);
       }
+      ::std::unordered_map<::std::string, LibraryAndFunctions>::clear();
     }
 
     LibraryCache() = default;
@@ -143,7 +147,8 @@ class BootstrapEngine : public boss::Engine {
              freeBOSSExpression(r); // NOLINT
              return ::std::move(result);
            }},
-          {boss::Symbol("SetDefaultEnginePipeline"), [this](auto&& expression) -> boss::Expression {
+          {boss::Symbol("SetDefaultEnginePipeline"),
+           [this](auto&& expression) -> boss::Expression {
              algorithm::visitEach(expression.getArguments(), [this](auto&& engine) {
                if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
                  defaultEngine.push_back(engine);
@@ -151,6 +156,10 @@ class BootstrapEngine : public boss::Engine {
                  throw std::runtime_error("SetDefaultEnginePipeline received non-string argument");
                }
              });
+             return "okay";
+           }},
+          {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {
+             libraries.clear();
              return "okay";
            }}};
   bool isBootstrapCommand(boss::Expression const& expression) {
