@@ -6,7 +6,6 @@
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
 #include "Utilities.hpp"
-#include <iostream>
 
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -98,18 +97,12 @@ class BootstrapEngine : public boss::Engine {
 
     void clear() {
       for(const auto& [name, library] : *this) {
-	std::cout << "NAME: " << name << std::endl;
         if(library.resetFunction != nullptr) {
-	  std::cout << "HAS RESET" << std::endl;
           reinterpret_cast<void (*)(void)>(library.resetFunction)();
-	  std::cout << "RESET" << std::endl;
         }
         dlclose(library.library);
-	std::cout << "CLOSED" << std::endl;
       }
-      std::cout << "DONE LOOP" << std::endl;
       ::std::unordered_map<::std::string, LibraryAndFunctions>::clear();
-      std::cout << "DONE CLEAR" << std::endl;
     }
 
     LibraryCache() = default;
