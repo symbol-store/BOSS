@@ -6,6 +6,7 @@
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
 #include "Utilities.hpp"
+#include <iostream>
 
 #ifndef _WIN32
 #include <dlfcn.h>
