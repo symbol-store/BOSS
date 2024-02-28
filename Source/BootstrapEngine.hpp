@@ -97,12 +97,15 @@ class BootstrapEngine : public boss::Engine {
 
     void clear() {
       for(const auto& [name, library] : *this) {
+	std::cout << "NAME: " << name << std::endl;
         if(library.resetFunction != nullptr) {
           reinterpret_cast<void (*)(void)>(library.resetFunction)();
         }
         dlclose(library.library);
       }
+      std::cout << "DONE LOOP" << std::endl;
       ::std::unordered_map<::std::string, LibraryAndFunctions>::clear();
+      std::cout << "DONE CLEAR" << std::endl;
     }
 
     LibraryCache() = default;
