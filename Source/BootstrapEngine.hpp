@@ -160,7 +160,8 @@ class BootstrapEngine : public boss::Engine {
              });
              return "okay";
            }},
-          {boss::Symbol("DelegateBootstrapping"), [this](auto&& e) -> boss::Expression {
+          {boss::Symbol("DelegateBootstrapping"),
+           [this](auto&& e) -> boss::Expression {
              auto delegatedEngineSymbols = ::std::vector<int64_t>();
              auto args = get<ComplexExpression>(e.getArguments().at(1)).getArguments();
              ::std::for_each(args.begin(), args.end(),
@@ -190,7 +191,7 @@ class BootstrapEngine : public boss::Engine {
              auto result = ::std::move(wrapper->delegate);
              freeBOSSExpression(wrapper);
              return ::std::move(result);
-	  }},
+           }},
           {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {
              libraries.clear();
              return "okay";

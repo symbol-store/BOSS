@@ -8,8 +8,8 @@
 #include <iterator>
 #include <optional>
 #include <string.h>
-#include <typeinfo>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
 #include <variant>
 
@@ -22,8 +22,7 @@ extern "C" {
 #include "PortableBOSSSerialization.h"
 }
 
-template< class T, class U >
-inline constexpr bool is_same_v = std::is_same<T, U>::value;
+template <class T, class U> inline constexpr bool is_same_v = std::is_same<T, U>::value;
 
 template <typename T> void print_type_name() {
   const char* typeName = typeid(T).name();
@@ -428,7 +427,7 @@ public:
       if(isRLE) {
 
         auto const argType = (ArgumentType)(type & (~ArgumentType_RLE_BIT));
-	
+
         size_t size = flattenedArgumentTypes()[childIndex + 1];
         auto prevChildIndex = childIndex;
 
@@ -515,9 +514,9 @@ public:
                    }
                    return boss::expressions::Span<std::string>(std::move(data));
                  }}};
-	
+
         spanArguments.push_back(spanFunctors.at(argType)());
-	childIndex--;
+        childIndex--;
 
       } else {
         auto const& arg = flattenedArguments()[childIndex];
@@ -598,42 +597,47 @@ public:
                                 return false;
                               }
                               auto result = true;
-			      auto i = 0U;
-			      for (; i < e.getDynamicArguments().size(); i++) {
+                              auto i = 0U;
+                              for(; i < e.getDynamicArguments().size(); i++) {
                                 auto subExpressionPosition = startChildOffset + i;
                                 result &=
-				  (LazilyDeserializedExpression(buffer, subExpressionPosition) ==
-				   e.getDynamicArguments().at(i));
-			      }
-			      for (auto j = 0; j < e.getSpanArguments().size(); j++) {
-				std::visit([&](auto&& typedSpanArg) {
-				  auto subSpanPosition = startChildOffset + i;
-				  auto currSpan = (LazilyDeserializedExpression(buffer, subSpanPosition)).getCurrentExpressionAsSpan();
-				  result &= std::visit([&](auto&& typedCurrSpan) {
-				    if (typedCurrSpan.size() != typedSpanArg.size()) {
-				      return false;
-				    }
-				    using Curr = std::decay_t<decltype(typedCurrSpan)>;
-				    using Other = std::decay_t<decltype(typedSpanArg)>;
-				    if constexpr (!is_same_v<Curr, Other>) {
-				      return false;
-				    } else {
-				      auto res = true;
-				      for (auto k = 0; k < typedCurrSpan.size(); k++) {
-					auto first = typedCurrSpan.at(k);
-					auto second = typedSpanArg.at(k);
-					res &= first == second;
-				      }
-				      return res;
-				    }
-				  }, currSpan);
-				  i += typedSpanArg.size();
-				}, e.getSpanArguments().at(j));
-			      }
+                                    (LazilyDeserializedExpression(buffer, subExpressionPosition) ==
+                                     e.getDynamicArguments().at(i));
+                              }
+                              for(auto j = 0; j < e.getSpanArguments().size(); j++) {
+                                std::visit(
+                                    [&](auto&& typedSpanArg) {
+                                      auto subSpanPosition = startChildOffset + i;
+                                      auto currSpan =
+                                          (LazilyDeserializedExpression(buffer, subSpanPosition))
+                                              .getCurrentExpressionAsSpan();
+                                      result &= std::visit(
+                                          [&](auto&& typedCurrSpan) {
+                                            if(typedCurrSpan.size() != typedSpanArg.size()) {
+                                              return false;
+                                            }
+                                            using Curr = std::decay_t<decltype(typedCurrSpan)>;
+                                            using Other = std::decay_t<decltype(typedSpanArg)>;
+                                            if constexpr(!is_same_v<Curr, Other>) {
+                                              return false;
+                                            } else {
+                                              auto res = true;
+                                              for(auto k = 0; k < typedCurrSpan.size(); k++) {
+                                                auto first = typedCurrSpan.at(k);
+                                                auto second = typedSpanArg.at(k);
+                                                res &= first == second;
+                                              }
+                                              return res;
+                                            }
+                                          },
+                                          currSpan);
+                                      i += typedSpanArg.size();
+                                    },
+                                    e.getSpanArguments().at(j));
+                              }
                               return result;
                             },
-                            [&argument, this](auto v) {
-			      return as<decltype(v)>(argument) == v; }),
+                            [&argument, this](auto v) { return as<decltype(v)>(argument) == v; }),
                         other);
       ;
     }
@@ -672,8 +676,9 @@ public:
 
     size_t getCurrentExpressionAsString(bool partOfRLE) const {
       auto const& type = getCurrentExpressionType();
-      if (!partOfRLE) {
-	assert(type == ArgumentType::ARGUMENT_TYPE_STRING || type == ArgumentType::ARGUMENT_TYPE_SYMBOL);
+      if(!partOfRLE) {
+        assert(type == ArgumentType::ARGUMENT_TYPE_STRING ||
+               type == ArgumentType::ARGUMENT_TYPE_SYMBOL);
       }
       return buffer.flattenedArguments()[argumentIndex].asString;
     }
@@ -705,88 +710,88 @@ public:
       assert(size != 0);
       auto const& type = getCurrentExpressionType();
       auto const& arguments = buffer.flattenedArguments();
-      auto const spanFunctors = std::unordered_map<ArgumentType, std::function<boss::expressions::ExpressionSpanArgument()>>{
-	{ArgumentType::ARGUMENT_TYPE_BOOL,
-	 [&] {
-	   std::vector<bool> data;
-	   data.reserve(size);
-	   for (size_t i = 0; i < size; i++) {
-	     auto const& arg = arguments[argumentIndex + i];
-	     data.push_back(arg.asBool);
-	   }
-	   return boss::expressions::Span<bool>(std::move(data));
-	 }},
-	{ArgumentType::ARGUMENT_TYPE_CHAR,
-	 [&] {
-	   std::vector<int8_t> data;
-	   data.reserve(size);
-	   for (size_t i = 0; i < size; i++) {
-	     auto const& arg = arguments[argumentIndex + i];
-	     data.push_back(arg.asChar);
-	   }
-	   return boss::expressions::Span<int8_t>(std::move(data));
-	 }},
-	{ArgumentType::ARGUMENT_TYPE_INT,
-	 [&] {
-	   std::vector<int32_t> data;
-	   data.reserve(size);
-	   for (size_t i = 0; i < size; i++) {
-	     auto const& arg = arguments[argumentIndex + i];
-	     data.push_back(arg.asInt);
-	   }
-	   return boss::expressions::Span<int32_t>(std::move(data));
-	 }},
-	{ArgumentType::ARGUMENT_TYPE_LONG,
-	 [&] {
-	   std::vector<int64_t> data;
-	   data.reserve(size);
-	   for (size_t i = 0; i < size; i++) {
-	     auto const& arg = arguments[argumentIndex + i];
-	     data.push_back(arg.asLong);
-	   }
-	   return boss::expressions::Span<int64_t>(std::move(data));
-	 }},
-	{ArgumentType::ARGUMENT_TYPE_FLOAT,
-	 [&] {
-	   std::vector<float_t> data;
-	   data.reserve(size);
-	   for (size_t i = 0; i < size; i++) {
-	     auto const& arg = arguments[argumentIndex + i];
-	     data.push_back(arg.asFloat);
-	   }
-	   return boss::expressions::Span<float_t>(std::move(data));
-	 }},
-	{ArgumentType::ARGUMENT_TYPE_DOUBLE,
-	 [&] {
-	   std::vector<double_t> data;
-	   data.reserve(size);
-	   for (size_t i = 0; i < size; i++) {
-	     auto const& arg = arguments[argumentIndex + i];
-	     data.push_back(arg.asDouble);
-	   }
-	   return boss::expressions::Span<double_t>(std::move(data));
-	 }},
-	{ArgumentType::ARGUMENT_TYPE_STRING,
-	 [&] {
-	   std::vector<std::string> data;
-	   data.reserve(size);
-	   for (size_t i = 0; i < size; i++) {
-	     auto const& arg = arguments[argumentIndex + i];
-	     data.push_back(std::string(viewString(buffer.root, arg.asString)));
-	   }
-	   return boss::expressions::Span<std::string>(std::move(data));
-	 }},
-	{ArgumentType::ARGUMENT_TYPE_SYMBOL,
-	 [&] {
-	   std::vector<boss::Symbol> data;
-	   data.reserve(size);
-	   for (size_t i = 0; i < size; i++) {
-	     auto const& arg = arguments[argumentIndex + i];
-	     data.push_back(boss::Symbol(viewString(buffer.root, arg.asString)));
-	   }
-	   return boss::expressions::Span<boss::Symbol>(std::move(data));
-	 }}
-      };
+      auto const spanFunctors =
+          std::unordered_map<ArgumentType,
+                             std::function<boss::expressions::ExpressionSpanArgument()>>{
+              {ArgumentType::ARGUMENT_TYPE_BOOL,
+               [&] {
+                 std::vector<bool> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asBool);
+                 }
+                 return boss::expressions::Span<bool>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_CHAR,
+               [&] {
+                 std::vector<int8_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asChar);
+                 }
+                 return boss::expressions::Span<int8_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_INT,
+               [&] {
+                 std::vector<int32_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asInt);
+                 }
+                 return boss::expressions::Span<int32_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_LONG,
+               [&] {
+                 std::vector<int64_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asLong);
+                 }
+                 return boss::expressions::Span<int64_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_FLOAT,
+               [&] {
+                 std::vector<float_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asFloat);
+                 }
+                 return boss::expressions::Span<float_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_DOUBLE,
+               [&] {
+                 std::vector<double_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asDouble);
+                 }
+                 return boss::expressions::Span<double_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_STRING,
+               [&] {
+                 std::vector<std::string> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(std::string(viewString(buffer.root, arg.asString)));
+                 }
+                 return boss::expressions::Span<std::string>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
+                 std::vector<boss::Symbol> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(boss::Symbol(viewString(buffer.root, arg.asString)));
+                 }
+                 return boss::expressions::Span<boss::Symbol>(std::move(data));
+               }}};
       return spanFunctors.at(type)();
     }
 
@@ -795,15 +800,17 @@ public:
     boss::Expression getCurrentExpression() const {
       auto const& types = buffer.flattenedArgumentTypes();
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
-      auto argumentType = static_cast<ArgumentType>((types[argumentIndex] & (~ArgumentType_RLE_BIT)));
-      bool outOfBounds = argumentType > ArgumentType::ARGUMENT_TYPE_EXPRESSION || argumentType < ArgumentType::ARGUMENT_TYPE_BOOL;
-      
-      if (outOfBounds && argumentIndex > 0) {
-	auto const& prevType = types[argumentIndex-1];
-	bool prevIsRLE = (prevType & ArgumentType_RLE_BIT) != 0;
-	if (prevIsRLE) {
-	  argumentType = static_cast<ArgumentType>((prevType & (~ArgumentType_RLE_BIT)));
-	}
+      auto argumentType =
+          static_cast<ArgumentType>((types[argumentIndex] & (~ArgumentType_RLE_BIT)));
+      bool outOfBounds = argumentType > ArgumentType::ARGUMENT_TYPE_EXPRESSION ||
+                         argumentType < ArgumentType::ARGUMENT_TYPE_BOOL;
+
+      if(outOfBounds && argumentIndex > 0) {
+        auto const& prevType = types[argumentIndex - 1];
+        bool prevIsRLE = (prevType & ArgumentType_RLE_BIT) != 0;
+        if(prevIsRLE) {
+          argumentType = static_cast<ArgumentType>((prevType & (~ArgumentType_RLE_BIT)));
+        }
       }
       // std::cout << "ARG TYPE: " << argumentType << std::endl;
       switch(argumentType) {
