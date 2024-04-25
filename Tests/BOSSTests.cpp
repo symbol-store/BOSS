@@ -1393,7 +1393,7 @@ TEST_CASE("Expression Serialization") {
   }
 }
 
-TEST_CASE("Lazy Expression Serialization") {
+TEST_CASE("Lazy Expression Serialization") {  
   auto const plans = std::array<boss::Expression, 8>{
       "HiThere"_(1, 4, 9, "You"_(1, 3), 9, 3),
       "Howdie"_("Yo"_(5, 17, "duh"_(3)), "Five"_(6), 9, 1),
@@ -1429,7 +1429,7 @@ TEST_CASE("Lazy Expression Serialization") {
       "Table"_(1, 5, 9),
       Expression(3),
       "SetDefaultEnginePipeline"_(
-          "/Users/hlgr/Temp/BOSSWolframEngine/Debug/libBOSSWolframEngine.so")};
+				  "/Users/hlgr/Temp/BOSSWolframEngine/Debug/libBOSSWolframEngine.so")};
 
   {
     auto e = boss::serialization::SerializedExpression(Expression(3));
@@ -1486,11 +1486,22 @@ TEST_CASE("Expression Serialization With Spans") {
   std::vector<int64_t> vec2(dataSetSize);
   std::iota(vec1.begin(), vec1.end(), 0);
   std::iota(vec2.begin(), vec2.end(), dataSetSize);
-  auto const plans = std::array<boss::Expression, 2>{
+  
+  std::vector<int64_t> vec3(dataSetSize);
+  std::vector<int64_t> vec4(dataSetSize);
+  std::iota(vec3.begin(), vec3.end(), 0);
+  std::iota(vec4.begin(), vec4.end(), dataSetSize);
+  boss::expressions::ExpressionSpanArguments spanArgs;
+  spanArgs.push_back(std::move(boss::Span<int64_t>(vector(vec3))));
+  spanArgs.push_back(std::move(boss::Span<int64_t>(vector(vec4))));
+  auto listTwoSpans = boss::ComplexExpression{"List"_, {}, {}, std::move(spanArgs)};
+  
+  auto const plans = std::array<boss::Expression, 3>{
       "Table"_("List"_(boss::Span<int64_t>(vector(vec1))),
                "List"_(boss::Span<int64_t>(vector(vec2)))),
       "Table"_("Column"_("List"_(boss::Span<int64_t>(vector(vec1)))),
-               "Column"_("List"_(boss::Span<int64_t>(vector(vec2)))))};
+               "Column"_("List"_(boss::Span<int64_t>(vector(vec2))))),
+      "Table"_("Column"_(std::move(listTwoSpans)))};
 
   for(auto const& plan : plans) {
     CHECK(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
@@ -1498,16 +1509,33 @@ TEST_CASE("Expression Serialization With Spans") {
   }
 }
 
-TEST_CASE("DELEGATE BOOTSTRAPPING", "[]") {
-  auto engine = boss::engines::BootstrapEngine();
+TEST_CASE("Lazy Expression Serialization With Spans") {
 
-  // auto res = engine.evaluate("DelegateBootstrapping"_("/home/david/Documents/PhD/symbol-store/BOSSLazyLoadingCoordinatorEngine/build/libBOSSLazyLoadingCoordinatorEngine.so", "List"_("/home/david/Documents/PhD/symbol-store/BOSSRemoteBinaryLoaderEngine/build/libBOSSRemoteBinaryLoaderEngine.so", "/home/david/Documents/PhD/symbol-store/BOSSWisentDeserialiserEngine/build/libBOSSWisentDeserialiserEngine.so"), "Parse"_("Fetch"_((int64_t) 0, (int64_t) 274, "https://www.doc.ic.ac.uk/~dcl19/simpleWisentTable.bin"))));
+  auto dataSetSize = 10;
+  std::vector<int64_t> vec3(dataSetSize);
+  std::vector<int64_t> vec4(dataSetSize);
+  std::iota(vec3.begin(), vec3.end(), 0);
+  std::iota(vec4.begin(), vec4.end(), dataSetSize);
+  boss::expressions::ExpressionSpanArguments spanArgs;
+  spanArgs.push_back(std::move(boss::Span<int64_t>(vector(vec3))));
+  spanArgs.push_back(std::move(boss::Span<int64_t>(vector(vec4))));
+  auto listTwoSpans = boss::ComplexExpression{"List"_, {}, {}, std::move(spanArgs)};
+  boss::Expression const tableExpr = "Table"_("Column"_(std::move(listTwoSpans)));
   
-  auto res = engine.evaluate("EvaluateInEngines"_("List"_("/home/david/Documents/PhD/symbol-store/BOSSRemoteBinaryLoaderEngine/build/libBOSSRemoteBinaryLoaderEngine.so", "/home/david/Documents/PhD/symbol-store/BOSSWisentDeserialiserEngine/build/libBOSSWisentDeserialiserEngine.so"), "Parse"_("Fetch"_((int64_t) 0, (int64_t) 274, "https://www.doc.ic.ac.uk/~dcl19/simpleWisentTable.bin"))));
-
-    std::cout << res << std::endl;
-
+  auto e = boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
+  CHECK(e.lazilyDeserialize() == tableExpr);
 }
+
+// TEST_CASE("DELEGATE BOOTSTRAPPING", "[]") {
+//   auto engine = boss::engines::BootstrapEngine();
+
+//   // auto res = engine.evaluate("DelegateBootstrapping"_("/home/david/Documents/PhD/symbol-store/BOSSLazyLoadingCoordinatorEngine/build/libBOSSLazyLoadingCoordinatorEngine.so", "List"_("/home/david/Documents/PhD/symbol-store/BOSSRemoteBinaryLoaderEngine/build/libBOSSRemoteBinaryLoaderEngine.so", "/home/david/Documents/PhD/symbol-store/BOSSWisentDeserialiserEngine/build/libBOSSWisentDeserialiserEngine.so"), "Parse"_("Fetch"_((int64_t) 0, (int64_t) 274, "https://www.doc.ic.ac.uk/~dcl19/simpleWisentTable.bin"))));
+  
+//   auto res = engine.evaluate("EvaluateInEngines"_("List"_("/home/david/Documents/PhD/symbol-store/BOSSRemoteBinaryLoaderEngine/build/libBOSSRemoteBinaryLoaderEngine.so", "/home/david/Documents/PhD/symbol-store/BOSSWisentDeserialiserEngine/build/libBOSSWisentDeserialiserEngine.so"), "Parse"_("Fetch"_((int64_t) 0, (int64_t) 274, "https://www.doc.ic.ac.uk/~dcl19/simpleWisentTable.bin"))));
+
+//     std::cout << res << std::endl;
+
+// }
 int main(int argc, char* argv[]) {
   Catch::Session session;
   session.cli(session.cli() | Catch::clara::Opt(librariesToTest, "library")["--library"]);

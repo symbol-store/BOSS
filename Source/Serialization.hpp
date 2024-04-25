@@ -9,6 +9,7 @@
 #include <optional>
 #include <string.h>
 #include <typeinfo>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -20,6 +21,9 @@
 extern "C" {
 #include "PortableBOSSSerialization.h"
 }
+
+template< class T, class U >
+inline constexpr bool is_same_v = std::is_same<T, U>::value;
 
 template <typename T> void print_type_name() {
   const char* typeName = typeid(T).name();
@@ -513,6 +517,7 @@ public:
                  }}};
 	
         spanArguments.push_back(spanFunctors.at(argType)());
+	childIndex--;
 
       } else {
         auto const& arg = flattenedArguments()[childIndex];
@@ -593,15 +598,42 @@ public:
                                 return false;
                               }
                               auto result = true;
-                              for(auto i = 0U; i < numberOfChildren; i++) {
+			      auto i = 0U;
+			      for (; i < e.getDynamicArguments().size(); i++) {
                                 auto subExpressionPosition = startChildOffset + i;
                                 result &=
-                                    (LazilyDeserializedExpression(buffer, subExpressionPosition) ==
-                                     e.getDynamicArguments().at(i));
-                              }
+				  (LazilyDeserializedExpression(buffer, subExpressionPosition) ==
+				   e.getDynamicArguments().at(i));
+			      }
+			      for (auto j = 0; j < e.getSpanArguments().size(); j++) {
+				std::visit([&](auto&& typedSpanArg) {
+				  auto subSpanPosition = startChildOffset + i;
+				  auto currSpan = (LazilyDeserializedExpression(buffer, subSpanPosition)).getCurrentExpressionAsSpan();
+				  result &= std::visit([&](auto&& typedCurrSpan) {
+				    if (typedCurrSpan.size() != typedSpanArg.size()) {
+				      return false;
+				    }
+				    using Curr = std::decay_t<decltype(typedCurrSpan)>;
+				    using Other = std::decay_t<decltype(typedSpanArg)>;
+				    if constexpr (!is_same_v<Curr, Other>) {
+				      return false;
+				    } else {
+				      auto res = true;
+				      for (auto k = 0; k < typedCurrSpan.size(); k++) {
+					auto first = typedCurrSpan.at(k);
+					auto second = typedSpanArg.at(k);
+					res &= first == second;
+				      }
+				      return res;
+				    }
+				  }, currSpan);
+				  i += typedSpanArg.size();
+				}, e.getSpanArguments().at(j));
+			      }
                               return result;
                             },
-                            [&argument, this](auto v) { return as<decltype(v)>(argument) == v; }),
+                            [&argument, this](auto v) {
+			      return as<decltype(v)>(argument) == v; }),
                         other);
       ;
     }
