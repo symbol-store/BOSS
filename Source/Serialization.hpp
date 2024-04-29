@@ -899,25 +899,9 @@ public:
                }}};
       return spanFunctors.at(type)();
     }
-
-    // could use * operator for this
-    // should this be && qualified?
-    boss::Expression getCurrentExpression() const {
-      auto const& types = buffer.flattenedArgumentTypes();
+    
+    boss::Expression getCurrentExpressionAs(ArgumentType argumentType) const {
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
-      auto argumentType =
-          static_cast<ArgumentType>((types[argumentIndex] & (~ArgumentType_RLE_BIT)));
-      bool outOfBounds = argumentType > ArgumentType::ARGUMENT_TYPE_EXPRESSION ||
-                         argumentType < ArgumentType::ARGUMENT_TYPE_BOOL;
-
-      if(outOfBounds && argumentIndex > 0) {
-        auto const& prevType = types[argumentIndex - 1];
-        bool prevIsRLE = (prevType & ArgumentType_RLE_BIT) != 0;
-        if(prevIsRLE) {
-          argumentType = static_cast<ArgumentType>((prevType & (~ArgumentType_RLE_BIT)));
-        }
-      }
-      // std::cout << "ARG TYPE: " << argumentType << std::endl;
       switch(argumentType) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
         return argument.asBool;
@@ -946,6 +930,25 @@ public:
         auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
         return result;
       }
+    }
+
+    // could use * operator for this
+    // should this be && qualified?
+    boss::Expression getCurrentExpression() const {
+      auto const& types = buffer.flattenedArgumentTypes();
+      auto argumentType =
+          static_cast<ArgumentType>((types[argumentIndex] & (~ArgumentType_RLE_BIT)));
+      bool outOfBounds = argumentType > ArgumentType::ARGUMENT_TYPE_EXPRESSION ||
+                         argumentType < ArgumentType::ARGUMENT_TYPE_BOOL;
+
+      if(outOfBounds && argumentIndex > 0) {
+        auto const& prevType = types[argumentIndex - 1];
+        bool prevIsRLE = (prevType & ArgumentType_RLE_BIT) != 0;
+        if(prevIsRLE) {
+          argumentType = static_cast<ArgumentType>((prevType & (~ArgumentType_RLE_BIT)));
+        }
+      }
+      return getCurrentExpressionAs(argumentType);
     }
 
     template <typename T> class Iterator {
