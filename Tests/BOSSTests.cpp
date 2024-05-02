@@ -1632,6 +1632,7 @@ TEST_CASE("Lazy Expression Serialization With Spans") {
       });
 
   auto resTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(matches))))));
+  std::cout << "LAZY RESULT: " << lazyListExpr << std::endl;
   std::cout << "RESULT: " << resTable << std::endl;
 }
 

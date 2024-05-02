@@ -417,107 +417,106 @@ public:
 
   explicit SerializedExpression(RootExpression* root) : root(root) {}
 
+  static void addIndexToStream(std::ostream& stream, SerializedExpression const& expr, size_t index,
+			      int64_t exprIndex, int64_t exprDepth) {
+    for(auto i = 0; i < exprDepth; i++) {
+      stream << "  ";
+    }
+    auto const& arguments = expr.flattenedArguments();
+    auto const& types = expr.flattenedArgumentTypes();
+    auto const& expressions = expr.expressionsBuffer();
+    auto const& root = expr.root;
+
+    auto argumentType = static_cast<ArgumentType>((types[index] & (~ArgumentType_RLE_BIT)));
+    auto const& isRLE = (types[index] & ArgumentType_RLE_BIT) != 0U;
+    bool outOfBounds = argumentType > ArgumentType::ARGUMENT_TYPE_EXPRESSION ||
+      argumentType < ArgumentType::ARGUMENT_TYPE_BOOL;
+
+    if(outOfBounds && index > 0) {
+      auto const& prevType = types[index - 1];
+      bool prevIsRLE = (prevType & ArgumentType_RLE_BIT) != 0;
+      if(prevIsRLE) {
+	argumentType = static_cast<ArgumentType>((prevType & (~ArgumentType_RLE_BIT)));
+      }
+    }
+
+    if(exprIndex < 0) {
+      stream << "ARG INDEX: " << index << " VALUE: ";
+    } else {
+      stream << "ARG INDEX: " << index << " SUB-EXPR INDEX: " << exprIndex << " VALUE: ";
+    }
+
+    switch(argumentType) {
+    case ArgumentType::ARGUMENT_TYPE_BOOL:
+      stream << arguments[index].asBool << " TYPE: BOOL";
+      stream << "\n";
+      return;
+    case ArgumentType::ARGUMENT_TYPE_CHAR:
+      stream << arguments[index].asChar << " TYPE: CHAR";
+      stream << "\n";
+      return;
+    case ArgumentType::ARGUMENT_TYPE_INT:
+      stream << arguments[index].asInt << " TYPE: INT";
+      stream << "\n";
+      return;
+    case ArgumentType::ARGUMENT_TYPE_LONG:
+      stream << arguments[index].asLong << " TYPE: LONG";
+      stream << "\n";
+      return;
+    case ArgumentType::ARGUMENT_TYPE_FLOAT:
+      stream << arguments[index].asFloat << " TYPE: FLOAT";
+      stream << "\n";
+      return;
+    case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+      stream << arguments[index].asDouble << " TYPE: DOUBLE";
+      stream << "\n";
+      return;
+    case ArgumentType::ARGUMENT_TYPE_STRING:
+      stream << "( STR_OFFSET[" << arguments[index].asString << "], "
+	     << viewString(root, arguments[index].asString) << ")"
+	     << " TYPE: STRING";
+      stream << "\n";
+      return;
+    case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+      stream << "( STR_OFFSET[" << arguments[index].asString << "], "
+	     << boss::Symbol(viewString(root, arguments[index].asString)) << ")"
+	     << " TYPE: SYMBOL";
+      stream << "\n";
+      return;
+    case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
+
+      auto const& expression = expressions[arguments[index].asExpression];
+      auto s = boss::Symbol(viewString(root, expression.symbolNameOffset));
+      stream << "( EXPR_OFFSET[" << arguments[index].asExpression << "], \n";
+      for(auto i = 0; i < exprDepth + 1; i++) {
+	stream << "  ";
+      }
+      stream << "HEAD: " << s << "\n";
+      if(root->expressionCount == 0) {
+	for(auto i = 0; i < exprDepth; i++) {
+	  stream << "  ";
+	}
+	stream << ")"
+	       << " TYPE: EXPRESSION\n";
+      }
+      for(auto i = expression.startChildOffset; i < expression.endChildOffset; i++) {
+	addIndexToStream(stream, expr, i, i - expression.startChildOffset, exprDepth + 1);
+      }
+      for(auto i = 0; i < exprDepth; i++) {
+	stream << "  ";
+      }
+      stream << ")"
+	     << " TYPE: EXPRESSION";
+      stream << "\n";
+      return;
+    }
+    // if (isRLE) {
+    // 	stream << " SPAN";
+    // }
+    // stream << "\n";
+  }
+
   friend std::ostream& operator<<(std::ostream& stream, SerializedExpression const& expr) {
-    std::function<void(std::ostream&, SerializedExpression const&, size_t, int64_t, int64_t)>
-        addIndexToStream = [&](std::ostream& stream, SerializedExpression const& expr, size_t index,
-                               int64_t exprIndex, int64_t exprDepth) {
-          for(auto i = 0; i < exprDepth; i++) {
-            stream << "  ";
-          }
-          auto const& arguments = expr.flattenedArguments();
-          auto const& types = expr.flattenedArgumentTypes();
-          auto const& expressions = expr.expressionsBuffer();
-          auto const& root = expr.root;
-
-          auto argumentType = static_cast<ArgumentType>((types[index] & (~ArgumentType_RLE_BIT)));
-          auto const& isRLE = (types[index] & ArgumentType_RLE_BIT) != 0U;
-          bool outOfBounds = argumentType > ArgumentType::ARGUMENT_TYPE_EXPRESSION ||
-                             argumentType < ArgumentType::ARGUMENT_TYPE_BOOL;
-
-          if(outOfBounds && index > 0) {
-            auto const& prevType = types[index - 1];
-            bool prevIsRLE = (prevType & ArgumentType_RLE_BIT) != 0;
-            if(prevIsRLE) {
-              argumentType = static_cast<ArgumentType>((prevType & (~ArgumentType_RLE_BIT)));
-            }
-          }
-
-          if(exprIndex < 0) {
-            stream << "ARG INDEX: " << index << " VALUE: ";
-          } else {
-            stream << "ARG INDEX: " << index << " SUB-EXPR INDEX: " << exprIndex << " VALUE: ";
-          }
-
-          switch(argumentType) {
-          case ArgumentType::ARGUMENT_TYPE_BOOL:
-            stream << arguments[index].asBool << " TYPE: BOOL";
-            stream << "\n";
-            return;
-          case ArgumentType::ARGUMENT_TYPE_CHAR:
-            stream << arguments[index].asChar << " TYPE: CHAR";
-            stream << "\n";
-            return;
-          case ArgumentType::ARGUMENT_TYPE_INT:
-            stream << arguments[index].asInt << " TYPE: INT";
-            stream << "\n";
-            return;
-          case ArgumentType::ARGUMENT_TYPE_LONG:
-            stream << arguments[index].asLong << " TYPE: LONG";
-            stream << "\n";
-            return;
-          case ArgumentType::ARGUMENT_TYPE_FLOAT:
-            stream << arguments[index].asFloat << " TYPE: FLOAT";
-            stream << "\n";
-            return;
-          case ArgumentType::ARGUMENT_TYPE_DOUBLE:
-            stream << arguments[index].asDouble << " TYPE: DOUBLE";
-            stream << "\n";
-            return;
-          case ArgumentType::ARGUMENT_TYPE_STRING:
-            stream << "( STR_OFFSET[" << arguments[index].asString << "], "
-                   << viewString(root, arguments[index].asString) << ")"
-                   << " TYPE: STRING";
-            stream << "\n";
-            return;
-          case ArgumentType::ARGUMENT_TYPE_SYMBOL:
-            stream << "( STR_OFFSET[" << arguments[index].asString << "], "
-                   << boss::Symbol(viewString(root, arguments[index].asString)) << ")"
-                   << " TYPE: SYMBOL";
-            stream << "\n";
-            return;
-          case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
-
-            auto const& expression = expressions[arguments[index].asExpression];
-            auto s = boss::Symbol(viewString(root, expression.symbolNameOffset));
-            stream << "( EXPR_OFFSET[" << arguments[index].asExpression << "], \n";
-            for(auto i = 0; i < exprDepth + 1; i++) {
-              stream << "  ";
-            }
-            stream << "HEAD: " << s << "\n";
-            if(root->expressionCount == 0) {
-              for(auto i = 0; i < exprDepth; i++) {
-                stream << "  ";
-              }
-              stream << ")"
-                     << " TYPE: EXPRESSION\n";
-            }
-            for(auto i = expression.startChildOffset; i < expression.endChildOffset; i++) {
-              addIndexToStream(stream, expr, i, i - expression.startChildOffset, exprDepth + 1);
-            }
-            for(auto i = 0; i < exprDepth; i++) {
-              stream << "  ";
-            }
-            stream << ")"
-                   << " TYPE: EXPRESSION";
-            stream << "\n";
-            return;
-          }
-          // if (isRLE) {
-          // 	stream << " SPAN";
-          // }
-          // stream << "\n";
-        };
-
     addIndexToStream(stream, expr, 0, -1, 0);
     return stream;
   }
@@ -745,6 +744,11 @@ public:
                             [&argument, this](auto v) { return as<decltype(v)>(argument) == v; }),
                         other);
       ;
+    }
+
+    friend std::ostream& operator<<(std::ostream& stream, LazilyDeserializedExpression lazyExpr) {
+      lazyExpr.buffer.addIndexToStream(stream, lazyExpr.buffer, lazyExpr.argumentIndex, -1, 0);
+      return stream;
     }
 
     LazilyDeserializedExpression operator[](size_t childOffset) const {
