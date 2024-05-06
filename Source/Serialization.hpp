@@ -218,8 +218,6 @@ struct SerializedExpression {
 
   uint64_t flattenArguments(uint64_t argumentOutputI, std::vector<boss::ComplexExpression>&& inputs,
                             uint64_t& expressionOutputI) {
-    for(auto& input : inputs) {
-    }
     auto const nextLayerOffset =
         argumentOutputI +
         std::accumulate(inputs.begin(), inputs.end(), 0, [](auto count, auto const& expression) {
@@ -268,7 +266,6 @@ struct SerializedExpression {
                                              [&](auto const& spanArg) { return spanArg.size(); },
                                              std::forward<decltype(spanArg)>(spanArg));
                                 });
-                        auto const headOffset = argumentOutputI;
                         auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
                         auto const endChildOffset =
                             nextLayerOffset + childrenCountRunningSum + childrenCount;
@@ -385,12 +382,24 @@ public:
                                                     countStringBytes(input), allocateFunction)) {
     std::visit(utilities::overload(
                    [this](boss::ComplexExpression&& input) {
-                     auto argumentIterator = uint64_t{};
-                     auto expressionIterator = uint64_t{};
-                     auto const headOffset = 0;
+                     uint64_t argumentIterator = 0;
+                     uint64_t expressionIterator = 0;
+		     auto const childrenCount =
+                            std::tuple_size_v<
+                                std::decay_t<decltype(input.getStaticArguments())>> +
+                            input.getDynamicArguments().size() +
+                            std::accumulate(
+                                input.getSpanArguments().begin(),
+                                input.getSpanArguments().end(), 0,
+                                [](auto runningSum, auto const& spanArg) {
+                                  return runningSum +
+                                         std::visit(
+                                             [&](auto const& spanArg) { return spanArg.size(); },
+                                             std::forward<decltype(spanArg)>(spanArg));
+                                });
                      auto const startChildOffset = 1;
                      auto const endChildOffset =
-                         startChildOffset + input.getDynamicArguments().size();
+                         startChildOffset + childrenCount;
                      auto storedString = storeString(&root, input.getHead().getName().c_str());
                      *makeExpression(root, expressionIterator) =
                          PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
