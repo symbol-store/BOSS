@@ -912,6 +912,93 @@ public:
                }}};
       return spanFunctors.at(type)();
     }
+
+    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size) const {
+      auto const& arguments = buffer.flattenedArguments();
+      auto const spanFunctors =
+          std::unordered_map<ArgumentType,
+                             std::function<boss::expressions::ExpressionSpanArgument()>>{
+              {ArgumentType::ARGUMENT_TYPE_BOOL,
+               [&] {
+                 std::vector<bool> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asBool);
+                 }
+                 return boss::expressions::Span<bool>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_CHAR,
+               [&] {
+                 std::vector<int8_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asChar);
+                 }
+                 return boss::expressions::Span<int8_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_INT,
+               [&] {
+                 std::vector<int32_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asInt);
+                 }
+                 return boss::expressions::Span<int32_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_LONG,
+               [&] {
+                 std::vector<int64_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asLong);
+                 }
+                 return boss::expressions::Span<int64_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_FLOAT,
+               [&] {
+                 std::vector<float_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asFloat);
+                 }
+                 return boss::expressions::Span<float_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_DOUBLE,
+               [&] {
+                 std::vector<double_t> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asDouble);
+                 }
+                 return boss::expressions::Span<double_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_STRING,
+               [&] {
+                 std::vector<std::string> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(std::string(viewString(buffer.root, arg.asString)));
+                 }
+                 return boss::expressions::Span<std::string>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
+                 std::vector<boss::Symbol> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(boss::Symbol(viewString(buffer.root, arg.asString)));
+                 }
+                 return boss::expressions::Span<boss::Symbol>(std::move(data));
+               }}};
+      return spanFunctors.at(type)();
+    }
     
     boss::Expression getCurrentExpressionAs(ArgumentType argumentType) const {
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
