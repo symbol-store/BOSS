@@ -201,12 +201,22 @@ public: // surface
   };
   // NOLINTEND(bugprone-exception-escape)
 
-  void swap(void*& payload) && { std::swap(this->adapteePayload, payload); }
+  std::tuple<IteratorType, IteratorType, std::function<void(void*)>, void*>
+  swap(IteratorType begin, IteratorType end, std::function<void(void*)> destructor, void* payload) {
+    auto prev = std::make_tuple(std::move(_begin), std::move(_end), std::move(this->destructor),
+                                std::move(adapteePayload));
+    _begin = std::move(begin);
+    _end = std::move(end);
+    this->destructor = std::move(destructor);
+    adapteePayload = std::move(payload);
+    return std::move(prev);
+  }
 
   friend std::ostream& operator<<(std::ostream& stream, Span const& span) {
     return stream << span.size;
   }
 };
+template <typename Container> Span(Container&&) -> Span<typename Container::value_type>;
 } // namespace atoms
 using atoms::Span;
 using atoms::Symbol;
