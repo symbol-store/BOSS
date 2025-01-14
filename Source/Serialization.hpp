@@ -241,6 +241,22 @@ struct SerializedExpression {
 
   //////////////////////////////   Flatten Arguments /////////////////////////////
 
+  size_t checkMapAndStoreString(const std::string& key, std::unordered_map<std::string, size_t>& stringMap, bool dictEncodeStrings) {
+    size_t storedString = 0;
+    if (dictEncodeStrings) {
+      auto it = stringMap.find(key);
+	if (it == stringMap.end()) {
+	  storedString = storeString(&root, key.c_str());
+	  stringMap.emplace(key, storedString);
+	} else {
+	  storedString = it->second;
+	}
+    } else {
+      storedString = storeString(&root, key.c_str());
+    }
+    return storedString;
+  }
+  
   template <typename TupleLike, uint64_t... Is>
   void flattenArgumentsInTuple(TupleLike&& tuple, std::index_sequence<Is...> /*unused*/,
                                uint64_t& argumentOutputI, std::unordered_map<std::string, size_t>& stringMap, bool dictEncodeStrings) {
@@ -307,8 +323,8 @@ struct SerializedExpression {
                         auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
                         auto const endChildOffset =
                             nextLayerOffset + childrenCountRunningSum + childrenCount;
-                        auto storedString =
-                            storeString(&root, argument.getHead().getName().c_str());
+		        auto storedString =
+			  checkMapAndStoreString(argument.getHead().getName(), stringMap, dictEncodeStrings);
                         *makeExpression(root, expressionOutputI) =
                             PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
                         *makeExpressionArgument(root, argumentOutputI++) = expressionOutputI++;
@@ -334,12 +350,14 @@ struct SerializedExpression {
                         *makeDoubleArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          std::string>) {
-                        auto storedString = storeString(&root, argument.c_str());
-                        *makeStringArgument(root, argumentOutputI++) = storedString;
+                        auto storedString =
+			  checkMapAndStoreString(argument, stringMap, dictEncodeStrings);
+		        *makeStringArgument(root, argumentOutputI++) = storedString;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          boss::Symbol>) {
-                        auto storedString = storeString(&root, argument.getName().c_str());
-                        *makeSymbolArgument(root, argumentOutputI++) = storedString;
+                        auto storedString =
+			  checkMapAndStoreString(argument.getName(), stringMap, dictEncodeStrings);
+		        *makeSymbolArgument(root, argumentOutputI++) = storedString;
                       } else {
                         print_type_name<std::decay_t<decltype(argument)>>();
                         throw std::runtime_error("unknown type");
@@ -385,13 +403,15 @@ struct SerializedExpression {
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            std::string>) {
                           std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            auto storedString = storeString(&root, arg.c_str());
-                            *makeStringArgument(root, argumentOutputI++) = storedString;
+                            auto storedString =
+			      checkMapAndStoreString(arg, stringMap, dictEncodeStrings);
+			    *makeStringArgument(root, argumentOutputI++) = storedString;
                           });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            boss::Symbol>) {
                           std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            auto storedString = storeString(&root, arg.getName().c_str());
+                            auto storedString =
+			      checkMapAndStoreString(arg.getName(), stringMap, dictEncodeStrings);
                             *makeSymbolArgument(root, argumentOutputI++) = storedString;
                           });
                         } else {
