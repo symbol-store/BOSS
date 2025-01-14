@@ -12,6 +12,7 @@
 #include <typeinfo>
 #include <utility>
 #include <variant>
+#include <unordered_set>
 
 #ifndef _MSC_VER
 #include <cxxabi.h>
@@ -160,28 +161,41 @@ struct SerializedExpression {
   //////////////////////////////// Count String Bytes ///////////////////////////////
 
   template <typename TupleLike, uint64_t... Is>
-  static uint64_t countStringBytesInTuple(TupleLike const& tuple,
+  static uint64_t countStringBytesInTuple(std::unordered_set<std::string>& stringSet, bool dictEncodeStrings,
+					  TupleLike const& tuple,
                                           std::index_sequence<Is...> /*unused*/) {
-    return (countStringBytes(std::get<Is>(tuple)) + ... + 0);
+    return (countStringBytes(std::get<Is>(tuple), stringSet, dictEncodeStrings) + ... + 0);
   };
 
-  static uint64_t countStringBytes(boss::Expression const& input) {
+  static uint64_t countStringBytes(boss::Expression const& input, bool dictEncodeStrings = true) {
+    std::unordered_set<std::string> stringSet;
+    return countStringBytes(input, stringSet, dictEncodeStrings);
+  }
+  
+  static uint64_t countStringBytes(boss::Expression const& input, std::unordered_set<std::string>& stringSet, bool dictEncodeStrings) {
     return std::visit(
-        [](auto& input) -> size_t {
+        [&](auto& input) -> size_t {
           if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
-            return strlen(input.getHead().getName().c_str()) + 1 +
-                   countStringBytesInTuple(
-                       input.getStaticArguments(),
-                       std::make_index_sequence<std::tuple_size_v<
-                           std::decay_t<decltype(input.getStaticArguments())>>>()) +
-                   std::accumulate(input.getDynamicArguments().begin(),
-                                   input.getDynamicArguments().end(), 0,
-                                   [](auto runningSum, auto const& argument) {
-                                     return runningSum + countStringBytes(argument);
-                                   }) +
-                   std::accumulate(
+	    size_t headBytes = 0;
+	    if (stringSet.find(input.getHead().getName()) == stringSet.end()) {
+	      stringSet.insert(input.getHead().getName());
+	      headBytes = strlen(input.getHead().getName().c_str()) + 1;
+	    }
+	    size_t staticArgsBytes =
+	      countStringBytesInTuple(stringSet, dictEncodeStrings,
+				      input.getStaticArguments(),
+				      std::make_index_sequence<std::tuple_size_v<
+				      std::decay_t<decltype(input.getStaticArguments())>>>());
+	    size_t dynamicArgsBytes =
+	      std::accumulate(input.getDynamicArguments().begin(),
+			      input.getDynamicArguments().end(), 0,
+			      [&](size_t runningSum, auto const& argument) {
+				return runningSum + countStringBytes(argument, stringSet, dictEncodeStrings);
+			      });
+	    size_t spanArgsBytes =
+	      std::accumulate(
                        input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
-                       [](auto runningSum, auto const& argument) {
+                       [&](size_t runningSum, auto const& argument) {
                          return runningSum +
                                 std::visit(
                                     [&](auto const& argument) {
@@ -189,19 +203,33 @@ struct SerializedExpression {
                                                                   boss::Span<std::string>>) {
                                         return std::accumulate(
                                             argument.begin(), argument.end(), 0,
-                                            [](auto innerRunningSum, auto const& stringArgument) {
-                                              return innerRunningSum +
-                                                     strlen(stringArgument.c_str()) + 1;
+                                            [&](size_t innerRunningSum, auto const& stringArgument) {
+					      if (stringSet.find(stringArgument) == stringSet.end()) {
+						stringSet.insert(stringArgument);	
+						return innerRunningSum +
+						  strlen(stringArgument.c_str()) + 1; 
+					      }
+					      return innerRunningSum;
                                             });
                                       }
                                       return 0;
                                     },
                                     std::forward<decltype(argument)>(argument));
                        });
+
+	    return headBytes + staticArgsBytes + dynamicArgsBytes + spanArgsBytes;
           } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::Symbol>) {
-            return strlen(input.getName().c_str()) + 1;
+	    if (stringSet.find(input.getName()) == stringSet.end()) {
+	      stringSet.insert(input.getName());
+	      return strlen(input.getName().c_str()) + 1;
+	    }
+            return 0;
           } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, std::string>) {
-            return strlen(input.c_str()) + 1;
+	    if (stringSet.find(input) == stringSet.end()) {
+	      stringSet.insert(input);
+	      return strlen(input.c_str()) + 1;
+	    }
+            return 0;
           }
           return 0;
         },
@@ -377,9 +405,9 @@ struct SerializedExpression {
   ////////////////////////////////   Surface Area ////////////////////////////////
 
 public:
-  explicit SerializedExpression(boss::Expression&& input)
+  explicit SerializedExpression(boss::Expression&& input, bool dictEncodeStrings = true)
       : SerializedExpression(allocateExpressionTree(countArguments(input), countExpressions(input),
-                                                    countStringBytes(input), allocateFunction)) {
+                                                    countStringBytes(input, dictEncodeStrings), allocateFunction)) {
     std::visit(utilities::overload(
                    [this](boss::ComplexExpression&& input) {
                      uint64_t argumentIterator = 0;
