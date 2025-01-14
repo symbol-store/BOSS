@@ -176,8 +176,8 @@ struct SerializedExpression {
     return std::visit(
         [&](auto& input) -> size_t {
           if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
-	    size_t headBytes = 0;
-	    if (stringSet.find(input.getHead().getName()) == stringSet.end()) {
+	    size_t headBytes = !dictEncodeStrings * (strlen(input.getHead().getName().c_str()) + 1);
+	    if (dictEncodeStrings && stringSet.find(input.getHead().getName()) == stringSet.end()) {
 	      stringSet.insert(input.getHead().getName());
 	      headBytes = strlen(input.getHead().getName().c_str()) + 1;
 	    }
@@ -204,12 +204,13 @@ struct SerializedExpression {
                                         return std::accumulate(
                                             argument.begin(), argument.end(), 0,
                                             [&](size_t innerRunningSum, auto const& stringArgument) {
-					      if (stringSet.find(stringArgument) == stringSet.end()) {
+					      size_t resRunningSum = innerRunningSum +
+						(!dictEncodeStrings * (strlen(stringArgument.c_str()) + 1));
+					      if (dictEncodeStrings && stringSet.find(stringArgument) == stringSet.end()) {
 						stringSet.insert(stringArgument);	
-						return innerRunningSum +
-						  strlen(stringArgument.c_str()) + 1; 
+						resRunningSum += strlen(stringArgument.c_str()) + 1; 
 					      }
-					      return innerRunningSum;
+					      return resRunningSum;
                                             });
                                       }
                                       return 0;
@@ -219,17 +220,19 @@ struct SerializedExpression {
 
 	    return headBytes + staticArgsBytes + dynamicArgsBytes + spanArgsBytes;
           } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::Symbol>) {
-	    if (stringSet.find(input.getName()) == stringSet.end()) {
+	    size_t res = !dictEncodeStrings * (strlen(input.getName().c_str()) + 1);
+	    if (dictEncodeStrings && stringSet.find(input.getName()) == stringSet.end()) {
 	      stringSet.insert(input.getName());
-	      return strlen(input.getName().c_str()) + 1;
+	      res = strlen(input.getName().c_str()) + 1;
 	    }
-            return 0;
+            return res;
           } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, std::string>) {
-	    if (stringSet.find(input) == stringSet.end()) {
+	    size_t res = !dictEncodeStrings * (strlen(input.c_str()) + 1);
+	    if (dictEncodeStrings && stringSet.find(input) == stringSet.end()) {
 	      stringSet.insert(input);
-	      return strlen(input.c_str()) + 1;
+	      res = strlen(input.c_str()) + 1;
 	    }
-            return 0;
+            return res;
           }
           return 0;
         },
@@ -240,12 +243,19 @@ struct SerializedExpression {
 
   template <typename TupleLike, uint64_t... Is>
   void flattenArgumentsInTuple(TupleLike&& tuple, std::index_sequence<Is...> /*unused*/,
-                               uint64_t& argumentOutputI) {
-    (flattenArguments(std::get<Is>(tuple), argumentOutputI), ...);
+                               uint64_t& argumentOutputI, std::unordered_map<std::string, size_t>& stringMap, bool dictEncodeStrings) {
+    (flattenArguments(std::get<Is>(tuple), argumentOutputI, stringMap, dictEncodeStrings), ...);
   };
 
   uint64_t flattenArguments(uint64_t argumentOutputI, std::vector<boss::ComplexExpression>&& inputs,
-                            uint64_t& expressionOutputI) {
+			     uint64_t& expressionOutputI, bool dictEncodeStrings = true) {
+    std::unordered_map<std::string, size_t> stringMap;
+    return flattenArguments(argumentOutputI, std::move(inputs), expressionOutputI, stringMap, dictEncodeStrings);
+  }
+
+  uint64_t flattenArguments(uint64_t argumentOutputI, std::vector<boss::ComplexExpression>&& inputs,
+                            uint64_t& expressionOutputI, std::unordered_map<std::string, size_t>& stringMap,
+			    bool dictEncodeStrings) {
     auto const nextLayerOffset =
         argumentOutputI +
         std::accumulate(inputs.begin(), inputs.end(), 0, [](auto count, auto const& expression) {
@@ -266,19 +276,19 @@ struct SerializedExpression {
     std::for_each(
         std::move_iterator(inputs.begin()), std::move_iterator(inputs.end()),
         [this, &argumentOutputI, &children, &expressionOutputI, nextLayerOffset,
-         &childrenCountRunningSum](boss::ComplexExpression&& input) {
+         &childrenCountRunningSum, &stringMap, &dictEncodeStrings](boss::ComplexExpression&& input) {
           auto [head, statics, dynamics, spans] = std::move(input).decompose();
           flattenArgumentsInTuple(
               statics,
               std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
-              argumentOutputI);
+              argumentOutputI, stringMap, dictEncodeStrings);
           std::for_each(
               std::make_move_iterator(dynamics.begin()), std::make_move_iterator(dynamics.end()),
               [this, &argumentOutputI, &children, &expressionOutputI, nextLayerOffset,
-               &childrenCountRunningSum](auto&& argument) {
+               &childrenCountRunningSum, &stringMap, &dictEncodeStrings](auto&& argument) {
                 std::visit(
                     [this, &children, &argumentOutputI, &expressionOutputI, nextLayerOffset,
-                     &childrenCountRunningSum](auto&& argument) {
+                     &childrenCountRunningSum, &stringMap, &dictEncodeStrings](auto&& argument) {
                       if constexpr(boss::expressions::generic::isComplexExpression<
                                        decltype(argument)>) {
                         auto const childrenCount =
@@ -288,7 +298,7 @@ struct SerializedExpression {
                             std::accumulate(
                                 argument.getSpanArguments().begin(),
                                 argument.getSpanArguments().end(), 0,
-                                [](auto runningSum, auto const& spanArg) {
+                                [&stringMap, &dictEncodeStrings](auto runningSum, auto const& spanArg) {
                                   return runningSum +
                                          std::visit(
                                              [&](auto const& spanArg) { return spanArg.size(); },
@@ -339,7 +349,7 @@ struct SerializedExpression {
               });
           std::for_each(
               std::make_move_iterator(spans.begin()), std::make_move_iterator(spans.end()),
-              [this, &argumentOutputI](auto&& argument) {
+              [this, &argumentOutputI, &stringMap, &dictEncodeStrings](auto&& argument) {
                 std::visit(
                     [&](auto&& spanArgument) {
                       auto spanSize = spanArgument.size();
@@ -397,7 +407,7 @@ struct SerializedExpression {
               });
         });
     if(!children.empty()) {
-      return flattenArguments(argumentOutputI, std::move(children), expressionOutputI);
+      return flattenArguments(argumentOutputI, std::move(children), expressionOutputI, stringMap, dictEncodeStrings);
     }
     return argumentOutputI;
   }
@@ -409,7 +419,7 @@ public:
       : SerializedExpression(allocateExpressionTree(countArguments(input), countExpressions(input),
                                                     countStringBytes(input, dictEncodeStrings), allocateFunction)) {
     std::visit(utilities::overload(
-                   [this](boss::ComplexExpression&& input) {
+		   [this, &dictEncodeStrings](boss::ComplexExpression&& input) {
                      uint64_t argumentIterator = 0;
                      uint64_t expressionIterator = 0;
 		     auto const childrenCount =
@@ -434,7 +444,7 @@ public:
                      *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
                      auto inputs = std::vector<boss::ComplexExpression>();
                      inputs.push_back(std::move(input));
-                     flattenArguments(argumentIterator, std::move(inputs), expressionIterator);
+                     flattenArguments(argumentIterator, std::move(inputs), expressionIterator, dictEncodeStrings);
                    },
                    [this](expressions::atoms::Symbol&& input) {
                      auto storedString = storeString(&root, input.getName().c_str());
