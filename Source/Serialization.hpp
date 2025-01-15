@@ -87,6 +87,28 @@ struct SerializedExpression {
   using BOSSArgumentPair =
       std::pair<boss::expressions::ExpressionArguments, boss::expressions::ExpressionSpanArguments>;
 
+  using DictKey = std::variant<bool, int8_t, int32_t, int64_t, float_t, double_t>;
+  struct VariantHash {
+    template <typename T>
+    std::size_t operator()(const T& value) const {
+      if constexpr (std::is_same_v<T, bool>) {
+	return std::hash<int>()(value);
+      } else {
+	return std::hash<T>()(value);
+      }
+    }
+
+    std::size_t operator()(const DictKey& v) const {
+      return std::visit([](auto&& arg) { return VariantHash{}(arg); }, v);
+    }
+  };
+  struct VariantEqual {
+    bool operator()(const DictKey& a, const DictKey& b) const {
+      return a == b;
+    }
+  };
+  using ExpressionDictionary = std::unordered_map<DictKey, std::pair<uint64_t, size_t>, VariantHash, VariantEqual>;
+  
   RootExpression* root = nullptr;
   uint64_t argumentCount() const { return root->argumentCount; };
   uint64_t expressionCount() const { return root->expressionCount; };
@@ -94,6 +116,76 @@ struct SerializedExpression {
   Argument* flattenedArguments() const { return getExpressionArguments(root); }
   ArgumentType* flattenedArgumentTypes() const { return getArgumentTypes(root); }
   Expression* expressionsBuffer() const { return getExpressionSubexpressions(root); }
+
+  //////////////////////////////// Count Unique Arguments ///////////////////////////////
+
+  void checkMapAndIncrement(DictKey& input, ExpressionDictionary& dict) {
+    auto it = dict.find(input);
+    if (it == dict.end()) {
+      it.emplace(input, {0, 0});
+    }
+    auto& dictValue = dict[input];
+    dictValue.first++;
+  }
+  
+  template <typename TupleLike, uint64_t... Is>
+  void countUniqueArgumentsInTuple(ExpressionDictionary& dict, TupleLike const& tuple,
+                                        std::index_sequence<Is...> /*unused*/) {
+    (countUniqueArguments(std::get<Is>(tuple), dict), ...);
+  };
+
+  static ExpressionDictionary countUniqueArguments(boss::Expression const& input) {
+    ExpressionDictionary res;
+    countUniqueArguments(input, res);
+    return std::move(res);
+  }
+
+  void countUniqueArguments(boss::Expression const& input, ExpressionDictionary& dict) {
+    return std::visit(
+        [this, &dict](auto& input) {
+          if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
+	    countUniqueArgumentsInTuple(dict, input.getStaticArguments(),
+				  std::make_index_sequence<std::tuple_size_v<
+				  std::decay_t<decltype(input.getStaticArguments())>>>());
+	    std::for_each(input.getDynamicArguments().begin(),
+			  input.getDynamicArguments().end(),
+			  [this, &dict](auto const& argument) {
+			    countUniqueArguments(argument);
+			  });
+	    std::for_each(input.getSpanArguments().begin(), input.getSpanArguments().end(),
+			  [this, &dict](auto const& argument) {
+			    std::visit([&](auto const& spanArgument) {
+			      auto spanSize = argument.size();
+			      auto const& arg0 = argument[0];
+			      if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
+					   std::is_same_v<std::decay_t<decltype(arg0)>,
+					   std::_Bit_reference> ||
+					   std::is_same_v<std::decay_t<decltype(arg0)>, int8_t> ||
+					   std::is_same_v<std::decay_t<decltype(arg0)>, int32_t> ||
+					   std::is_same_v<std::decay_t<decltype(arg0)>, int64_t> ||
+					   std::is_same_v<std::decay_t<decltype(arg0)>, float_t> ||
+					   std::is_same_v<std::decay_t<decltype(arg0)>, double_t>) {
+				std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
+				  checkMapAndIncrement(arg, dict);
+				});
+			      }
+			    },
+			      std::forward<decltype(argument)>(argument));
+			  });
+          } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, bool> ||
+			      std::is_same_v<std::decay_t<decltype(input)>,
+			      std::_Bit_reference> ||
+			      std::is_same_v<std::decay_t<decltype(input)>, int8_t> ||
+			      std::is_same_v<std::decay_t<decltype(input)>, int32_t> ||
+			      std::is_same_v<std::decay_t<decltype(input)>, int64_t> ||
+			      std::is_same_v<std::decay_t<decltype(input)>, float_t> ||
+			      std::is_same_v<std::decay_t<decltype(input)>, double_t>) {
+	    checkMapAndIncrement(input, dict);
+	  }
+        },
+        input);
+  }
+
 
   //////////////////////////////// Count Arguments ///////////////////////////////
 
