@@ -1615,7 +1615,6 @@ TEST_CASE("Lazy Expression Serialization With Spans") {
   auto firstIdx = 2;
   auto tempLazyChildExpr = lazyListExpr[firstIdx];
   auto const& type = tempLazyChildExpr.getCurrentExpressionType();
-
   std::vector<int64_t> indices;
   indices.push_back(firstIdx);
   indices.push_back(9);

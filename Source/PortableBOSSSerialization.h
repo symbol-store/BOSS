@@ -29,7 +29,7 @@ union PortableBOSSArgumentValue {
   PortableBOSSExpressionIndex asExpression;
 };
 
-enum PortableBOSSArgumentType : size_t {
+enum PortableBOSSArgumentType : uint8_t {
   ARGUMENT_TYPE_BOOL,
   ARGUMENT_TYPE_CHAR,
   ARGUMENT_TYPE_INT,
@@ -41,11 +41,11 @@ enum PortableBOSSArgumentType : size_t {
   ARGUMENT_TYPE_EXPRESSION
 };
 
-static size_t const PortableBOSSArgumentType_RLE_MINIMUM_SIZE =
+static uint8_t const PortableBOSSArgumentType_RLE_MINIMUM_SIZE =
     5; // assuming PortableBOSSArgumentType ideally stored in 1 byte only,
        // to store RLE-type, need 1 byte to declare the type and 4 bytes to define the length
 
-static size_t const PortableBOSSArgumentType_RLE_BIT =
+static uint8_t const PortableBOSSArgumentType_RLE_BIT =
     0x80; // first bit of PortableBOSSArgumentType to set RLE on/off
 
 struct PortableBOSSExpression {
@@ -228,10 +228,12 @@ static void setRLEArgumentFlagOrPropagateTypes(struct PortableBOSSRootExpression
     }
     return;
   }
-  (*(size_t*)(&getArgumentTypes( // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      root)[argumentOutputI])) |= PortableBOSSArgumentType_RLE_BIT;
-  (*(size_t*)(&getArgumentTypes( // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      root)[argumentOutputI + 1])) = (size_t)size;
+  PortableBOSSArgumentType* argTypes = getArgumentTypes(root);
+  (*(uint8_t*)(&argTypes[argumentOutputI])) |= PortableBOSSArgumentType_RLE_BIT; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 4])) = (size >> 24) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 3])) = (size >> 16) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 2])) = (size >> 8) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 1])) = size & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
 }
 
 static int8_t* makeCharArgumentsRun(struct PortableBOSSRootExpression* root,

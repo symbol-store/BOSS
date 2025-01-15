@@ -73,8 +73,8 @@ using ArgumentType = PortableBOSSArgumentType;
 using Expression = PortableBOSSExpression;
 using RootExpression = PortableBOSSRootExpression;
 
-static const size_t& ArgumentType_RLE_MINIMUM_SIZE = PortableBOSSArgumentType_RLE_MINIMUM_SIZE;
-static const size_t& ArgumentType_RLE_BIT = PortableBOSSArgumentType_RLE_BIT;
+static const uint8_t& ArgumentType_RLE_MINIMUM_SIZE = PortableBOSSArgumentType_RLE_MINIMUM_SIZE;
+static const uint8_t& ArgumentType_RLE_BIT = PortableBOSSArgumentType_RLE_BIT;
 /**
  * Implements serialization/deserialization of a (complex) expression to/from a c-allocated buffer.
  * The buffer contains no pointers so it can be safely written to disk or passed to a different
@@ -493,19 +493,15 @@ public:
     auto const& types = expr.flattenedArgumentTypes();
     auto const& expressions = expr.expressionsBuffer();
     auto const& root = expr.root;
-
-    auto argumentType = static_cast<ArgumentType>((types[index] & (~ArgumentType_RLE_BIT)));
-    auto const& isRLE = (types[index] & ArgumentType_RLE_BIT) != 0U;
-    bool outOfBounds = argumentType > ArgumentType::ARGUMENT_TYPE_EXPRESSION ||
-      argumentType < ArgumentType::ARGUMENT_TYPE_BOOL;
-
-    if(outOfBounds && index > 0) {
-      auto const& prevType = types[index - 1];
-      bool prevIsRLE = (prevType & ArgumentType_RLE_BIT) != 0;
-      if(prevIsRLE) {
-	argumentType = static_cast<ArgumentType>((prevType & (~ArgumentType_RLE_BIT)));
-      }
+    
+    auto testIndex = index;
+    bool isRLE = (types[testIndex] & ArgumentType_RLE_BIT) != 0u;
+    while (!isRLE && testIndex >= 0 && testIndex > index - 4) {
+      testIndex--;
+      isRLE |= (types[testIndex] & ArgumentType_RLE_BIT) != 0u;
     }
+    auto validTypeIndex = isRLE ? testIndex : index;
+    auto argumentType = static_cast<ArgumentType>((types[validTypeIndex] & (~ArgumentType_RLE_BIT)));
 
     if(exprIndex < 0) {
       stream << "ARG INDEX: " << index << " VALUE: ";
@@ -598,8 +594,11 @@ public:
       if(isRLE) {
 
         auto const argType = (ArgumentType)(type & (~ArgumentType_RLE_BIT));
-
-        size_t size = flattenedArgumentTypes()[childIndex + 1];
+        uint32_t size =
+	  (static_cast<uint32_t>(flattenedArgumentTypes()[childIndex + 4]) << 24) |
+	  (static_cast<uint32_t>(flattenedArgumentTypes()[childIndex + 3]) << 16) |
+	  (static_cast<uint32_t>(flattenedArgumentTypes()[childIndex + 2]) << 8)  |
+	  (static_cast<uint32_t>(flattenedArgumentTypes()[childIndex + 1]));
         auto prevChildIndex = childIndex;
 
         auto const spanFunctors =
@@ -818,12 +817,30 @@ public:
       return stream;
     }
 
+    ArgumentType getCurrentExpressionType() const {
+      auto testIndex = argumentIndex;
+      bool isRLE = (buffer.flattenedArgumentTypes()[testIndex] & ArgumentType_RLE_BIT) != 0u;
+      while (!isRLE && testIndex >= 0 && testIndex > argumentIndex - 4) {
+	testIndex--;
+	isRLE |= (buffer.flattenedArgumentTypes()[testIndex] & ArgumentType_RLE_BIT) != 0u;
+      }
+      auto validTypeIndex = isRLE ? testIndex : argumentIndex;
+      auto const& type = buffer.flattenedArgumentTypes()[validTypeIndex];
+      return static_cast<ArgumentType>((type & (~ArgumentType_RLE_BIT)));
+    }
+    
+    ArgumentType getCurrentExpressionTypeExact() const {
+      auto const& type = buffer.flattenedArgumentTypes()[argumentIndex];
+      return static_cast<ArgumentType>((type & (~ArgumentType_RLE_BIT)));
+    }
+
     LazilyDeserializedExpression operator[](size_t childOffset) const {
       auto const& expr = expression();
       assert(childOffset < expr.endChildOffset - expr.startChildOffset);
       return {buffer, expr.startChildOffset + childOffset};
     }
 
+    // MAYBE SHOULD USE getCurrentExpressionType()
     LazilyDeserializedExpression operator[](std::string const& keyName) const {
       auto const& expr = expression();
       auto const& arguments = buffer.flattenedArguments();
@@ -842,6 +859,7 @@ public:
       throw std::runtime_error(keyName + " not found.");
     }
 
+    // MAYBE SHOULD USE getCurrentExpressionType() as expressions can run
     Expression const& expression() const {
       auto const& arguments = buffer.flattenedArguments();
       auto const& argumentTypes = buffer.flattenedArgumentTypes();
@@ -868,17 +886,21 @@ public:
       auto const& argumentTypes = buffer.flattenedArgumentTypes();
       auto const& type = argumentTypes[argumentIndex];
       auto const& isRLE = (type & ArgumentType_RLE_BIT) != 0u;
-      return isRLE ? argumentTypes[argumentIndex + 1] : 0;
+      if (isRLE) {
+	uint32_t size =
+	  (static_cast<uint32_t>(argumentTypes[argumentIndex + 4]) << 24) |
+	  (static_cast<uint32_t>(argumentTypes[argumentIndex + 3]) << 16) |
+	  (static_cast<uint32_t>(argumentTypes[argumentIndex + 2]) << 8)  |
+	  (static_cast<uint32_t>(argumentTypes[argumentIndex + 1]));
+	std::cout << "Size: " << size << std::endl;
+	return size;
+      }
+      return 0;
     }
 
     boss::Symbol getCurrentExpressionHead() const {
       auto const& expr = expression();
       return boss::Symbol(viewString(buffer.root, expr.symbolNameOffset));
-    }
-
-    ArgumentType getCurrentExpressionType() const {
-      auto const& type = buffer.flattenedArgumentTypes()[argumentIndex];
-      return static_cast<ArgumentType>((type & (~ArgumentType_RLE_BIT)));
     }
 
     boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpan() const {
@@ -1093,19 +1115,7 @@ public:
     // could use * operator for this
     // should this be && qualified?
     boss::Expression getCurrentExpression() const {
-      auto const& types = buffer.flattenedArgumentTypes();
-      auto argumentType =
-          static_cast<ArgumentType>((types[argumentIndex] & (~ArgumentType_RLE_BIT)));
-      bool outOfBounds = argumentType > ArgumentType::ARGUMENT_TYPE_EXPRESSION ||
-                         argumentType < ArgumentType::ARGUMENT_TYPE_BOOL;
-
-      if(outOfBounds && argumentIndex > 0) {
-        auto const& prevType = types[argumentIndex - 1];
-        bool prevIsRLE = (prevType & ArgumentType_RLE_BIT) != 0;
-        if(prevIsRLE) {
-          argumentType = static_cast<ArgumentType>((prevType & (~ArgumentType_RLE_BIT)));
-        }
-      }
+      auto argumentType = getCurrentExpressionType();
       return getCurrentExpressionAs(argumentType);
     }
 
@@ -1175,8 +1185,12 @@ public:
         if(argumentIndex >= validIndexEnd) {
           if((argumentTypes[argumentIndex] & ArgumentType_RLE_BIT) != 0U) {
             if((argumentTypes[argumentIndex] & ~ArgumentType_RLE_BIT) == expectedArgumentType()) {
-              validIndexEnd =
-                  argumentIndex + static_cast<uint32_t>(argumentTypes[argumentIndex + 1]);
+	      uint32_t size =
+		(static_cast<uint32_t>(argumentTypes[argumentIndex + 4]) << 24) |
+		(static_cast<uint32_t>(argumentTypes[argumentIndex + 3]) << 16) |
+		(static_cast<uint32_t>(argumentTypes[argumentIndex + 2]) << 8)  |
+		(static_cast<uint32_t>(argumentTypes[argumentIndex + 1]));
+              validIndexEnd = argumentIndex + size;
             }
           } else {
             if(argumentTypes[argumentIndex] == expectedArgumentType()) {
