@@ -29,6 +29,15 @@ union PortableBOSSArgumentValue {
   PortableBOSSExpressionIndex asExpression;
 };
 
+static uint64_t const PortableBOSSArgument_BOOL_SIZE = sizeof(bool);
+static uint64_t const PortableBOSSArgument_CHAR_SIZE = sizeof(int8_t);
+static uint64_t const PortableBOSSArgument_INT_SIZE = sizeof(int32_t);
+static uint64_t const PortableBOSSArgument_LONG_SIZE = sizeof(int64_t);
+static uint64_t const PortableBOSSArgument_FLOAT_SIZE = sizeof(float_t);
+static uint64_t const PortableBOSSArgument_DOUBLE_SIZE = sizeof(double_t);
+static uint64_t const PortableBOSSArgument_STRING_SIZE = sizeof(PortableBOSSString);
+static uint64_t const PortableBOSSArgument_EXPRESSION_SIZE = sizeof(PortableBOSSExpressionIndex);
+
 enum PortableBOSSArgumentType : uint8_t {
   ARGUMENT_TYPE_BOOL,
   ARGUMENT_TYPE_CHAR,

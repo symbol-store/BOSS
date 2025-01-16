@@ -75,6 +75,16 @@ using RootExpression = PortableBOSSRootExpression;
 
 static const uint8_t& ArgumentType_RLE_MINIMUM_SIZE = PortableBOSSArgumentType_RLE_MINIMUM_SIZE;
 static const uint8_t& ArgumentType_RLE_BIT = PortableBOSSArgumentType_RLE_BIT;
+
+static const uint64_t& Argument_BOOL_SIZE = PortableBOSSArgument_BOOL_SIZE;
+static const uint64_t& Argument_CHAR_SIZE = PortableBOSSArgument_CHAR_SIZE;
+static const uint64_t& Argument_INT_SIZE = PortableBOSSArgument_INT_SIZE;
+static const uint64_t& Argument_LONG_SIZE = PortableBOSSArgument_LONG_SIZE;
+static const uint64_t& Argument_FLOAT_SIZE = PortableBOSSArgument_FLOAT_SIZE;
+static const uint64_t& Argument_DOUBLE_SIZE = PortableBOSSArgument_DOUBLE_SIZE;
+static const uint64_t& Argument_STRING_SIZE = PortableBOSSArgument_STRING_SIZE;
+static const uint64_t& Argument_EXPRESSION_SIZE = PortableBOSSArgument_EXPRESSION_SIZE;  
+
 /**
  * Implements serialization/deserialization of a (complex) expression to/from a c-allocated buffer.
  * The buffer contains no pointers so it can be safely written to disk or passed to a different
@@ -186,6 +196,67 @@ struct SerializedExpression {
         input);
   }
 
+  //////////////////////////////// Count Argument Bytes ///////////////////////////////
+
+  // Current assumes that only values within spans can be packed into a single 8 byte arg value
+  // All else is treated as an 8 bytes arg value
+  // Note: To read values at a specific index in a packed span, the span size must be known
+  template <typename TupleLike, uint64_t... Is>
+  static uint64_t countArgumentBytesInTuple(TupleLike const& tuple,
+                                        std::index_sequence<Is...> /*unused*/) {
+    return (countArgumentBytes(std::get<Is>(tuple)) + ... + 0);
+  };
+
+  static uint64_t countArgumentBytes(boss::Expression const& input) {
+    return std::visit(
+        [](auto& input) -> size_t {
+          if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
+            return Argument_EXPRESSION_SIZE +
+                   countArgumentsInTuple(
+                       input.getStaticArguments(),
+                       std::make_index_sequence<std::tuple_size_v<
+                           std::decay_t<decltype(input.getStaticArguments())>>>()) +
+                   std::accumulate(input.getDynamicArguments().begin(),
+                                   input.getDynamicArguments().end(), 0,
+                                   [](auto runningSum, auto const& argument) {
+                                     return runningSum + countArguments(argument);
+                                   }) +
+                   std::accumulate(
+                       input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
+                       [](auto runningSum, auto const& argument) {
+                         return runningSum +
+                                std::visit([&](auto const& spanArgument) {
+				  auto spanSize = spanArgument.size();
+				  auto const& arg0 = spanArgument[0];
+				  if constexpr(std::is_same_v<std::decay_t<decltype(input)>, bool> ||
+					       std::is_same_v<std::decay_t<decltype(input)>, std::_Bit_reference>) {
+				    return spanSize * Argument_BOOL_SIZE;
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, int8_t>) {
+				    return spanSize * Argument_CHAR_SIZE;
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, int32_t>) {
+				    return spanSize * Argument_INT_SIZE;
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, int64_t>) {
+				    return spanSize * Argument_LONG_SIZE;
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, float_t>) {
+				    return spanSize * Argument_FLOAT_SIZE;
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, double_t>) {
+				    return spanSize * Argument_DOUBLE_SIZE;
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, std::string>) {
+				    return spanSize * Argument_STRING_SIZE;
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::Symbol>) {
+				    return spanSize * Argument_STRING_SIZE;
+				  } else {
+				    print_type_name<std::decay_t<decltype(arg0)>>();
+				    throw std::runtime_error("unknown type in span");
+				  }
+				},
+				  std::forward<decltype(argument)>(argument));
+                       });
+          }
+          return sizeof(Argument);
+        },
+        input);
+  }
 
   //////////////////////////////// Count Arguments ///////////////////////////////
 
