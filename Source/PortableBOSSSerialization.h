@@ -70,6 +70,7 @@ struct PortableBOSSExpression {
  */
 struct PortableBOSSRootExpression {
   uint64_t const argumentCount;
+  uint64_t const argumentBytesCount;
   uint64_t const expressionCount;
   void* const originalAddress;
   /**
@@ -100,20 +101,24 @@ getExpressionArguments(struct PortableBOSSRootExpression* root) {
 
 static enum PortableBOSSArgumentType* getArgumentTypes(struct PortableBOSSRootExpression* root) {
   return (enum PortableBOSSArgumentType*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentCount * sizeof(union PortableBOSSArgumentValue)];
+      &root->arguments[root->argumentBytesCount];
 }
+/* static enum PortableBOSSArgumentType* getArgumentTypes(struct PortableBOSSRootExpression* root) { */
+/*   return (enum PortableBOSSArgumentType*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast) */
+/*       &root->arguments[root->argumentCount * sizeof(union PortableBOSSArgumentValue)]; */
+/* } */
 
 static struct PortableBOSSExpression*
 getExpressionSubexpressions(struct PortableBOSSRootExpression* root) {
   return (struct PortableBOSSExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentCount * (sizeof(union PortableBOSSArgumentValue) +
-                                              sizeof(enum PortableBOSSArgumentType))];
+      &root->arguments[root->argumentBytesCount +
+		       root->argumentCount * sizeof(enum PortableBOSSArgumentType)];
 }
 
 static char* getStringBuffer(struct PortableBOSSRootExpression* root) {
   return (char*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentCount * (sizeof(union PortableBOSSArgumentValue) +
-                                              sizeof(enum PortableBOSSArgumentType)) +
+      &root->arguments[root->argumentBytesCount +
+		       root->argumentCount * sizeof(enum PortableBOSSArgumentType) +
                        root->expressionCount * (sizeof(struct PortableBOSSExpression))];
 }
 
@@ -131,18 +136,21 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount, uint64_
           sizeof(struct PortableBOSSExpression) * expressionCount +
 					   stringBytesCount);
   *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      argumentCount;
+    argumentCount;
+  *((uint64_t*)&root->argumentBytesCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    argumentCount * sizeof(union PortableBOSSArgumentValue);
   *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      expressionCount;
+    expressionCount;
   *((uint64_t*)&root->stringArgumentsFillIndex) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      0;
+    0;
   *((void**)&root->originalAddress) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      root;
+    root;
   return root;
 }
   
 static struct PortableBOSSRootExpression*
-allocateExpressionTree(uint64_t argumentCount, uint64_t argumentBytesCount, uint64_t expressionCount, uint64_t stringBytesCount,
+allocateExpressionTree(uint64_t argumentCount, uint64_t argumentBytesCount,
+		       uint64_t expressionCount, uint64_t stringBytesCount,
                        void* (*allocateFunction)(size_t)) {
   struct PortableBOSSRootExpression* root =
       (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
@@ -153,13 +161,15 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t argumentBytesCount, uint
           sizeof(struct PortableBOSSExpression) * expressionCount +
 					   stringBytesCount);
   *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      argumentCount;
+    argumentCount;
+  *((uint64_t*)&root->argumentBytesCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    argumentBytesCount;
   *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      expressionCount;
+    expressionCount;
   *((uint64_t*)&root->stringArgumentsFillIndex) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      0;
+    0;
   *((void**)&root->originalAddress) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      root;
+    root;
   return root;
 }
 
