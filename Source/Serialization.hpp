@@ -212,14 +212,14 @@ struct SerializedExpression {
         [](auto& input) -> size_t {
           if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
             return Argument_EXPRESSION_SIZE +
-                   countArgumentsInTuple(
+                   countArgumentsBytesInTuple(
                        input.getStaticArguments(),
                        std::make_index_sequence<std::tuple_size_v<
                            std::decay_t<decltype(input.getStaticArguments())>>>()) +
                    std::accumulate(input.getDynamicArguments().begin(),
                                    input.getDynamicArguments().end(), 0,
                                    [](auto runningSum, auto const& argument) {
-                                     return runningSum + countArguments(argument);
+                                     return runningSum + countArgumentBytes(argument);
                                    }) +
                    std::accumulate(
                        input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
@@ -228,22 +228,22 @@ struct SerializedExpression {
                                 std::visit([&](auto const& spanArgument) {
 				  auto spanSize = spanArgument.size();
 				  auto const& arg0 = spanArgument[0];
-				  if constexpr(std::is_same_v<std::decay_t<decltype(input)>, bool> ||
-					       std::is_same_v<std::decay_t<decltype(input)>, std::_Bit_reference>) {
+				  if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
+					       std::is_same_v<std::decay_t<decltype(arg0)>, std::_Bit_reference>) {
 				    return spanSize * Argument_BOOL_SIZE;
-				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, int8_t>) {
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int8_t>) {
 				    return spanSize * Argument_CHAR_SIZE;
-				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, int32_t>) {
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int32_t>) {
 				    return spanSize * Argument_INT_SIZE;
-				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, int64_t>) {
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
 				    return spanSize * Argument_LONG_SIZE;
-				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, float_t>) {
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, float_t>) {
 				    return spanSize * Argument_FLOAT_SIZE;
-				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, double_t>) {
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, double_t>) {
 				    return spanSize * Argument_DOUBLE_SIZE;
-				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, std::string>) {
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, std::string>) {
 				    return spanSize * Argument_STRING_SIZE;
-				  } else if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::Symbol>) {
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, boss::Symbol>) {
 				    return spanSize * Argument_STRING_SIZE;
 				  } else {
 				    print_type_name<std::decay_t<decltype(arg0)>>();
@@ -254,6 +254,53 @@ struct SerializedExpression {
                        });
           }
           return sizeof(Argument);
+        },
+        input);
+  }
+
+  //////////////////////////////// Count RLE Arguments ///////////////////////////////
+
+  // Current assumes that only values within spans can be RLEd
+  // Note: To read values at a specific index in RLEd span, the span size must be known (logical & physical)
+  template <typename TupleLike, uint64_t... Is>
+  static uint64_t countRLEArgumentsInTuple(TupleLike const& tuple,
+                                        std::index_sequence<Is...> /*unused*/) {
+    return (countRLEArgument(std::get<Is>(tuple)) + ... + 0);
+  };
+
+  static uint64_t countRLEArguments(boss::Expression const& input) {
+    return std::visit(
+        [](auto& input) -> size_t {
+          if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
+            return 1 +
+                   countRLEArgumentsInTuple(
+                       input.getStaticArguments(),
+                       std::make_index_sequence<std::tuple_size_v<
+                           std::decay_t<decltype(input.getStaticArguments())>>>()) +
+                   std::accumulate(input.getDynamicArguments().begin(),
+                                   input.getDynamicArguments().end(), 0,
+                                   [](auto runningSum, auto const& argument) {
+                                     return runningSum + countRLEArguments(argument);
+                                   }) +
+                   std::accumulate(
+                       input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
+                       [](auto runningSum, auto const& argument) {
+                         return runningSum +
+                                std::visit([&](auto const& spanArgument) {
+				  auto spanSize = spanArgument.size();
+				  auto const& arg0 = spanArgument[0];
+				  auto spanSum = 0;
+				  for(size_t i = 1; i < spanSize; i++) {
+				    if (spanArgument[i] != spanArgument[i-1]) {
+				      spanSum += 2; // 1 for value, 1 for startIdx of run
+				    }
+				  }
+				  return spanSum;
+				},
+				  std::forward<decltype(argument)>(argument));
+                       });
+          }
+          return 1;
         },
         input);
   }
@@ -426,8 +473,9 @@ struct SerializedExpression {
     (flattenArguments(std::get<Is>(tuple), argumentOutputI, stringMap, dictEncodeStrings), ...);
   };
 
+  // assuming RLE encode for now
   uint64_t flattenArguments(uint64_t argumentOutputI, std::vector<boss::ComplexExpression>&& inputs,
-			     uint64_t& expressionOutputI, bool dictEncodeStrings = true) {
+			    uint64_t& expressionOutputI, bool dictEncodeStrings = true) {
     std::unordered_map<std::string, size_t> stringMap;
     return flattenArguments(argumentOutputI, std::move(inputs), expressionOutputI, stringMap, dictEncodeStrings);
   }
@@ -536,47 +584,135 @@ struct SerializedExpression {
                       auto spanSize = spanArgument.size();
                       if(spanSize >= ArgumentType_RLE_MINIMUM_SIZE) {
                         auto const& arg0 = spanArgument[0];
+			size_t argumentStartIndex = argumentOutputI;
+			size_t runStartIndex = 0;
                         if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
                                      std::is_same_v<std::decay_t<decltype(arg0)>,
                                                     std::_Bit_reference>) {
-                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
-                            *makeBoolArgument(root, argumentOutputI++) = arg;
-                          });
+			  for(size_t i = 1; i < spanSize; i++) {
+			    if (spanArgument[i] == spanArgument[i-1]) {
+			      makeBoolArgumentType(root, argumentOutputI++);
+			    } else {
+			      *makeBoolArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
+				spanArgument[runStartIndex];
+			      argumentStartIndex = argumentOutputI++;
+			      runStartIndex = i;
+			    }
+			  }
+                          // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
+                          //   *makeBoolArgument(root, argumentOutputI++) = arg;
+                          // });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int8_t>) {
-                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            *makeCharArgument(root, argumentOutputI++) = arg;
-                          });
+			  for(size_t i = 1; i < spanSize; i++) {
+			    if (spanArgument[i] == spanArgument[i-1]) {
+			      makeCharArgumentType(root, argumentOutputI++);
+			    } else {
+			      *makeCharArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
+				spanArgument[runStartIndex];
+			      argumentStartIndex = argumentOutputI++;
+			      runStartIndex = i;
+			    }
+			  }
+			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                          //   *makeCharArgument(root, argumentOutputI++) = arg;
+                          // });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int32_t>) {
-                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            *makeIntArgument(root, argumentOutputI++) = arg;
-                          });
+			  for(size_t i = 1; i < spanSize; i++) {
+			    if (spanArgument[i] == spanArgument[i-1]) {
+			      makeIntArgumentType(root, argumentOutputI++);
+			    } else {
+			      *makeIntArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
+				spanArgument[runStartIndex];
+			      argumentStartIndex = argumentOutputI++;
+			      runStartIndex = i;
+			    }
+			  }
+			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                          //   *makeIntArgument(root, argumentOutputI++) = arg;
+                          // });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
-                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            *makeLongArgument(root, argumentOutputI++) = arg;
-                          });
+			  for(size_t i = 1; i < spanSize; i++) {
+			    if (spanArgument[i] == spanArgument[i-1]) {
+			      makeLongArgumentType(root, argumentOutputI++);
+			    } else {
+			      *makeLongArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
+				spanArgument[runStartIndex];
+			      argumentStartIndex = argumentOutputI++;
+			      runStartIndex = i;
+			    }
+			  }
+			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                          //   *makeLongArgument(root, argumentOutputI++) = arg;
+                          // });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, float_t>) {
-                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            *makeFloatArgument(root, argumentOutputI++) = arg;
-                          });
+			  for(size_t i = 1; i < spanSize; i++) {
+			    if (spanArgument[i] == spanArgument[i-1]) {
+			      makeFloatArgumentType(root, argumentOutputI++);
+			    } else {
+			      *makeFloatArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
+				spanArgument[runStartIndex];
+			      argumentStartIndex = argumentOutputI++;
+			      runStartIndex = i;
+			    }
+			  }
+			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                          //   *makeFloatArgument(root, argumentOutputI++) = arg;
+                          // });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            double_t>) {
-                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            *makeDoubleArgument(root, argumentOutputI++) = arg;
-                          });
+			  for(size_t i = 1; i < spanSize; i++) {
+			    if (spanArgument[i] == spanArgument[i-1]) {
+			      makeDoubleArgumentType(root, argumentOutputI++);
+			    } else {
+			      *makeDoubleArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
+				spanArgument[runStartIndex];
+			      argumentStartIndex = argumentOutputI++;
+			      runStartIndex = i;
+			    }
+			  }
+			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                          //   *makeDoubleArgument(root, argumentOutputI++) = arg;
+                          // });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            std::string>) {
-                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            auto storedString =
-			      checkMapAndStoreString(arg, stringMap, dictEncodeStrings);
-			    *makeStringArgument(root, argumentOutputI++) = storedString;
-                          });
+			  auto prevStoredString = checkMapAndStoreString(spanArgument[0], stringMap, dictEncodeStrings);
+			  for(size_t i = 1; i < spanSize; i++) {
+			    auto storedString =
+			      checkMapAndStoreString(spanArgument[i], stringMap, dictEncodeStrings);
+			    if (storedString == prevStoredString) {
+			      makeStringArgumentType(root, argumentOutputI++);
+			    } else {
+			      *makeStringArgumentRLE(root, argumentStartIndex, argumentStartIndex) = prevStoredString;
+			      argumentStartIndex = argumentOutputI++;
+			      runStartIndex = i;
+			      prevStoredString = storedString;
+			    }
+			  }
+			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                          //   auto storedString =
+			  //     checkMapAndStoreString(arg, stringMap, dictEncodeStrings);
+			  //   *makeStringArgument(root, argumentOutputI++) = storedString;
+                          // });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            boss::Symbol>) {
-                          std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-                            auto storedString =
-			      checkMapAndStoreString(arg.getName(), stringMap, dictEncodeStrings);
-                            *makeSymbolArgument(root, argumentOutputI++) = storedString;
-                          });
+			  auto prevStoredString = checkMapAndStoreString(spanArgument[0].getName(), stringMap, dictEncodeStrings);
+			  for(size_t i = 1; i < spanSize; i++) {
+			    auto storedString =
+			      checkMapAndStoreString(spanArgument[i].getName(), stringMap, dictEncodeStrings);
+			    if (storedString == prevStoredString) {
+			      makeSymbolArgumentType(root, argumentOutputI++);
+			    } else {
+			      *makeSymbolArgumentRLE(root, argumentStartIndex, argumentStartIndex) = prevStoredString;
+			      argumentStartIndex = argumentOutputI++;
+			      runStartIndex = i;
+			      prevStoredString = storedString;
+			    }
+			  }
+			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+                          //   auto storedString =
+			  //     checkMapAndStoreString(arg.getName(), stringMap, dictEncodeStrings);
+                          //   *makeSymbolArgument(root, argumentOutputI++) = storedString;
+                          // });
                         } else {
                           print_type_name<std::decay_t<decltype(arg0)>>();
                           throw std::runtime_error("unknown type");
@@ -599,7 +735,7 @@ struct SerializedExpression {
 
 public:
   explicit SerializedExpression(boss::Expression&& input, bool dictEncodeStrings = true)
-      : SerializedExpression(allocateExpressionTree(countArguments(input), countExpressions(input),
+    : SerializedExpression(allocateExpressionTree(countArguments(input), countRLEArguments(input) * sizeof(Argument), countExpressions(input),
                                                     countStringBytes(input, dictEncodeStrings), allocateFunction)) {
     std::visit(utilities::overload(
 		   [this, &dictEncodeStrings](boss::ComplexExpression&& input) {

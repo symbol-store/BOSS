@@ -140,11 +140,39 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount, uint64_
       root;
   return root;
 }
+  
+static struct PortableBOSSRootExpression*
+allocateExpressionTree(uint64_t argumentCount, uint64_t argumentBytesCount, uint64_t expressionCount, uint64_t stringBytesCount,
+                       void* (*allocateFunction)(size_t)) {
+  struct PortableBOSSRootExpression* root =
+      (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      allocateFunction(                    // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
+          sizeof(struct PortableBOSSRootExpression) +
+          argumentBytesCount +
+          sizeof(enum PortableBOSSArgumentType) * argumentCount +
+          sizeof(struct PortableBOSSExpression) * expressionCount +
+					   stringBytesCount);
+  *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      argumentCount;
+  *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      expressionCount;
+  *((uint64_t*)&root->stringArgumentsFillIndex) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      0;
+  *((void**)&root->originalAddress) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      root;
+  return root;
+}
 
 static void freeExpressionTree(struct PortableBOSSRootExpression* root,
                                void (*freeFunction)(void*)) {
   freeFunction(root); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 }
+
+  
+/* static void setRLEArgumentStartIndex(struct PortableBOSSRootExpression* root, */
+/* 				     uint64_t argumentOutputI, uint64_t startIndex) { */
+/*   *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex; */
+/* } */
 
 static bool* makeBoolArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
 #ifdef __cplusplus
@@ -152,6 +180,24 @@ static bool* makeBoolArgument(struct PortableBOSSRootExpression* root, uint64_t 
 #endif
 
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_BOOL;
+  return &getExpressionArguments(root)[argumentOutputI].asBool;
+};
+  
+static void makeBoolArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_BOOL = PortableBOSSArgumentType::ARGUMENT_TYPE_BOOL;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_BOOL;
+};
+  
+  static bool* makeBoolArgumentRLE(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI, uint64_t startIndex) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_BOOL = PortableBOSSArgumentType::ARGUMENT_TYPE_BOOL;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_BOOL;
+  *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex;
   return &getExpressionArguments(root)[argumentOutputI].asBool;
 };
 
@@ -163,6 +209,24 @@ static int8_t* makeCharArgument(struct PortableBOSSRootExpression* root, uint64_
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_CHAR;
   return &getExpressionArguments(root)[argumentOutputI].asChar;
 };
+
+static void makeCharArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_CHAR = PortableBOSSArgumentType::ARGUMENT_TYPE_CHAR;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_CHAR;
+};
+
+static int8_t* makeCharArgumentRLE(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI, uint64_t startIndex) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_CHAR = PortableBOSSArgumentType::ARGUMENT_TYPE_CHAR;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_CHAR;
+  *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex;
+  return &getExpressionArguments(root)[argumentOutputI].asChar;
+};
   
 static int32_t* makeIntArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
 #ifdef __cplusplus
@@ -170,6 +234,24 @@ static int32_t* makeIntArgument(struct PortableBOSSRootExpression* root, uint64_
 #endif
 
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_INT;
+  return &getExpressionArguments(root)[argumentOutputI].asInt;
+};
+  
+static void makeIntArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_INT = PortableBOSSArgumentType::ARGUMENT_TYPE_INT;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_INT;
+};
+
+static int32_t* makeIntArgumentRLE(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI, uint64_t startIndex) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_INT = PortableBOSSArgumentType::ARGUMENT_TYPE_INT;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_INT;
+  *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex;
   return &getExpressionArguments(root)[argumentOutputI].asInt;
 };
 
@@ -182,12 +264,48 @@ static int64_t* makeLongArgument(struct PortableBOSSRootExpression* root,
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_LONG;
   return &getExpressionArguments(root)[argumentOutputI].asLong;
 };
+  
+static void makeLongArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_LONG = PortableBOSSArgumentType::ARGUMENT_TYPE_LONG;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_LONG;
+};
+
+static int64_t* makeLongArgumentRLE(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI, uint64_t startIndex) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_LONG = PortableBOSSArgumentType::ARGUMENT_TYPE_LONG;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_LONG;
+  *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex;
+  return &getExpressionArguments(root)[argumentOutputI].asLong;
+};
 
 static float* makeFloatArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
 #ifdef __cplusplus
   auto ARGUMENT_TYPE_FLOAT = PortableBOSSArgumentType::ARGUMENT_TYPE_FLOAT;
 #endif
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_FLOAT;
+  return &getExpressionArguments(root)[argumentOutputI].asFloat;
+};
+  
+static void makeFloatArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_FLOAT = PortableBOSSArgumentType::ARGUMENT_TYPE_FLOAT;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_FLOAT;
+};
+
+static float* makeFloatArgumentRLE(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI, uint64_t startIndex) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_FLOAT = PortableBOSSArgumentType::ARGUMENT_TYPE_FLOAT;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_FLOAT;
+  *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex;
   return &getExpressionArguments(root)[argumentOutputI].asFloat;
 };
 
@@ -199,6 +317,24 @@ static double* makeDoubleArgument(struct PortableBOSSRootExpression* root,
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_DOUBLE;
   return &getExpressionArguments(root)[argumentOutputI].asDouble;
 };
+  
+static void makeDoubleArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_DOUBLE = PortableBOSSArgumentType::ARGUMENT_TYPE_DOUBLE;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_DOUBLE;
+};
+
+static double* makeDoubleArgumentRLE(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI, uint64_t startIndex) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_DOUBLE = PortableBOSSArgumentType::ARGUMENT_TYPE_DOUBLE;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_DOUBLE;
+  *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex;
+  return &getExpressionArguments(root)[argumentOutputI].asDouble;
+};
 
 static size_t* makeStringArgument(struct PortableBOSSRootExpression* root,
                                   uint64_t argumentOutputI) {
@@ -208,6 +344,24 @@ static size_t* makeStringArgument(struct PortableBOSSRootExpression* root,
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_STRING;
   return &getExpressionArguments(root)[argumentOutputI].asString;
 };
+  
+static void makeStringArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_STRING = PortableBOSSArgumentType::ARGUMENT_TYPE_STRING;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_STRING;
+};
+
+static size_t* makeStringArgumentRLE(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI, uint64_t startIndex) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_STRING = PortableBOSSArgumentType::ARGUMENT_TYPE_STRING;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_STRING;
+  *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex;
+  return &getExpressionArguments(root)[argumentOutputI].asString;
+};
 
 static size_t* makeSymbolArgument(struct PortableBOSSRootExpression* root,
                                   uint64_t argumentOutputI) {
@@ -215,6 +369,24 @@ static size_t* makeSymbolArgument(struct PortableBOSSRootExpression* root,
   auto ARGUMENT_TYPE_SYMBOL = PortableBOSSArgumentType::ARGUMENT_TYPE_SYMBOL;
 #endif
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_SYMBOL;
+  return &getExpressionArguments(root)[argumentOutputI].asString;
+};
+
+static void makeSymbolArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_SYMBOL = PortableBOSSArgumentType::ARGUMENT_TYPE_SYMBOL;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_SYMBOL;
+};
+
+static size_t* makeSymbolArgumentRLE(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI, uint64_t startIndex) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_SYMBOL = PortableBOSSArgumentType::ARGUMENT_TYPE_SYMBOL;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_SYMBOL;
+  *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex;
   return &getExpressionArguments(root)[argumentOutputI].asString;
 };
 
