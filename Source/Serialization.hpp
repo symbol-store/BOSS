@@ -620,9 +620,17 @@ struct SerializedExpression {
 			      }
 			    }
 			  } else {
-			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
-			      *makeBoolArgument(root, argumentOutputI++) = arg;
-			    });
+			    size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+			    for (size_t i = 0; i < spanSize;) {
+			      size_t currPhysicalArgIndex = argumentOutputI;
+			      for (auto j = 0; j < valsPerArg && i+j < spanSize; i++, j++) {
+				makeBoolArgumentType(root, argumentOutputI++);
+				*makeArgument(root, currPhysicalArgIndex) |= (static_cast<int64_t>(spanArgument[i+j]) & 0xFF) << ((valsPerArg - (j+1)) * Argument_BOOL_SIZE * sizeof(Argument));
+			      }
+			    }
+			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
+			    //   *makeBoolArgument(root, argumentOutputI++) = arg;
+			    // });
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int8_t>) {
 			  if (rleSpans) {
@@ -645,9 +653,17 @@ struct SerializedExpression {
 			      }
 			    }
 			  } else {
-			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			      *makeCharArgument(root, argumentOutputI++) = arg;
-			    });
+			    size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+			    for (size_t i = 0; i < spanSize;) {
+			      size_t currPhysicalArgIndex = argumentOutputI;
+			      for (auto j = 0; j < valsPerArg && i+j < spanSize; i++, j++) {
+				makeCharArgumentType(root, argumentOutputI++);
+				*makeArgument(root, currPhysicalArgIndex) |= (static_cast<int64_t>(spanArgument[i+j]) & 0xFF) << ((valsPerArg - (j+1)) * Argument_CHAR_SIZE * sizeof(Argument));
+			      }
+			    }
+			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+			    //   *makeCharArgument(root, argumentOutputI++) = arg;
+			    // });
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int32_t>) {
 			  if (rleSpans) {
@@ -670,9 +686,17 @@ struct SerializedExpression {
 			      }
 			    }
 			  } else {
-			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			      *makeIntArgument(root, argumentOutputI++) = arg;
-			    });
+			    size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+			    for (size_t i = 0; i < spanSize;) {
+			      size_t currPhysicalArgIndex = argumentOutputI;
+			      for (auto j = 0; j < valsPerArg && i+j < spanSize; i++, j++) {
+				makeIntArgumentType(root, argumentOutputI++);
+				*makeArgument(root, currPhysicalArgIndex) |= (static_cast<int64_t>(spanArgument[i+j]) & 0xFFFFFFFF) << ((valsPerArg - (j+1)) * Argument_INT_SIZE * sizeof(Argument));
+			      }
+			    }
+			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+			    //   *makeIntArgument(root, argumentOutputI++) = arg;
+			    // });
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
 			  if (rleSpans) {
@@ -720,9 +744,19 @@ struct SerializedExpression {
 			      }
 			    }
 			  } else {
-			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			      *makeFloatArgument(root, argumentOutputI++) = arg;
-			    });
+			    size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
+			    for (size_t i = 0; i < spanSize;) {
+			      size_t currPhysicalArgIndex = argumentOutputI;
+			      for (auto j = 0; j < valsPerArg && i+j < spanSize; i++, j++) {
+				uint32_t rawVal;
+				std::memcpy(&rawVal, &spanArgument[i+j], sizeof(rawVal));
+				makeFloatArgumentType(root, argumentOutputI++);
+				*makeArgument(root, currPhysicalArgIndex) |= (static_cast<int64_t>(rawVal) & 0xFFFFFFFF) << ((valsPerArg - (j+1)) * Argument_FLOAT_SIZE * sizeof(Argument));
+			      }
+			    }
+			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+			    //   *makeFloatArgument(root, argumentOutputI++) = arg;
+			    // });
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            double_t>) {
@@ -833,11 +867,11 @@ struct SerializedExpression {
   ////////////////////////////////   Surface Area ////////////////////////////////
 
 public:
-  explicit SerializedExpression(boss::Expression&& input, bool dictEncodeStrings = true, bool rleSpans = true)
+  explicit SerializedExpression(boss::Expression&& input, bool dictEncodeStrings = true, bool rleSpans = false)
     : SerializedExpression(allocateExpressionTree(countArguments(input), rleSpans ? countRLEArguments(input) * sizeof(Argument) : countArgumentBytes(input), countExpressions(input),
                                                     countStringBytes(input, dictEncodeStrings), allocateFunction)) {
     std::visit(utilities::overload(
-		   [this, &dictEncodeStrings](boss::ComplexExpression&& input) {
+				   [this, &dictEncodeStrings, &rleSpans](boss::ComplexExpression&& input) {
                      uint64_t argumentIterator = 0;
                      uint64_t expressionIterator = 0;
 		     auto const childrenCount =
@@ -862,7 +896,7 @@ public:
                      *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
                      auto inputs = std::vector<boss::ComplexExpression>();
                      inputs.push_back(std::move(input));
-                     flattenArguments(argumentIterator, std::move(inputs), expressionIterator, dictEncodeStrings);
+                     flattenArguments(argumentIterator, std::move(inputs), expressionIterator, dictEncodeStrings, rleSpans);
                    },
                    [this](expressions::atoms::Symbol&& input) {
                      auto storedString = storeString(&root, input.getName().c_str());

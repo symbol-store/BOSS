@@ -184,6 +184,10 @@ static void freeExpressionTree(struct PortableBOSSRootExpression* root,
 /*   *((uint64_t*)&getExpressionArguments(root)[argumentOutputI+1]) = startIndex; */
 /* } */
 
+static uint64_t* makeArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+  return (uint64_t*)&getExpressionArguments(root)[argumentOutputI];
+};
+  
 static bool* makeBoolArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
 #ifdef __cplusplus
   auto ARGUMENT_TYPE_BOOL = PortableBOSSArgumentType::ARGUMENT_TYPE_BOOL;
