@@ -250,6 +250,8 @@ struct SerializedExpression {
 				    print_type_name<std::decay_t<decltype(arg0)>>();
 				    throw std::runtime_error("unknown type in span");
 				  }
+				  // std::cout << "SPAN BYTES: " << spanBytes << std::endl;
+				  // std::cout << "ROUNDED SPAN BYTES: " << ((spanBytes + sizeof(Argument) - 1) & -sizeof(Argument)) << std::endl;
 				  return (spanBytes + sizeof(Argument) - 1) & -sizeof(Argument);
 				},
 				  std::forward<decltype(argument)>(argument));
@@ -476,109 +478,147 @@ struct SerializedExpression {
     }
     return storedString;
   }
+
+  uint64_t countArgumentTypes(boss::ComplexExpression const& expression) {
+    return std::tuple_size_v<std::decay_t<decltype(expression.getStaticArguments())>> +
+      expression.getDynamicArguments().size() +
+      std::accumulate(
+		      expression.getSpanArguments().begin(), expression.getSpanArguments().end(), 0,
+		      [](auto runningSum, auto const& spanArg) {
+			return runningSum +
+			  std::visit([&](auto const& spanArg) { return spanArg.size(); },
+				     std::forward<decltype(spanArg)>(spanArg));
+		      });
+  }
+
+  uint64_t countArgumentsPacked(boss::ComplexExpression const& expression) {
+    return std::tuple_size_v<std::decay_t<decltype(expression.getStaticArguments())>> +
+      expression.getDynamicArguments().size() +
+      std::accumulate(
+		      expression.getSpanArguments().begin(), expression.getSpanArguments().end(), 0,
+		      [](auto runningSum, auto const& spanArg) {
+			return runningSum +
+			  std::visit([&](auto const& spanArgument) {
+			    auto spanSize = spanArgument.size();
+			    auto const& arg0 = spanArgument[0];
+			    auto valsPerArg = sizeof(Argument) / sizeof(arg0);
+			    return (spanSize + valsPerArg - 1) / valsPerArg;
+			  },
+			    std::forward<decltype(spanArg)>(spanArg));
+		      });
+  }
   
   template <typename TupleLike, uint64_t... Is>
   void flattenArgumentsInTuple(TupleLike&& tuple, std::index_sequence<Is...> /*unused*/,
-                               uint64_t& argumentOutputI, std::unordered_map<std::string, size_t>& stringMap, bool dictEncodeStrings, bool rleSpans) {
-    (flattenArguments(std::get<Is>(tuple), argumentOutputI, stringMap, dictEncodeStrings, rleSpans), ...);
+                               uint64_t& argumentOutputI, uint64_t& typeOutputI, std::unordered_map<std::string, size_t>& stringMap, bool dictEncodeStrings, bool rleSpans) {
+    (flattenArguments(std::get<Is>(tuple), argumentOutputI, typeOutputI, stringMap, dictEncodeStrings, rleSpans), ...);
   };
 
   // assuming RLE encode for now
-  uint64_t flattenArguments(uint64_t argumentOutputI, std::vector<boss::ComplexExpression>&& inputs,
+  uint64_t flattenArguments(uint64_t argumentOutputI, uint64_t typeOutputI,
+			    std::vector<boss::ComplexExpression>&& inputs,
 			    uint64_t& expressionOutputI, bool dictEncodeStrings = true, bool rleSpans = true) {
     std::unordered_map<std::string, size_t> stringMap;
-    return flattenArguments(argumentOutputI, std::move(inputs), expressionOutputI, stringMap, dictEncodeStrings, rleSpans);
+    return flattenArguments(argumentOutputI, typeOutputI, std::move(inputs), expressionOutputI, stringMap, dictEncodeStrings, rleSpans);
   }
 
-  uint64_t flattenArguments(uint64_t argumentOutputI, std::vector<boss::ComplexExpression>&& inputs,
+  uint64_t flattenArguments(uint64_t argumentOutputI, uint64_t typeOutputI,
+			    std::vector<boss::ComplexExpression>&& inputs,
                             uint64_t& expressionOutputI, std::unordered_map<std::string, size_t>& stringMap,
 			    bool dictEncodeStrings, bool rleSpans) {
+    auto const nextLayerTypeOffset =
+      typeOutputI +
+      std::accumulate(inputs.begin(), inputs.end(), 0, [this](auto count, auto const& expression) {
+	return count + countArgumentTypes(expression);
+      });
     auto const nextLayerOffset =
         argumentOutputI +
-        std::accumulate(inputs.begin(), inputs.end(), 0, [](auto count, auto const& expression) {
-          return count +
-                 std::tuple_size_v<std::decay_t<decltype(expression.getStaticArguments())>> +
-                 expression.getDynamicArguments().size() +
-                 std::accumulate(
-                     expression.getSpanArguments().begin(), expression.getSpanArguments().end(), 0,
-                     [](auto runningSum, auto const& spanArg) {
-                       return runningSum +
-                              std::visit([&](auto const& spanArg) { return spanArg.size(); },
-                                         std::forward<decltype(spanArg)>(spanArg));
-                     });
+        std::accumulate(inputs.begin(), inputs.end(), 0, [this](auto count, auto const& expression) {
+          return count + countArgumentsPacked(expression);
         });
     auto children = std::vector<boss::ComplexExpression>();
     auto childrenCountRunningSum = 0UL;
+    auto childrenTypeCountRunningSum = 0UL;
 
     std::for_each(
         std::move_iterator(inputs.begin()), std::move_iterator(inputs.end()),
-        [this, &argumentOutputI, &children, &expressionOutputI, nextLayerOffset,
-         &childrenCountRunningSum, &stringMap, &dictEncodeStrings, &rleSpans](boss::ComplexExpression&& input) {
+        [this, &argumentOutputI, &typeOutputI, &children, &expressionOutputI, nextLayerTypeOffset, nextLayerOffset,
+         &childrenCountRunningSum, &childrenTypeCountRunningSum, &stringMap, &dictEncodeStrings, &rleSpans](boss::ComplexExpression&& input) {
           auto [head, statics, dynamics, spans] = std::move(input).decompose();
           flattenArgumentsInTuple(
               statics,
               std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
-              argumentOutputI, stringMap, dictEncodeStrings, rleSpans);
+              argumentOutputI, typeOutputI, stringMap, dictEncodeStrings, rleSpans);
           std::for_each(
               std::make_move_iterator(dynamics.begin()), std::make_move_iterator(dynamics.end()),
-              [this, &argumentOutputI, &children, &expressionOutputI, nextLayerOffset,
-               &childrenCountRunningSum, &stringMap, &dictEncodeStrings, &rleSpans](auto&& argument) {
+              [this, &argumentOutputI, &typeOutputI, &children, &expressionOutputI, nextLayerTypeOffset, nextLayerOffset,
+               &childrenCountRunningSum, &childrenTypeCountRunningSum, &stringMap, &dictEncodeStrings, &rleSpans](auto&& argument) {
                 std::visit(
-                    [this, &children, &argumentOutputI, &expressionOutputI, nextLayerOffset,
-                     &childrenCountRunningSum, &stringMap, &dictEncodeStrings](auto&& argument) {
+			   [this, &children, &argumentOutputI, &typeOutputI, &expressionOutputI, nextLayerTypeOffset,
+			    nextLayerOffset, &childrenCountRunningSum, &childrenTypeCountRunningSum, &stringMap, &dictEncodeStrings](auto&& argument) {
                       if constexpr(boss::expressions::generic::isComplexExpression<
                                        decltype(argument)>) {
-                        auto const childrenCount =
-                            std::tuple_size_v<
-                                std::decay_t<decltype(argument.getStaticArguments())>> +
-                            argument.getDynamicArguments().size() +
-                            std::accumulate(
-                                argument.getSpanArguments().begin(),
-                                argument.getSpanArguments().end(), 0,
-                                [](auto runningSum, auto const& spanArg) {
-                                  return runningSum +
-                                         std::visit(
-                                             [&](auto const& spanArg) { return spanArg.size(); },
-                                             std::forward<decltype(spanArg)>(spanArg));
-                                });
-                        auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
-                        auto const endChildOffset =
+			auto const childrenCount = countArgumentsPacked(argument);
+                        auto const childrenTypeCount = countArgumentTypes(argument);
+                            // std::tuple_size_v<
+                            //     std::decay_t<decltype(argument.getStaticArguments())>> +
+                            // argument.getDynamicArguments().size() +
+                            // std::accumulate(
+                            //     argument.getSpanArguments().begin(),
+                            //     argument.getSpanArguments().end(), 0,
+                            //     [](auto runningSum, auto const& spanArg) {
+                            //       return runningSum +
+                            //              std::visit(
+                            //                  [&](auto const& spanArg) { return spanArg.size(); },
+                            //                  std::forward<decltype(spanArg)>(spanArg));
+                            //     });
+                        auto const startChildArgOffset = nextLayerOffset + childrenCountRunningSum;
+                        auto const endChildArgOffset =
                             nextLayerOffset + childrenCountRunningSum + childrenCount;
+                        auto const startChildTypeOffset = nextLayerTypeOffset + childrenTypeCountRunningSum;
+                        auto const endChildTypeOffset =
+                            nextLayerTypeOffset + childrenTypeCountRunningSum + childrenTypeCount;
+                        // auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
+                        // auto const endChildOffset =
+                        //     nextLayerOffset + childrenCountRunningSum + childrenCount;
 		        auto storedString =
 			  checkMapAndStoreString(argument.getHead().getName(), stringMap, dictEncodeStrings);
                         *makeExpression(root, expressionOutputI) =
-                            PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
-                        *makeExpressionArgument(root, argumentOutputI++) = expressionOutputI++;
+			  PortableBOSSExpression{storedString,
+						 startChildArgOffset, endChildArgOffset,
+						 startChildTypeOffset, endChildTypeOffset};
+                        *makeExpressionArgument(root, argumentOutputI++, typeOutputI++) = expressionOutputI++;
                         auto head = viewString(root, storedString);
                         childrenCountRunningSum += childrenCount;
+                        childrenTypeCountRunningSum += childrenTypeCount;
                         children.push_back(std::forward<decltype(argument)>(argument));
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>, bool>) {
-                        *makeBoolArgument(root, argumentOutputI++) = argument;
+                        *makeBoolArgument(root, argumentOutputI++, typeOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          int8_t>) {
-                        *makeCharArgument(root, argumentOutputI++) = argument;
+                        *makeCharArgument(root, argumentOutputI++, typeOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          int32_t>) {
-                        *makeIntArgument(root, argumentOutputI++) = argument;
+                        *makeIntArgument(root, argumentOutputI++, typeOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          int64_t>) {
-                        *makeLongArgument(root, argumentOutputI++) = argument;
+                        *makeLongArgument(root, argumentOutputI++, typeOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          float_t>) {
-                        *makeFloatArgument(root, argumentOutputI++) = argument;
+                        *makeFloatArgument(root, argumentOutputI++, typeOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          double_t>) {
-                        *makeDoubleArgument(root, argumentOutputI++) = argument;
+                        *makeDoubleArgument(root, argumentOutputI++, typeOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          std::string>) {
                         auto storedString =
 			  checkMapAndStoreString(argument, stringMap, dictEncodeStrings);
-		        *makeStringArgument(root, argumentOutputI++) = storedString;
+		        *makeStringArgument(root, argumentOutputI++, typeOutputI++) = storedString;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          boss::Symbol>) {
                         auto storedString =
 			  checkMapAndStoreString(argument.getName(), stringMap, dictEncodeStrings);
-		        *makeSymbolArgument(root, argumentOutputI++) = storedString;
+		        *makeSymbolArgument(root, argumentOutputI++, typeOutputI++) = storedString;
                       } else {
                         print_type_name<std::decay_t<decltype(argument)>>();
                         throw std::runtime_error("unknown type");
@@ -588,7 +628,7 @@ struct SerializedExpression {
               });
           std::for_each(
               std::make_move_iterator(spans.begin()), std::make_move_iterator(spans.end()),
-              [this, &argumentOutputI, &stringMap, &dictEncodeStrings, &rleSpans](auto&& argument) {
+              [this, &argumentOutputI, &typeOutputI, &stringMap, &dictEncodeStrings, &rleSpans](auto&& argument) {
                 std::visit(
                     [&](auto&& spanArgument) {
                       auto spanSize = spanArgument.size();
@@ -597,6 +637,7 @@ struct SerializedExpression {
 			size_t argumentStartIndex = argumentOutputI;
 			size_t runStartIndex = 0;
 			size_t runCount = 1;
+			// RLE NEEDS UPDATE WITH PACKED VALUES
                         if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
                                      std::is_same_v<std::decay_t<decltype(arg0)>,
                                                     std::_Bit_reference>) {
@@ -621,12 +662,13 @@ struct SerializedExpression {
 			    }
 			  } else {
 			    size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
-			    for (size_t i = 0; i < spanSize;) {
-			      size_t currPhysicalArgIndex = argumentOutputI;
-			      for (auto j = 0; j < valsPerArg && i+j < spanSize; i++, j++) {
-				makeBoolArgumentType(root, argumentOutputI++);
-				*makeArgument(root, currPhysicalArgIndex) |= (static_cast<int64_t>(spanArgument[i+j]) & 0xFF) << ((valsPerArg - (j+1)) * Argument_BOOL_SIZE * sizeof(Argument));
+			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
+			      uint64_t tmp = 0;
+			      for (size_t j = 0; j < valsPerArg; j++) {
+				makeBoolArgumentType(root, typeOutputI++);
+				tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_BOOL_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			      }
+			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			    }
 			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
 			    //   *makeBoolArgument(root, argumentOutputI++) = arg;
@@ -654,12 +696,13 @@ struct SerializedExpression {
 			    }
 			  } else {
 			    size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
-			    for (size_t i = 0; i < spanSize;) {
-			      size_t currPhysicalArgIndex = argumentOutputI;
-			      for (auto j = 0; j < valsPerArg && i+j < spanSize; i++, j++) {
-				makeCharArgumentType(root, argumentOutputI++);
-				*makeArgument(root, currPhysicalArgIndex) |= (static_cast<int64_t>(spanArgument[i+j]) & 0xFF) << ((valsPerArg - (j+1)) * Argument_CHAR_SIZE * sizeof(Argument));
+			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
+			      uint64_t tmp = 0;
+			      for (size_t j = 0; j < valsPerArg; j++) {
+				makeCharArgumentType(root, typeOutputI++);
+				tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_CHAR_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			      }
+			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			    }
 			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
 			    //   *makeCharArgument(root, argumentOutputI++) = arg;
@@ -687,12 +730,13 @@ struct SerializedExpression {
 			    }
 			  } else {
 			    size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
-			    for (size_t i = 0; i < spanSize;) {
-			      size_t currPhysicalArgIndex = argumentOutputI;
-			      for (auto j = 0; j < valsPerArg && i+j < spanSize; i++, j++) {
-				makeIntArgumentType(root, argumentOutputI++);
-				*makeArgument(root, currPhysicalArgIndex) |= (static_cast<int64_t>(spanArgument[i+j]) & 0xFFFFFFFF) << ((valsPerArg - (j+1)) * Argument_INT_SIZE * sizeof(Argument));
+			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
+			      uint64_t tmp = 0;
+			      for (size_t j = 0; j < valsPerArg; j++) {
+				makeIntArgumentType(root, typeOutputI++);
+				tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_INT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			      }
+			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			    }
 			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
 			    //   *makeIntArgument(root, argumentOutputI++) = arg;
@@ -720,7 +764,7 @@ struct SerializedExpression {
 			    }
 			  } else {
 			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			      *makeLongArgument(root, argumentOutputI++) = arg;
+			      *makeLongArgument(root, argumentOutputI++, typeOutputI++) = arg;
 			    });
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, float_t>) {
@@ -745,14 +789,15 @@ struct SerializedExpression {
 			    }
 			  } else {
 			    size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
-			    for (size_t i = 0; i < spanSize;) {
-			      size_t currPhysicalArgIndex = argumentOutputI;
-			      for (auto j = 0; j < valsPerArg && i+j < spanSize; i++, j++) {
+			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
+			      uint64_t tmp = 0;
+			      for (size_t j = 0; j < valsPerArg; j++) {
 				uint32_t rawVal;
 				std::memcpy(&rawVal, &spanArgument[i+j], sizeof(rawVal));
-				makeFloatArgumentType(root, argumentOutputI++);
-				*makeArgument(root, currPhysicalArgIndex) |= (static_cast<int64_t>(rawVal) & 0xFFFFFFFF) << ((valsPerArg - (j+1)) * Argument_FLOAT_SIZE * sizeof(Argument));
+				makeFloatArgumentType(root, typeOutputI++);
+				tmp |= static_cast<uint64_t>(rawVal) << (Argument_FLOAT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			      }
+			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			    }
 			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
 			    //   *makeFloatArgument(root, argumentOutputI++) = arg;
@@ -781,7 +826,7 @@ struct SerializedExpression {
 			    }
 			  } else {
 			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			      *makeDoubleArgument(root, argumentOutputI++) = arg;
+			      *makeDoubleArgument(root, argumentOutputI++, typeOutputI++) = arg;
 			    });
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
@@ -812,7 +857,7 @@ struct SerializedExpression {
 			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
 			      auto storedString =
 				checkMapAndStoreString(arg, stringMap, dictEncodeStrings);
-			      *makeStringArgument(root, argumentOutputI++) = storedString;
+			      *makeStringArgument(root, argumentOutputI++, typeOutputI++) = storedString;
 			    });
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
@@ -843,14 +888,14 @@ struct SerializedExpression {
 			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
 			      auto storedString =
 				checkMapAndStoreString(arg.getName(), stringMap, dictEncodeStrings);
-			      *makeSymbolArgument(root, argumentOutputI++) = storedString;
+			      *makeSymbolArgument(root, argumentOutputI++, typeOutputI++) = storedString;
 			    });
 			  }
                         } else {
                           print_type_name<std::decay_t<decltype(arg0)>>();
                           throw std::runtime_error("unknown type");
                         }
-                        setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI - spanSize,
+                        setRLEArgumentFlagOrPropagateTypes(root, typeOutputI - spanSize,
                                                            spanSize);
                         //  CHECK HERE NEXT
                       }
@@ -859,7 +904,7 @@ struct SerializedExpression {
               });
         });
     if(!children.empty()) {
-      return flattenArguments(argumentOutputI, std::move(children), expressionOutputI, stringMap, dictEncodeStrings, rleSpans);
+      return flattenArguments(argumentOutputI, typeOutputI, std::move(children), expressionOutputI, stringMap, dictEncodeStrings, rleSpans);
     }
     return argumentOutputI;
   }
@@ -873,30 +918,37 @@ public:
     std::visit(utilities::overload(
 				   [this, &dictEncodeStrings, &rleSpans](boss::ComplexExpression&& input) {
                      uint64_t argumentIterator = 0;
+		     uint64_t typeIterator = 0;
                      uint64_t expressionIterator = 0;
-		     auto const childrenCount =
-                            std::tuple_size_v<
-                                std::decay_t<decltype(input.getStaticArguments())>> +
-                            input.getDynamicArguments().size() +
-                            std::accumulate(
-                                input.getSpanArguments().begin(),
-                                input.getSpanArguments().end(), 0,
-                                [](auto runningSum, auto const& spanArg) {
-                                  return runningSum +
-                                         std::visit(
-                                             [&](auto const& spanArg) { return spanArg.size(); },
-                                             std::forward<decltype(spanArg)>(spanArg));
-                                });
-                     auto const startChildOffset = 1;
-                     auto const endChildOffset =
-                         startChildOffset + childrenCount;
+		     auto const childrenTypeCount = countArgumentTypes(input);
+		     auto const childrenCount = countArgumentsPacked(input);
+                            // std::tuple_size_v<
+                            //     std::decay_t<decltype(input.getStaticArguments())>> +
+                            // input.getDynamicArguments().size() +
+                            // std::accumulate(
+                            //     input.getSpanArguments().begin(),
+                            //     input.getSpanArguments().end(), 0,
+                            //     [](auto runningSum, auto const& spanArg) {
+                            //       return runningSum +
+                            //              std::visit(
+                            //                  [&](auto const& spanArg) { return spanArg.size(); },
+                            //                  std::forward<decltype(spanArg)>(spanArg));
+                            //     });
+                     auto const startChildArgOffset = 1;
+                     auto const endChildArgOffset =
+                         startChildArgOffset + childrenCount;
+                     auto const startChildTypeOffset = 1;
+                     auto const endChildTypeOffset =
+                         startChildArgOffset + childrenTypeCount;
                      auto storedString = storeString(&root, input.getHead().getName().c_str());
                      *makeExpression(root, expressionIterator) =
-                         PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
-                     *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
+                         PortableBOSSExpression{storedString,
+						startChildArgOffset, endChildArgOffset,
+						startChildTypeOffset, endChildTypeOffset};
+                     *makeExpressionArgument(root, argumentIterator++, typeIterator++) = expressionIterator++;
                      auto inputs = std::vector<boss::ComplexExpression>();
                      inputs.push_back(std::move(input));
-                     flattenArguments(argumentIterator, std::move(inputs), expressionIterator, dictEncodeStrings, rleSpans);
+                     flattenArguments(argumentIterator, typeIterator, std::move(inputs), expressionIterator, dictEncodeStrings, rleSpans);
                    },
                    [this](expressions::atoms::Symbol&& input) {
                      auto storedString = storeString(&root, input.getName().c_str());
@@ -916,8 +968,8 @@ public:
 
   explicit SerializedExpression(RootExpression* root) : root(root) {}
 
-  static void addIndexToStream(std::ostream& stream, SerializedExpression const& expr, size_t index,
-			      int64_t exprIndex, int64_t exprDepth) {
+  static void addIndexToStream(std::ostream& stream, SerializedExpression const& expr, size_t index, size_t typeIndex,
+			       int64_t exprIndex, int64_t exprDepth) {
     for(auto i = 0; i < exprDepth; i++) {
       stream << "  ";
     }
@@ -926,13 +978,13 @@ public:
     auto const& expressions = expr.expressionsBuffer();
     auto const& root = expr.root;
     
-    auto testIndex = index;
+    auto testIndex = typeIndex;
     bool isRLE = (types[testIndex] & ArgumentType_RLE_BIT) != 0u;
-    while (!isRLE && testIndex >= 0 && testIndex > index - 4) {
+    while (!isRLE && testIndex >= 0 && testIndex > typeIndex - 4) {
       testIndex--;
       isRLE |= (types[testIndex] & ArgumentType_RLE_BIT) != 0u;
     }
-    auto validTypeIndex = isRLE ? testIndex : index;
+    auto validTypeIndex = isRLE ? testIndex : typeIndex;
     auto argumentType = static_cast<ArgumentType>((types[validTypeIndex] & (~ArgumentType_RLE_BIT)));
 
     if(exprIndex < 0) {
@@ -994,8 +1046,95 @@ public:
 	stream << ")"
 	       << " TYPE: EXPRESSION\n";
       }
-      for(auto i = expression.startChildOffset; i < expression.endChildOffset; i++) {
-	addIndexToStream(stream, expr, i, i - expression.startChildOffset, exprDepth + 1);
+      for (auto childI = expression.startChildOffset, childTypeI = expression.startChildTypeOffset;
+	   childI < expression.endChildOffset && childTypeI < expression.endChildTypeOffset;
+	   childTypeI++) {
+        
+	bool isChildRLE = (types[childTypeI] & ArgumentType_RLE_BIT) != 0u;
+        if (isChildRLE) {
+	  auto const argType = (ArgumentType)(types[childTypeI] & (~ArgumentType_RLE_BIT));
+	  uint32_t spanSize =
+	    (static_cast<uint32_t>(types()[childTypeI + 4]) << 24) |
+	    (static_cast<uint32_t>(types()[childTypeI + 3]) << 16) |
+	    (static_cast<uint32_t>(types()[childTypeI + 2]) << 8)  |
+	    (static_cast<uint32_t>(types()[childTypeI + 1]));
+	  auto prevChildTypeI = childTypeI;
+
+	  if (argType == ArgumentType::ARGUMENT_TYPE_BOOL) {
+	    for(auto i = 0; i < exprDepth + 1; i++) {
+	      stream << "  ";
+	    }
+	    auto valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE; 
+	    for (; childTypeI < prevChildTypeI + spanSize;) {
+	      int64_t& arg = arguments[childI++].asLong;
+	      uint64_t tmp = static_cast<uint64_t>(arg);
+	      for (auto i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+		uint8_t val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		stream << static_cast<bool>(val) << " TYPE: BOOL";
+		stream << "\n";
+	      }
+	    }
+	  } else if (argType == ArgumentType::ARGUMENT_TYPE_CHAR) {
+	    for(auto i = 0; i < exprDepth + 1; i++) {
+	      stream << "  ";
+	    }
+	    auto valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE; 
+	    for (; childTypeI < prevChildTypeI + spanSize;) {
+	      int64_t& arg = arguments[childI++].asLong;
+	      uint64_t tmp = static_cast<uint64_t>(arg);
+	      for (auto i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+		uint8_t val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		stream << static_cast<int8_t>(val) << " TYPE: CHAR";
+		stream << "\n";
+	      }
+	    }
+	  } else if (argType == ArgumentType::ARGUMENT_TYPE_INT) {
+	    for(auto i = 0; i < exprDepth + 1; i++) {
+	      stream << "  ";
+	    }
+	    auto valsPerArg = sizeof(Argument) / Argument_INT_SIZE; 
+	    for (; childTypeI < prevChildTypeI + spanSize;) {
+	      int64_t& arg = arguments[childI++].asLong;
+	      uint64_t tmp = static_cast<uint64_t>(arg);
+	      for (auto i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+		uint32_t val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		stream << static_cast<int32_t>(val) << " TYPE: INT";
+		stream << "\n";
+	      }
+	    }
+	  } else if (argType == ArgumentType::ARGUMENT_TYPE_LONG) {
+	    for (; childTypeI < prevChildTypeI + spanSize; childTypeI++) {
+	      addIndexToStream(stream, expr, childI++, childTypeI, childTypeI - expression.startChildTypeOffset, exprDepth + 1);
+	    }
+	  } else if (argType == ArgumentType::ARGUMENT_TYPE_FLOAT) {
+	    for(auto i = 0; i < exprDepth + 1; i++) {
+	      stream << "  ";
+	    }
+	    auto valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE; 
+	    for (; childTypeI < prevChildTypeI + spanSize;) {
+	      int64_t& arg = arguments[childI++].asLong;
+	      uint64_t tmp = static_cast<uint64_t>(arg);
+	      for (auto i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+		uint32_t val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		float realVal;
+		std::memcpy(&realVal, &val, sizeof(realVal));
+		stream << static_cast<float>(val) << " TYPE: FLOAT";
+		stream << "\n";
+	      }
+	    }
+	  } else if (argType == ArgumentType::ARGUMENT_TYPE_STRING) {
+	    for (; childTypeI < prevChildTypeI + spanSize; childTypeI++) {
+	      addIndexToStream(stream, expr, childI++, childTypeI, childTypeI - expression.startChildTypeOffset, exprDepth + 1);
+	    }
+	  } else if (argType == ArgumentType::ARGUMENT_TYPE_STRING) {
+	    for (; childTypeI < prevChildTypeI + spanSize; childTypeI++) {
+	      addIndexToStream(stream, expr, childI++, childTypeI, childTypeI - expression.startChildTypeOffset, exprDepth + 1);
+	    }
+	  }
+	  // maybe need to --childI or --childTypeI
+	} else {
+	  addIndexToStream(stream, expr, childI++, childTypeI, childTypeI - expression.startChildTypeOffset, exprDepth + 1);
+	}
       }
       for(auto i = 0; i < exprDepth; i++) {
 	stream << "  ";
@@ -1012,66 +1151,103 @@ public:
   }
 
   friend std::ostream& operator<<(std::ostream& stream, SerializedExpression const& expr) {
-    addIndexToStream(stream, expr, 0, -1, 0);
+    addIndexToStream(stream, expr, 0, 0, -1, 0);
     return stream;
   }
 
-  BOSSArgumentPair deserializeArguments(uint64_t startChildOffset, uint64_t endChildOffset) const {
+  BOSSArgumentPair deserializeArguments(uint64_t startChildOffset, uint64_t endChildOffset, uint64_t startChildTypeOffset, uint64_t endChildTypeOffset) const {
     boss::expressions::ExpressionArguments arguments;
     boss::expressions::ExpressionSpanArguments spanArguments;
-    for(auto childIndex = startChildOffset; childIndex < endChildOffset; childIndex++) {
-      auto const& type = flattenedArgumentTypes()[childIndex];
+    for(auto childTypeIndex = startChildTypeOffset, childArgIndex = startChildOffset;
+	childTypeIndex < endChildTypeOffset && childArgIndex < endChildOffset;
+	childTypeIndex++, childArgIndex++) {
+      auto const& type = flattenedArgumentTypes()[childTypeIndex];
       auto const& isRLE = (type & ArgumentType_RLE_BIT) != 0U;
+
+      // std::cout << "TYPE: " << (int64_t)(type & (~ArgumentType_RLE_BIT)) << " isRLE: " << (int64_t)isRLE << std::endl;
 
       if(isRLE) {
 
         auto const argType = (ArgumentType)(type & (~ArgumentType_RLE_BIT));
         uint32_t size =
-	  (static_cast<uint32_t>(flattenedArgumentTypes()[childIndex + 4]) << 24) |
-	  (static_cast<uint32_t>(flattenedArgumentTypes()[childIndex + 3]) << 16) |
-	  (static_cast<uint32_t>(flattenedArgumentTypes()[childIndex + 2]) << 8)  |
-	  (static_cast<uint32_t>(flattenedArgumentTypes()[childIndex + 1]));
-        auto prevChildIndex = childIndex;
+	  (static_cast<uint32_t>(flattenedArgumentTypes()[childTypeIndex + 4]) << 24) |
+	  (static_cast<uint32_t>(flattenedArgumentTypes()[childTypeIndex + 3]) << 16) |
+	  (static_cast<uint32_t>(flattenedArgumentTypes()[childTypeIndex + 2]) << 8)  |
+	  (static_cast<uint32_t>(flattenedArgumentTypes()[childTypeIndex + 1]));
+        auto prevChildTypeIndex = childTypeIndex;
 
         auto const spanFunctors =
             std::unordered_map<ArgumentType,
                                std::function<boss::expressions::ExpressionSpanArgument()>>{
                 {ArgumentType::ARGUMENT_TYPE_BOOL,
                  [&] {
-                   std::vector<bool> data;
-                   data.reserve(size);
-                   for(; childIndex < prevChildIndex + size; childIndex++) {
-                     auto const& arg = flattenedArguments()[childIndex];
-                     data.push_back(arg.asBool);
+		   std::vector<bool> data;
+		   data.reserve(size);
+		   size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+		   for(; childTypeIndex < prevChildTypeIndex + size;) {
+                     int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
+		     uint64_t tmp = static_cast<uint64_t>(arg);
+		     for (int64_t i = valsPerArg - 1;
+			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			  i--, childTypeIndex++) {
+		       uint8_t val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		       data.push_back(static_cast<bool>(val));
+		     }
                    }
+                   // for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++) {
+                   //   auto const& arg = flattenedArguments()[childTypeIndex];
+                   //   data.push_back(arg.asBool);
+                   // }
                    return boss::expressions::Span<bool>(std::move(data));
                  }},
                 {ArgumentType::ARGUMENT_TYPE_CHAR,
                  [&] {
                    std::vector<int8_t> data;
                    data.reserve(size);
-                   for(; childIndex < prevChildIndex + size; childIndex++) {
-                     auto const& arg = flattenedArguments()[childIndex];
-                     data.push_back(arg.asChar);
+		   size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		   for(; childTypeIndex < prevChildTypeIndex + size;) {
+                     int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
+		     uint64_t tmp = static_cast<uint64_t>(arg);
+		     for (int64_t i = valsPerArg - 1;
+			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			  i--, childTypeIndex++) {
+		       uint8_t val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		       data.push_back(static_cast<int8_t>(val));
+		     }
                    }
+		   // for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++) {
+                   //   auto const& arg = flattenedArguments()[childTypeIndex];
+                   //   data.push_back(arg.asChar);
+                   // }
                    return boss::expressions::Span<int8_t>(std::move(data));
                  }},
                 {ArgumentType::ARGUMENT_TYPE_INT,
                  [&] {
                    std::vector<int32_t> data;
                    data.reserve(size);
-                   for(; childIndex < prevChildIndex + size; childIndex++) {
-                     auto const& arg = flattenedArguments()[childIndex];
-                     data.push_back(arg.asInt);
+		   size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		   for(; childTypeIndex < prevChildTypeIndex + size;) {
+                     int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
+		     uint64_t tmp = static_cast<uint64_t>(arg);
+		     for (int64_t i = valsPerArg - 1;
+			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			  i--, childTypeIndex++) {
+		       uint32_t val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		       data.push_back(static_cast<int32_t>(val));
+		     }
                    }
+                   // for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++) {
+                   //   auto const& arg = flattenedArguments()[childTypeIndex];
+                   //   data.push_back(arg.asInt);
+                   // }
                    return boss::expressions::Span<int32_t>(std::move(data));
                  }},
                 {ArgumentType::ARGUMENT_TYPE_LONG,
                  [&] {
                    std::vector<int64_t> data;
                    data.reserve(size);
-                   for(; childIndex < prevChildIndex + size; childIndex++) {
-                     auto const& arg = flattenedArguments()[childIndex];
+                   for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++, childArgIndex++) {
+                     auto const& arg = flattenedArguments()[childArgIndex];
                      data.push_back(arg.asLong);
                    }
                    return boss::expressions::Span<int64_t>(std::move(data));
@@ -1080,48 +1256,62 @@ public:
                  [&] {
                    std::vector<float> data;
                    data.reserve(size);
-                   for(; childIndex < prevChildIndex + size; childIndex++) {
-                     auto const& arg = flattenedArguments()[childIndex];
-                     data.push_back(arg.asFloat);
+		   size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
+		   for(; childTypeIndex < prevChildTypeIndex + size;) {
+                     int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
+		     uint64_t tmp = static_cast<uint64_t>(arg);
+		     for (int64_t i = valsPerArg - 1;
+			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			  i--, childTypeIndex++) {
+		       uint32_t val = static_cast<uint32_t>((tmp >> (Argument_FLOAT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		       float realVal;
+		       std::memcpy(&realVal, &val, sizeof(realVal));
+		       data.push_back(realVal);
+		     }
                    }
+                   // for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++) {
+                   //   auto const& arg = flattenedArguments()[childTypeIndex];
+                   //   data.push_back(arg.asFloat);
+                   // }
                    return boss::expressions::Span<float>(std::move(data));
                  }},
                 {ArgumentType::ARGUMENT_TYPE_DOUBLE,
                  [&] {
                    std::vector<double_t> data;
                    data.reserve(size);
-                   for(; childIndex < prevChildIndex + size; childIndex++) {
-                     auto const& arg = flattenedArguments()[childIndex];
+                   for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++, childArgIndex++) {
+                     auto const& arg = flattenedArguments()[childArgIndex];
                      data.push_back(arg.asDouble);
                    }
                    return boss::expressions::Span<double_t>(std::move(data));
                  }},
                 {ArgumentType::ARGUMENT_TYPE_SYMBOL,
-                 [&childIndex, &prevChildIndex, &size, this] {
+                 [&childArgIndex, &childTypeIndex, &prevChildTypeIndex, &size, this] {
                    std::vector<boss::Symbol> data;
                    data.reserve(size);
                    auto spanArgument = boss::expressions::Span<boss::Symbol>();
-                   for(; childIndex < prevChildIndex + size; childIndex++) {
-                     auto const& arg = flattenedArguments()[childIndex];
+                   for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++, childArgIndex++) {
+                     auto const& arg = flattenedArguments()[childArgIndex];
                      data.push_back(boss::Symbol(viewString(root, arg.asString)));
                    }
                    return boss::expressions::Span<boss::Symbol>(std::move(data));
                  }},
-                {ArgumentType::ARGUMENT_TYPE_STRING, [&childIndex, &prevChildIndex, &size, this] {
+                {ArgumentType::ARGUMENT_TYPE_STRING, [&childArgIndex, &childTypeIndex, &prevChildTypeIndex, &size, this] {
                    std::vector<std::string> data;
                    data.reserve(size);
-                   for(; childIndex < prevChildIndex + size; childIndex++) {
-                     auto const& arg = flattenedArguments()[childIndex];
+                   for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++, childArgIndex++) {
+                     auto const& arg = flattenedArguments()[childArgIndex];
                      data.push_back(std::string(viewString(root, arg.asString)));
                    }
                    return boss::expressions::Span<std::string>(std::move(data));
                  }}};
 
         spanArguments.push_back(spanFunctors.at(argType)());
-        childIndex--;
+        childTypeIndex--;
+	childArgIndex--;
 
       } else {
-        auto const& arg = flattenedArguments()[childIndex];
+        auto const& arg = flattenedArguments()[childArgIndex];
         auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
             {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
             {ArgumentType::ARGUMENT_TYPE_CHAR, [&] { return (arg.asChar); }},
@@ -1135,7 +1325,8 @@ public:
              [&arg, this]() -> boss::Expression {
                auto const& expr = expressionsBuffer()[arg.asExpression];
                auto [args, spanArgs] =
-                   deserializeArguments(expr.startChildOffset, expr.endChildOffset);
+		 deserializeArguments(expr.startChildOffset, expr.endChildOffset,
+				      expr.startChildTypeOffset, expr.endChildTypeOffset);
                auto result = boss::expressions::ComplexExpression(
                    boss::Symbol(viewString(root, expr.symbolNameOffset)), {}, std::move(args),
                    std::move(spanArgs));
@@ -1160,6 +1351,7 @@ public:
   class LazilyDeserializedExpression {
     SerializedExpression const& buffer;
     size_t argumentIndex;
+    size_t typeIndex;
 
     template <typename T> T as(Argument const& arg) const;
     template <> bool as<bool>(Argument const& arg) const { return arg.asBool; };
@@ -1176,13 +1368,14 @@ public:
     };
 
   public:
-    LazilyDeserializedExpression(SerializedExpression const& buffer, size_t argumentIndex)
-        : buffer(buffer), argumentIndex(argumentIndex) {}
+    LazilyDeserializedExpression(SerializedExpression const& buffer, size_t argumentIndex, size_t typeIndex = 0)
+      : buffer(buffer), argumentIndex(argumentIndex), typeIndex(typeIndex == 0 ? argumentIndex : typeIndex) {}
 
     size_t getArgumentIndex() const { return argumentIndex; }
+    size_t getTypeIndex() const { return typeIndex; }
 
     bool operator==(boss::Expression const& other) const {
-      if(other.index() != buffer.flattenedArgumentTypes()[argumentIndex]) {
+      if(other.index() != buffer.flattenedArgumentTypes()[typeIndex]) {
         return false;
       }
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
@@ -1194,24 +1387,31 @@ public:
                                   buffer.expressionsBuffer()[expressionPosition].startChildOffset;
                               auto& endChildOffset =
                                   buffer.expressionsBuffer()[expressionPosition].endChildOffset;
-                              auto numberOfChildren = endChildOffset - startChildOffset;
-                              if(numberOfChildren != e.getArguments().size()) {
+                              auto& startChildTypeOffset =
+                                  buffer.expressionsBuffer()[expressionPosition].startChildTypeOffset;
+                              auto& endChildTypeOffset =
+                                  buffer.expressionsBuffer()[expressionPosition].endChildTypeOffset;
+                              auto numberOfChildrenTypes = endChildTypeOffset - startChildTypeOffset;
+                              if(numberOfChildrenTypes != e.getArguments().size()) {
                                 return false;
                               }
                               auto result = true;
-                              auto i = 0U;
-                              for(; i < e.getDynamicArguments().size(); i++) {
-                                auto subExpressionPosition = startChildOffset + i;
+                              auto argI = 0U;
+                              auto typeI = 0U;
+                              for(; typeI < e.getDynamicArguments().size(); typeI++, argI++) {
+                                auto subExpressionPosition = startChildOffset + argI;
+                                auto subExpressionTypePosition = startChildTypeOffset + typeI;
                                 result &=
-                                    (LazilyDeserializedExpression(buffer, subExpressionPosition) ==
-                                     e.getDynamicArguments().at(i));
+				  (LazilyDeserializedExpression(buffer, subExpressionPosition, subExpressionTypePosition) ==
+                                     e.getDynamicArguments().at(typeI));
                               }
                               for(auto j = 0; j < e.getSpanArguments().size(); j++) {
                                 std::visit(
                                     [&](auto&& typedSpanArg) {
-                                      auto subSpanPosition = startChildOffset + i;
+                                      auto subSpanPosition = startChildOffset + argI;
+                                      auto subSpanTypePosition = startChildTypeOffset + typeI;
                                       auto currSpan =
-                                          (LazilyDeserializedExpression(buffer, subSpanPosition))
+					(LazilyDeserializedExpression(buffer, subSpanPosition, subSpanTypePosition))
                                               .getCurrentExpressionAsSpan();
                                       result &= std::visit(
                                           [&](auto&& typedCurrSpan) {
@@ -1233,7 +1433,10 @@ public:
                                             }
                                           },
                                           currSpan);
-                                      i += typedSpanArg.size();
+                                      typeI += typedSpanArg.size();
+				      const auto& arg0 = typedSpanArg[0];
+				      auto valsPerArg = sizeof(Argument) / sizeof(arg0);
+				      argI += (typedSpanArg.size() + valsPerArg - 1) / valsPerArg;
                                     },
                                     e.getSpanArguments().at(j));
                               }
@@ -1245,31 +1448,39 @@ public:
     }
 
     friend std::ostream& operator<<(std::ostream& stream, LazilyDeserializedExpression lazyExpr) {
-      lazyExpr.buffer.addIndexToStream(stream, lazyExpr.buffer, lazyExpr.argumentIndex, -1, 0);
+      lazyExpr.buffer.addIndexToStream(stream, lazyExpr.buffer, lazyExpr.argumentIndex, lazyExpr.typeIndex, -1, 0);
       return stream;
     }
 
     ArgumentType getCurrentExpressionType() const {
-      auto testIndex = argumentIndex;
+      auto testIndex = typeIndex;
       bool isRLE = (buffer.flattenedArgumentTypes()[testIndex] & ArgumentType_RLE_BIT) != 0u;
-      while (!isRLE && testIndex >= 0 && testIndex > argumentIndex - 4) {
+      while (!isRLE && testIndex >= 0 && testIndex > typeIndex - 4) {
 	testIndex--;
 	isRLE |= (buffer.flattenedArgumentTypes()[testIndex] & ArgumentType_RLE_BIT) != 0u;
       }
-      auto validTypeIndex = isRLE ? testIndex : argumentIndex;
+      auto validTypeIndex = isRLE ? testIndex : typeIndex;
       auto const& type = buffer.flattenedArgumentTypes()[validTypeIndex];
       return static_cast<ArgumentType>((type & (~ArgumentType_RLE_BIT)));
     }
     
     ArgumentType getCurrentExpressionTypeExact() const {
-      auto const& type = buffer.flattenedArgumentTypes()[argumentIndex];
+      auto const& type = buffer.flattenedArgumentTypes()[typeIndex];
       return static_cast<ArgumentType>((type & (~ArgumentType_RLE_BIT)));
+    }
+
+    LazilyDeserializedExpression operator()(size_t childOffset, size_t childTypeOffset) const {
+      auto const& expr = expression();
+      assert(childOffset < expr.endChildOffset - expr.startChildOffset);
+      assert(childTypeOffset < expr.endChildTypeOffset - expr.startChildTypeOffset);
+      return {buffer, expr.startChildOffset + childOffset, expr.startChildTypeOffset + childTypeOffset};
     }
 
     LazilyDeserializedExpression operator[](size_t childOffset) const {
       auto const& expr = expression();
       assert(childOffset < expr.endChildOffset - expr.startChildOffset);
-      return {buffer, expr.startChildOffset + childOffset};
+      assert(childOffset < expr.endChildTypeOffset - expr.startChildTypeOffset);
+      return {buffer, expr.startChildOffset + childOffset, expr.startChildTypeOffset + childOffset};
     }
 
     // MAYBE SHOULD USE getCurrentExpressionType()
@@ -1278,8 +1489,8 @@ public:
       auto const& arguments = buffer.flattenedArguments();
       auto const& argumentTypes = buffer.flattenedArgumentTypes();
       auto const& expressions = buffer.expressionsBuffer();
-      for(auto i = expr.startChildOffset; i < expr.endChildOffset; ++i) {
-        if(argumentTypes[i] != ArgumentType::ARGUMENT_TYPE_EXPRESSION) {
+      for(auto i = expr.startChildOffset, typeI = expr.startChildTypeOffset; i < expr.endChildOffset && typeI < expr.endChildTypeOffset; ++i, ++typeI) {
+        if(argumentTypes[typeI] != ArgumentType::ARGUMENT_TYPE_EXPRESSION) {
           continue;
         }
         auto const& child = expressions[arguments[i].asExpression];
@@ -1296,7 +1507,7 @@ public:
       auto const& arguments = buffer.flattenedArguments();
       auto const& argumentTypes = buffer.flattenedArgumentTypes();
       auto const& expressions = buffer.expressionsBuffer();
-      assert(argumentTypes[argumentIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
+      assert(argumentTypes[typeIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
       return expressions[arguments[argumentIndex].asExpression];
     }
 
@@ -1310,20 +1521,20 @@ public:
     }
 
     bool currentIsExpression() const {
-      auto const& argumentType = buffer.flattenedArgumentTypes()[argumentIndex];
+      auto const& argumentType = buffer.flattenedArgumentTypes()[typeIndex];
       return argumentType == ArgumentType::ARGUMENT_TYPE_EXPRESSION;
     }
 
     size_t currentIsRLE() const {
       auto const& argumentTypes = buffer.flattenedArgumentTypes();
-      auto const& type = argumentTypes[argumentIndex];
+      auto const& type = argumentTypes[typeIndex];
       auto const& isRLE = (type & ArgumentType_RLE_BIT) != 0u;
       if (isRLE) {
 	uint32_t size =
-	  (static_cast<uint32_t>(argumentTypes[argumentIndex + 4]) << 24) |
-	  (static_cast<uint32_t>(argumentTypes[argumentIndex + 3]) << 16) |
-	  (static_cast<uint32_t>(argumentTypes[argumentIndex + 2]) << 8)  |
-	  (static_cast<uint32_t>(argumentTypes[argumentIndex + 1]));
+	  (static_cast<uint32_t>(argumentTypes[typeIndex + 4]) << 24) |
+	  (static_cast<uint32_t>(argumentTypes[typeIndex + 3]) << 16) |
+	  (static_cast<uint32_t>(argumentTypes[typeIndex + 2]) << 8)  |
+	  (static_cast<uint32_t>(argumentTypes[typeIndex + 1]));
 	std::cout << "Size: " << size << std::endl;
 	return size;
       }
@@ -1347,30 +1558,58 @@ public:
                [&] {
                  std::vector<bool> data;
                  data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asBool);
-                 }
+		 size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+		 auto tempI = 0;
+		 for (size_t i = 0; i < size; tempI++) {
+		   int64_t& arg = arguments[argumentIndex + tempI];
+		   uint64_t tmp = static_cast<uint64_t>(arg);
+		   for (int64_t j = valsPerArg - 1;
+			j >= 0 && i < size;
+			j--, i++) {
+		     uint8_t val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     data.push_back(static_cast<bool>(val));
+		   }
+		 }
+                 // for(size_t i = 0; i < size; i++) {
+                 //   auto const& arg = arguments[argumentIndex + i];
+                 //   data.push_back(arg.asBool);
+                 // }
                  return boss::expressions::Span<bool>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_CHAR,
                [&] {
                  std::vector<int8_t> data;
                  data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asChar);
-                 }
+                 size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		 auto tempI = 0;
+		 for (size_t i = 0; i < size; tempI++) {
+		   int64_t& arg = arguments[argumentIndex + tempI];
+		   uint64_t tmp = static_cast<uint64_t>(arg);
+		   for (int64_t j = valsPerArg - 1;
+			j >= 0 && i < size;
+			j--, i++) {
+		     uint8_t val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     data.push_back(static_cast<int8_t>(val));
+		   }
+		 }
                  return boss::expressions::Span<int8_t>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_INT,
                [&] {
                  std::vector<int32_t> data;
                  data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asInt);
-                 }
+		 size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		 auto tempI = 0;
+		 for (size_t i = 0; i < size; tempI++) {
+		   int64_t& arg = arguments[argumentIndex + tempI];
+		   uint64_t tmp = static_cast<uint64_t>(arg);
+		   for (int64_t j = valsPerArg - 1;
+			j >= 0 && i < size;
+			j--, i++) {
+		     uint32_t val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     data.push_back(static_cast<int32_t>(val));
+		   }
+		 }
                  return boss::expressions::Span<int32_t>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_LONG,
@@ -1387,6 +1626,20 @@ public:
                [&] {
                  std::vector<float_t> data;
                  data.reserve(size);
+		 size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
+		 auto tempI = 0;
+		 for (size_t i = 0; i < size; tempI++) {
+		   int64_t& arg = arguments[argumentIndex + tempI];
+		   uint64_t tmp = static_cast<uint64_t>(arg);
+		   for (int64_t j = valsPerArg - 1;
+			j >= 0 && i < size;
+			j--, i++) {
+		     uint32_t val = static_cast<uint32_t>((tmp >> (Argument_FLOAT_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     float realVal;
+		     std::memcpy(&realVal, &val, sizeof(realVal));
+		     data.push_back(realVal);
+		   }
+		 }
                  for(size_t i = 0; i < size; i++) {
                    auto const& arg = arguments[argumentIndex + i];
                    data.push_back(arg.asFloat);
@@ -1538,7 +1791,8 @@ public:
           return s;
         }
         auto [args, spanArgs] =
-            buffer.deserializeArguments(expr.startChildOffset, expr.endChildOffset);
+	  buffer.deserializeArguments(expr.startChildOffset, expr.endChildOffset,
+				      expr.startChildTypeOffset, expr.endChildTypeOffset);
         auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
         return result;
       }
@@ -1657,7 +1911,7 @@ public:
   private:
   };
 
-  LazilyDeserializedExpression lazilyDeserialize() & { return {*this, 0}; };
+  LazilyDeserializedExpression lazilyDeserialize() & { return {*this, 0, 0}; };
 
   boss::Expression deserialize() && {
     switch(flattenedArgumentTypes()[0]) {
@@ -1683,7 +1937,8 @@ public:
       if(root->expressionCount == 0) {
         return s;
       }
-      auto [args, spanArgs] = deserializeArguments(1, expr.endChildOffset);
+      auto [args, spanArgs] = deserializeArguments(expr.startChildOffset, expr.endChildOffset,
+						   expr.startChildTypeOffset, expr.endChildTypeOffset);
       auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
       return result;
     }
