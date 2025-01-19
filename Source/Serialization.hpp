@@ -609,7 +609,7 @@ struct SerializedExpression {
 			  std::visit([&](auto const& spanArgument) {
 			    auto spanSize = spanArgument.size();
 			    auto const& arg0 = spanArgument[0];
-			    auto valsPerArg = sizeof(Argument) / sizeof(arg0);
+			    auto valsPerArg = sizeof(arg0) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(arg0);
 			    if (spanDict.find(spanI) != spanDict.end()) {
 			      auto& dict = spanDict[spanI];
 			      valsPerArg = sizeof(Argument) / getArgumentSizeFromDictSize(dict);
