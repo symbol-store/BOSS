@@ -209,7 +209,7 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t argumentBytesCount,
   *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
     expressionCount;
   *((uint64_t*)&root->argumentDictionaryBytesCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-    0;
+    argumentDictionaryBytesCount;
   *((uint64_t*)&root->stringArgumentsFillIndex) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
     0;
   *((void**)&root->originalAddress) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
