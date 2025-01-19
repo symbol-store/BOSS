@@ -98,7 +98,7 @@ struct SerializedExpression {
       std::pair<boss::expressions::ExpressionArguments, boss::expressions::ExpressionSpanArguments>;
 
   // using DictKey = std::variant<bool, int8_t, int32_t, int64_t, float_t, double_t>;
-  using DictKey = std::variant<int64_t, double_t>;
+  using DictKey = std::variant<int64_t, double_t, std::string>;
   struct VariantHash {
     template <typename T>
     std::size_t operator()(const T& value) const {
@@ -192,7 +192,8 @@ struct SerializedExpression {
 			      auto spanSize = spanArgument.size();
 			      auto const& arg0 = spanArgument[0];
 			      if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t> ||
-					   std::is_same_v<std::decay_t<decltype(arg0)>, double_t>) {
+					   std::is_same_v<std::decay_t<decltype(arg0)>, double_t> ||
+					   std::is_same_v<std::decay_t<decltype(arg0)>, std::string>) {
 				std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
 				  checkMapAndIncrement(DictKey(arg), spanDict);
 				});
@@ -338,7 +339,12 @@ struct SerializedExpression {
 				      spanBytes = spanSize * getArgumentSizeFromDictSize(spanDict);
 				    }
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, std::string>) {
-				    spanBytes = spanSize * Argument_STRING_SIZE;
+				    if (dict.find(spanI) == dict.end()) {
+				      spanBytes = spanSize * Argument_STRING_SIZE;
+				    } else {
+				      auto& spanDict = dict[spanI];
+				      spanBytes = spanSize * getArgumentSizeFromDictSize(spanDict);
+				    }
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, boss::Symbol>) {
 				    spanBytes = spanSize * Argument_STRING_SIZE;
 				  } else {
@@ -604,9 +610,11 @@ struct SerializedExpression {
 			    auto spanSize = spanArgument.size();
 			    auto const& arg0 = spanArgument[0];
 			    auto valsPerArg = sizeof(Argument) / sizeof(arg0);
-			    if (spanDict.find(spanI++) != spanDict.end()) {
-			      valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+			    if (spanDict.find(spanI) != spanDict.end()) {
+			      auto& dict = spanDict[spanI];
+			      valsPerArg = sizeof(Argument) / getArgumentSizeFromDictSize(dict);
 			    }
+			    spanI++;
 			    return (spanSize + valsPerArg - 1) / valsPerArg;
 			  },
 			    std::forward<decltype(spanArg)>(spanArg));
@@ -998,6 +1006,35 @@ struct SerializedExpression {
 				runStartIndex = i;
 			      }
 			    }
+			  } else if (spanDict.find(spanI) != spanDict.end()) {
+			    auto& dict = spanDict[spanI];
+			    int64_t dictStartI = dictOutputI;
+			    for (auto& entry : dict) {
+			      std::string value = std::get<std::string>(entry.first);
+			      int32_t& offset = entry.second;
+			      offset = dictOutputI;
+			      auto storedString =
+				checkMapAndStoreString(value, stringMap, dictEncodeStrings);
+			      *makeStringDictionaryEntry(root, dictOutputI++) = storedString;
+			    }
+			    size_t argumentSize = getArgumentSizeFromDictSize(dict);
+			    size_t valsPerArg = sizeof(Argument) / argumentSize;
+			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
+			      uint64_t tmp = 0;
+			      for (size_t j = 0; j < valsPerArg; j++) {
+				// NEED DICT ENC LONG TYPE OR BIT ON LONG TYPE
+				makeLongArgumentType(root, typeOutputI++);
+				if (argumentSize == Argument_CHAR_SIZE) {
+				  int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
+				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				} else if (argumentSize == Argument_INT_SIZE) {
+				  int32_t val = dict[DictKey(spanArgument[i+j])];
+				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				}				
+			      }
+			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+			    }
+			    setDictStartAndFlag(root, typeOutputI - spanSize, dictOutputI);
 			  } else {
 			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
 			      auto storedString =

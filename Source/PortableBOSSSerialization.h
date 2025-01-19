@@ -545,6 +545,11 @@ static double* makeDoubleDictionaryEntry(struct PortableBOSSRootExpression* root
 					uint64_t dictOutputI) {
   return &getSpanDictionaries(root)[dictOutputI].asDouble;
 };
+  
+static size_t* makeStringDictionaryEntry(struct PortableBOSSRootExpression* root,
+					 uint64_t dictOutputI) {
+  return &getSpanDictionaries(root)[dictOutputI].asString;
+};
 
 static void setRLEArgumentFlagOrPropagateTypes(struct PortableBOSSRootExpression* root,
                                                uint64_t argumentOutputI, uint32_t size) {
