@@ -988,9 +988,9 @@ public:
     auto argumentType = static_cast<ArgumentType>((types[validTypeIndex] & (~ArgumentType_RLE_BIT)));
 
     if(exprIndex < 0) {
-      stream << "ARG INDEX: " << index << " VALUE: ";
+      stream << "ARG INDEX: " << index << " TYPE INDEX: " << typeIndex << " VALUE: ";
     } else {
-      stream << "ARG INDEX: " << index << " SUB-EXPR INDEX: " << exprIndex << " VALUE: ";
+      stream << "ARG INDEX: " << index << " TYPE INDEX: " << typeIndex << " SUB-EXPR INDEX: " << exprIndex << " VALUE: ";
     }
 
     switch(argumentType) {
@@ -1054,49 +1054,52 @@ public:
         if (isChildRLE) {
 	  auto const argType = (ArgumentType)(types[childTypeI] & (~ArgumentType_RLE_BIT));
 	  uint32_t spanSize =
-	    (static_cast<uint32_t>(types()[childTypeI + 4]) << 24) |
-	    (static_cast<uint32_t>(types()[childTypeI + 3]) << 16) |
-	    (static_cast<uint32_t>(types()[childTypeI + 2]) << 8)  |
-	    (static_cast<uint32_t>(types()[childTypeI + 1]));
+	    (static_cast<uint32_t>(types[childTypeI + 4]) << 24) |
+	    (static_cast<uint32_t>(types[childTypeI + 3]) << 16) |
+	    (static_cast<uint32_t>(types[childTypeI + 2]) << 8)  |
+	    (static_cast<uint32_t>(types[childTypeI + 1]));
 	  auto prevChildTypeI = childTypeI;
 
 	  if (argType == ArgumentType::ARGUMENT_TYPE_BOOL) {
-	    for(auto i = 0; i < exprDepth + 1; i++) {
-	      stream << "  ";
-	    }
-	    auto valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE; 
-	    for (; childTypeI < prevChildTypeI + spanSize;) {
-	      int64_t& arg = arguments[childI++].asLong;
+            auto valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE; 
+	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
+	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (auto i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+		for(auto j = 0; j < exprDepth + 1; j++) {
+		  stream << "  ";
+		}
+		stream << "ARG INDEX: " << childI << " TYPE INDEX: " << childTypeI << " SUB-EXPR INDEX: " << childTypeI - expression.startChildTypeOffset << " VALUE: ";
 		uint8_t val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		stream << static_cast<bool>(val) << " TYPE: BOOL";
 		stream << "\n";
 	      }
 	    }
 	  } else if (argType == ArgumentType::ARGUMENT_TYPE_CHAR) {
-	    for(auto i = 0; i < exprDepth + 1; i++) {
-	      stream << "  ";
-	    }
-	    auto valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE; 
-	    for (; childTypeI < prevChildTypeI + spanSize;) {
-	      int64_t& arg = arguments[childI++].asLong;
+            auto valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE; 
+	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
+	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (auto i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+		for(auto j = 0; j < exprDepth + 1; j++) {
+		  stream << "  ";
+		}
+		stream << "ARG INDEX: " << childI << " TYPE INDEX: " << childTypeI << " SUB-EXPR INDEX: " << childTypeI - expression.startChildTypeOffset << " VALUE: ";
 		uint8_t val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		stream << static_cast<int8_t>(val) << " TYPE: CHAR";
 		stream << "\n";
 	      }
 	    }
 	  } else if (argType == ArgumentType::ARGUMENT_TYPE_INT) {
-	    for(auto i = 0; i < exprDepth + 1; i++) {
-	      stream << "  ";
-	    }
 	    auto valsPerArg = sizeof(Argument) / Argument_INT_SIZE; 
-	    for (; childTypeI < prevChildTypeI + spanSize;) {
-	      int64_t& arg = arguments[childI++].asLong;
+	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
+	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (auto i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+		for(auto j = 0; j < exprDepth + 1; j++) {
+		  stream << "  ";
+		}
+		stream << "ARG INDEX: " << childI << " TYPE INDEX: " << childTypeI << " SUB-EXPR INDEX: " << childTypeI - expression.startChildTypeOffset << " VALUE: ";
 		uint32_t val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		stream << static_cast<int32_t>(val) << " TYPE: INT";
 		stream << "\n";
@@ -1107,14 +1110,15 @@ public:
 	      addIndexToStream(stream, expr, childI++, childTypeI, childTypeI - expression.startChildTypeOffset, exprDepth + 1);
 	    }
 	  } else if (argType == ArgumentType::ARGUMENT_TYPE_FLOAT) {
-	    for(auto i = 0; i < exprDepth + 1; i++) {
-	      stream << "  ";
-	    }
-	    auto valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE; 
-	    for (; childTypeI < prevChildTypeI + spanSize;) {
-	      int64_t& arg = arguments[childI++].asLong;
+            auto valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE; 
+	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
+	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (auto i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+		for(auto j = 0; j < exprDepth + 1; j++) {
+		  stream << "  ";
+		}
+		stream << "ARG INDEX: " << childI << " TYPE INDEX: " << childTypeI << " SUB-EXPR INDEX: " << childTypeI - expression.startChildTypeOffset << " VALUE: ";
 		uint32_t val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		float realVal;
 		std::memcpy(&realVal, &val, sizeof(realVal));
@@ -1131,6 +1135,7 @@ public:
 	      addIndexToStream(stream, expr, childI++, childTypeI, childTypeI - expression.startChildTypeOffset, exprDepth + 1);
 	    }
 	  }
+	  --childTypeI;
 	  // maybe need to --childI or --childTypeI
 	} else {
 	  addIndexToStream(stream, expr, childI++, childTypeI, childTypeI - expression.startChildTypeOffset, exprDepth + 1);
@@ -1469,6 +1474,7 @@ public:
       return static_cast<ArgumentType>((type & (~ArgumentType_RLE_BIT)));
     }
 
+    // ALTER TO CHANGE TYPE OFFSET TOO
     LazilyDeserializedExpression operator()(size_t childOffset, size_t childTypeOffset) const {
       auto const& expr = expression();
       assert(childOffset < expr.endChildOffset - expr.startChildOffset);
@@ -1546,10 +1552,7 @@ public:
       return boss::Symbol(viewString(buffer.root, expr.symbolNameOffset));
     }
 
-    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpan() const {
-      size_t size = currentIsRLE();
-      assert(size != 0);
-      auto const& type = getCurrentExpressionType();
+    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size) const {
       auto const& arguments = buffer.flattenedArguments();
       auto const spanFunctors =
           std::unordered_map<ArgumentType,
@@ -1677,103 +1680,69 @@ public:
                }}};
       return spanFunctors.at(type)();
     }
-
-    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size) const {
-      auto const& arguments = buffer.flattenedArguments();
-      auto const spanFunctors =
-          std::unordered_map<ArgumentType,
-                             std::function<boss::expressions::ExpressionSpanArgument()>>{
-              {ArgumentType::ARGUMENT_TYPE_BOOL,
-               [&] {
-                 std::vector<bool> data;
-                 data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asBool);
-                 }
-                 return boss::expressions::Span<bool>(std::move(data));
-               }},
-              {ArgumentType::ARGUMENT_TYPE_CHAR,
-               [&] {
-                 std::vector<int8_t> data;
-                 data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asChar);
-                 }
-                 return boss::expressions::Span<int8_t>(std::move(data));
-               }},
-              {ArgumentType::ARGUMENT_TYPE_INT,
-               [&] {
-                 std::vector<int32_t> data;
-                 data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asInt);
-                 }
-                 return boss::expressions::Span<int32_t>(std::move(data));
-               }},
-              {ArgumentType::ARGUMENT_TYPE_LONG,
-               [&] {
-                 std::vector<int64_t> data;
-                 data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asLong);
-                 }
-                 return boss::expressions::Span<int64_t>(std::move(data));
-               }},
-              {ArgumentType::ARGUMENT_TYPE_FLOAT,
-               [&] {
-                 std::vector<float_t> data;
-                 data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asFloat);
-                 }
-                 return boss::expressions::Span<float_t>(std::move(data));
-               }},
-              {ArgumentType::ARGUMENT_TYPE_DOUBLE,
-               [&] {
-                 std::vector<double_t> data;
-                 data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asDouble);
-                 }
-                 return boss::expressions::Span<double_t>(std::move(data));
-               }},
-              {ArgumentType::ARGUMENT_TYPE_STRING,
-               [&] {
-                 std::vector<std::string> data;
-                 data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(std::string(viewString(buffer.root, arg.asString)));
-                 }
-                 return boss::expressions::Span<std::string>(std::move(data));
-               }},
-              {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
-                 std::vector<boss::Symbol> data;
-                 data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(boss::Symbol(viewString(buffer.root, arg.asString)));
-                 }
-                 return boss::expressions::Span<boss::Symbol>(std::move(data));
-               }}};
-      return spanFunctors.at(type)();
-    }
     
-    boss::Expression getCurrentExpressionAs(ArgumentType argumentType) const {
-      auto const& argument = buffer.flattenedArguments()[argumentIndex];
+    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpan() const {
+      size_t size = currentIsRLE();
+      assert(size != 0);
+      auto const& type = getCurrentExpressionType();
+      return std::move(getCurrentExpressionAsSpanWithTypeAndSize(type, size));
+    }
+
+    boss::Expression getCurrentExpressionInSpanAtAs(size_t spanArgI, ArgumentType argumentType) const {
+      // std::cout << "ARGI: " << argumentIndex << " TYPEI: " << typeIndex << std::endl;
+      auto& argument = buffer.flattenedArguments()[argumentIndex];
+      uint64_t tmp = static_cast<uint64_t>(argument.asLong);
+      size_t valsPerArg;
+      int64_t inArgI;
+      uint32_t val;
       switch(argumentType) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
         return argument.asBool;
       case ArgumentType::ARGUMENT_TYPE_CHAR:
         return argument.asChar;
       case ArgumentType::ARGUMENT_TYPE_INT:
-        return argument.asInt;
+	valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+	val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	return static_cast<int32_t>(val);
+      case ArgumentType::ARGUMENT_TYPE_LONG:
+        return argument.asLong;
+      case ArgumentType::ARGUMENT_TYPE_FLOAT:
+        return argument.asFloat;
+      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+        return argument.asDouble;
+      case ArgumentType::ARGUMENT_TYPE_STRING:
+        return viewString(buffer.root, argument.asString);
+      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+        return boss::Symbol(viewString(buffer.root, argument.asString));
+      case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
+        auto const& expr = expression();
+        auto s = boss::Symbol(viewString(buffer.root, expr.symbolNameOffset));
+        if(buffer.expressionCount() == 0) {
+          return s;
+        }
+        auto [args, spanArgs] =
+	  buffer.deserializeArguments(expr.startChildOffset, expr.endChildOffset,
+				      expr.startChildTypeOffset, expr.endChildTypeOffset);
+        auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
+        return result;
+      }
+    }
+
+    boss::Expression getCurrentExpressionInSpanAt(size_t spanArgI) const {
+      auto argumentType = getCurrentExpressionType();
+      return getCurrentExpressionInSpanAtAs(spanArgI, argumentType);
+    }
+    
+    boss::Expression getCurrentExpressionAs(ArgumentType argumentType) const {
+      auto& argument = buffer.flattenedArguments()[argumentIndex];
+      switch(argumentType) {
+      case ArgumentType::ARGUMENT_TYPE_BOOL:
+        return argument.asBool;
+      case ArgumentType::ARGUMENT_TYPE_CHAR:
+        return argument.asChar;
+      case ArgumentType::ARGUMENT_TYPE_INT:
+	return argument.asInt;
       case ArgumentType::ARGUMENT_TYPE_LONG:
         return argument.asLong;
       case ArgumentType::ARGUMENT_TYPE_FLOAT:

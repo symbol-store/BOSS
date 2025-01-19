@@ -1559,25 +1559,25 @@ TEST_CASE("Subspans work correctly", "[spans]") {
 TEST_CASE("Expression Serialization With Spans") {
 
   auto const dataSetSize = 10;
-  std::vector<int64_t> vec1(dataSetSize);
-  std::vector<int64_t> vec2(dataSetSize);
+  std::vector<int32_t> vec1(dataSetSize);
+  std::vector<int32_t> vec2(dataSetSize);
   std::iota(vec1.begin(), vec1.end(), 0);
   std::iota(vec2.begin(), vec2.end(), dataSetSize);
 
-  std::vector<int64_t> vec3(dataSetSize);
-  std::vector<int64_t> vec4(dataSetSize);
+  std::vector<int32_t> vec3(dataSetSize);
+  std::vector<int32_t> vec4(dataSetSize);
   std::iota(vec3.begin(), vec3.end(), 0);
   std::iota(vec4.begin(), vec4.end(), dataSetSize);
   boss::expressions::ExpressionSpanArguments spanArgs;
-  spanArgs.push_back(std::move(boss::Span<int64_t>(vector(vec3))));
-  spanArgs.push_back(std::move(boss::Span<int64_t>(vector(vec4))));
+  spanArgs.push_back(std::move(boss::Span<int32_t>(vector(vec3))));
+  spanArgs.push_back(std::move(boss::Span<int32_t>(vector(vec4))));
   auto listTwoSpans = boss::ComplexExpression{"List"_, {}, {}, std::move(spanArgs)};
 
   auto const plans = std::array<boss::Expression, 3>{
-      "Table"_("List"_(boss::Span<int64_t>(vector(vec1))),
-               "List"_(boss::Span<int64_t>(vector(vec2)))),
-      "Table"_("Column"_("List"_(boss::Span<int64_t>(vector(vec1)))),
-               "Column"_("List"_(boss::Span<int64_t>(vector(vec2))))),
+      "Table"_("List"_(boss::Span<int32_t>(vector(vec1))),
+               "List"_(boss::Span<int32_t>(vector(vec2)))),
+      "Table"_("Column"_("List"_(boss::Span<int32_t>(vector(vec1)))),
+               "Column"_("List"_(boss::Span<int32_t>(vector(vec2))))),
       "Table"_("Column"_(std::move(listTwoSpans)))};
 
   for(auto const& plan : plans) {
@@ -1631,8 +1631,58 @@ TEST_CASE("Lazy Expression Serialization With Spans") {
       });
 
   auto resTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(matches))))));
-  std::cout << "LAZY RESULT: " << lazyListExpr << std::endl;
-  std::cout << "RESULT: " << resTable << std::endl;
+  std::cout << "INT64_t LAZY RESULT: " << lazyListExpr << std::endl;
+  std::cout << "INT64_T RESULT: " << resTable << std::endl;
+}
+
+TEST_CASE("Lazy Expression Serialization With Int32_t Spans") {
+
+  auto dataSetSize = 10;
+  std::vector<int32_t> vec3(dataSetSize);
+  std::vector<int32_t> vec4(dataSetSize);
+  std::iota(vec3.begin(), vec3.end(), 0);
+  std::iota(vec4.begin(), vec4.end(), dataSetSize);
+  boss::expressions::ExpressionSpanArguments spanArgs;
+  spanArgs.push_back(std::move(boss::Span<int32_t>(vector(vec3))));
+  spanArgs.push_back(std::move(boss::Span<int32_t>(vector(vec4))));
+  auto listTwoSpans = boss::ComplexExpression{"List"_, {}, {}, std::move(spanArgs)};
+  boss::Expression const tableExpr = "Table"_("Column"_(std::move(listTwoSpans)));
+
+  // auto e = boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
+  // CHECK(e.lazilyDeserialize() == tableExpr);
+
+  auto e2 = boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
+  auto lazyExpr = e2.lazilyDeserialize();
+  auto lazyColExpr = lazyExpr[0];
+  auto lazyListExpr = lazyColExpr[0];
+
+  auto exprOffsets = lazyListExpr.expression();
+  auto const& startChildOffset = exprOffsets.startChildTypeOffset;
+  auto const& endChildOffset = exprOffsets.endChildTypeOffset;
+  auto const numChildren = endChildOffset - startChildOffset;
+
+  auto firstIdx = 2;
+  auto tempLazyChildExpr = lazyListExpr[firstIdx];
+  auto const& type = tempLazyChildExpr.getCurrentExpressionType();
+  std::vector<int64_t> indices;
+  indices.push_back(firstIdx);
+  indices.push_back(9);
+  indices.push_back(10);
+  indices.push_back(11);
+  indices.push_back(12);
+
+  std::vector<int64_t> matches;
+  matches.reserve(indices.size());
+  std::for_each(
+		indices.begin(), indices.end(), [&matches, &lazyListExpr, &numChildren](const auto& idx) {
+		  
+		  auto lazyChildExpr = (idx < 0 || idx > numChildren ? lazyListExpr(0,0) : lazyListExpr(idx / 2,idx));
+		  matches.emplace_back(get<int32_t>(lazyChildExpr.getCurrentExpressionInSpanAt(idx)));
+      });
+
+  auto resTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(matches))))));
+  std::cout << "INT64_t LAZY RESULT: " << lazyListExpr << std::endl;
+  std::cout << "INT64_T RESULT: " << resTable << std::endl;
 }
 
 // TEST_CASE("DELEGATE BOOTSTRAPPING", "[]") {
