@@ -134,6 +134,16 @@ struct SerializedExpression {
 
   //////////////////////////////// Count Unique Arguments ///////////////////////////////
 
+  static size_t getArgumentSizeFromDictSize(ExpressionDictionary& dict) {
+    if (dict.size() < ((2 << (Argument_CHAR_SIZE - 1)) - 1)) {
+      return Argument_CHAR_SIZE;
+    } else if (dict.size() < ((2 << (Argument_INT_SIZE - 1)) - 1)) {
+      return Argument_INT_SIZE;
+    } else {
+      return Argument_LONG_SIZE;
+    }
+  }
+  
   static uint64_t calculateDictionaryBytes(SpanDictionary& spanDict) {
     uint64_t sum = 0;
     for (const auto& entry : spanDict) {
@@ -314,15 +324,19 @@ struct SerializedExpression {
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
 				    if (dict.find(spanI) == dict.end()) {
 				      spanBytes = spanSize * Argument_LONG_SIZE;
+				    } else {
+				      auto& spanDict = dict[spanI];
+				      spanBytes = spanSize * getArgumentSizeFromDictSize(spanDict);
 				    }
-				    spanBytes = spanSize * Argument_INT_SIZE;
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, float_t>) {
 				    spanBytes = spanSize * Argument_FLOAT_SIZE;
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, double_t>) {
 				    if (dict.find(spanI) == dict.end()) {
 				      spanBytes = spanSize * Argument_DOUBLE_SIZE;
+				    } else {
+				      auto& spanDict = dict[spanI];
+				      spanBytes = spanSize * getArgumentSizeFromDictSize(spanDict);
 				    }
-				    spanBytes = spanSize * Argument_INT_SIZE;
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, std::string>) {
 				    spanBytes = spanSize * Argument_STRING_SIZE;
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, boss::Symbol>) {
@@ -544,7 +558,7 @@ struct SerializedExpression {
   }
 
   //////////////////////////////   Flatten Arguments /////////////////////////////
-
+  
   size_t checkMapAndStoreString(const std::string& key, std::unordered_map<std::string, size_t>& stringMap, bool dictEncodeStrings) {
     size_t storedString = 0;
     if (dictEncodeStrings) {
@@ -848,14 +862,20 @@ struct SerializedExpression {
 			      offset = dictOutputI;
 			      *makeLongDictionaryEntry(root, dictOutputI++) = value;
 			    }
-			    size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+			    size_t argumentSize = getArgumentSizeFromDictSize(dict);
+			    size_t valsPerArg = sizeof(Argument) / argumentSize;
 			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
 			      uint64_t tmp = 0;
 			      for (size_t j = 0; j < valsPerArg; j++) {
 				// NEED DICT ENC LONG TYPE OR BIT ON LONG TYPE
 				makeLongArgumentType(root, typeOutputI++);
-				int32_t val = dict[DictKey(spanArgument[i+j])];
-				tmp |= static_cast<uint64_t>(val) << (Argument_INT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				if (argumentSize == Argument_CHAR_SIZE) {
+				  int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
+				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				} else if (argumentSize == Argument_INT_SIZE) {
+				  int32_t val = dict[DictKey(spanArgument[i+j])];
+				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				}				
 			      }
 			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			    }
@@ -931,16 +951,22 @@ struct SerializedExpression {
 			      offset = dictOutputI;
 			      *makeDoubleDictionaryEntry(root, dictOutputI++) = value;
 			    }
+			    size_t argumentSize = getArgumentSizeFromDictSize(dict);
 			    size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
 			      uint64_t tmp = 0;
 			      for (size_t j = 0; j < valsPerArg; j++) {
 				// NEED DICT ENC LONG TYPE OR BIT ON LONG TYPE
 				makeDoubleArgumentType(root, typeOutputI++);
-				int32_t val = dict[DictKey(spanArgument[i+j])];
-				tmp |= static_cast<uint64_t>(val) << (Argument_INT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				if (argumentSize == Argument_CHAR_SIZE) {
+				  int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
+				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				} else if (argumentSize == Argument_INT_SIZE) {
+				  int32_t val = dict[DictKey(spanArgument[i+j])];
+				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				}				
 			      }
-			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+		              *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			    }
 			    setDictStartAndFlag(root, typeOutputI - spanSize, dictOutputI);
 			  } else {
