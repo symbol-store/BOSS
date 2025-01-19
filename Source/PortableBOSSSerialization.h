@@ -74,6 +74,7 @@ struct PortableBOSSRootExpression {
   uint64_t const argumentCount;
   uint64_t const argumentBytesCount;
   uint64_t const expressionCount;
+  uint64_t const argumentDictionaryBytesCount;
   void* const originalAddress;
   /**
    * The index of the last used byte in the arguments buffer relative to the pointer returned by
@@ -117,11 +118,20 @@ getExpressionSubexpressions(struct PortableBOSSRootExpression* root) {
 		       root->argumentCount * sizeof(enum PortableBOSSArgumentType)];
 }
 
+static union PortableBOSSArgumentValue*
+getSpanDictionaries(struct PortableBOSSRootExpression* root) {
+  return (union PortableBOSSArgumentValue*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      &root->arguments[root->argumentBytesCount +
+		       root->argumentCount * sizeof(enum PortableBOSSArgumentType) +
+		       root->expressionCount * (sizeof(struct PortableBOSSExpression))];
+}
+
 static char* getStringBuffer(struct PortableBOSSRootExpression* root) {
   return (char*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       &root->arguments[root->argumentBytesCount +
 		       root->argumentCount * sizeof(enum PortableBOSSArgumentType) +
-                       root->expressionCount * (sizeof(struct PortableBOSSExpression))];
+                       root->expressionCount * (sizeof(struct PortableBOSSExpression)) +
+		       root->argumentDictionaryBytesCount];
 }
 
 //////////////////////////////   Memory Management /////////////////////////////
@@ -143,6 +153,8 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount, uint64_
     argumentCount * sizeof(union PortableBOSSArgumentValue);
   *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
     expressionCount;
+  *((uint64_t*)&root->argumentDictionaryBytesCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    0;
   *((uint64_t*)&root->stringArgumentsFillIndex) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
     0;
   *((void**)&root->originalAddress) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
@@ -168,6 +180,36 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t argumentBytesCount,
     argumentBytesCount;
   *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
     expressionCount;
+  *((uint64_t*)&root->argumentDictionaryBytesCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    0;
+  *((uint64_t*)&root->stringArgumentsFillIndex) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    0;
+  *((void**)&root->originalAddress) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    root;
+  return root;
+}
+  
+static struct PortableBOSSRootExpression*
+allocateExpressionTree(uint64_t argumentCount, uint64_t argumentBytesCount,
+		       uint64_t expressionCount, uint64_t argumentDictionaryBytesCount,
+		       uint64_t stringBytesCount, void* (*allocateFunction)(size_t)) {
+  struct PortableBOSSRootExpression* root =
+      (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      allocateFunction(                    // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
+          sizeof(struct PortableBOSSRootExpression) +
+          argumentBytesCount +
+          sizeof(enum PortableBOSSArgumentType) * argumentCount +
+          sizeof(struct PortableBOSSExpression) * expressionCount +
+	  argumentDictionaryBytesCount +
+	  stringBytesCount);
+  *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    argumentCount;
+  *((uint64_t*)&root->argumentBytesCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    argumentBytesCount;
+  *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    expressionCount;
+  *((uint64_t*)&root->argumentDictionaryBytesCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+    0;
   *((uint64_t*)&root->stringArgumentsFillIndex) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
     0;
   *((void**)&root->originalAddress) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
@@ -494,6 +536,16 @@ static size_t* makeExpressionArgument(struct PortableBOSSRootExpression* root,
   return &getExpressionArguments(root)[argumentOutputI].asString;
 };
 
+static int64_t* makeLongDictionaryEntry(struct PortableBOSSRootExpression* root,
+					uint64_t dictOutputI) {
+  return &getSpanDictionaries(root)[dictOutputI].asLong;
+};
+
+static double* makeDoubleDictionaryEntry(struct PortableBOSSRootExpression* root,
+					uint64_t dictOutputI) {
+  return &getSpanDictionaries(root)[dictOutputI].asDouble;
+};
+
 static void setRLEArgumentFlagOrPropagateTypes(struct PortableBOSSRootExpression* root,
                                                uint64_t argumentOutputI, uint32_t size) {
   if(size < PortableBOSSArgumentType_RLE_MINIMUM_SIZE) {
@@ -510,6 +562,27 @@ static void setRLEArgumentFlagOrPropagateTypes(struct PortableBOSSRootExpression
   (*(uint8_t*)(&argTypes[argumentOutputI + 3])) = (size >> 16) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
   (*(uint8_t*)(&argTypes[argumentOutputI + 2])) = (size >> 8) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
   (*(uint8_t*)(&argTypes[argumentOutputI + 1])) = size & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+}
+
+static void setDictStartAndFlag(struct PortableBOSSRootExpression* root,
+				uint64_t argumentOutputI, uint64_t dictOutputI) {
+  PortableBOSSArgumentType* argTypes = getArgumentTypes(root);
+  (*(uint8_t*)(&argTypes[argumentOutputI + 12])) =
+    (dictOutputI >> 56) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 11])) =
+    (dictOutputI >> 48) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 10])) =
+    (dictOutputI >> 40) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 9])) =
+    (dictOutputI >> 32) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 8])) =
+    (dictOutputI >> 24) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 7])) =
+    (dictOutputI >> 16) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 6])) =
+    (dictOutputI >> 8) & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  (*(uint8_t*)(&argTypes[argumentOutputI + 5])) =
+    dictOutputI & 0xFF; // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
 }
 
 static int8_t* makeCharArgumentsRun(struct PortableBOSSRootExpression* root,
