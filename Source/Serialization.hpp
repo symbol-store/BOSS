@@ -197,9 +197,9 @@ struct SerializedExpression {
 				std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
 				  checkMapAndIncrement(DictKey(arg), spanDict);
 				});
-			      }
-			      if (spanDict.size() < (spanSize / 2)) {
-				dict[spanI] = std::move(spanDict);
+				if (spanDict.size() < (spanSize / 2)) {
+				  dict[spanI] = std::move(spanDict);
+				}
 			      }
 			      spanI++;
 			    },
@@ -593,6 +593,35 @@ struct SerializedExpression {
 		      });
   }
 
+template <typename TupleLike, uint64_t... Is>
+  static void incSpanArgumentsInTuple(size_t& spanI, TupleLike const& tuple,
+                                        std::index_sequence<Is...> /*unused*/) {
+    (incSpanArguments(std::get<Is>(tuple), spanI), ...);
+  }
+  
+  static void incSpanArguments(boss::Expression const& input, size_t& spanI) {
+    return std::visit(
+		      [&spanI](auto& input) {
+          if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
+            incSpanArgumentsInTuple(spanI,
+				    input.getStaticArguments(),
+				    std::make_index_sequence<std::tuple_size_v<
+				    std::decay_t<decltype(input.getStaticArguments())>>>());
+	    std::for_each(input.getDynamicArguments().begin(),
+			  input.getDynamicArguments().end(),
+			  [&spanI](auto const& argument) {
+			    spanI++;
+			  });
+	    std::for_each(
+			  input.getSpanArguments().begin(), input.getSpanArguments().end(),
+			  [&spanI](auto const& argument) {
+			    spanI++;
+			  });
+          }
+        },
+        input);
+  }
+
   uint64_t countArgumentsPacked(boss::ComplexExpression const& expression, SpanDictionary& spanDict) {
     size_t spanI = 0;
     return countArgumentsPacked(expression, spanDict, spanI);
@@ -600,8 +629,18 @@ struct SerializedExpression {
 
   uint64_t countArgumentsPacked(boss::ComplexExpression const& expression, SpanDictionary& spanDict, size_t spanIInput) {
     size_t spanI = spanIInput;
-    return std::tuple_size_v<std::decay_t<decltype(expression.getStaticArguments())>> +
-      expression.getDynamicArguments().size() +
+    uint64_t staticsCount = std::tuple_size_v<std::decay_t<decltype(expression.getStaticArguments())>>;
+    incSpanArgumentsInTuple(spanI,
+			    expression.getStaticArguments(),
+			    std::make_index_sequence<std::tuple_size_v<
+			    std::decay_t<decltype(expression.getStaticArguments())>>>());
+    uint64_t dynamicsCount = expression.getDynamicArguments().size();
+    std::for_each(expression.getDynamicArguments().begin(),
+		  expression.getDynamicArguments().end(),
+		  [&spanI](auto const& argument) {
+		    incSpanArguments(argument, spanI);
+		  });
+    uint64_t spansCount = 
       std::accumulate(
 		      expression.getSpanArguments().begin(), expression.getSpanArguments().end(), 0,
 		      [&spanDict, &spanI](auto runningSum, auto const& spanArg) {
@@ -612,13 +651,20 @@ struct SerializedExpression {
 			    auto valsPerArg = sizeof(arg0) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(arg0);
 			    if (spanDict.find(spanI) != spanDict.end()) {
 			      auto& dict = spanDict[spanI];
-			      valsPerArg = sizeof(Argument) / getArgumentSizeFromDictSize(dict);
+			      valsPerArg = sizeof(Argument) / getArgumentSizeFromDictSize(dict); 
+			      if (valsPerArg == 0) {
+				std::cout << "getArgSize: " << getArgumentSizeFromDictSize(dict) << std::endl;
+			      }
 			    }
 			    spanI++;
+			    if (valsPerArg == 0) {
+			      std::cout << "sizeof(arg0): " << sizeof(arg0) << " arg0: " << arg0 << std::endl;
+			    }
 			    return (spanSize + valsPerArg - 1) / valsPerArg;
 			  },
 			    std::forward<decltype(spanArg)>(spanArg));
 		      });
+    return staticsCount + dynamicsCount + spansCount;
   }
   
   template <typename TupleLike, uint64_t... Is>
@@ -668,6 +714,11 @@ struct SerializedExpression {
               statics,
               std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
               argumentOutputI, typeOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings, rleSpans);
+	  auto tempSpanI = spanI;
+	  std::for_each(dynamics.begin(), dynamics.end(),
+			[&tempSpanI](const auto& argument) {
+			  incSpanArguments(argument, tempSpanI);
+			});
           std::for_each(
               std::make_move_iterator(dynamics.begin()), std::make_move_iterator(dynamics.end()),
               [this, &argumentOutputI, &typeOutputI, &children, &expressionOutputI, nextLayerTypeOffset, nextLayerOffset,
@@ -733,7 +784,7 @@ struct SerializedExpression {
               });
           std::for_each(
               std::make_move_iterator(spans.begin()), std::make_move_iterator(spans.end()),
-              [this, &argumentOutputI, &typeOutputI, &dictOutputI, &spanDict, &spanI, &stringMap, &dictEncodeStrings, &rleSpans](auto&& argument) {
+              [this, &argumentOutputI, &typeOutputI, &dictOutputI, &spanDict, &tempSpanI, &stringMap, &dictEncodeStrings, &rleSpans](auto&& argument) {
                 std::visit(
                     [&](auto&& spanArgument) {
                       auto spanSize = spanArgument.size();
@@ -861,8 +912,8 @@ struct SerializedExpression {
 				runStartIndex = i;
 			      }
 			    }
-			  } else if (spanDict.find(spanI) != spanDict.end()) {
-			    auto& dict = spanDict[spanI];
+			  } else if (spanDict.find(tempSpanI) != spanDict.end()) {
+			    auto& dict = spanDict[tempSpanI];
 			    int64_t dictStartI = dictOutputI;
 			    for (auto& entry : dict) {
 			      int64_t value = std::get<int64_t>(entry.first);
@@ -950,8 +1001,8 @@ struct SerializedExpression {
 				runStartIndex = i;
 			      }
 			    }
-			  } else if (spanDict.find(spanI) != spanDict.end()) {
-			    auto& dict = spanDict[spanI];
+			  } else if (spanDict.find(tempSpanI) != spanDict.end()) {
+			    auto& dict = spanDict[tempSpanI];
 			    int64_t dictStartI = dictOutputI;
 			    for (auto& entry : dict) {
 			      double value = std::get<double>(entry.first);
@@ -1006,8 +1057,8 @@ struct SerializedExpression {
 				runStartIndex = i;
 			      }
 			    }
-			  } else if (spanDict.find(spanI) != spanDict.end()) {
-			    auto& dict = spanDict[spanI];
+			  } else if (spanDict.find(tempSpanI) != spanDict.end()) {
+			    auto& dict = spanDict[tempSpanI];
 			    int64_t dictStartI = dictOutputI;
 			    for (auto& entry : dict) {
 			      std::string value = std::get<std::string>(entry.first);
@@ -1077,7 +1128,7 @@ struct SerializedExpression {
                           print_type_name<std::decay_t<decltype(arg0)>>();
                           throw std::runtime_error("unknown type");
                         }
-			spanI++;
+			tempSpanI++;
                         setRLEArgumentFlagOrPropagateTypes(root, typeOutputI - spanSize,
                                                            spanSize);
                         //  CHECK HERE NEXT
@@ -1626,7 +1677,8 @@ public:
                                           currSpan);
                                       typeI += typedSpanArg.size();
 				      const auto& arg0 = typedSpanArg[0];
-				      auto valsPerArg = sizeof(Argument) / sizeof(arg0);
+				      auto valsPerArg = sizeof(arg0) > sizeof(Argument) ?
+					1 : sizeof(Argument) / sizeof(arg0);
 				      argI += (typedSpanArg.size() + valsPerArg - 1) / valsPerArg;
                                     },
                                     e.getSpanArguments().at(j));
