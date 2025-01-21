@@ -796,7 +796,7 @@ struct SerializedExpression {
 			  size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
 			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
 			    uint64_t tmp = 0;
-			    for (size_t j = 0; j < valsPerArg; j++) {
+			    for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 			      makeBoolArgumentType(root, typeOutputI++);
 			      tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_BOOL_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			    }
@@ -809,7 +809,7 @@ struct SerializedExpression {
 			  size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
 			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
 			    uint64_t tmp = 0;
-			    for (size_t j = 0; j < valsPerArg; j++) {
+			    for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 			      makeCharArgumentType(root, typeOutputI++);
 			      tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_CHAR_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			    }
@@ -819,7 +819,7 @@ struct SerializedExpression {
 			  size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
 			    uint64_t tmp = 0;
-			    for (size_t j = 0; j < valsPerArg; j++) {
+			    for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 			      makeIntArgumentType(root, typeOutputI++);
 			      tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_INT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			    }
@@ -839,7 +839,7 @@ struct SerializedExpression {
 			    size_t valsPerArg = sizeof(Argument) / argumentSize;
 			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
 			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg; j++) {
+			      for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 				// NEED DICT ENC LONG TYPE OR BIT ON LONG TYPE
 				makeLongArgumentType(root, typeOutputI++);
 				if (argumentSize == Argument_CHAR_SIZE) {
@@ -862,7 +862,7 @@ struct SerializedExpression {
 			  size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
 			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
 			    uint64_t tmp = 0;
-			    for (size_t j = 0; j < valsPerArg; j++) {
+			    for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 			      uint32_t rawVal;
 			      std::memcpy(&rawVal, &spanArgument[i+j], sizeof(rawVal));
 			      makeFloatArgumentType(root, typeOutputI++);
@@ -888,7 +888,7 @@ struct SerializedExpression {
 			    size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
 			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg; j++) {
+			      for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 				// NEED DICT ENC LONG TYPE OR BIT ON LONG TYPE
 				makeDoubleArgumentType(root, typeOutputI++);
 				if (argumentSize == Argument_CHAR_SIZE) {
@@ -924,7 +924,7 @@ struct SerializedExpression {
 			    size_t valsPerArg = sizeof(Argument) / argumentSize;
 			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
 			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg; j++) {
+			      for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 				// NEED DICT ENC LONG TYPE OR BIT ON LONG TYPE
 				makeLongArgumentType(root, typeOutputI++);
 				if (argumentSize == Argument_CHAR_SIZE) {
@@ -1151,7 +1151,7 @@ public:
 		}
 		stream << "ARG INDEX: " << childI << " TYPE INDEX: " << childTypeI << " SUB-EXPR INDEX: " << childTypeI - expression.startChildTypeOffset << " VALUE: ";
 		uint8_t val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
-		stream << static_cast<int8_t>(val) << " TYPE: CHAR";
+		stream << static_cast<int32_t>(val) << " TYPE: CHAR";
 		stream << "\n";
 	      }
 	    }
@@ -1760,12 +1760,25 @@ public:
       uint64_t tmp = static_cast<uint64_t>(argument.asLong);
       size_t valsPerArg;
       int64_t inArgI;
+      // int64_t argSize;
+      // int64_t argsPerSpanIdx;
+      // int64_t idxPerSpan;
+      // int64_t inSpanI;
+      // int64_t spansSeen;
+      // int64_t logicalSpanStartI;
+      // int64_t logicalInSpanI;
       uint32_t val;
       switch(argumentType) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
-        return argument.asBool;
+	valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+        val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	return static_cast<bool>(val);
       case ArgumentType::ARGUMENT_TYPE_CHAR:
-        return argument.asChar;
+	valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+        val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	return static_cast<int8_t>(val);
       case ArgumentType::ARGUMENT_TYPE_INT:
 	valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
@@ -1774,7 +1787,12 @@ public:
       case ArgumentType::ARGUMENT_TYPE_LONG:
         return argument.asLong;
       case ArgumentType::ARGUMENT_TYPE_FLOAT:
-        return argument.asFloat;
+	valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
+	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+        val = static_cast<uint32_t>((tmp >> (Argument_FLOAT_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	float realVal;
+	std::memcpy(&realVal, &val, sizeof(realVal));
+	return realVal;
       case ArgumentType::ARGUMENT_TYPE_DOUBLE:
         return argument.asDouble;
       case ArgumentType::ARGUMENT_TYPE_STRING:
