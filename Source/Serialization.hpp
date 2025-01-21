@@ -169,23 +169,32 @@ struct SerializedExpression {
   static SpanDictionary countUniqueArguments(boss::Expression const& input) {
     SpanDictionary res;
     size_t spanI = 0;
-    countUniqueArguments(input, res, spanI);
+    int64_t level = 1;
+    while (countUniqueArgumentsAtLevel(input, res, spanI, level)) {
+      level++;
+    }
     return std::move(res);
-  }
-  
-  static void countUniqueArgumentsDynamics(boss::Expression const& input, SpanDictionary& dict, size_t& spanI) {
+  };
+
+  static bool countUniqueArgumentsAtLevel(boss::Expression const& input, SpanDictionary& dict, size_t& spanI, int64_t level) {
+    if (level == 1) {
+      countUniqueArgumentsStaticsAndSpans(input, dict, spanI);
+      return true;
+    }
+    bool recurse = false;
     std::visit(
-	       [&dict, &spanI](auto& input) {
+	       [&dict, &spanI, &level, &recurse](auto& input) {
 		 if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
-		   std::for_each(input.getDynamicArguments().begin(),
+	     	   std::for_each(input.getDynamicArguments().begin(),
 				 input.getDynamicArguments().end(),
-				 [&dict, &spanI](auto const& argument) {
-				   countUniqueArguments(argument, dict, spanI);
+				 [&dict, &spanI, &level, &recurse](auto const& argument) {
+				   recurse |= countUniqueArgumentsAtLevel(argument, dict, spanI, level - 1);
 				 });
 		 }
 	       },
 	       input);
-  }
+    return recurse;
+  };
 
   static void countUniqueArgumentsStaticsAndSpans(boss::Expression const& input, SpanDictionary& dict, size_t& spanI) {
     std::visit(
@@ -217,11 +226,6 @@ struct SerializedExpression {
 		 }
 	       },
 	       input);
-  }
-
-  static void countUniqueArguments(boss::Expression const& input, SpanDictionary& dict, size_t& spanI) {
-    countUniqueArgumentsStaticsAndSpans(input, dict, spanI);
-    countUniqueArgumentsDynamics(input, dict, spanI);
   }
 
   //////////////////////////////// Count Argument Bytes ///////////////////////////////
