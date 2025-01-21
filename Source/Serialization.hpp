@@ -1413,16 +1413,30 @@ public:
                    data.reserve(size);
                    if (isDictEnc) {
 		     if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
-		       for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++, childArgIndex++) {
-			 auto const& dictOffset = flattenedArguments()[childArgIndex];
-			 auto const& arg = spanDictionariesBuffer()[(dictI + dictOffset.asChar)];
-			 data.push_back(arg.asDouble);
+		       size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		       for(; childTypeIndex < prevChildTypeIndex + size;) {
+			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
+			 uint64_t tmp = static_cast<uint64_t>(arg);
+			 for (int64_t i = valsPerArg - 1;
+			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			      i--, childTypeIndex++) {
+			   uint8_t dictOffset = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int8_t>(dictOffset))];
+			   data.push_back(arg.asDouble);
+			 }
 		       }
 		     } else if (dictOffsetArgumentSize == Argument_INT_SIZE) {
-		       for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++, childArgIndex++) {
-			 auto const& dictOffset = flattenedArguments()[childArgIndex];
-			 auto const& arg = spanDictionariesBuffer()[(dictI + dictOffset.asInt)];
-			 data.push_back(arg.asDouble);
+		       size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		       for(; childTypeIndex < prevChildTypeIndex + size;) {
+			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
+			 uint64_t tmp = static_cast<uint64_t>(arg);
+			 for (int64_t i = valsPerArg - 1;
+			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			      i--, childTypeIndex++) {
+			   uint32_t dictOffset = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int32_t>(dictOffset))];
+			   data.push_back(arg.asDouble);
+			 }
 		       }
 		     }
 		   } else {
@@ -1449,16 +1463,30 @@ public:
                    data.reserve(size);
 		   if (isDictEnc) {
 		     if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
-		       for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++, childArgIndex++) {
-			 auto const& dictOffset = flattenedArguments()[childArgIndex];
-			 auto const& arg = spanDictionariesBuffer()[(dictI + dictOffset.asChar)];
-			 data.push_back(std::string(viewString(root, arg.asString)));
+		       size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		       for(; childTypeIndex < prevChildTypeIndex + size;) {
+			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
+			 uint64_t tmp = static_cast<uint64_t>(arg);
+			 for (int64_t i = valsPerArg - 1;
+			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			      i--, childTypeIndex++) {
+			   uint8_t dictOffset = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int8_t>(dictOffset))];
+			   data.push_back(std::string(viewString(root, arg.asString)));
+			 }
 		       }
 		     } else if (dictOffsetArgumentSize == Argument_INT_SIZE) {
-		       for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++, childArgIndex++) {
-			 auto const& dictOffset = flattenedArguments()[childArgIndex];
-			 auto const& arg = spanDictionariesBuffer()[(dictI + dictOffset.asInt)];
-			 data.push_back(std::string(viewString(root, arg.asString)));
+		       size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		       for(; childTypeIndex < prevChildTypeIndex + size;) {
+			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
+			 uint64_t tmp = static_cast<uint64_t>(arg);
+			 for (int64_t i = valsPerArg - 1;
+			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			      i--, childTypeIndex++) {
+			   uint32_t dictOffset = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int32_t>(dictOffset))];
+			   data.push_back(std::string(viewString(root, arg.asString)));
+			 }
 		       }
 		     }
 		   } else {
