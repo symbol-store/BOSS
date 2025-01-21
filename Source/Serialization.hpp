@@ -394,61 +394,6 @@ struct SerializedExpression {
     return countArgumentBytesDictStaticsAndSpans(input, dict, spanI) + countArgumentBytesDictDynamics(input, dict, spanI);
   }
 
-  //////////////////////////////// Count RLE Arguments ///////////////////////////////
-
-  // Current assumes that only values within spans can be RLEd
-  // Note: To read values at a specific index in RLEd span, the span size must be known (logical & physical)
-  template <typename TupleLike, uint64_t... Is>
-  static uint64_t countRLEArgumentsInTuple(TupleLike const& tuple,
-                                        std::index_sequence<Is...> /*unused*/) {
-    return (countRLEArgument(std::get<Is>(tuple)) + ... + 0);
-  };
-
-  static uint64_t countRLEArguments(boss::Expression const& input) {
-    return std::visit(
-        [](auto& input) -> size_t {
-          if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
-            return 1 +
-                   countRLEArgumentsInTuple(
-                       input.getStaticArguments(),
-                       std::make_index_sequence<std::tuple_size_v<
-                           std::decay_t<decltype(input.getStaticArguments())>>>()) +
-                   std::accumulate(input.getDynamicArguments().begin(),
-                                   input.getDynamicArguments().end(), 0,
-                                   [](auto runningSum, auto const& argument) {
-                                     return runningSum + countRLEArguments(argument);
-                                   }) +
-                   std::accumulate(
-                       input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
-                       [](auto runningSum, auto const& argument) {
-                         return runningSum +
-                                std::visit([&](auto const& spanArgument) {
-				  auto spanSize = spanArgument.size();
-				  auto const& arg0 = spanArgument[0];
-				  auto spanSum = 0;
-				  auto runCount = 1;
-				  for(size_t i = 1; i < spanSize; i++) {
-				    if (spanArgument[i] == spanArgument[i-1]) {
-				      runCount++;
-				    } else {
-				      if (runCount > 2) {
-					spanSum += 2; // 1 for value, 1 for startIdx of run
-				      } else {
-					spanSum += runCount; // do not RLE runs lteq 2
-				      }
-				      runCount = 1;
-				    }
-				  }
-				  return spanSum;
-				},
-				  std::forward<decltype(argument)>(argument));
-                       });
-          }
-          return 1;
-        },
-        input);
-  }
-
   //////////////////////////////// Count Arguments ///////////////////////////////
 
   template <typename TupleLike, uint64_t... Is>
@@ -703,25 +648,25 @@ struct SerializedExpression {
   void flattenArgumentsInTuple(TupleLike&& tuple, std::index_sequence<Is...> /*unused*/,
                                uint64_t& argumentOutputI, uint64_t& typeOutputI, uint64_t& dictOutputI, SpanDictionary& spanDict,
 			       size_t& spanI, std::unordered_map<std::string, size_t>& stringMap,
-			       bool dictEncodeStrings, bool rleSpans) {
-    (flattenArguments(std::get<Is>(tuple), argumentOutputI, typeOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings, rleSpans), ...);
+			       bool dictEncodeStrings) {
+    (flattenArguments(std::get<Is>(tuple), argumentOutputI, typeOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings), ...);
   };
 
   // assuming RLE encode for now
   uint64_t flattenArguments(uint64_t argumentOutputI, uint64_t typeOutputI,
 			    std::vector<boss::ComplexExpression>&& inputs,
 			    uint64_t& expressionOutputI, uint64_t dictOutputI, SpanDictionary& spanDict,
-			    bool dictEncodeStrings = true, bool rleSpans = true) {
+			    bool dictEncodeStrings = true) {
     std::unordered_map<std::string, size_t> stringMap;
     size_t spanI = 0;
-    return flattenArguments(argumentOutputI, typeOutputI, std::move(inputs), expressionOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings, rleSpans);
+    return flattenArguments(argumentOutputI, typeOutputI, std::move(inputs), expressionOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings);
   }
 
   uint64_t flattenArguments(uint64_t argumentOutputI, uint64_t typeOutputI,
 			    std::vector<boss::ComplexExpression>&& inputs,
                             uint64_t& expressionOutputI, uint64_t dictOutputI, SpanDictionary& spanDict, size_t& spanI,
 			    std::unordered_map<std::string, size_t>& stringMap,
-			    bool dictEncodeStrings, bool rleSpans) {
+			    bool dictEncodeStrings) {
     auto const nextLayerTypeOffset =
       typeOutputI +
       std::accumulate(inputs.begin(), inputs.end(), 0, [this](auto count, auto const& expression) {
@@ -740,12 +685,12 @@ struct SerializedExpression {
         std::move_iterator(inputs.begin()), std::move_iterator(inputs.end()),
         [this, &argumentOutputI, &typeOutputI, &children, &expressionOutputI, nextLayerTypeOffset, nextLayerOffset,
          &childrenCountRunningSum, &childrenTypeCountRunningSum, &dictOutputI, &spanDict, &spanI, &stringMap,
-	 &dictEncodeStrings, &rleSpans](boss::ComplexExpression&& input) {
+	 &dictEncodeStrings](boss::ComplexExpression&& input) {
           auto [head, statics, dynamics, spans] = std::move(input).decompose();
           flattenArgumentsInTuple(
               statics,
               std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
-              argumentOutputI, typeOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings, rleSpans);
+              argumentOutputI, typeOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings);
 	  // auto tempSpanI = spanI;
 	  // std::for_each(dynamics.begin(), dynamics.end(),
 	  // 		[&tempSpanI](const auto& argument) {
@@ -754,7 +699,7 @@ struct SerializedExpression {
           std::for_each(
               std::make_move_iterator(dynamics.begin()), std::make_move_iterator(dynamics.end()),
               [this, &argumentOutputI, &typeOutputI, &children, &expressionOutputI, nextLayerTypeOffset, nextLayerOffset,
-               &childrenCountRunningSum, &childrenTypeCountRunningSum, &stringMap, &dictEncodeStrings, &rleSpans, &spanDict, &spanI](auto&& argument) {
+               &childrenCountRunningSum, &childrenTypeCountRunningSum, &stringMap, &dictEncodeStrings, &spanDict, &spanI](auto&& argument) {
                 std::visit(
 			   [this, &children, &argumentOutputI, &typeOutputI, &expressionOutputI, nextLayerTypeOffset,
 			    nextLayerOffset, &childrenCountRunningSum, &childrenTypeCountRunningSum,
@@ -816,7 +761,7 @@ struct SerializedExpression {
               });
           std::for_each(
               std::make_move_iterator(spans.begin()), std::make_move_iterator(spans.end()),
-              [this, &argumentOutputI, &typeOutputI, &dictOutputI, &spanDict, &spanI, &stringMap, &dictEncodeStrings, &rleSpans](auto&& argument) {
+              [this, &argumentOutputI, &typeOutputI, &dictOutputI, &spanDict, &spanI, &stringMap, &dictEncodeStrings](auto&& argument) {
                 std::visit(
                     [&](auto&& spanArgument) {
                       auto spanSize = spanArgument.size();
@@ -829,122 +774,40 @@ struct SerializedExpression {
                         if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
                                      std::is_same_v<std::decay_t<decltype(arg0)>,
                                                     std::_Bit_reference>) {
-			  if (rleSpans) {
-			    for(size_t i = 1; i < spanSize; i++) {
-			      if (spanArgument[i] == spanArgument[i-1]) {
-				makeBoolArgumentType(root, argumentOutputI++);
-				runCount++;
-			      } else {
-				if (runCount > 2) {
-				  *makeBoolArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
-				    spanArgument[runStartIndex];
-				} else {
-				  if (runCount > 1) {
-				    *makeBoolArgument(root, argumentStartIndex+1) = spanArgument[runStartIndex+1];
-				  }
-				  *makeBoolArgument(root, argumentStartIndex) = spanArgument[runStartIndex];
-				}
-				argumentStartIndex = argumentOutputI++;
-				runStartIndex = i;
-			      }
+			  size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
+			    uint64_t tmp = 0;
+			    for (size_t j = 0; j < valsPerArg; j++) {
+			      makeBoolArgumentType(root, typeOutputI++);
+			      tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_BOOL_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			    }
-			  } else {
-			    size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
-			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg; j++) {
-				makeBoolArgumentType(root, typeOutputI++);
-				tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_BOOL_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
-			      }
-			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			    }
-			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
-			    //   *makeBoolArgument(root, argumentOutputI++) = arg;
-			    // });
+			    *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			  }
+			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
+			  //   *makeBoolArgument(root, argumentOutputI++) = arg;
+			  // });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int8_t>) {
-			  if (rleSpans) {
-			    for(size_t i = 1; i < spanSize; i++) {
-			      if (spanArgument[i] == spanArgument[i-1]) {
-				makeCharArgumentType(root, argumentOutputI++);
-				runCount++;
-			      } else {
-				if (runCount > 2) {
-				  *makeCharArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
-				    spanArgument[runStartIndex];
-				} else {
-				  if (runCount > 1) {
-				    *makeCharArgument(root, argumentStartIndex+1) = spanArgument[runStartIndex+1];
-				  }
-				  *makeCharArgument(root, argumentStartIndex) = spanArgument[runStartIndex];
-				}
-				argumentStartIndex = argumentOutputI++;
-				runStartIndex = i;
-			      }
+			  size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
+			    uint64_t tmp = 0;
+			    for (size_t j = 0; j < valsPerArg; j++) {
+			      makeCharArgumentType(root, typeOutputI++);
+			      tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_CHAR_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			    }
-			  } else {
-			    size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
-			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg; j++) {
-				makeCharArgumentType(root, typeOutputI++);
-				tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_CHAR_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
-			      }
-			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			    }
+			    *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int32_t>) {
-			  if (rleSpans) {
-			    for(size_t i = 1; i < spanSize; i++) {
-			      if (spanArgument[i] == spanArgument[i-1]) {
-				makeIntArgumentType(root, argumentOutputI++);
-				runCount++;
-			      } else {
-				if (runCount > 2) {
-				  *makeIntArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
-				    spanArgument[runStartIndex];
-				} else {
-				  if (runCount > 1) {
-				    *makeIntArgument(root, argumentStartIndex+1) = spanArgument[runStartIndex+1];
-				  }
-				  *makeIntArgument(root, argumentStartIndex) = spanArgument[runStartIndex];
-				}
-				argumentStartIndex = argumentOutputI++;
-				runStartIndex = i;
-			      }
+			  size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
+			    uint64_t tmp = 0;
+			    for (size_t j = 0; j < valsPerArg; j++) {
+			      makeIntArgumentType(root, typeOutputI++);
+			      tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_INT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			    }
-			  } else {
-			    size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
-			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg; j++) {
-				makeIntArgumentType(root, typeOutputI++);
-				tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_INT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
-			      }
-			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			    }
+			    *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
-			  if (rleSpans) {
-			    for(size_t i = 1; i < spanSize; i++) {
-			      if (spanArgument[i] == spanArgument[i-1]) {
-				makeLongArgumentType(root, argumentOutputI++);
-				runCount++;
-			      } else {
-				if (runCount > 2) {
-				  *makeLongArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
-				    spanArgument[runStartIndex];
-				} else {
-				  if (runCount > 1) {
-				    *makeLongArgument(root, argumentStartIndex+1) = spanArgument[runStartIndex+1];
-				  }
-				  *makeLongArgument(root, argumentStartIndex) = spanArgument[runStartIndex];
-				}
-				argumentStartIndex = argumentOutputI++;
-				runStartIndex = i;
-			      }
-			    }
-			  } else if (spanDict.find(spanI) != spanDict.end()) {
+			  if (spanDict.find(spanI) != spanDict.end()) {
 			    auto& dict = spanDict[spanI];
 			    int64_t dictStartI = dictOutputI;
 			    for (auto& entry : dict) {
@@ -977,63 +840,23 @@ struct SerializedExpression {
 			    });
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, float_t>) {
-			  if (rleSpans) {
-			    for(size_t i = 1; i < spanSize; i++) {
-			      if (spanArgument[i] == spanArgument[i-1]) {
-				makeFloatArgumentType(root, argumentOutputI++);
-				runCount++;
-			      } else {
-				if (runCount > 2) {
-				  *makeFloatArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
-				    spanArgument[runStartIndex];
-				} else {
-				  if (runCount > 1) {
-				    *makeFloatArgument(root, argumentStartIndex+1) = spanArgument[runStartIndex+1];
-				  }
-				  *makeFloatArgument(root, argumentStartIndex) = spanArgument[runStartIndex];
-				}
-				argumentStartIndex = argumentOutputI++;
-				runStartIndex = i;
-			      }
+			  size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
+			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
+			    uint64_t tmp = 0;
+			    for (size_t j = 0; j < valsPerArg; j++) {
+			      uint32_t rawVal;
+			      std::memcpy(&rawVal, &spanArgument[i+j], sizeof(rawVal));
+			      makeFloatArgumentType(root, typeOutputI++);
+			      tmp |= static_cast<uint64_t>(rawVal) << (Argument_FLOAT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 			    }
-			  } else {
-			    size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
-			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg; j++) {
-				uint32_t rawVal;
-				std::memcpy(&rawVal, &spanArgument[i+j], sizeof(rawVal));
-				makeFloatArgumentType(root, typeOutputI++);
-				tmp |= static_cast<uint64_t>(rawVal) << (Argument_FLOAT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
-			      }
-			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			    }
-			    // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			    //   *makeFloatArgument(root, argumentOutputI++) = arg;
-			    // });
+			    *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			  }
+			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+			  //   *makeFloatArgument(root, argumentOutputI++) = arg;
+			  // });
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            double_t>) {
-			  if (rleSpans) {
-			    for(size_t i = 1; i < spanSize; i++) {
-			      if (spanArgument[i] == spanArgument[i-1]) {
-				makeDoubleArgumentType(root, argumentOutputI++);
-				runCount++;
-			      } else {
-				if (runCount > 2) {
-				  *makeDoubleArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
-				    spanArgument[runStartIndex];
-				} else {
-				  if (runCount > 1) {
-				    *makeDoubleArgument(root, argumentStartIndex+1) = spanArgument[runStartIndex+1];
-				  }
-				  *makeDoubleArgument(root, argumentStartIndex) = spanArgument[runStartIndex];
-				}
-				argumentStartIndex = argumentOutputI++;
-				runStartIndex = i;
-			      }
-			    }
-			  } else if (spanDict.find(spanI) != spanDict.end()) {
+			  if (spanDict.find(spanI) != spanDict.end()) {
 			    auto& dict = spanDict[spanI];
 			    int64_t dictStartI = dictOutputI;
 			    for (auto& entry : dict) {
@@ -1067,29 +890,7 @@ struct SerializedExpression {
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            std::string>) {
-			  if (rleSpans) {
-			    auto prevStoredString = checkMapAndStoreString(spanArgument[0], stringMap, dictEncodeStrings);
-			    for(size_t i = 1; i < spanSize; i++) {
-			      auto storedString =
-				checkMapAndStoreString(spanArgument[i], stringMap, dictEncodeStrings);
-			      if (storedString == prevStoredString) {
-				makeStringArgumentType(root, argumentOutputI++);
-				runCount++;
-			      } else {
-				if (runCount > 2) {
-				  *makeStringArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
-				    prevStoredString;
-				} else {
-				  if (runCount > 1) {
-				    *makeStringArgument(root, argumentStartIndex+1) = prevStoredString;
-				  }
-				  *makeStringArgument(root, argumentStartIndex) = prevStoredString;
-				}
-				argumentStartIndex = argumentOutputI++;
-				runStartIndex = i;
-			      }
-			    }
-			  } else if (spanDict.find(spanI) != spanDict.end()) {
+			  if (spanDict.find(spanI) != spanDict.end()) {
 			    auto& dict = spanDict[spanI];
 			    int64_t dictStartI = dictOutputI;
 			    for (auto& entry : dict) {
@@ -1127,35 +928,11 @@ struct SerializedExpression {
 			  }
                         } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
                                                            boss::Symbol>) {
-			  if (rleSpans) {
-			    auto prevStoredString = checkMapAndStoreString(spanArgument[0].getName(), stringMap, dictEncodeStrings);
-			    for(size_t i = 1; i < spanSize; i++) {
-			      auto storedString =
-				checkMapAndStoreString(spanArgument[i].getName(), stringMap, dictEncodeStrings);
-			      if (storedString == prevStoredString) {
-				makeSymbolArgumentType(root, argumentOutputI++);
-				runCount++;
-			      } else {
-				if (runCount > 2) {
-				  *makeSymbolArgumentRLE(root, argumentStartIndex, argumentStartIndex) =
-				    prevStoredString;
-				} else {
-				  if (runCount > 1) {
-				    *makeSymbolArgument(root, argumentStartIndex+1) = prevStoredString;
-				  }
-				  *makeSymbolArgument(root, argumentStartIndex) = prevStoredString;
-				}
-				argumentStartIndex = argumentOutputI++;
-				runStartIndex = i;
-			      }
-			    }
-			  } else {
-			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			      auto storedString =
-				checkMapAndStoreString(arg.getName(), stringMap, dictEncodeStrings);
-			      *makeSymbolArgument(root, argumentOutputI++, typeOutputI++) = storedString;
-			    });
-			  }
+			  std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+			    auto storedString =
+			      checkMapAndStoreString(arg.getName(), stringMap, dictEncodeStrings);
+			    *makeSymbolArgument(root, argumentOutputI++, typeOutputI++) = storedString;
+			  });
                         } else {
                           print_type_name<std::decay_t<decltype(arg0)>>();
                           throw std::runtime_error("unknown type");
@@ -1170,7 +947,7 @@ struct SerializedExpression {
               });
         });
     if(!children.empty()) {
-      return flattenArguments(argumentOutputI, typeOutputI, std::move(children), expressionOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings, rleSpans);
+      return flattenArguments(argumentOutputI, typeOutputI, std::move(children), expressionOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings);
     }
     return argumentOutputI;
   }
@@ -1178,7 +955,7 @@ struct SerializedExpression {
   ////////////////////////////////   Surface Area ////////////////////////////////
 
 public:
-  explicit SerializedExpression(boss::Expression&& input, bool dictEncodeStrings = true, bool rleSpans = false, bool dictEncodeDoublesAndLongs = true) {
+  explicit SerializedExpression(boss::Expression&& input, bool dictEncodeStrings = true, bool dictEncodeDoublesAndLongs = true) {
     SpanDictionary spanDict;
     if (dictEncodeDoublesAndLongs) {
       spanDict = countUniqueArguments(input);
@@ -1190,13 +967,13 @@ public:
 				    allocateFunction);
     } else {
       root = allocateExpressionTree(countArguments(input),
-				    rleSpans ? countRLEArguments(input) * sizeof(Argument) : countArgumentBytes(input),
+				    countArgumentBytes(input),
 				    countExpressions(input),
 				    countStringBytes(input, dictEncodeStrings),
 				    allocateFunction);
     }
     std::visit(utilities::overload(
-				   [this, &spanDict, &dictEncodeStrings, &rleSpans](boss::ComplexExpression&& input) {
+				   [this, &spanDict, &dictEncodeStrings](boss::ComplexExpression&& input) {
                      uint64_t argumentIterator = 0;
 		     uint64_t typeIterator = 0;
                      uint64_t expressionIterator = 0;
@@ -1217,7 +994,7 @@ public:
                      *makeExpressionArgument(root, argumentIterator++, typeIterator++) = expressionIterator++;
                      auto inputs = std::vector<boss::ComplexExpression>();
                      inputs.push_back(std::move(input));
-                     flattenArguments(argumentIterator, typeIterator, std::move(inputs), expressionIterator, dictIterator, spanDict, dictEncodeStrings, rleSpans);
+                     flattenArguments(argumentIterator, typeIterator, std::move(inputs), expressionIterator, dictIterator, spanDict, dictEncodeStrings);
                    },
                    [this](expressions::atoms::Symbol&& input) {
                      auto storedString = storeString(&root, input.getName().c_str());
