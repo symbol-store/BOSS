@@ -13,6 +13,12 @@ extern "C" {
 
 #include <stdlib.h>
 
+//////////////////////////////// Helper Functions ///////////////////////////////
+
+static uint64_t alignTo8Bytes(uint64_t bytes) {
+  return (bytes + (uint64_t)7) & -(uint64_t)8;
+}
+  
 //////////////////////////////// Data Structures ///////////////////////////////
 
 typedef size_t PortableBOSSString;
@@ -71,8 +77,8 @@ struct PortableBOSSExpression {
  * PortableExpressions to encode the structure)
  */
 struct PortableBOSSRootExpression {
-  uint64_t const argumentCount;
-  uint64_t const argumentBytesCount;
+  uint64_t const argumentCount; // if used directly for type bytes, may need to be aligned to 8 bytes
+  uint64_t const argumentBytesCount; // if used directly, may need to be aligned to 8 bytes
   uint64_t const expressionCount;
   uint64_t const argumentDictionaryBytesCount;
   void* const originalAddress;
@@ -104,7 +110,7 @@ getExpressionArguments(struct PortableBOSSRootExpression* root) {
 
 static enum PortableBOSSArgumentType* getArgumentTypes(struct PortableBOSSRootExpression* root) {
   return (enum PortableBOSSArgumentType*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentBytesCount];
+    &root->arguments[alignTo8Bytes(root->argumentBytesCount)];
 }
 /* static enum PortableBOSSArgumentType* getArgumentTypes(struct PortableBOSSRootExpression* root) { */
 /*   return (enum PortableBOSSArgumentType*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast) */
@@ -114,24 +120,24 @@ static enum PortableBOSSArgumentType* getArgumentTypes(struct PortableBOSSRootEx
 static struct PortableBOSSExpression*
 getExpressionSubexpressions(struct PortableBOSSRootExpression* root) {
   return (struct PortableBOSSExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentBytesCount +
-		       root->argumentCount * sizeof(enum PortableBOSSArgumentType)];
+    &root->arguments[alignTo8Bytes(root->argumentBytesCount) +
+		     alignTo8Bytes(root->argumentCount * sizeof(enum PortableBOSSArgumentType))];
 }
 
 static union PortableBOSSArgumentValue*
 getSpanDictionaries(struct PortableBOSSRootExpression* root) {
   return (union PortableBOSSArgumentValue*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentBytesCount +
-		       root->argumentCount * sizeof(enum PortableBOSSArgumentType) +
-		       root->expressionCount * (sizeof(struct PortableBOSSExpression))];
+    &root->arguments[alignTo8Bytes(root->argumentBytesCount) +
+		     alignTo8Bytes(root->argumentCount * sizeof(enum PortableBOSSArgumentType)) +
+		     root->expressionCount * (sizeof(struct PortableBOSSExpression))];
 }
 
 static char* getStringBuffer(struct PortableBOSSRootExpression* root) {
   return (char*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentBytesCount +
-		       root->argumentCount * sizeof(enum PortableBOSSArgumentType) +
-                       root->expressionCount * (sizeof(struct PortableBOSSExpression)) +
-		       root->argumentDictionaryBytesCount];
+    &root->arguments[alignTo8Bytes(root->argumentBytesCount) +
+		     alignTo8Bytes(root->argumentCount * sizeof(enum PortableBOSSArgumentType)) +
+		     root->expressionCount * (sizeof(struct PortableBOSSExpression)) +
+		     root->argumentDictionaryBytesCount];
 }
 
 //////////////////////////////   Memory Management /////////////////////////////
@@ -144,7 +150,7 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount, uint64_
       allocateFunction(                    // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
           sizeof(struct PortableBOSSRootExpression) +
           sizeof(union PortableBOSSArgumentValue) * argumentCount +
-          sizeof(enum PortableBOSSArgumentType) * argumentCount +
+          alignTo8Bytes(sizeof(enum PortableBOSSArgumentType) * argumentCount) +
           sizeof(struct PortableBOSSExpression) * expressionCount +
 					   stringBytesCount);
   *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
@@ -170,8 +176,8 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t argumentBytesCount,
       (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       allocateFunction(                    // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
           sizeof(struct PortableBOSSRootExpression) +
-          argumentBytesCount +
-          sizeof(enum PortableBOSSArgumentType) * argumentCount +
+          alignTo8Bytes(argumentBytesCount) +
+          alignTo8Bytes(sizeof(enum PortableBOSSArgumentType) * argumentCount) +
           sizeof(struct PortableBOSSExpression) * expressionCount +
 					   stringBytesCount);
   *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
@@ -197,8 +203,8 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t argumentBytesCount,
       (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       allocateFunction(                    // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
           sizeof(struct PortableBOSSRootExpression) +
-          argumentBytesCount +
-          sizeof(enum PortableBOSSArgumentType) * argumentCount +
+          alignTo8Bytes(argumentBytesCount) +
+          alignTo8Bytes(sizeof(enum PortableBOSSArgumentType) * argumentCount) +
           sizeof(struct PortableBOSSExpression) * expressionCount +
 	  argumentDictionaryBytesCount +
 	  stringBytesCount);
@@ -524,7 +530,7 @@ static size_t* makeExpressionArgument(struct PortableBOSSRootExpression* root,
   auto ARGUMENT_TYPE_SYMBOL = PortableBOSSArgumentType::ARGUMENT_TYPE_EXPRESSION;
 #endif
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_EXPRESSION;
-  return &getExpressionArguments(root)[argumentOutputI].asString;
+  return &getExpressionArguments(root)[argumentOutputI].asExpression;
 };
 
 static size_t* makeExpressionArgument(struct PortableBOSSRootExpression* root,
@@ -533,7 +539,7 @@ static size_t* makeExpressionArgument(struct PortableBOSSRootExpression* root,
   auto ARGUMENT_TYPE_SYMBOL = PortableBOSSArgumentType::ARGUMENT_TYPE_EXPRESSION;
 #endif
   getArgumentTypes(root)[typeOutputI] = ARGUMENT_TYPE_EXPRESSION;
-  return &getExpressionArguments(root)[argumentOutputI].asString;
+  return &getExpressionArguments(root)[argumentOutputI].asExpression;
 };
 
 static int64_t* makeLongDictionaryEntry(struct PortableBOSSRootExpression* root,
