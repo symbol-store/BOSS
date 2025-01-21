@@ -163,7 +163,7 @@ struct SerializedExpression {
   template <typename TupleLike, uint64_t... Is>
   static void countUniqueArgumentsInTuple(SpanDictionary& dict, size_t& spanI, TupleLike const& tuple,
                                         std::index_sequence<Is...> /*unused*/) {
-    (countUniqueArguments(std::get<Is>(tuple), dict, spanI), ...);
+    (countUniqueArgumentsStaticsAndSpans(std::get<Is>(tuple), dict, spanI), ...);
   };
 
   static SpanDictionary countUniqueArguments(boss::Expression const& input) {
@@ -303,26 +303,38 @@ struct SerializedExpression {
   template <typename TupleLike, uint64_t... Is>
   static uint64_t countArgumentBytesInTupleDict(SpanDictionary& dict, size_t& spanI, TupleLike const& tuple,
                                         std::index_sequence<Is...> /*unused*/) {
-    return (countArgumentBytesDict(std::get<Is>(tuple), dict, spanI) + ... + 0);
+    return (countArgumentBytesDictStaticsAndSpans(std::get<Is>(tuple), dict, spanI) + ... + 0);
   };
 
   static uint64_t countArgumentBytesDict(boss::Expression const& input, SpanDictionary& dict) {
     size_t spanI = 0;
-    return countArgumentBytesDict(input, dict, spanI);
+    uint64_t count = 0;
+    int64_t level = 1;
+    while (countArgumentBytesDictAtLevel(input, count, dict, spanI, level)) {
+      level++;
+    }
+    return count;
   };
 
-  static uint64_t countArgumentBytesDictDynamics(boss::Expression const& input, SpanDictionary& dict, size_t& spanI) {
-    return std::visit([&dict, &spanI](auto& input) -> size_t {
-      if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
-	return std::accumulate(input.getDynamicArguments().begin(),
-			       input.getDynamicArguments().end(), 0,
-			       [&dict, &spanI](auto runningSum, auto const& argument) {
-				 return runningSum + countArgumentBytesDict(argument, dict, spanI);
-			       });
-      }
-      return sizeof(Argument);
-    }, input);
-  }
+  static bool countArgumentBytesDictAtLevel(boss::Expression const& input, uint64_t& count, SpanDictionary& dict, size_t& spanI, int64_t level) {
+    if (level == 1) {
+      count += countArgumentBytesDictStaticsAndSpans(input, dict, spanI);
+      return true;
+    }
+    bool recurse = false;
+    std::visit(
+	       [&count, &dict, &spanI, &level, &recurse](auto& input) {
+		 if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
+	     	   std::for_each(input.getDynamicArguments().begin(),
+				 input.getDynamicArguments().end(),
+				 [&count, &dict, &spanI, &level, &recurse](auto const& argument) {
+				   recurse |= countArgumentBytesDictAtLevel(argument, count, dict, spanI, level - 1);
+				 });
+		 }
+	       },
+	       input);
+    return recurse;
+  };
   
   static uint64_t countArgumentBytesDictStaticsAndSpans(boss::Expression const& input, SpanDictionary& dict, size_t& spanI) {
     return std::visit(
@@ -385,14 +397,10 @@ struct SerializedExpression {
 				  std::forward<decltype(argument)>(argument));
                        });
           }
-	  return 0;
+	  return sizeof(Argument);
         },
         input);
-  }
-
-  static uint64_t countArgumentBytesDict(boss::Expression const& input, SpanDictionary& dict, size_t& spanI) {
-    return countArgumentBytesDictStaticsAndSpans(input, dict, spanI) + countArgumentBytesDictDynamics(input, dict, spanI);
-  }
+  };
 
   //////////////////////////////// Count Arguments ///////////////////////////////
 
@@ -598,6 +606,26 @@ struct SerializedExpression {
     return countArgumentsPacked(expression, spanDict, spanI);
   }
 
+  // bool countArgumentsPackedAtLevel(boss::ComplexExpression const& expression, uint64_t& count, SpanDictionary& spanDict, size_t& spanI, int64_t level) {
+  //   if (level == 1) {
+  //     countUniqueArgumentsStaticsAndSpans(input, dict, spanI);
+  //     return true;
+  //   }
+  //   bool recurse = false;
+  //   std::visit(
+  // 	       [&count, &dict, &spanI, &level, &recurse](auto& input) {
+  // 		 if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
+  // 	     	   std::for_each(input.getDynamicArguments().begin(),
+  // 				 input.getDynamicArguments().end(),
+  // 				 [&count, &dict, &spanI, &level, &recurse](auto const& argument) {
+  // 				   recurse |= countArgumentsPackedAtLevel(argument, dict, spanI, level - 1);
+  // 				 });
+  // 		 }
+  // 	       },
+  // 	       input);
+  //   return recurse;
+  // }
+
   // uint64_t countArgumentsPackedDynamics(boss::ComplexExpression const& expression, SpanDictionary& spanDict, size_t spanIInput) {
   //   uint64_t dynamicsCount = expression.getDynamicArguments().size();
   //   std::for_each(expression.getDynamicArguments().begin(),
@@ -691,11 +719,6 @@ struct SerializedExpression {
               statics,
               std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
               argumentOutputI, typeOutputI, dictOutputI, spanDict, spanI, stringMap, dictEncodeStrings);
-	  // auto tempSpanI = spanI;
-	  // std::for_each(dynamics.begin(), dynamics.end(),
-	  // 		[&tempSpanI](const auto& argument) {
-	  // 		  incSpanArguments(argument, tempSpanI);
-	  // 		});
           std::for_each(
               std::make_move_iterator(dynamics.begin()), std::make_move_iterator(dynamics.end()),
               [this, &argumentOutputI, &typeOutputI, &children, &expressionOutputI, nextLayerTypeOffset, nextLayerOffset,
@@ -767,11 +790,7 @@ struct SerializedExpression {
                       auto spanSize = spanArgument.size();
                       if(spanSize >= ArgumentType_RLE_MINIMUM_SIZE) {
                         auto const& arg0 = spanArgument[0];
-			size_t argumentStartIndex = argumentOutputI;
-			size_t runStartIndex = 0;
-			size_t runCount = 1;
-			// RLE NEEDS UPDATE WITH PACKED VALUES
-                        if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
+		        if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
                                      std::is_same_v<std::decay_t<decltype(arg0)>,
                                                     std::_Bit_reference>) {
 			  size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
@@ -955,7 +974,7 @@ struct SerializedExpression {
   ////////////////////////////////   Surface Area ////////////////////////////////
 
 public:
-  explicit SerializedExpression(boss::Expression&& input, bool dictEncodeStrings = true, bool dictEncodeDoublesAndLongs = true) {
+  explicit SerializedExpression(boss::Expression&& input, bool dictEncodeStrings = true, bool dictEncodeDoublesAndLongs = false) {
     SpanDictionary spanDict;
     if (dictEncodeDoublesAndLongs) {
       spanDict = countUniqueArguments(input);
@@ -1077,7 +1096,7 @@ public:
       stream << "\n";
       return;
     case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
-
+      std::cout << "INDEX: " << index << std::endl;
       auto const& expression = expressions[arguments[index].asExpression];
       auto s = boss::Symbol(viewString(root, expression.symbolNameOffset));
       stream << "( EXPR_OFFSET[" << arguments[index].asExpression << "], \n";
@@ -1948,6 +1967,17 @@ public:
     case ArgumentType::ARGUMENT_TYPE_SYMBOL:
       return boss::Symbol(viewString(root, flattenedArguments()[0].asString));
     case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
+      // std::cout << "ROOT METADATA: " << std::endl;
+      // std::cout << "  argumentCount: " << root->argumentCount << std::endl;
+      // std::cout << "  argumentBytesCount: " << root->argumentBytesCount << std::endl;
+      // std::cout << "  expressionCount: " << root->expressionCount << std::endl;
+      // std::cout << "  argumentDictionaryBytesCount: " << root->argumentDictionaryBytesCount << std::endl;
+      // std::cout << "  stringArgumentsFillIndex: " << root->stringArgumentsFillIndex << std::endl;
+      // std::cout << "  originalAddress: " << root->originalAddress << std::endl;
+      // std::cout << "ROOT: " << root << std::endl;
+      // std::cout << "ARGS: " << flattenedArguments() << std::endl;
+      // std::cout << "TYPES: " << flattenedArgumentTypes() << std::endl;
+      // std::cout << "EXPRS: " << expressionsBuffer() << std::endl;
       auto const& expr = expressionsBuffer()[0];
       auto s = boss::Symbol(viewString(root, expr.symbolNameOffset));
       if(root->expressionCount == 0) {
