@@ -57,7 +57,7 @@ enum PortableBOSSArgumentType : uint8_t {
 };
 
 static uint8_t const PortableBOSSArgumentType_RLE_MINIMUM_SIZE =
-  16; // assuming PortableBOSSArgumentType ideally stored in 1 byte only,
+  13; // assuming PortableBOSSArgumentType ideally stored in 1 byte only,
       // to store RLE-type, need 1 byte to declare the type and 4 bytes to define the length
 
 static uint8_t const PortableBOSSArgumentType_RLE_BIT =
