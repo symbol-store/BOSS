@@ -1848,6 +1848,14 @@ public:
       return expressions[arguments[argumentIndex].asExpression];
     }
 
+    size_t getCurrentExpressionAsExpressionOffset() const {
+      auto const& arguments = buffer.flattenedArguments();
+      auto const& argumentTypes = buffer.flattenedArgumentTypes();
+      assert(argumentTypes[typeIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
+      return arguments[argumentIndex].asExpression;
+    
+    }
+
     size_t getCurrentExpressionAsString(bool partOfRLE) const {
       auto const& type = getCurrentExpressionType();
       if(!partOfRLE) {
