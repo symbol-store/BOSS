@@ -795,179 +795,180 @@ struct SerializedExpression {
               std::make_move_iterator(spans.begin()), std::make_move_iterator(spans.end()),
               [this, &argumentOutputI, &typeOutputI, &dictOutputI, &spanDict, &spanI, &stringMap, &dictEncodeStrings](auto&& argument) {
                 std::visit(
-                    [&](auto&& spanArgument) {
-                      auto spanSize = spanArgument.size();
-                      if(spanSize >= ArgumentType_RLE_MINIMUM_SIZE) {
-                        auto const& arg0 = spanArgument[0];
-		        if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
-                                     std::is_same_v<std::decay_t<decltype(arg0)>,
-                                                    std::_Bit_reference>) {
-			  size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
-			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			    uint64_t tmp = 0;
-			    for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
-			      makeBoolArgumentType(root, typeOutputI++);
-			      tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_BOOL_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
-			    }
-			    *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			  }
-			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
-			  //   *makeBoolArgument(root, argumentOutputI++) = arg;
-			  // });
-                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int8_t>) {
-			  size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
-			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			    uint64_t tmp = 0;
-			    for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
-			      makeCharArgumentType(root, typeOutputI++);
-			      tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_CHAR_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
-			    }
-			    *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			  }
-                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int32_t>) {
-			  size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
-			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			    uint64_t tmp = 0;
-			    for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
-			      makeIntArgumentType(root, typeOutputI++);
-			      tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_INT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
-			    }
-			    *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			  }
-                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
-			  if (spanDict.find(spanI) != spanDict.end()) {
-			    auto& dict = spanDict[spanI];
-			    int64_t dictStartI = dictOutputI;
-			    for (auto& entry : dict) {
-			      int64_t value = std::get<int64_t>(entry.first);
-			      int32_t& offset = entry.second;
-			      offset = dictOutputI;
-			      *makeLongDictionaryEntry(root, dictOutputI++) = value;
-			    }
-			    size_t argumentSize = getArgumentSizeFromDictSize(dict);
-			    size_t valsPerArg = sizeof(Argument) / argumentSize;
-			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
-				makeLongArgumentType(root, typeOutputI++);
-				if (argumentSize == Argument_CHAR_SIZE) {
-				  int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
-				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
-				} else if (argumentSize == Argument_INT_SIZE) {
-				  int32_t val = dict[DictKey(spanArgument[i+j])]; 
-				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
-				}				
-			      }
-			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			    }
-			    setDictStartAndFlag(root, typeOutputI - spanSize, dictStartI, argumentSize);
-			  } else {
-			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			      *makeLongArgument(root, argumentOutputI++, typeOutputI++) = arg;
-			    });
-			  }
-                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, float_t>) {
-			  size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
-			  for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			    uint64_t tmp = 0;
-			    for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
-			      uint32_t rawVal;
-			      std::memcpy(&rawVal, &spanArgument[i+j], sizeof(rawVal));
-			      makeFloatArgumentType(root, typeOutputI++);
-			      tmp |= static_cast<uint64_t>(rawVal) << (Argument_FLOAT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
-			    }
-			    *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			  }
-			  // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			  //   *makeFloatArgument(root, argumentOutputI++) = arg;
-			  // });
-                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
-                                                           double_t>) {
-			  if (spanDict.find(spanI) != spanDict.end()) {
-			    auto& dict = spanDict[spanI];
-			    int64_t dictStartI = dictOutputI;
-			    for (auto& entry : dict) {
-			      double value = std::get<double>(entry.first);
-			      int32_t& offset = entry.second;
-			      offset = dictOutputI;
-			      *makeDoubleDictionaryEntry(root, dictOutputI++) = value;
-			    }
-			    size_t argumentSize = getArgumentSizeFromDictSize(dict);
-			    size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
-			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
-				// NEED DICT ENC LONG TYPE OR BIT ON LONG TYPE
-				makeDoubleArgumentType(root, typeOutputI++);
-				if (argumentSize == Argument_CHAR_SIZE) {
-				  int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
-				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
-				} else if (argumentSize == Argument_INT_SIZE) {
-				  int32_t val = dict[DictKey(spanArgument[i+j])];
-				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
-				}				
-			      }
-		              *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			    }
-			    setDictStartAndFlag(root, typeOutputI - spanSize, dictStartI, argumentSize);
-			  } else {
-			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			      *makeDoubleArgument(root, argumentOutputI++, typeOutputI++) = arg;
-			    });
-			  }
-                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
-                                                           std::string>) {
-			  if (spanDict.find(spanI) != spanDict.end()) {
-			    auto& dict = spanDict[spanI];
-			    int64_t dictStartI = dictOutputI;
-			    for (auto& entry : dict) {
-			      std::string value = std::get<std::string>(entry.first);
-			      int32_t& offset = entry.second;
-			      offset = dictOutputI;
-			      auto storedString =
-				checkMapAndStoreString(value, stringMap, dictEncodeStrings);
-			      *makeStringDictionaryEntry(root, dictOutputI++) = storedString;
-			    }
-			    size_t argumentSize = getArgumentSizeFromDictSize(dict);
-			    size_t valsPerArg = sizeof(Argument) / argumentSize;
-			    for (size_t i = 0; i < spanSize; i += valsPerArg) {
-			      uint64_t tmp = 0;
-			      for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
-			        makeLongArgumentType(root, typeOutputI++);
-				if (argumentSize == Argument_CHAR_SIZE) {
-				  int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
-				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
-				} else if (argumentSize == Argument_INT_SIZE) {
-				  int32_t val = dict[DictKey(spanArgument[i+j])];
-				  tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
-				}				
-			      }
-			      *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
-			    }
-			    setDictStartAndFlag(root, typeOutputI - spanSize, dictStartI, argumentSize);
-			  } else {
-			    std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			      auto storedString =
-				checkMapAndStoreString(arg, stringMap, dictEncodeStrings);
-			      *makeStringArgument(root, argumentOutputI++, typeOutputI++) = storedString;
-			    });
-			  }
-                        } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
-                                                           boss::Symbol>) {
-			  std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
-			    auto storedString =
-			      checkMapAndStoreString(arg.getName(), stringMap, dictEncodeStrings);
-			    *makeSymbolArgument(root, argumentOutputI++, typeOutputI++) = storedString;
-			  });
-                        } else {
-                          print_type_name<std::decay_t<decltype(arg0)>>();
-                          throw std::runtime_error("unknown type");
-                        }
-		        spanI++;
-                        setRLEArgumentFlagOrPropagateTypes(root, typeOutputI - spanSize,
-                                                           spanSize);
-                        //  CHECK HERE NEXT
-                      }
+			   [&](auto&& spanArgument) {
+			     auto spanSize = spanArgument.size();
+			     auto const& arg0 = spanArgument[0];
+			     if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
+					  std::is_same_v<std::decay_t<decltype(arg0)>,
+					  std::_Bit_reference>) {
+			       size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+			       for (size_t i = 0; i < spanSize; i += valsPerArg) {
+				 uint64_t tmp = 0;
+				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
+				   makeBoolArgumentType(root, typeOutputI++);
+				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_BOOL_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				 }
+				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+			       }
+			       // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto arg) {
+			       //   *makeBoolArgument(root, argumentOutputI++) = arg;
+			       // });
+			     } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int8_t>) {
+			       size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+			       for (size_t i = 0; i < spanSize; i += valsPerArg) {
+				 uint64_t tmp = 0;
+				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
+				   makeCharArgumentType(root, typeOutputI++);
+				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_CHAR_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				 }
+				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+			       }
+			     } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int32_t>) {
+			       size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+			       for (size_t i = 0; i < spanSize; i += valsPerArg) {
+				 uint64_t tmp = 0;
+				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
+				   makeIntArgumentType(root, typeOutputI++);
+				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_INT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				 }
+				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+			       }
+			     } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
+			       if (spanDict.find(spanI) != spanDict.end()) {
+				 auto& dict = spanDict[spanI];
+				 int64_t dictStartI = dictOutputI;
+				 for (auto& entry : dict) {
+				   int64_t value = std::get<int64_t>(entry.first);
+				   int32_t& offset = entry.second;
+				   offset = dictOutputI;
+				   *makeLongDictionaryEntry(root, dictOutputI++) = value;
+				 }
+				 size_t argumentSize = getArgumentSizeFromDictSize(dict);
+				 size_t valsPerArg = sizeof(Argument) / argumentSize;
+				 for (size_t i = 0; i < spanSize; i += valsPerArg) {
+				   uint64_t tmp = 0;
+				   for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
+				     makeLongArgumentType(root, typeOutputI++);
+				     if (argumentSize == Argument_CHAR_SIZE) {
+				       int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				     } else if (argumentSize == Argument_INT_SIZE) {
+				       int32_t val = dict[DictKey(spanArgument[i+j])]; 
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				     }				
+				   }
+				   *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+				 }
+				 setDictStartAndFlag(root, typeOutputI - spanSize, dictStartI, argumentSize);
+			       } else {
+				 std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+				   *makeLongArgument(root, argumentOutputI++, typeOutputI++) = arg;
+				 });
+			       }
+			     } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, float_t>) {
+			       size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
+			       for (size_t i = 0; i < spanSize; i += valsPerArg) {
+				 uint64_t tmp = 0;
+				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
+				   uint32_t rawVal;
+				   std::memcpy(&rawVal, &spanArgument[i+j], sizeof(rawVal));
+				   makeFloatArgumentType(root, typeOutputI++);
+				   tmp |= static_cast<uint64_t>(rawVal) << (Argument_FLOAT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				 }
+				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+			       }
+			       // std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+			       //   *makeFloatArgument(root, argumentOutputI++) = arg;
+			       // });
+			     } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
+						 double_t>) {
+			       if (spanDict.find(spanI) != spanDict.end()) {
+				 auto& dict = spanDict[spanI];
+				 int64_t dictStartI = dictOutputI;
+				 for (auto& entry : dict) {
+				   double value = std::get<double>(entry.first);
+				   int32_t& offset = entry.second;
+				   offset = dictOutputI;
+				   *makeDoubleDictionaryEntry(root, dictOutputI++) = value;
+				 }
+				 size_t argumentSize = getArgumentSizeFromDictSize(dict);
+				 size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+				 for (size_t i = 0; i < spanSize; i += valsPerArg) {
+				   uint64_t tmp = 0;
+				   for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
+				     // NEED DICT ENC LONG TYPE OR BIT ON LONG TYPE
+				     makeDoubleArgumentType(root, typeOutputI++);
+				     if (argumentSize == Argument_CHAR_SIZE) {
+				       int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				     } else if (argumentSize == Argument_INT_SIZE) {
+				       int32_t val = dict[DictKey(spanArgument[i+j])];
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				     }				
+				   }
+				   *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+				 }
+				 setDictStartAndFlag(root, typeOutputI - spanSize, dictStartI, argumentSize);
+			       } else {
+				 std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+				   *makeDoubleArgument(root, argumentOutputI++, typeOutputI++) = arg;
+				 });
+			       }
+			     } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
+						 std::string>) {
+			       if (spanDict.find(spanI) != spanDict.end()) {
+				 auto& dict = spanDict[spanI];
+				 int64_t dictStartI = dictOutputI;
+				 for (auto& entry : dict) {
+				   std::string value = std::get<std::string>(entry.first);
+				   int32_t& offset = entry.second;
+				   offset = dictOutputI;
+				   auto storedString =
+				     checkMapAndStoreString(value, stringMap, dictEncodeStrings);
+				   *makeStringDictionaryEntry(root, dictOutputI++) = storedString;
+				 }
+				 size_t argumentSize = getArgumentSizeFromDictSize(dict);
+				 size_t valsPerArg = sizeof(Argument) / argumentSize;
+				 for (size_t i = 0; i < spanSize; i += valsPerArg) {
+				   uint64_t tmp = 0;
+				   for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
+				     makeLongArgumentType(root, typeOutputI++);
+				     if (argumentSize == Argument_CHAR_SIZE) {
+				       int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				     } else if (argumentSize == Argument_INT_SIZE) {
+				       int32_t val = dict[DictKey(spanArgument[i+j])];
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				     }				
+				   }
+				   *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+				 }
+				 setDictStartAndFlag(root, typeOutputI - spanSize, dictStartI, argumentSize);
+			       } else {
+				 std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+				   auto storedString =
+				     checkMapAndStoreString(arg, stringMap, dictEncodeStrings);
+				   *makeStringArgument(root, argumentOutputI++, typeOutputI++) = storedString;
+				 });
+			       }
+			     } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>,
+						 boss::Symbol>) {
+			       std::for_each(spanArgument.begin(), spanArgument.end(), [&](auto& arg) {
+				 auto storedString =
+				   checkMapAndStoreString(arg.getName(), stringMap, dictEncodeStrings);
+				 *makeSymbolArgument(root, argumentOutputI++, typeOutputI++) = storedString;
+			       });
+			     } else {
+			       print_type_name<std::decay_t<decltype(arg0)>>();
+			       throw std::runtime_error("unknown type");
+			     }
+			     spanI++;
+			
+			     if(spanSize >= ArgumentType_RLE_MINIMUM_SIZE) {
+			       setRLEArgumentFlagOrPropagateTypes(root, typeOutputI - spanSize,
+								  spanSize);
+			       //  CHECK HERE NEXT
+			     }
                     },
                     std::forward<decltype(argument)>(argument));
               });
@@ -1803,6 +1804,10 @@ public:
     // ALTER TO CHANGE TYPE OFFSET TOO
     LazilyDeserializedExpression operator()(size_t childOffset, size_t childTypeOffset) const {
       auto const& expr = expression();
+      // std::cout << "START CHILD OFFSET: " << expr.startChildOffset << std::endl;
+      // std::cout << "END CHILD OFFSET: " << expr.endChildOffset << std::endl;
+      // std::cout << "START CHILD TYPE OFFSET: " << expr.startChildTypeOffset << std::endl;
+      // std::cout << "END CHILD TYPE OFFSET: " << expr.endChildTypeOffset << std::endl;
       assert(childOffset < expr.endChildOffset - expr.startChildOffset);
       assert(childTypeOffset < expr.endChildTypeOffset - expr.startChildTypeOffset);
       return {buffer, expr.startChildOffset + childOffset, expr.startChildTypeOffset + childTypeOffset};
@@ -1853,7 +1858,7 @@ public:
     }
 
     bool currentIsExpression() const {
-      auto const& argumentType = buffer.flattenedArgumentTypes()[typeIndex];
+      auto const& argumentType = (buffer.flattenedArgumentTypes()[typeIndex] & ArgumentType_MASK);
       return argumentType == ArgumentType::ARGUMENT_TYPE_EXPRESSION;
     }
 
@@ -2155,7 +2160,7 @@ public:
     }
 
     boss::Expression getCurrentExpressionInSpanAtAs(size_t spanArgI, ArgumentType argumentType) const {
-      // std::cout << "ARGI: " << argumentIndex << " TYPEI: " << typeIndex << " ARG TYPE: " << static_cast<int32_t>(argumentType) << std::endl;
+      std::cout << "ARGI: " << argumentIndex << " TYPEI: " << typeIndex << " ARG TYPE: " << static_cast<int32_t>(argumentType) << std::endl;
       auto& argument = buffer.flattenedArguments()[argumentIndex];
       uint64_t tmp = static_cast<uint64_t>(argument.asLong);
       size_t valsPerArg;
