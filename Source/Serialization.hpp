@@ -2160,7 +2160,7 @@ public:
     }
 
     boss::Expression getCurrentExpressionInSpanAtAs(size_t spanArgI, ArgumentType argumentType) const {
-      std::cout << "ARGI: " << argumentIndex << " TYPEI: " << typeIndex << " ARG TYPE: " << static_cast<int32_t>(argumentType) << std::endl;
+      // std::cout << "ARGI: " << argumentIndex << " TYPEI: " << typeIndex << " ARG TYPE: " << static_cast<int32_t>(argumentType) << std::endl;
       auto& argument = buffer.flattenedArguments()[argumentIndex];
       uint64_t tmp = static_cast<uint64_t>(argument.asLong);
       size_t valsPerArg;
