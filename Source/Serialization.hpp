@@ -485,7 +485,7 @@ struct SerializedExpression {
 
   static uint64_t countStringBytes(boss::Expression const& input, bool dictEncodeStrings = true) {
     std::unordered_set<std::string> stringSet;
-    return countStringBytes(input, stringSet, dictEncodeStrings);
+    return 1 + countStringBytes(input, stringSet, dictEncodeStrings);
   }
   
   static uint64_t countStringBytes(boss::Expression const& input, std::unordered_set<std::string>& stringSet, bool dictEncodeStrings) {
@@ -525,6 +525,19 @@ struct SerializedExpression {
 					      if (dictEncodeStrings && stringSet.find(stringArgument) == stringSet.end()) {
 						stringSet.insert(stringArgument);	
 						resRunningSum += strlen(stringArgument.c_str()) + 1; 
+					      }
+					      return resRunningSum;
+                                            });
+                                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+							  boss::Span<boss::Symbol>>) {
+                                        return std::accumulate(
+                                            argument.begin(), argument.end(), 0,
+                                            [&](size_t innerRunningSum, auto const& stringArgument) {
+					      size_t resRunningSum = innerRunningSum +
+						(!dictEncodeStrings * (strlen(stringArgument.getName().c_str()) + 1));
+					      if (dictEncodeStrings && stringSet.find(stringArgument.getName()) == stringSet.end()) {
+						stringSet.insert(stringArgument.getName());	
+						resRunningSum += strlen(stringArgument.getName().c_str()) + 1; 
 					      }
 					      return resRunningSum;
                                             });
@@ -1853,7 +1866,6 @@ public:
       auto const& argumentTypes = buffer.flattenedArgumentTypes();
       assert(argumentTypes[typeIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
       return arguments[argumentIndex].asExpression;
-    
     }
 
     size_t getCurrentExpressionAsString(bool partOfRLE) const {
