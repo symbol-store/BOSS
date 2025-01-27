@@ -245,60 +245,60 @@ struct SerializedExpression {
   template <typename TupleLike, uint64_t... Is>
   static uint64_t countArgumentBytesInTuple(TupleLike const& tuple,
                                         std::index_sequence<Is...> /*unused*/) {
-    return (countArgumentBytes(std::get<Is>(tuple)) + ... + 0);
+    return (countArgumentBytes(std::get<Is>(tuple)) + ... + static_cast<uint64_t>(0));
   };
 
   static uint64_t countArgumentBytes(boss::Expression const& input) {
     return std::visit(
-        [](auto& input) -> size_t {
+        [](auto& input) -> uint64_t {
           if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
-            return Argument_EXPRESSION_SIZE +
+            return static_cast<uint64_t>(sizeof(Argument)) +
                    countArgumentBytesInTuple(
                        input.getStaticArguments(),
                        std::make_index_sequence<std::tuple_size_v<
                            std::decay_t<decltype(input.getStaticArguments())>>>()) +
                    std::accumulate(input.getDynamicArguments().begin(),
-                                   input.getDynamicArguments().end(), 0,
-                                   [](auto runningSum, auto const& argument) {
+                                   input.getDynamicArguments().end(), uint64_t(0),
+                                   [](uint64_t runningSum, auto const& argument) -> uint64_t {
                                      return runningSum + countArgumentBytes(argument);
                                    }) +
                    std::accumulate(
-                       input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
-                       [](auto runningSum, auto const& argument) {
+				   input.getSpanArguments().begin(), input.getSpanArguments().end(), uint64_t(0),
+                       [](auto runningSum, auto const& argument) -> uint64_t {
                          return runningSum +
-                                std::visit([&](auto const& spanArgument) {
-				  auto spanBytes = 0;
-				  auto spanSize = spanArgument.size();
+                                std::visit([&](auto const& spanArgument) -> uint64_t {
+				  uint64_t spanBytes = 0;
+				  uint64_t spanSize = spanArgument.size();
 				  auto const& arg0 = spanArgument[0];
 				  if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
 					       std::is_same_v<std::decay_t<decltype(arg0)>, std::_Bit_reference>) {
-				    spanBytes = spanSize * Argument_BOOL_SIZE;
+				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(bool));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int8_t>) {
-				    spanBytes = spanSize * Argument_CHAR_SIZE;
+				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(int8_t));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int32_t>) {
-				    spanBytes = spanSize * Argument_INT_SIZE;
+				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(int32_t));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
-				    spanBytes = spanSize * Argument_LONG_SIZE;
+				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(int64_t));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, float_t>) {
-				    spanBytes = spanSize * Argument_FLOAT_SIZE;
+				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(float_t));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, double_t>) {
-				    spanBytes = spanSize * Argument_DOUBLE_SIZE;
+				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(double_t));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, std::string>) {
-				    spanBytes = spanSize * Argument_STRING_SIZE;
+				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(Argument));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, boss::Symbol>) {
-				    spanBytes = spanSize * Argument_STRING_SIZE;
+				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(Argument));
 				  } else {
 				    print_type_name<std::decay_t<decltype(arg0)>>();
 				    throw std::runtime_error("unknown type in span");
 				  }
 				  // std::cout << "SPAN BYTES: " << spanBytes << std::endl;
 				  // std::cout << "ROUNDED SPAN BYTES: " << ((spanBytes + sizeof(Argument) - 1) & -sizeof(Argument)) << std::endl;
-				  return (spanBytes + sizeof(Argument) - 1) & -sizeof(Argument);
+				  return (spanBytes + static_cast<uint64_t>(sizeof(Argument)) - 1) & -(static_cast<uint64_t>(sizeof(Argument)));
 				},
 				  std::forward<decltype(argument)>(argument));
                        });
           }
-          return sizeof(Argument);
+          return static_cast<uint64_t>(sizeof(Argument));
         },
         input);
   }
@@ -421,7 +421,7 @@ struct SerializedExpression {
 
   static uint64_t countArguments(boss::Expression const& input) {
     return std::visit(
-        [](auto& input) -> size_t {
+        [](auto& input) -> uint64_t {
           if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
             return 1 +
                    countArgumentsInTuple(
@@ -429,15 +429,15 @@ struct SerializedExpression {
                        std::make_index_sequence<std::tuple_size_v<
                            std::decay_t<decltype(input.getStaticArguments())>>>()) +
                    std::accumulate(input.getDynamicArguments().begin(),
-                                   input.getDynamicArguments().end(), 0,
-                                   [](auto runningSum, auto const& argument) {
+                                   input.getDynamicArguments().end(), uint64_t(0),
+                                   [](uint64_t runningSum, auto const& argument) -> uint64_t {
                                      return runningSum + countArguments(argument);
                                    }) +
                    std::accumulate(
-                       input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
-                       [](auto runningSum, auto const& argument) {
+				   input.getSpanArguments().begin(), input.getSpanArguments().end(), uint64_t(0),
+                       [](uint64_t runningSum, auto const& argument) -> uint64_t {
                          return runningSum +
-                                std::visit([&](auto const& argument) { return argument.size(); },
+                                std::visit([&](auto const& argument) -> uint64_t { return argument.size(); },
                                            std::forward<decltype(argument)>(argument));
                        });
           }
@@ -465,8 +465,8 @@ struct SerializedExpression {
                                        std::make_index_sequence<std::tuple_size_v<
                                            std::decay_t<decltype(input.getStaticArguments())>>>()) +
                                    std::accumulate(input.getDynamicArguments().begin(),
-                                                   input.getDynamicArguments().end(), 0,
-                                                   [](auto runningSum, auto const& argument) {
+                                                   input.getDynamicArguments().end(), uint64_t(0),
+                                                   [](uint64_t runningSum, auto const& argument) -> uint64_t {
                                                      return runningSum + countExpressions(argument);
                                                    });
                           },
@@ -490,37 +490,37 @@ struct SerializedExpression {
   
   static uint64_t countStringBytes(boss::Expression const& input, std::unordered_set<std::string>& stringSet, bool dictEncodeStrings) {
     return std::visit(
-        [&](auto& input) -> size_t {
+        [&](auto& input) -> uint64_t {
           if constexpr(std::is_same_v<std::decay_t<decltype(input)>, boss::ComplexExpression>) {
-	    size_t headBytes = !dictEncodeStrings * (strlen(input.getHead().getName().c_str()) + 1);
+	    uint64_t headBytes = !dictEncodeStrings * (strlen(input.getHead().getName().c_str()) + 1);
 	    if (dictEncodeStrings && stringSet.find(input.getHead().getName()) == stringSet.end()) {
 	      stringSet.insert(input.getHead().getName());
 	      headBytes = strlen(input.getHead().getName().c_str()) + 1;
 	    }
-	    size_t staticArgsBytes =
+	    uint64_t staticArgsBytes =
 	      countStringBytesInTuple(stringSet, dictEncodeStrings,
 				      input.getStaticArguments(),
 				      std::make_index_sequence<std::tuple_size_v<
 				      std::decay_t<decltype(input.getStaticArguments())>>>());
-	    size_t dynamicArgsBytes =
+	    uint64_t dynamicArgsBytes =
 	      std::accumulate(input.getDynamicArguments().begin(),
-			      input.getDynamicArguments().end(), 0,
-			      [&](size_t runningSum, auto const& argument) {
+			      input.getDynamicArguments().end(), uint64_t(0),
+			      [&](uint64_t runningSum, auto const& argument) -> uint64_t {
 				return runningSum + countStringBytes(argument, stringSet, dictEncodeStrings);
 			      });
-	    size_t spanArgsBytes =
+	    uint64_t spanArgsBytes =
 	      std::accumulate(
-                       input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
-                       [&](size_t runningSum, auto const& argument) {
+			      input.getSpanArguments().begin(), input.getSpanArguments().end(), uint64_t(0),
+                       [&](size_t runningSum, auto const& argument) -> uint64_t {
                          return runningSum +
                                 std::visit(
-                                    [&](auto const& argument) {
+                                    [&](auto const& argument) -> uint64_t {
                                       if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                                   boss::Span<std::string>>) {
                                         return std::accumulate(
-                                            argument.begin(), argument.end(), 0,
-                                            [&](size_t innerRunningSum, auto const& stringArgument) {
-					      size_t resRunningSum = innerRunningSum +
+							       argument.begin(), argument.end(), uint64_t(0),
+                                            [&](uint64_t innerRunningSum, auto const& stringArgument) -> uint64_t {
+					      uint64_t resRunningSum = innerRunningSum +
 						(!dictEncodeStrings * (strlen(stringArgument.c_str()) + 1));
 					      if (dictEncodeStrings && stringSet.find(stringArgument) == stringSet.end()) {
 						stringSet.insert(stringArgument);	
@@ -531,9 +531,9 @@ struct SerializedExpression {
                                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
 							  boss::Span<boss::Symbol>>) {
                                         return std::accumulate(
-                                            argument.begin(), argument.end(), 0,
-                                            [&](size_t innerRunningSum, auto const& stringArgument) {
-					      size_t resRunningSum = innerRunningSum +
+							       argument.begin(), argument.end(), uint64_t(0),
+                                            [&](uint64_t innerRunningSum, auto const& stringArgument) -> uint64_t {
+					      uint64_t resRunningSum = innerRunningSum +
 						(!dictEncodeStrings * (strlen(stringArgument.getName().c_str()) + 1));
 					      if (dictEncodeStrings && stringSet.find(stringArgument.getName()) == stringSet.end()) {
 						stringSet.insert(stringArgument.getName());	
@@ -590,10 +590,10 @@ struct SerializedExpression {
     return std::tuple_size_v<std::decay_t<decltype(expression.getStaticArguments())>> +
       expression.getDynamicArguments().size() +
       std::accumulate(
-		      expression.getSpanArguments().begin(), expression.getSpanArguments().end(), 0,
-		      [](auto runningSum, auto const& spanArg) {
+		      expression.getSpanArguments().begin(), expression.getSpanArguments().end(), uint64_t(0),
+		      [](uint64_t runningSum, auto const& spanArg) -> uint64_t {
 			return runningSum +
-			  std::visit([&](auto const& spanArg) { return spanArg.size(); },
+			  std::visit([&](auto const& spanArg) -> uint64_t { return spanArg.size(); },
 				     std::forward<decltype(spanArg)>(spanArg));
 		      });
   }
@@ -669,13 +669,13 @@ struct SerializedExpression {
     
     uint64_t spansCount = 
       std::accumulate(
-		      expression.getSpanArguments().begin(), expression.getSpanArguments().end(), 0,
-		      [&spanDict, &spanI](auto runningSum, auto const& spanArg) {
+		      expression.getSpanArguments().begin(), expression.getSpanArguments().end(), uint64_t(0),
+		      [&spanDict, &spanI](uint64_t runningSum, auto const& spanArg) -> uint64_t {
 			return runningSum +
-			  std::visit([&](auto const& spanArgument) {
-			    auto spanSize = spanArgument.size();
+			  std::visit([&](auto const& spanArgument) -> uint64_t {
+			    uint64_t spanSize = spanArgument.size();
 			    auto const& arg0 = spanArgument[0];
-			    auto valsPerArg = sizeof(arg0) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(arg0);
+			    uint64_t valsPerArg = static_cast<uint64_t>(sizeof(arg0) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(arg0));
 			    if (spanDict.find(spanI) != spanDict.end()) {
 			      auto& dict = spanDict[spanI];
 			      valsPerArg = sizeof(Argument) / getArgumentSizeFromDictSize(dict); 
@@ -754,6 +754,9 @@ struct SerializedExpression {
                         auto const endChildTypeOffset =
                             nextLayerTypeOffset + childrenTypeCountRunningSum + childrenTypeCount;
 			// std::cout << "HEAD: " << argument.getHead().getName() << std::endl;
+			// std::cout << "  argOutput: " << argumentOutputI << std::endl;
+			// std::cout << "  typeOutput: " << typeOutputI << std::endl;
+			// std::cout << "  exprOutput: " << expressionOutputI << std::endl;
 			// std::cout << "  startChildArgOffset: " << startChildArgOffset << std::endl;
 			// std::cout << "  endChildArgOffset: " << endChildArgOffset << std::endl;
 			// std::cout << "  startChildArgTypeOffset: " << startChildTypeOffset << std::endl;
