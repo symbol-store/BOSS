@@ -2253,6 +2253,33 @@ public:
 					     "ArgumentType"_(static_cast<int64_t>(argumentType)));
     }
 
+    template<typename T>
+    T getCurrentExpressionInDictEncodedSpanAtAs(size_t spanArgI, uint64_t dictI, size_t dictOffsetArgumentSize) const {
+      auto& argument = buffer.flattenedArguments()[argumentIndex];
+      uint64_t tmp = static_cast<uint64_t>(argument.asLong);
+      size_t valsPerArg = sizeof(Argument) / dictOffsetArgumentSize;
+      int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+
+      int32_t dictOffset;
+      if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
+	uint8_t val = static_cast<uint8_t>((tmp >> (dictOffsetArgumentSize * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	dictOffset = static_cast<int32_t>(static_cast<int8_t>(val));
+      } else if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
+	uint32_t val = static_cast<uint32_t>((tmp >> (dictOffsetArgumentSize * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	dictOffset = static_cast<int32_t>(val);
+      }
+      auto& dictArg = buffer.spanDictionariesBuffer()[(dictI + dictOffset)];
+      if constexpr (std::is_same_v<T, int64_t>) {
+	return dictArg.asLong;
+      } else if constexpr (std::is_same_v<T, double_t>) {
+	return dictArg.asDouble;
+      } else if constexpr (std::is_same_v<T, std::string>) {
+	return viewString(buffer.root, dictArg.asString);
+      } else {
+	static_assert(sizeof(T) == 0, "Unsupported type passes to getCurrentExpressionInDictEncodedSpanAtAs<T>()");
+      }
+    }
+
     boss::Expression getCurrentExpressionInDictEncodedSpanAtAs(size_t spanArgI, uint64_t dictI, size_t dictOffsetArgumentSize, ArgumentType argumentType) const {
       // std::cout << "ARGI: " << argumentIndex << " TYPEI: " << typeIndex << std::endl;
       auto& argument = buffer.flattenedArguments()[argumentIndex];
@@ -2268,14 +2295,14 @@ public:
 	uint32_t val = static_cast<uint32_t>((tmp >> (dictOffsetArgumentSize * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
 	dictOffset = static_cast<int32_t>(val);
       }
-      auto& dictArg = buffer.spanDictionariesBuffer()[(dictI + dictOffset)];
+
       switch(argumentType) {
       case ArgumentType::ARGUMENT_TYPE_LONG:
-        return dictArg.asLong;
+        return getCurrentExpressionInDictEncodedSpanAtAs<int64_t>(spanArgI, dictI, dictOffsetArgumentSize);
       case ArgumentType::ARGUMENT_TYPE_DOUBLE:
-        return dictArg.asDouble;
+        return getCurrentExpressionInDictEncodedSpanAtAs<double_t>(spanArgI, dictI, dictOffsetArgumentSize);
       case ArgumentType::ARGUMENT_TYPE_STRING:
-        return viewString(buffer.root, dictArg.asString);
+        return getCurrentExpressionInDictEncodedSpanAtAs<std::string>(spanArgI, dictI, dictOffsetArgumentSize);
       case ArgumentType::ARGUMENT_TYPE_BOOL:
       case ArgumentType::ARGUMENT_TYPE_CHAR:
       case ArgumentType::ARGUMENT_TYPE_INT:
