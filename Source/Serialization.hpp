@@ -2182,51 +2182,68 @@ public:
       return std::move(getCurrentExpressionAsSpanWithTypeAndSize(type, size));
     }
 
-    boss::Expression getCurrentExpressionInSpanAtAs(size_t spanArgI, ArgumentType argumentType) const {
-      // std::cout << "ARGI: " << argumentIndex << " TYPEI: " << typeIndex << " ARG TYPE: " << static_cast<int32_t>(argumentType) << std::endl;
+    template<typename T>
+    T getCurrentExpressionInSpanAtAs(size_t spanArgI) const {
       auto& argument = buffer.flattenedArguments()[argumentIndex];
       uint64_t tmp = static_cast<uint64_t>(argument.asLong);
       size_t valsPerArg;
       int64_t inArgI;
-      // int64_t argSize;
-      // int64_t argsPerSpanIdx;
-      // int64_t idxPerSpan;
-      // int64_t inSpanI;
-      // int64_t spansSeen;
-      // int64_t logicalSpanStartI;
-      // int64_t logicalInSpanI;
       uint32_t val;
-      switch(argumentType) {
-      case ArgumentType::ARGUMENT_TYPE_BOOL:
+
+      if constexpr (std::is_same_v<T, bool>) {
 	valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
 	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
         val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
 	return static_cast<bool>(val);
-      case ArgumentType::ARGUMENT_TYPE_CHAR:
+      } else if constexpr (std::is_same_v<T, int8_t>) {
 	valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
 	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
         val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
 	return static_cast<int8_t>(val);
-      case ArgumentType::ARGUMENT_TYPE_INT:
+      } else if constexpr (std::is_same_v<T, int32_t>) {
 	valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
 	val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
 	return static_cast<int32_t>(val);
-      case ArgumentType::ARGUMENT_TYPE_LONG:
-        return argument.asLong;
-      case ArgumentType::ARGUMENT_TYPE_FLOAT:
+      } else if constexpr (std::is_same_v<T, int64_t>) {
+	return argument.asLong;
+      } else if constexpr (std::is_same_v<T, float_t>) {
 	valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
 	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
         val = static_cast<uint32_t>((tmp >> (Argument_FLOAT_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
 	float realVal;
 	std::memcpy(&realVal, &val, sizeof(realVal));
 	return realVal;
-      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+      } else if constexpr (std::is_same_v<T, double_t>) {
         return argument.asDouble;
-      case ArgumentType::ARGUMENT_TYPE_STRING:
+      } else if constexpr (std::is_same_v<T, std::string>) {
         return viewString(buffer.root, argument.asString);
-      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+      } else if constexpr (std::is_same_v<T, boss::Symbol>) {
         return boss::Symbol(viewString(buffer.root, argument.asString));
+      } else {
+	static_assert(sizeof(T) == 0, "Unsupported type passes to getCurrentExpressionInSpanAtAs<T>()");
+      }
+    }
+
+    boss::Expression getCurrentExpressionInSpanAtAs(size_t spanArgI, ArgumentType argumentType) const {
+      // std::cout << "ARGI: " << argumentIndex << " TYPEI: " << typeIndex << " ARG TYPE: " << static_cast<int32_t>(argumentType) << std::endl;
+      switch(argumentType) {
+      case ArgumentType::ARGUMENT_TYPE_BOOL:
+	return getCurrentExpressionInSpanAtAs<bool>(spanArgI);
+      case ArgumentType::ARGUMENT_TYPE_CHAR:
+	return getCurrentExpressionInSpanAtAs<int8_t>(spanArgI);
+      case ArgumentType::ARGUMENT_TYPE_INT:
+	return getCurrentExpressionInSpanAtAs<int32_t>(spanArgI);
+      case ArgumentType::ARGUMENT_TYPE_LONG:
+	return getCurrentExpressionInSpanAtAs<int64_t>(spanArgI);
+      case ArgumentType::ARGUMENT_TYPE_FLOAT:
+	return getCurrentExpressionInSpanAtAs<float_t>(spanArgI);
+      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+	return getCurrentExpressionInSpanAtAs<double_t>(spanArgI);
+      case ArgumentType::ARGUMENT_TYPE_STRING:
+	return getCurrentExpressionInSpanAtAs<std::string>(spanArgI);
+      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+	return getCurrentExpressionInSpanAtAs<boss::Symbol>(spanArgI);
       case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
 	break;
       }
