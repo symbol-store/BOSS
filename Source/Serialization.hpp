@@ -2255,6 +2255,17 @@ public:
       }
       return std::move(getCurrentExpressionAsSpanWithTypeAndSize(type, size));
     }
+    
+    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithCopy() const {
+      size_t size = currentIsRLE();
+      assert(size != 0);
+      auto [dictI, dictOffsetArgSize] = currentIsDictionaryEncoded();
+      auto const& type = getCurrentExpressionType();
+      if (dictOffsetArgSize == Argument_CHAR_SIZE || dictOffsetArgSize == Argument_INT_SIZE) {
+	return std::move(getCurrentExpressionAsDictEncodedSpanWithTypeAndSize(type, size, dictI, dictOffsetArgSize));
+      }
+      return std::move(getCurrentExpressionAsSpanWithTypeAndSizeWithCopy(type, size));
+    }
 
     template<typename T>
     T getCurrentExpressionInSpanAtAs(size_t spanArgI) const {
