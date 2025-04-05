@@ -2328,27 +2328,27 @@ public:
       auto argumentType = getCurrentExpressionType();
       return getCurrentExpressionInDictEncodedSpanAtAs(spanArgI, dictI, dictOffsetArgSize, argumentType);
     }
-    
-    boss::Expression getCurrentExpressionAs(ArgumentType argumentType) const {
+
+    template<typename T>
+    T getCurrentExpressionAs() const {
       auto& argument = buffer.flattenedArguments()[argumentIndex];
-      switch(argumentType) {
-      case ArgumentType::ARGUMENT_TYPE_BOOL:
-        return argument.asBool;
-      case ArgumentType::ARGUMENT_TYPE_CHAR:
-        return argument.asChar;
-      case ArgumentType::ARGUMENT_TYPE_INT:
+      if constexpr (std::is_same_v<T, bool>) {
+	return argument.asBool;
+      } else if constexpr (std::is_same_v<T, int8_t>) {
+	return argument.asChar;
+      } else if constexpr (std::is_same_v<T, int32_t>) {
 	return argument.asInt;
-      case ArgumentType::ARGUMENT_TYPE_LONG:
-        return argument.asLong;
-      case ArgumentType::ARGUMENT_TYPE_FLOAT:
-        return argument.asFloat;
-      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
-        return argument.asDouble;
-      case ArgumentType::ARGUMENT_TYPE_STRING:
+      } else if constexpr (std::is_same_v<T, int64_t>) {
+	return argument.asLong;
+      } else if constexpr (std::is_same_v<T, float_t>) {
+	return argument.asFloat;
+      } else if constexpr (std::is_same_v<T, double_t>) {
+	return argument.asDouble;
+      } else if constexpr (std::is_same_v<T, std::string>) {
         return viewString(buffer.root, argument.asString);
-      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+      } else if constexpr (std::is_same_v<T, boss::Symbol>) {
         return boss::Symbol(viewString(buffer.root, argument.asString));
-      case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
+      } else if constexpr (std::is_same_v<T, boss::Expression>) {
         auto const& expr = expression();
         auto s = boss::Symbol(viewString(buffer.root, expr.symbolNameOffset));
         if(buffer.expressionCount() == 0) {
@@ -2359,6 +2359,31 @@ public:
 				      expr.startChildTypeOffset, expr.endChildTypeOffset);
         auto result = boss::ComplexExpression{s, {}, std::move(args), std::move(spanArgs)};
         return result;
+      } else {
+	static_assert(sizeof(T) == 0, "Unsupported type passes to getCurrentExpressionAs<T>()");
+      }
+    }
+    
+    boss::Expression getCurrentExpressionAs(ArgumentType argumentType) const {
+      switch(argumentType) {
+      case ArgumentType::ARGUMENT_TYPE_BOOL:
+        return getCurrentExpressionAs<bool>();
+      case ArgumentType::ARGUMENT_TYPE_CHAR:
+        return getCurrentExpressionAs<int8_t>();
+      case ArgumentType::ARGUMENT_TYPE_INT:
+        return getCurrentExpressionAs<int32_t>();
+      case ArgumentType::ARGUMENT_TYPE_LONG:
+        return getCurrentExpressionAs<int64_t>();
+      case ArgumentType::ARGUMENT_TYPE_FLOAT:
+        return getCurrentExpressionAs<float_t>();
+      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+        return getCurrentExpressionAs<double_t>();
+      case ArgumentType::ARGUMENT_TYPE_STRING:
+        return getCurrentExpressionAs<std::string>();
+      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+        return getCurrentExpressionAs<boss::Symbol>();
+      case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
+        return getCurrentExpressionAs<boss::Expression>();
       }
       return "ErrorDeserialisingExpression"_("ArgumentIndex"_(static_cast<int64_t>(argumentIndex)),
 					     "TypeIndex"_(static_cast<int64_t>(typeIndex)),
