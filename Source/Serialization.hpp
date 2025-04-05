@@ -1949,6 +1949,80 @@ public:
 		     data.push_back(static_cast<bool>(val));
 		   }
 		 }
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(arg.asBool);
+                 }
+                 return boss::expressions::Span<bool>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_CHAR,
+               [&] {
+		 auto base = reinterpret_cast<int8_t*>(arguments);
+		 return boss::expressions::Span<int8_t>(base + argumentIndex, size, nullptr);
+               }},
+              {ArgumentType::ARGUMENT_TYPE_INT,
+               [&] {
+		 auto base = reinterpret_cast<int32_t*>(arguments);
+		 return boss::expressions::Span<int32_t>(base + argumentIndex, size, nullptr);
+               }},
+              {ArgumentType::ARGUMENT_TYPE_LONG,
+               [&] {
+		 auto base = reinterpret_cast<int64_t*>(arguments);
+		 return boss::expressions::Span<int64_t>(base + argumentIndex, size, nullptr);
+               }},
+              {ArgumentType::ARGUMENT_TYPE_FLOAT,
+               [&] {
+		 auto base = reinterpret_cast<float_t*>(arguments);
+		 return boss::expressions::Span<float_t>(base + argumentIndex, size, nullptr);
+               }},
+              {ArgumentType::ARGUMENT_TYPE_DOUBLE,
+               [&] {
+		 auto base = reinterpret_cast<double_t*>(arguments);
+		 return boss::expressions::Span<double_t>(base + argumentIndex, size, nullptr);
+               }},
+              {ArgumentType::ARGUMENT_TYPE_STRING,
+               [&] {
+                 std::vector<std::string> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(std::string(viewString(buffer.root, arg.asString)));
+                 }
+                 return boss::expressions::Span<std::string>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
+                 std::vector<boss::Symbol> data;
+                 data.reserve(size);
+                 for(size_t i = 0; i < size; i++) {
+                   auto const& arg = arguments[argumentIndex + i];
+                   data.push_back(boss::Symbol(viewString(buffer.root, arg.asString)));
+                 }
+                 return boss::expressions::Span<boss::Symbol>(std::move(data));
+               }}};
+      return spanFunctors.at(type)();
+    }
+
+    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithTypeAndSizeWithCopy(ArgumentType type, size_t size) const {
+      auto const& arguments = buffer.flattenedArguments();
+      auto const spanFunctors =
+          std::unordered_map<ArgumentType,
+                             std::function<boss::expressions::ExpressionSpanArgument()>>{
+              {ArgumentType::ARGUMENT_TYPE_BOOL,
+               [&] {
+                 std::vector<bool> data;
+                 data.reserve(size);
+		 size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+		 auto tempI = 0;
+		 for (size_t i = 0; i < size; tempI++) {
+		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
+		   uint64_t tmp = static_cast<uint64_t>(arg);
+		   for (int64_t j = valsPerArg - 1;
+			j >= 0 && i < size;
+			j--, i++) {
+		     uint8_t val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     data.push_back(static_cast<bool>(val));
+		   }
+		 }
                  // for(size_t i = 0; i < size; i++) {
                  //   auto const& arg = arguments[argumentIndex + i];
                  //   data.push_back(arg.asBool);
@@ -1957,7 +2031,7 @@ public:
                }},
               {ArgumentType::ARGUMENT_TYPE_CHAR,
                [&] {
-                 std::vector<int8_t> data;
+		 std::vector<int8_t> data;
                  data.reserve(size);
                  size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
 		 auto tempI = 0;
@@ -1975,7 +2049,7 @@ public:
                }},
               {ArgumentType::ARGUMENT_TYPE_INT,
                [&] {
-                 std::vector<int32_t> data;
+		 std::vector<int32_t> data;
                  data.reserve(size);
 		 size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 		 auto tempI = 0;
@@ -1993,7 +2067,7 @@ public:
                }},
               {ArgumentType::ARGUMENT_TYPE_LONG,
                [&] {
-                 std::vector<int64_t> data;
+		 std::vector<int64_t> data;
                  data.reserve(size);
                  for(size_t i = 0; i < size; i++) {
                    auto const& arg = arguments[argumentIndex + i];
@@ -2003,7 +2077,7 @@ public:
                }},
               {ArgumentType::ARGUMENT_TYPE_FLOAT,
                [&] {
-                 std::vector<float_t> data;
+		 std::vector<float_t> data;
                  data.reserve(size);
 		 size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
 		 auto tempI = 0;
@@ -2019,15 +2093,15 @@ public:
 		     data.push_back(realVal);
 		   }
 		 }
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asFloat);
-                 }
+                 // for(size_t i = 0; i < size; i++) {
+                 //   auto const& arg = arguments[argumentIndex + i];
+                 //   data.push_back(arg.asFloat);
+                 // }
                  return boss::expressions::Span<float_t>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_DOUBLE,
                [&] {
-                 std::vector<double_t> data;
+		 std::vector<double_t> data;
                  data.reserve(size);
                  for(size_t i = 0; i < size; i++) {
                    auto const& arg = arguments[argumentIndex + i];
