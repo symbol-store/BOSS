@@ -4,6 +4,7 @@
 #include "ExpressionUtilities.hpp"
 #include <cassert>
 #include <cstdlib>
+#include <cmath>
 #include <inttypes.h>
 #include <iostream>
 #include <iterator>
@@ -1945,12 +1946,20 @@ public:
 	sizeof(Argument) * sizeof(Argument) :
 	sizeof(Argument) * sizeof(T);
 
+      constexpr size_t valsPerArgMask = valsPerArg - 1;
+      constexpr size_t valsPerArgShift = []{
+	size_t s = 0;
+	size_t v = valsPerArg;
+	while ((v >>= 1) > 0) ++s;
+	return s;
+      }();
+
       std::vector<T> data(n);
 
       for (size_t i = 0; i < n; i++) {
 	const auto& index = indices[i];
-	size_t childOffset = index / valsPerArg;
-	int64_t inArgI = valsPerArg - 1 - (index % valsPerArg);
+	size_t childOffset = index >> valsPerArgShift;
+	int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
 	  
 	auto& arg = arguments[startChildOffset + childOffset];
 	uint64_t tmp = static_cast<uint64_t>(arg.asLong);
