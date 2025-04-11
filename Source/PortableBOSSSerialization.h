@@ -35,6 +35,16 @@ union PortableBOSSArgumentValue {
   PortableBOSSExpressionIndex asExpression;
 };
 
+#ifdef __cplusplus
+constexpr uint64_t PortableBOSSArgument_BOOL_SIZE = sizeof(bool);
+constexpr uint64_t PortableBOSSArgument_CHAR_SIZE = sizeof(int8_t);
+constexpr uint64_t PortableBOSSArgument_INT_SIZE = sizeof(int32_t);
+constexpr uint64_t PortableBOSSArgument_LONG_SIZE = sizeof(int64_t);
+constexpr uint64_t PortableBOSSArgument_FLOAT_SIZE = sizeof(float_t);
+constexpr uint64_t PortableBOSSArgument_DOUBLE_SIZE = sizeof(double_t);
+constexpr uint64_t PortableBOSSArgument_STRING_SIZE = sizeof(PortableBOSSString);
+constexpr uint64_t PortableBOSSArgument_EXPRESSION_SIZE = sizeof(PortableBOSSExpressionIndex);
+#else
 static uint64_t const PortableBOSSArgument_BOOL_SIZE = sizeof(bool);
 static uint64_t const PortableBOSSArgument_CHAR_SIZE = sizeof(int8_t);
 static uint64_t const PortableBOSSArgument_INT_SIZE = sizeof(int32_t);
@@ -43,7 +53,8 @@ static uint64_t const PortableBOSSArgument_FLOAT_SIZE = sizeof(float_t);
 static uint64_t const PortableBOSSArgument_DOUBLE_SIZE = sizeof(double_t);
 static uint64_t const PortableBOSSArgument_STRING_SIZE = sizeof(PortableBOSSString);
 static uint64_t const PortableBOSSArgument_EXPRESSION_SIZE = sizeof(PortableBOSSExpressionIndex);
-
+#endif
+  
 enum PortableBOSSArgumentType : uint8_t {
   ARGUMENT_TYPE_BOOL,
   ARGUMENT_TYPE_CHAR,

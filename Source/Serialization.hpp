@@ -83,14 +83,14 @@ static const uint8_t& ArgumentType_DICT_ENC_BIT = PortableBOSSArgumentType_DICT_
 static const uint8_t& ArgumentType_DICT_ENC_SIZE_BIT = PortableBOSSArgumentType_DICT_ENC_SIZE_BIT;
 static const uint8_t& ArgumentType_MASK = PortableBOSSArgumentType_MASK;
 
-static const uint64_t& Argument_BOOL_SIZE = PortableBOSSArgument_BOOL_SIZE;
-static const uint64_t& Argument_CHAR_SIZE = PortableBOSSArgument_CHAR_SIZE;
-static const uint64_t& Argument_INT_SIZE = PortableBOSSArgument_INT_SIZE;
-static const uint64_t& Argument_LONG_SIZE = PortableBOSSArgument_LONG_SIZE;
-static const uint64_t& Argument_FLOAT_SIZE = PortableBOSSArgument_FLOAT_SIZE;
-static const uint64_t& Argument_DOUBLE_SIZE = PortableBOSSArgument_DOUBLE_SIZE;
-static const uint64_t& Argument_STRING_SIZE = PortableBOSSArgument_STRING_SIZE;
-static const uint64_t& Argument_EXPRESSION_SIZE = PortableBOSSArgument_EXPRESSION_SIZE;  
+constexpr uint64_t Argument_BOOL_SIZE = PortableBOSSArgument_BOOL_SIZE;
+constexpr uint64_t Argument_CHAR_SIZE = PortableBOSSArgument_CHAR_SIZE;
+constexpr uint64_t Argument_INT_SIZE = PortableBOSSArgument_INT_SIZE;
+constexpr uint64_t Argument_LONG_SIZE = PortableBOSSArgument_LONG_SIZE;
+constexpr uint64_t Argument_FLOAT_SIZE = PortableBOSSArgument_FLOAT_SIZE;
+constexpr uint64_t Argument_DOUBLE_SIZE = PortableBOSSArgument_DOUBLE_SIZE;
+constexpr uint64_t Argument_STRING_SIZE = PortableBOSSArgument_STRING_SIZE;
+constexpr uint64_t Argument_EXPRESSION_SIZE = PortableBOSSArgument_EXPRESSION_SIZE;  
 
 /**
  * Implements serialization/deserialization of a (complex) expression to/from a c-allocated buffer.
@@ -1937,7 +1937,8 @@ public:
                [&] {
                  std::vector<bool> data;
                  data.reserve(size);
-		 size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
 		 auto tempI = 0;
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -1945,7 +1946,7 @@ public:
 		   for (int64_t j = valsPerArg - 1;
 			j >= 0 && i < size;
 			j--, i++) {
-		     uint8_t val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data.push_back(static_cast<bool>(val));
 		   }
 		 }
@@ -2011,7 +2012,8 @@ public:
                [&] {
                  std::vector<bool> data;
                  data.reserve(size);
-		 size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
 		 auto tempI = 0;
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2019,7 +2021,7 @@ public:
 		   for (int64_t j = valsPerArg - 1;
 			j >= 0 && i < size;
 			j--, i++) {
-		     uint8_t val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data.push_back(static_cast<bool>(val));
 		   }
 		 }
@@ -2033,7 +2035,8 @@ public:
                [&] {
 		 std::vector<int8_t> data;
                  data.reserve(size);
-                 size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+                 constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 		 auto tempI = 0;
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2041,7 +2044,7 @@ public:
 		   for (int64_t j = valsPerArg - 1;
 			j >= 0 && i < size;
 			j--, i++) {
-		     uint8_t val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data.push_back(static_cast<int8_t>(val));
 		   }
 		 }
@@ -2051,7 +2054,8 @@ public:
                [&] {
 		 std::vector<int32_t> data;
                  data.reserve(size);
-		 size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_INT_SIZE;
 		 auto tempI = 0;
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2059,7 +2063,7 @@ public:
 		   for (int64_t j = valsPerArg - 1;
 			j >= 0 && i < size;
 			j--, i++) {
-		     uint32_t val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data.push_back(static_cast<int32_t>(val));
 		   }
 		 }
@@ -2079,7 +2083,8 @@ public:
                [&] {
 		 std::vector<float_t> data;
                  data.reserve(size);
-		 size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
+		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
+		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_FLOAT_SIZE;
 		 auto tempI = 0;
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2087,7 +2092,7 @@ public:
 		   for (int64_t j = valsPerArg - 1;
 			j >= 0 && i < size;
 			j--, i++) {
-		     uint32_t val = static_cast<uint32_t>((tmp >> (Argument_FLOAT_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		     uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     float realVal;
 		     std::memcpy(&realVal, &val, sizeof(realVal));
 		     data.push_back(realVal);
@@ -2142,7 +2147,8 @@ public:
                  std::vector<int64_t> data;
                  data.reserve(size);
 		 if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
-		   size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		   constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		   constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 		   auto tempI = 0;
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2150,13 +2156,14 @@ public:
 		     for (int64_t j = valsPerArg - 1;
 			  j >= 0 && i < size;
 			  j--, i++) {
-		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
 		       data.push_back(arg.asLong);
 		     }
 		   }
 		 } else if (dictOffsetArgumentSize == Argument_INT_SIZE) {
-		   size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		   constexpr size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		   constexpr size_t shiftAmt = sizeof(Argument) * Argument_INT_SIZE;
 		   auto tempI = 0;
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2164,7 +2171,7 @@ public:
 		     for (int64_t j = valsPerArg - 1;
 			  j >= 0 && i < size;
 			  j--, i++) {
-		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
 		       data.push_back(arg.asLong);
 		     }
@@ -2177,7 +2184,8 @@ public:
                  std::vector<double> data;
                  data.reserve(size);
 		 if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
-		   size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		   constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		   constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 		   auto tempI = 0;
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2185,13 +2193,14 @@ public:
 		     for (int64_t j = valsPerArg - 1;
 			  j >= 0 && i < size;
 			  j--, i++) {
-		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
 		       data.push_back(arg.asDouble);
 		     }
 		   }
 		 } else if (dictOffsetArgumentSize == Argument_INT_SIZE) {
-		   size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		   constexpr size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		   constexpr size_t shiftAmt = sizeof(Argument) * Argument_INT_SIZE;
 		   auto tempI = 0;
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2199,7 +2208,7 @@ public:
 		     for (int64_t j = valsPerArg - 1;
 			  j >= 0 && i < size;
 			  j--, i++) {
-		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
 		       data.push_back(arg.asDouble);
 		     }
@@ -2212,7 +2221,8 @@ public:
                  std::vector<std::string> data;
                  data.reserve(size);
 		 if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
-		   size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		   constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+		   constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 		   auto tempI = 0;
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2220,13 +2230,14 @@ public:
 		     for (int64_t j = valsPerArg - 1;
 			  j >= 0 && i < size;
 			  j--, i++) {
-		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
 		       data.push_back(std::string(viewString(buffer.root, arg.asString)));
 		     }
 		   }
 		 } else if (dictOffsetArgumentSize == Argument_INT_SIZE) {
-		   size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		   constexpr size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+		   constexpr size_t shiftAmt = sizeof(Argument) * Argument_INT_SIZE;
 		   auto tempI = 0;
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
@@ -2234,7 +2245,7 @@ public:
 		     for (int64_t j = valsPerArg - 1;
 			  j >= 0 && i < size;
 			  j--, i++) {
-		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * j)) & 0xFFFFFFFFUL);
+		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
 		       data.push_back(std::string(viewString(buffer.root, arg.asString)));
 		     }
@@ -2271,31 +2282,32 @@ public:
     T getCurrentExpressionInSpanAtAs(size_t spanArgI) const {
       auto& argument = buffer.flattenedArguments()[argumentIndex];
       uint64_t tmp = static_cast<uint64_t>(argument.asLong);
-      size_t valsPerArg;
-      int64_t inArgI;
-      uint32_t val;
 
       if constexpr (std::is_same_v<T, bool>) {
-	valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
-	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
-        val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+	constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
+	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+        uint32_t val = static_cast<uint8_t>((shiftAmt * inArgI) & 0xFFFFFFFFUL);
 	return static_cast<bool>(val);
       } else if constexpr (std::is_same_v<T, int8_t>) {
-	valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
-	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
-        val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
+	constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
+	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+        uint32_t val = static_cast<uint8_t>((tmp >> (shiftAmt * inArgI)) & 0xFFFFFFFFUL);
 	return static_cast<int8_t>(val);
       } else if constexpr (std::is_same_v<T, int32_t>) {
-	valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
-	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
-	val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	constexpr size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
+	constexpr size_t shiftAmt = sizeof(Argument) * Argument_INT_SIZE;
+	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+	uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * inArgI)) & 0xFFFFFFFFUL);
 	return static_cast<int32_t>(val);
       } else if constexpr (std::is_same_v<T, int64_t>) {
 	return argument.asLong;
       } else if constexpr (std::is_same_v<T, float_t>) {
-	valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
-	inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
-        val = static_cast<uint32_t>((tmp >> (Argument_FLOAT_SIZE * sizeof(Argument) * inArgI)) & 0xFFFFFFFFUL);
+	constexpr size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
+	constexpr size_t shiftAmt = sizeof(Argument) * Argument_FLOAT_SIZE;
+	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+        uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * inArgI)) & 0xFFFFFFFFUL);
 	float realVal;
 	std::memcpy(&realVal, &val, sizeof(realVal));
 	return realVal;
