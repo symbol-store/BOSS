@@ -2278,8 +2278,13 @@ public:
       return std::move(getCurrentExpressionAsSpanWithTypeAndSizeWithCopy(type, size));
     }
 
+    template<typename IntT>
+    static inline IntT extractField(uint64_t tmp, size_t shiftAmt) {
+      return static_cast<IntT>((tmp >> shiftAmt) & 0xFFFFFFFFUL);
+    }
+
     template<typename T>
-    T getCurrentExpressionInSpanAtAs(size_t spanArgI) const {
+    inline T getCurrentExpressionInSpanAtAs(size_t spanArgI) const {
       auto& argument = buffer.flattenedArguments()[argumentIndex];
       uint64_t tmp = static_cast<uint64_t>(argument.asLong);
 
@@ -2287,30 +2292,29 @@ public:
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
 	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
-        uint32_t val = static_cast<uint8_t>((shiftAmt * inArgI) & 0xFFFFFFFFUL);
-	return static_cast<bool>(val);
+	return static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
+        // uint32_t val = static_cast<uint8_t>((shiftAmt * inArgI) & 0xFFFFFFFFUL);
+	// return static_cast<bool>(val);
       } else if constexpr (std::is_same_v<T, int8_t>) {
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
-        uint32_t val = static_cast<uint8_t>((tmp >> (shiftAmt * inArgI)) & 0xFFFFFFFFUL);
-	return static_cast<int8_t>(val);
+	return static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
       } else if constexpr (std::is_same_v<T, int32_t>) {
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_INT_SIZE;
 	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
-	uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * inArgI)) & 0xFFFFFFFFUL);
-	return static_cast<int32_t>(val);
+	return static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI));
       } else if constexpr (std::is_same_v<T, int64_t>) {
 	return argument.asLong;
       } else if constexpr (std::is_same_v<T, float_t>) {
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_FLOAT_SIZE;
 	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
-        uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * inArgI)) & 0xFFFFFFFFUL);
-	float realVal;
-	std::memcpy(&realVal, &val, sizeof(realVal));
-	return realVal;
+	uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
+	union { int32_t i; float f; } u;
+	u.i = val;
+	return u.f;
       } else if constexpr (std::is_same_v<T, double_t>) {
         return argument.asDouble;
       } else if constexpr (std::is_same_v<T, std::string>) {
@@ -2322,7 +2326,7 @@ public:
       }
     }
 
-    boss::Expression getCurrentExpressionInSpanAtAs(size_t spanArgI, ArgumentType argumentType) const {
+    inline boss::Expression getCurrentExpressionInSpanAtAs(size_t spanArgI, ArgumentType argumentType) const {
       // std::cout << "ARGI: " << argumentIndex << " TYPEI: " << typeIndex << " ARG TYPE: " << static_cast<int32_t>(argumentType) << std::endl;
       switch(argumentType) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
