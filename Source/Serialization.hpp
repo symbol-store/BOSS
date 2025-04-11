@@ -1927,6 +1927,84 @@ public:
       auto const& expr = expression();
       return boss::Symbol(viewString(buffer.root, expr.symbolNameOffset));
     }
+    
+    template<typename IntT>
+    static inline IntT extractField(uint64_t tmp, size_t shiftAmt) {
+      return static_cast<IntT>((tmp >> shiftAmt) & 0xFFFFFFFFUL);
+    }
+
+    template<typename T>
+    boss::Span<T> getCurrentExpressionAsSpanWithIndices(const std::vector<int64_t>& indices) const {
+      auto const& arguments = buffer.flattenedArguments();
+      auto const& expr = expression();
+      auto const& startChildOffset = expr.startChildOffset;
+      
+      const size_t n = indices.size();
+      constexpr size_t valsPerArg = sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
+      constexpr size_t shiftAmt = sizeof(T) > sizeof(Argument) ?
+	sizeof(Argument) * sizeof(Argument) :
+	sizeof(Argument) * sizeof(T);
+
+      std::vector<T> data(n);
+
+      for (size_t i = 0; i < n; i++) {
+	const auto& index = indices[i];
+	size_t childOffset = index / valsPerArg;
+	int64_t inArgI = valsPerArg - 1 - (index % valsPerArg);
+	  
+	auto& arg = arguments[startChildOffset + childOffset];
+	uint64_t tmp = static_cast<uint64_t>(arg.asLong);
+
+	if constexpr(std::is_same_v<T, bool>) {
+	  data[i] = static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
+	} else if constexpr(std::is_same_v<T, int8_t>) {
+	  data[i] = static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
+	} else if constexpr (std::is_same_v<T, int32_t>) {
+	  data[i] = static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI));
+	} else if constexpr (std::is_same_v<T, float_t>) {
+	  uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
+	  union { uint32_t i; float f; } u;
+	  u.i = val;
+	  data[i] = u.f;
+	} else if constexpr (std::is_same_v<T, int64_t>) {
+	  data[i] = arg.asLong;
+	} else if constexpr (std::is_same_v<T, double_t>) {
+	  data[i] = arg.asDouble;
+	} else if constexpr (std::is_same_v<T, std::string>) {
+	  data[i] = viewString(buffer.root, arg.asString);
+	} else if constexpr (std::is_same_v<T, boss::Symbol>) {
+	  data[i] = boss::Symbol(viewString(buffer.root, arg.asString));
+	} else {
+	  static_assert(sizeof(T) == 0, "Unsupported type in getCurrentExpressionAsSpanWithIndices<T>()");
+	}
+      }
+
+      return boss::expressions::Span<T>(std::move(data));
+    }
+
+    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<int64_t>& indices) const {
+      switch(type) {
+      case ArgumentType::ARGUMENT_TYPE_BOOL:
+	return getCurrentExpressionAsSpanWithIndices<bool>(indices);
+      case ArgumentType::ARGUMENT_TYPE_CHAR:
+	return getCurrentExpressionAsSpanWithIndices<int8_t>(indices);
+      case ArgumentType::ARGUMENT_TYPE_INT:
+	return getCurrentExpressionAsSpanWithIndices<int32_t>(indices);
+      case ArgumentType::ARGUMENT_TYPE_LONG:
+	return getCurrentExpressionAsSpanWithIndices<int64_t>(indices);
+      case ArgumentType::ARGUMENT_TYPE_FLOAT:
+	return getCurrentExpressionAsSpanWithIndices<float_t>(indices);
+      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+	return getCurrentExpressionAsSpanWithIndices<double_t>(indices);
+      case ArgumentType::ARGUMENT_TYPE_STRING:
+	return getCurrentExpressionAsSpanWithIndices<std::string>(indices);
+      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+	return getCurrentExpressionAsSpanWithIndices<boss::Symbol>(indices);
+      case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
+	break;
+      }
+      throw std::runtime_error("Invalid type in getCurrentExpressionAsSpanWithIndices");
+    }
 
     boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size) const {
       auto const& arguments = buffer.flattenedArguments();
@@ -2276,11 +2354,6 @@ public:
 	return std::move(getCurrentExpressionAsDictEncodedSpanWithTypeAndSize(type, size, dictI, dictOffsetArgSize));
       }
       return std::move(getCurrentExpressionAsSpanWithTypeAndSizeWithCopy(type, size));
-    }
-
-    template<typename IntT>
-    static inline IntT extractField(uint64_t tmp, size_t shiftAmt) {
-      return static_cast<IntT>((tmp >> shiftAmt) & 0xFFFFFFFFUL);
     }
 
     template<typename T>
