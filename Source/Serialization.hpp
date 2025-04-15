@@ -2022,8 +2022,7 @@ public:
                              std::function<boss::expressions::ExpressionSpanArgument()>>{
               {ArgumentType::ARGUMENT_TYPE_BOOL,
                [&] {
-                 std::vector<bool> data;
-                 data.reserve(size);
+                 std::vector<bool> data(size);
 		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
 		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
 		 auto tempI = 0;
@@ -2034,13 +2033,13 @@ public:
 			j >= 0 && i < size;
 			j--, i++) {
 		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
-		     data.push_back(static_cast<bool>(val));
+		     data[i] = static_cast<bool>(val);
 		   }
 		 }
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asBool);
-                 }
+                 // for(size_t i = 0; i < size; i++) {
+                 //   auto const& arg = arguments[argumentIndex + i];
+                 //   data.push_back(arg.asBool);
+                 // }
                  return boss::expressions::Span<bool>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_CHAR,
@@ -2070,20 +2069,18 @@ public:
                }},
               {ArgumentType::ARGUMENT_TYPE_STRING,
                [&] {
-                 std::vector<std::string> data;
-                 data.reserve(size);
+                 std::vector<std::string> data(size);
                  for(size_t i = 0; i < size; i++) {
                    auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(std::string(viewString(buffer.root, arg.asString)));
+                   data[i] = std::string(viewString(buffer.root, arg.asString));
                  }
                  return boss::expressions::Span<std::string>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
-                 std::vector<boss::Symbol> data;
-                 data.reserve(size);
+		std::vector<boss::Symbol> data(size);
                  for(size_t i = 0; i < size; i++) {
                    auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(boss::Symbol(viewString(buffer.root, arg.asString)));
+                   data[i] = boss::Symbol(viewString(buffer.root, arg.asString));
                  }
                  return boss::expressions::Span<boss::Symbol>(std::move(data));
                }}};
@@ -2097,8 +2094,7 @@ public:
                              std::function<boss::expressions::ExpressionSpanArgument()>>{
               {ArgumentType::ARGUMENT_TYPE_BOOL,
                [&] {
-                 std::vector<bool> data;
-                 data.reserve(size);
+                 std::vector<bool> data(size);
 		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
 		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
 		 auto tempI = 0;
@@ -2109,7 +2105,7 @@ public:
 			j >= 0 && i < size;
 			j--, i++) {
 		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
-		     data.push_back(static_cast<bool>(val));
+		     data[i] = static_cast<bool>(val);
 		   }
 		 }
                  // for(size_t i = 0; i < size; i++) {
@@ -2120,8 +2116,7 @@ public:
                }},
               {ArgumentType::ARGUMENT_TYPE_CHAR,
                [&] {
-		 std::vector<int8_t> data;
-                 data.reserve(size);
+		 std::vector<int8_t> data(size);
                  constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
 		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 		 auto tempI = 0;
@@ -2132,15 +2127,14 @@ public:
 			j >= 0 && i < size;
 			j--, i++) {
 		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
-		     data.push_back(static_cast<int8_t>(val));
+		     data[i] = static_cast<int8_t>(val);
 		   }
 		 }
                  return boss::expressions::Span<int8_t>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_INT,
                [&] {
-		 std::vector<int32_t> data;
-                 data.reserve(size);
+		 std::vector<int32_t> data(size);
 		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_INT_SIZE;
 		 auto tempI = 0;
@@ -2151,25 +2145,23 @@ public:
 			j >= 0 && i < size;
 			j--, i++) {
 		     uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
-		     data.push_back(static_cast<int32_t>(val));
+		     data[i] = static_cast<int32_t>(val);
 		   }
 		 }
                  return boss::expressions::Span<int32_t>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_LONG,
                [&] {
-		 std::vector<int64_t> data;
-                 data.reserve(size);
+		 std::vector<int64_t> data(size);
                  for(size_t i = 0; i < size; i++) {
                    auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asLong);
+                   data[i] = arg.asLong;
                  }
                  return boss::expressions::Span<int64_t>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_FLOAT,
                [&] {
-		 std::vector<float_t> data;
-                 data.reserve(size);
+		 std::vector<float_t> data(size);
 		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
 		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_FLOAT_SIZE;
 		 auto tempI = 0;
@@ -2180,45 +2172,44 @@ public:
 			j >= 0 && i < size;
 			j--, i++) {
 		     uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
-		     float realVal;
-		     std::memcpy(&realVal, &val, sizeof(realVal));
-		     data.push_back(realVal);
+		     union { uint32_t i; float f; } u;
+		     u.i = val;
+		     // float realVal;
+		     // std::memcpy(&realVal, &val, sizeof(realVal));
+		     data[i] = u.f;
 		   }
 		 }
                  // for(size_t i = 0; i < size; i++) {
                  //   auto const& arg = arguments[argumentIndex + i];
-                 //   data.push_back(arg.asFloat);
+                 //   data[i] = arg.asFloat);
                  // }
                  return boss::expressions::Span<float_t>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_DOUBLE,
                [&] {
-		 std::vector<double_t> data;
-                 data.reserve(size);
+		 std::vector<double_t> data(size);
                  for(size_t i = 0; i < size; i++) {
                    auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(arg.asDouble);
+                   data[i] = arg.asDouble;
                  }
                  return boss::expressions::Span<double_t>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_STRING,
                [&] {
-                 std::vector<std::string> data;
-                 data.reserve(size);
+                 std::vector<std::string> data(size);
                  for(size_t i = 0; i < size; i++) {
                    auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(std::string(viewString(buffer.root, arg.asString)));
+                   data[i] = std::string(viewString(buffer.root, arg.asString));
                  }
                  return boss::expressions::Span<std::string>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
-                 std::vector<boss::Symbol> data;
-                 data.reserve(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data.push_back(boss::Symbol(viewString(buffer.root, arg.asString)));
-                 }
-                 return boss::expressions::Span<boss::Symbol>(std::move(data));
+		std::vector<boss::Symbol> data(size);
+		for(size_t i = 0; i < size; i++) {
+		  auto const& arg = arguments[argumentIndex + i];
+		  data[i] = boss::Symbol(viewString(buffer.root, arg.asString));
+		}
+		return boss::expressions::Span<boss::Symbol>(std::move(data));
                }}};
       return spanFunctors.at(type)();
     }
@@ -2231,9 +2222,8 @@ public:
                              std::function<boss::expressions::ExpressionSpanArgument()>>{
               {ArgumentType::ARGUMENT_TYPE_LONG,
                [&] {
-                 std::vector<int64_t> data;
-                 data.reserve(size);
-		 if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
+                 std::vector<int64_t> data(size);
+                 if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
 		   constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
 		   constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 		   auto tempI = 0;
@@ -2245,7 +2235,7 @@ public:
 			  j--, i++) {
 		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
-		       data.push_back(arg.asLong);
+		       data[i] = arg.asLong;
 		     }
 		   }
 		 } else if (dictOffsetArgumentSize == Argument_INT_SIZE) {
@@ -2260,7 +2250,7 @@ public:
 			  j--, i++) {
 		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
-		       data.push_back(arg.asLong);
+		       data[i] = arg.asLong;
 		     }
 		   }
 		 }
@@ -2268,9 +2258,8 @@ public:
                }},
               {ArgumentType::ARGUMENT_TYPE_DOUBLE,
                [&] {
-                 std::vector<double> data;
-                 data.reserve(size);
-		 if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
+                 std::vector<double> data(size);
+                 if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
 		   constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
 		   constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 		   auto tempI = 0;
@@ -2282,7 +2271,7 @@ public:
 			  j--, i++) {
 		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
-		       data.push_back(arg.asDouble);
+		       data[i] = arg.asDouble;
 		     }
 		   }
 		 } else if (dictOffsetArgumentSize == Argument_INT_SIZE) {
@@ -2297,7 +2286,7 @@ public:
 			  j--, i++) {
 		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
-		       data.push_back(arg.asDouble);
+		       data[i] = arg.asDouble;
 		     }
 		   }
 		 }
@@ -2305,9 +2294,8 @@ public:
                }},
               {ArgumentType::ARGUMENT_TYPE_STRING,
                [&] {
-                 std::vector<std::string> data;
-                 data.reserve(size);
-		 if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
+                 std::vector<std::string> data(size);
+                 if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
 		   constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
 		   constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 		   auto tempI = 0;
@@ -2319,7 +2307,7 @@ public:
 			  j--, i++) {
 		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
-		       data.push_back(std::string(viewString(buffer.root, arg.asString)));
+		       data[i] = std::string(viewString(buffer.root, arg.asString));
 		     }
 		   }
 		 } else if (dictOffsetArgumentSize == Argument_INT_SIZE) {
@@ -2334,7 +2322,7 @@ public:
 			  j--, i++) {
 		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
-		       data.push_back(std::string(viewString(buffer.root, arg.asString)));
+		       data[i] = std::string(viewString(buffer.root, arg.asString));
 		     }
 		   }
 		 }
