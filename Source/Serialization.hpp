@@ -1954,41 +1954,53 @@ public:
 	return s;
       }();
 
-      std::vector<T> data(n);
-
-      for (size_t i = 0; i < n; i++) {
-	const auto& index = indices[i];
-	size_t childOffset = index >> valsPerArgShift;
-	int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+      if constexpr(std::is_same_v<T, boss::Symbol>) {
+	std::vector<T> data;
+	data.reserve(n);
+	for (size_t i = 0; i < n; i++) {
+	  const auto& index = indices[i];
+	  size_t childOffset = index >> valsPerArgShift;
+	  int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
 	  
-	auto& arg = arguments[startChildOffset + childOffset];
-	uint64_t tmp = static_cast<uint64_t>(arg.asLong);
-
-	if constexpr(std::is_same_v<T, bool>) {
-	  data[i] = static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
-	} else if constexpr(std::is_same_v<T, int8_t>) {
-	  data[i] = static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
-	} else if constexpr (std::is_same_v<T, int32_t>) {
-	  data[i] = static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI));
-	} else if constexpr (std::is_same_v<T, float_t>) {
-	  uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
-	  union { uint32_t i; float f; } u;
-	  u.i = val;
-	  data[i] = u.f;
-	} else if constexpr (std::is_same_v<T, int64_t>) {
-	  data[i] = arg.asLong;
-	} else if constexpr (std::is_same_v<T, double_t>) {
-	  data[i] = arg.asDouble;
-	} else if constexpr (std::is_same_v<T, std::string>) {
-	  data[i] = viewString(buffer.root, arg.asString);
-	} else if constexpr (std::is_same_v<T, boss::Symbol>) {
-	  data[i] = boss::Symbol(viewString(buffer.root, arg.asString));
-	} else {
-	  static_assert(sizeof(T) == 0, "Unsupported type in getCurrentExpressionAsSpanWithIndices<T>()");
+	  auto& arg = arguments[startChildOffset + childOffset];
+	  uint64_t tmp = static_cast<uint64_t>(arg.asLong);
+	  data.emplace_back(viewString(buffer.root, arg.asString));
 	}
-      }
+	return boss::expressions::Span<T>(std::move(data));
+      } else {
+	std::vector<T> data(n);
 
-      return boss::expressions::Span<T>(std::move(data));
+	for (size_t i = 0; i < n; i++) {
+	  const auto& index = indices[i];
+	  size_t childOffset = index >> valsPerArgShift;
+	  int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	  
+	  auto& arg = arguments[startChildOffset + childOffset];
+	  uint64_t tmp = static_cast<uint64_t>(arg.asLong);
+
+	  if constexpr(std::is_same_v<T, bool>) {
+	    data[i] = static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
+	  } else if constexpr(std::is_same_v<T, int8_t>) {
+	    data[i] = static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
+	  } else if constexpr (std::is_same_v<T, int32_t>) {
+	    data[i] = static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI));
+	  } else if constexpr (std::is_same_v<T, float_t>) {
+	    uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
+	    union { uint32_t i; float f; } u;
+	    u.i = val;
+	    data[i] = u.f;
+	  } else if constexpr (std::is_same_v<T, int64_t>) {
+	    data[i] = arg.asLong;
+	  } else if constexpr (std::is_same_v<T, double_t>) {
+	    data[i] = arg.asDouble;
+	  } else if constexpr (std::is_same_v<T, std::string>) {
+	    data[i] = std::string(viewString(buffer.root, arg.asString));
+	  } else {
+	    static_assert(sizeof(T) == 0, "Unsupported type in getCurrentExpressionAsSpanWithIndices<T>()");
+	  }
+	}
+	return boss::expressions::Span<T>(std::move(data));
+      }
     }
 
     boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<int64_t>& indices) const {
@@ -2077,12 +2089,13 @@ public:
                  return boss::expressions::Span<std::string>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
-		std::vector<boss::Symbol> data(size);
-                 for(size_t i = 0; i < size; i++) {
-                   auto const& arg = arguments[argumentIndex + i];
-                   data[i] = boss::Symbol(viewString(buffer.root, arg.asString));
-                 }
-                 return boss::expressions::Span<boss::Symbol>(std::move(data));
+		std::vector<boss::Symbol> data;
+		data.reserve(size);
+		for(size_t i = 0; i < size; i++) {
+		  auto const& arg = arguments[argumentIndex + i];
+		  data.emplace_back(viewString(buffer.root, arg.asString));
+		}
+		return boss::expressions::Span<boss::Symbol>(std::move(data));
                }}};
       return spanFunctors.at(type)();
     }
@@ -2204,10 +2217,11 @@ public:
                  return boss::expressions::Span<std::string>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
-		std::vector<boss::Symbol> data(size);
+		std::vector<boss::Symbol> data;
+		data.reserve(size);
 		for(size_t i = 0; i < size; i++) {
 		  auto const& arg = arguments[argumentIndex + i];
-		  data[i] = boss::Symbol(viewString(buffer.root, arg.asString));
+		  data.emplace_back(viewString(buffer.root, arg.asString));
 		}
 		return boss::expressions::Span<boss::Symbol>(std::move(data));
                }}};
