@@ -1934,8 +1934,8 @@ public:
       return static_cast<IntT>((tmp >> shiftAmt) & 0xFFFFFFFFUL);
     }
 
-    template<typename T>
-    boss::Span<T> getCurrentExpressionAsSpanWithIndices(const std::vector<int64_t>& indices) const {
+    template<typename T, typename U>
+    boss::Span<T> getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices) const {
       auto const& arguments = buffer.flattenedArguments();
       auto const& expr = expression();
       auto const& startChildOffset = expr.startChildOffset;
@@ -2003,24 +2003,25 @@ public:
       }
     }
 
-    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<int64_t>& indices) const {
+    template<typename T>
+    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<T>& indices) const {
       switch(type) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
-	return getCurrentExpressionAsSpanWithIndices<bool>(indices);
+	return getCurrentExpressionAsSpanWithIndices<bool, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_CHAR:
-	return getCurrentExpressionAsSpanWithIndices<int8_t>(indices);
+	return getCurrentExpressionAsSpanWithIndices<int8_t, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_INT:
-	return getCurrentExpressionAsSpanWithIndices<int32_t>(indices);
+	return getCurrentExpressionAsSpanWithIndices<int32_t, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_LONG:
-	return getCurrentExpressionAsSpanWithIndices<int64_t>(indices);
+	return getCurrentExpressionAsSpanWithIndices<int64_t, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_FLOAT:
-	return getCurrentExpressionAsSpanWithIndices<float_t>(indices);
+	return getCurrentExpressionAsSpanWithIndices<float_t, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_DOUBLE:
-	return getCurrentExpressionAsSpanWithIndices<double_t>(indices);
+	return getCurrentExpressionAsSpanWithIndices<double_t, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_STRING:
-	return getCurrentExpressionAsSpanWithIndices<std::string>(indices);
+	return getCurrentExpressionAsSpanWithIndices<std::string, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_SYMBOL:
-	return getCurrentExpressionAsSpanWithIndices<boss::Symbol>(indices);
+	return getCurrentExpressionAsSpanWithIndices<boss::Symbol, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
 	break;
       }
