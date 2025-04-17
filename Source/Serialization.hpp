@@ -2057,28 +2057,33 @@ public:
                }},
               {ArgumentType::ARGUMENT_TYPE_CHAR,
                [&] {
-		 auto base = reinterpret_cast<int8_t*>(arguments);
-		 return boss::expressions::Span<int8_t>(base + argumentIndex, size, nullptr);
+		 auto base64 = &arguments[argumentIndex];
+		 auto base = reinterpret_cast<int8_t*>(base64);
+		 return boss::expressions::Span<int8_t>(base, size, nullptr);
                }},
               {ArgumentType::ARGUMENT_TYPE_INT,
                [&] {
-		 auto base = reinterpret_cast<int32_t*>(arguments);
-		 return boss::expressions::Span<int32_t>(base + argumentIndex, size, nullptr);
+		 auto base64 = &arguments[argumentIndex];
+		 auto base = reinterpret_cast<int32_t*>(base64);
+		 return boss::expressions::Span<int32_t>(base, size, nullptr);
                }},
               {ArgumentType::ARGUMENT_TYPE_LONG,
                [&] {
-		 auto base = reinterpret_cast<int64_t*>(arguments);
-		 return boss::expressions::Span<int64_t>(base + argumentIndex, size, nullptr);
+		 auto base64 = &arguments[argumentIndex];
+		 auto base = reinterpret_cast<int64_t*>(base64);
+		 return boss::expressions::Span<int64_t>(base, size, nullptr);
                }},
               {ArgumentType::ARGUMENT_TYPE_FLOAT,
                [&] {
-		 auto base = reinterpret_cast<float_t*>(arguments);
-		 return boss::expressions::Span<float_t>(base + argumentIndex, size, nullptr);
+		 auto base64 = &arguments[argumentIndex];
+		 auto base = reinterpret_cast<float_t*>(base64);
+		 return boss::expressions::Span<float_t>(base, size, nullptr);
                }},
               {ArgumentType::ARGUMENT_TYPE_DOUBLE,
                [&] {
-		 auto base = reinterpret_cast<double_t*>(arguments);
-		 return boss::expressions::Span<double_t>(base + argumentIndex, size, nullptr);
+		 auto base64 = &arguments[argumentIndex];
+		 auto base = reinterpret_cast<double_t*>(base64);
+		 return boss::expressions::Span<double_t>(base, size, nullptr);
                }},
               {ArgumentType::ARGUMENT_TYPE_STRING,
                [&] {
