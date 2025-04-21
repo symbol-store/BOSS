@@ -27,6 +27,7 @@ typedef size_t PortableBOSSExpressionIndex;
 union PortableBOSSArgumentValue {
   bool asBool;
   int8_t asChar;
+  int16_t asShort;
   int32_t asInt;
   int64_t asLong;
   float asFloat;
@@ -38,6 +39,7 @@ union PortableBOSSArgumentValue {
 #ifdef __cplusplus
 constexpr uint64_t PortableBOSSArgument_BOOL_SIZE = sizeof(bool);
 constexpr uint64_t PortableBOSSArgument_CHAR_SIZE = sizeof(int8_t);
+constexpr uint64_t PortableBOSSArgument_SHORT_SIZE = sizeof(int16_t);
 constexpr uint64_t PortableBOSSArgument_INT_SIZE = sizeof(int32_t);
 constexpr uint64_t PortableBOSSArgument_LONG_SIZE = sizeof(int64_t);
 constexpr uint64_t PortableBOSSArgument_FLOAT_SIZE = sizeof(float_t);
@@ -47,6 +49,7 @@ constexpr uint64_t PortableBOSSArgument_EXPRESSION_SIZE = sizeof(PortableBOSSExp
 #else
 static uint64_t const PortableBOSSArgument_BOOL_SIZE = sizeof(bool);
 static uint64_t const PortableBOSSArgument_CHAR_SIZE = sizeof(int8_t);
+static uint64_t const PortableBOSSArgument_SHORT_SIZE = sizeof(int16_t);
 static uint64_t const PortableBOSSArgument_INT_SIZE = sizeof(int32_t);
 static uint64_t const PortableBOSSArgument_LONG_SIZE = sizeof(int64_t);
 static uint64_t const PortableBOSSArgument_FLOAT_SIZE = sizeof(float_t);
@@ -58,6 +61,7 @@ static uint64_t const PortableBOSSArgument_EXPRESSION_SIZE = sizeof(PortableBOSS
 enum PortableBOSSArgumentType : uint8_t {
   ARGUMENT_TYPE_BOOL,
   ARGUMENT_TYPE_CHAR,
+  ARGUMENT_TYPE_SHORT,
   ARGUMENT_TYPE_INT,
   ARGUMENT_TYPE_LONG,
   ARGUMENT_TYPE_FLOAT,
@@ -306,6 +310,32 @@ static void makeCharArgumentType(struct PortableBOSSRootExpression* root, uint64
 
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_CHAR;
 };
+
+static int16_t* makeShortArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_SHORT = PortableBOSSArgumentType::ARGUMENT_TYPE_SHORT;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_SHORT;
+  return &getExpressionArguments(root)[argumentOutputI].asShort;
+};
+
+  static int16_t* makeShortArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI, uint64_t typeOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_SHORT = PortableBOSSArgumentType::ARGUMENT_TYPE_SHORT;
+#endif
+
+  getArgumentTypes(root)[typeOutputI] = ARGUMENT_TYPE_SHORT;
+  return &getExpressionArguments(root)[argumentOutputI].asShort;
+};
+
+static void makeShortArgumentType(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
+#ifdef __cplusplus
+  auto ARGUMENT_TYPE_SHORT = PortableBOSSArgumentType::ARGUMENT_TYPE_SHORT;
+#endif
+
+  getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_SHORT;
+};
   
 static int32_t* makeIntArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
 #ifdef __cplusplus
@@ -539,6 +569,13 @@ static void setDictStartAndFlag(struct PortableBOSSRootExpression* root,
 static int8_t* makeCharArgumentsRun(struct PortableBOSSRootExpression* root,
                                     uint64_t argumentOutputI, uint32_t size) {
   int8_t* value = makeCharArgument(root, argumentOutputI);
+  setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI, size);
+  return value;
+}
+  
+static int16_t* makeShortArgumentsRun(struct PortableBOSSRootExpression* root,
+                                    uint64_t argumentOutputI, uint32_t size) {
+  int16_t* value = makeShortArgument(root, argumentOutputI);
   setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI, size);
   return value;
 }

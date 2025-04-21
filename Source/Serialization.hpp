@@ -52,6 +52,9 @@ static_assert(
     std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_CHAR, boss::Expression>, std::int8_t>,
     "type ids wrong");
 static_assert(
+    std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_SHORT, boss::Expression>, std::int16_t>,
+    "type ids wrong");
+static_assert(
     std::is_same_v<std::variant_alternative_t<ARGUMENT_TYPE_INT, boss::Expression>, std::int32_t>,
     "type ids wrong");
 static_assert(
@@ -86,6 +89,7 @@ static const uint8_t& ArgumentType_MASK = PortableBOSSArgumentType_MASK;
 
 constexpr uint64_t Argument_BOOL_SIZE = PortableBOSSArgument_BOOL_SIZE;
 constexpr uint64_t Argument_CHAR_SIZE = PortableBOSSArgument_CHAR_SIZE;
+constexpr uint64_t Argument_SHORT_SIZE = PortableBOSSArgument_SHORT_SIZE;
 constexpr uint64_t Argument_INT_SIZE = PortableBOSSArgument_INT_SIZE;
 constexpr uint64_t Argument_LONG_SIZE = PortableBOSSArgument_LONG_SIZE;
 constexpr uint64_t Argument_FLOAT_SIZE = PortableBOSSArgument_FLOAT_SIZE;
@@ -276,6 +280,8 @@ struct SerializedExpression {
 				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(bool));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int8_t>) {
 				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(int8_t));
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int16_t>) {
+				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(int16_t));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int32_t>) {
 				    spanBytes = spanSize * static_cast<uint64_t>(sizeof(int32_t));
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
@@ -368,6 +374,8 @@ struct SerializedExpression {
 				    spanBytes = spanSize * Argument_BOOL_SIZE;
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int8_t>) {
 				    spanBytes = spanSize * Argument_CHAR_SIZE;
+				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int16_t>) {
+				    spanBytes = spanSize * Argument_SHORT_SIZE;
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int32_t>) {
 				    spanBytes = spanSize * Argument_INT_SIZE;
 				  } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int64_t>) {
@@ -780,6 +788,9 @@ struct SerializedExpression {
                                                          int8_t>) {
                         *makeCharArgument(root, argumentOutputI++, typeOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
+                                                         int16_t>) {
+                        *makeShortArgument(root, argumentOutputI++, typeOutputI++) = argument;
+                      } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          int32_t>) {
                         *makeIntArgument(root, argumentOutputI++, typeOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
@@ -837,6 +848,16 @@ struct SerializedExpression {
 				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 				   makeCharArgumentType(root, typeOutputI++);
 				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_CHAR_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				 }
+				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
+			       }
+			     } else if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, int16_t>) {
+			       size_t valsPerArg = sizeof(Argument) / Argument_SHORT_SIZE;
+			       for (size_t i = 0; i < spanSize; i += valsPerArg) {
+				 uint64_t tmp = 0;
+				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
+				   makeShortArgumentType(root, typeOutputI++);
+				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_SHORT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
 				 }
 				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			       }
@@ -1046,6 +1067,7 @@ public:
                    },
                    [this](bool input) { *makeBoolArgument(root, 0) = input; },
                    [this](std::int8_t input) { *makeCharArgument(root, 0) = input; },
+                   [this](std::int16_t input) { *makeShortArgument(root, 0) = input; },
                    [this](std::int32_t input) { *makeIntArgument(root, 0) = input; },
                    [this](std::int64_t input) { *makeLongArgument(root, 0) = input; },
                    [this](std::float_t input) { *makeFloatArgument(root, 0) = input; },
@@ -1091,6 +1113,10 @@ public:
       return;
     case ArgumentType::ARGUMENT_TYPE_CHAR:
       stream << arguments[index].asChar << " TYPE: CHAR";
+      stream << "\n";
+      return;
+    case ArgumentType::ARGUMENT_TYPE_SHORT:
+      stream << arguments[index].asShort << " TYPE: SHORT";
       stream << "\n";
       return;
     case ArgumentType::ARGUMENT_TYPE_INT:
@@ -1196,6 +1222,21 @@ public:
 		stream << "ARG INDEX: " << childI << " TYPE INDEX: " << childTypeI << " SUB-EXPR INDEX: " << childTypeI - expression.startChildTypeOffset << " VALUE: ";
 		uint8_t val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		stream << static_cast<int32_t>(val) << " TYPE: CHAR";
+		stream << "\n";
+	      }
+	    }
+	  } else if (argType == ArgumentType::ARGUMENT_TYPE_SHORT) {
+	    auto valsPerArg = sizeof(Argument) / Argument_SHORT_SIZE; 
+	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
+	      int64_t& arg = arguments[childI].asLong;
+	      uint64_t tmp = static_cast<uint64_t>(arg);
+	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+		for(auto j = 0; j < exprDepth + 1; j++) {
+		  stream << "  ";
+		}
+		stream << "ARG INDEX: " << childI << " TYPE INDEX: " << childTypeI << " SUB-EXPR INDEX: " << childTypeI - expression.startChildTypeOffset << " VALUE: ";
+		uint16_t val = static_cast<uint16_t>((tmp >> (Argument_SHORT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		stream << static_cast<int32_t>(val) << " TYPE: SHORT";
 		stream << "\n";
 	      }
 	    }
@@ -1476,6 +1517,23 @@ public:
                    // }
                    return boss::expressions::Span<int8_t>(std::move(data));
                  }},
+                {ArgumentType::ARGUMENT_TYPE_SHORT,
+                 [&] {
+                   std::vector<int16_t> data;
+                   data.reserve(size);
+		   size_t valsPerArg = sizeof(Argument) / Argument_SHORT_SIZE;
+		   for(; childTypeIndex < prevChildTypeIndex + size;) {
+                     int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
+		     uint64_t tmp = static_cast<uint64_t>(arg);
+		     for (int64_t i = valsPerArg - 1;
+			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			  i--, childTypeIndex++) {
+		       uint16_t val = static_cast<uint16_t>((tmp >> (Argument_SHORT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
+		       data.push_back(static_cast<int16_t>(val));
+		     }
+                   }
+                   return boss::expressions::Span<int16_t>(std::move(data));
+                 }},
                 {ArgumentType::ARGUMENT_TYPE_INT,
                  [&] {
                    std::vector<int32_t> data;
@@ -1661,6 +1719,7 @@ public:
         auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
             {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
             {ArgumentType::ARGUMENT_TYPE_CHAR, [&] { return (arg.asChar); }},
+            {ArgumentType::ARGUMENT_TYPE_SHORT, [&] { return (arg.asShort); }},
             {ArgumentType::ARGUMENT_TYPE_INT, [&] { return (arg.asInt); }},
             {ArgumentType::ARGUMENT_TYPE_LONG, [&] { return (arg.asLong); }},
             {ArgumentType::ARGUMENT_TYPE_FLOAT, [&] { return (arg.asFloat); }},
@@ -1702,6 +1761,7 @@ public:
     template <typename T> T as(Argument const& arg) const;
     template <> bool as<bool>(Argument const& arg) const { return arg.asBool; };
     template <> std::int8_t as<std::int8_t>(Argument const& arg) const { return arg.asChar; };
+    template <> std::int16_t as<std::int16_t>(Argument const& arg) const { return arg.asShort; };
     template <> std::int32_t as<std::int32_t>(Argument const& arg) const { return arg.asInt; };
     template <> std::int64_t as<std::int64_t>(Argument const& arg) const { return arg.asLong; };
     template <> std::float_t as<std::float_t>(Argument const& arg) const { return arg.asFloat; };
@@ -1982,6 +2042,8 @@ public:
 	    data[i] = static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
 	  } else if constexpr(std::is_same_v<T, int8_t>) {
 	    data[i] = static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
+	  } else if constexpr (std::is_same_v<T, int16_t>) {
+	    data[i] = static_cast<int16_t>(extractField<uint16_t>(tmp, shiftAmt * inArgI));
 	  } else if constexpr (std::is_same_v<T, int32_t>) {
 	    data[i] = static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI));
 	  } else if constexpr (std::is_same_v<T, float_t>) {
@@ -2010,6 +2072,8 @@ public:
 	return getCurrentExpressionAsSpanWithIndices<bool, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_CHAR:
 	return getCurrentExpressionAsSpanWithIndices<int8_t, T>(indices);
+      case ArgumentType::ARGUMENT_TYPE_SHORT:
+	return getCurrentExpressionAsSpanWithIndices<int16_t, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_INT:
 	return getCurrentExpressionAsSpanWithIndices<int32_t, T>(indices);
       case ArgumentType::ARGUMENT_TYPE_LONG:
@@ -2060,6 +2124,12 @@ public:
 		 auto base64 = &arguments[argumentIndex];
 		 auto base = reinterpret_cast<int8_t*>(base64);
 		 return boss::expressions::Span<int8_t>(base, size, nullptr);
+               }},
+              {ArgumentType::ARGUMENT_TYPE_SHORT,
+               [&] {
+		 auto base64 = &arguments[argumentIndex];
+		 auto base = reinterpret_cast<int16_t*>(base64);
+		 return boss::expressions::Span<int16_t>(base, size, nullptr);
                }},
               {ArgumentType::ARGUMENT_TYPE_INT,
                [&] {
@@ -2150,6 +2220,24 @@ public:
 		   }
 		 }
                  return boss::expressions::Span<int8_t>(std::move(data));
+               }},
+              {ArgumentType::ARGUMENT_TYPE_SHORT,
+               [&] {
+		 std::vector<int16_t> data(size);
+		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_SHORT_SIZE;
+		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_SHORT_SIZE;
+		 auto tempI = 0;
+		 for (size_t i = 0; i < size; tempI++) {
+		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
+		   uint64_t tmp = static_cast<uint64_t>(arg);
+		   for (int64_t j = valsPerArg - 1;
+			j >= 0 && i < size;
+			j--, i++) {
+		     uint16_t val = static_cast<uint16_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
+		     data[i] = static_cast<int16_t>(val);
+		   }
+		 }
+                 return boss::expressions::Span<int16_t>(std::move(data));
                }},
               {ArgumentType::ARGUMENT_TYPE_INT,
                [&] {
@@ -2390,6 +2478,11 @@ public:
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
 	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
 	return static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
+      } else if constexpr (std::is_same_v<T, int16_t>) {
+	constexpr size_t valsPerArg = sizeof(Argument) / Argument_SHORT_SIZE;
+	constexpr size_t shiftAmt = sizeof(Argument) * Argument_SHORT_SIZE;
+	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+	return static_cast<int16_t>(extractField<uint16_t>(tmp, shiftAmt * inArgI));
       } else if constexpr (std::is_same_v<T, int32_t>) {
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_INT_SIZE;
@@ -2423,6 +2516,8 @@ public:
 	return getCurrentExpressionInSpanAtAs<bool>(spanArgI);
       case ArgumentType::ARGUMENT_TYPE_CHAR:
 	return getCurrentExpressionInSpanAtAs<int8_t>(spanArgI);
+      case ArgumentType::ARGUMENT_TYPE_SHORT:
+	return getCurrentExpressionInSpanAtAs<int16_t>(spanArgI);
       case ArgumentType::ARGUMENT_TYPE_INT:
 	return getCurrentExpressionInSpanAtAs<int32_t>(spanArgI);
       case ArgumentType::ARGUMENT_TYPE_LONG:
@@ -2496,6 +2591,7 @@ public:
         return getCurrentExpressionInDictEncodedSpanAtAs<std::string>(spanArgI, dictI, dictOffsetArgumentSize);
       case ArgumentType::ARGUMENT_TYPE_BOOL:
       case ArgumentType::ARGUMENT_TYPE_CHAR:
+      case ArgumentType::ARGUMENT_TYPE_SHORT:
       case ArgumentType::ARGUMENT_TYPE_INT:
       case ArgumentType::ARGUMENT_TYPE_FLOAT:
       case ArgumentType::ARGUMENT_TYPE_SYMBOL:
@@ -2527,6 +2623,8 @@ public:
 	return argument.asBool;
       } else if constexpr (std::is_same_v<T, int8_t>) {
 	return argument.asChar;
+      } else if constexpr (std::is_same_v<T, int16_t>) {
+	return argument.asShort;
       } else if constexpr (std::is_same_v<T, int32_t>) {
 	return argument.asInt;
       } else if constexpr (std::is_same_v<T, int64_t>) {
@@ -2561,6 +2659,8 @@ public:
         return getCurrentExpressionAs<bool>();
       case ArgumentType::ARGUMENT_TYPE_CHAR:
         return getCurrentExpressionAs<int8_t>();
+      case ArgumentType::ARGUMENT_TYPE_SHORT:
+        return getCurrentExpressionAs<int16_t>();
       case ArgumentType::ARGUMENT_TYPE_INT:
         return getCurrentExpressionAs<int32_t>();
       case ArgumentType::ARGUMENT_TYPE_LONG:
@@ -2702,6 +2802,8 @@ public:
       return flattenedArguments()[0].asBool;
     case ArgumentType::ARGUMENT_TYPE_CHAR:
       return flattenedArguments()[0].asChar;
+    case ArgumentType::ARGUMENT_TYPE_SHORT:
+      return flattenedArguments()[0].asShort;
     case ArgumentType::ARGUMENT_TYPE_INT:
       return flattenedArguments()[0].asInt;
     case ArgumentType::ARGUMENT_TYPE_LONG:
