@@ -2078,12 +2078,12 @@ public:
     }
     
     template<typename T, typename U>
-    boss::Span<T> getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices, int64_t spanSize) const {
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices, int64_t spanSize) const {
       return getCurrentExpressionAsSpanAsTypeWithIndices<T, T, U>(indices, spanSize);
     }
 
     template<typename T>
-    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<T>& indices, int64_t spanSize) const {
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<T>& indices, int64_t spanSize) const {
       switch(type) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
 	return getCurrentExpressionAsSpanWithIndices<bool, T>(indices, spanSize);
