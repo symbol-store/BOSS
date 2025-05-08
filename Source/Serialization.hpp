@@ -15,7 +15,6 @@
 #include <utility>
 #include <variant>
 #include <unordered_set>
-
 #ifndef _MSC_VER
 #include <cxxabi.h>
 #include <memory>
@@ -1995,6 +1994,122 @@ public:
     }
 
     template<typename T, typename S, typename U>
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices, int64_t spanSize) const {
+      static_assert(std::is_convertible<T, S>::value, "Cannot convert stored type to requested span type in getCurrentExpressionAsSpanAsTypeWithIndices. Change from <T, S, U> as T cannot be converted to S.");
+      auto const& arguments = buffer.flattenedArguments();
+      auto const& expr = expression();
+      auto const& startChildOffset = expr.startChildOffset;
+      
+      
+      const size_t n = indices.size();
+      constexpr size_t valsPerArg = sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
+      constexpr size_t shiftAmt = sizeof(T) > sizeof(Argument) ?
+	sizeof(Argument) * sizeof(Argument) :
+	sizeof(Argument) * sizeof(T);
+
+      constexpr size_t valsPerArgMask = valsPerArg - 1;
+      constexpr size_t valsPerArgShift = []{
+	size_t s = 0;
+	size_t v = valsPerArg;
+	while ((v >>= 1) > 0) ++s;
+	return s;
+      }();
+
+      if (spanSize <= 0) {
+	spanSize = n;
+      }
+
+      boss::expressions::ExpressionSpanArguments res;
+      res.reserve((n / spanSize) + 1);
+
+      for (size_t spanI = 0; spanI < n; spanI += spanSize) {
+	size_t currSize = spanSize < (n - spanI) ? spanSize : (n - spanI);
+	if constexpr(std::is_same_v<T, boss::Symbol>) {
+	  std::vector<S> data;
+	  data.reserve(currSize);
+	  for (size_t i = 0; i < currSize; i++) {
+	    const auto& index = indices[i + spanI];
+	    size_t childOffset = index >> valsPerArgShift;
+	    int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	  
+	    auto& arg = arguments[startChildOffset + childOffset];
+	    uint64_t tmp = static_cast<uint64_t>(arg.asLong);
+	    data.emplace_back(static_cast<S>(viewString(buffer.root, arg.asString)));
+	  }
+	  res.push_back(std::move(boss::expressions::Span<S>(std::move(data))));
+	} else {
+	  std::vector<S> data(currSize);
+
+	  for (size_t i = 0; i < currSize; i++) {
+	    const auto& index = indices[i + spanI];
+	    size_t childOffset = index >> valsPerArgShift;
+	    int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	  
+	    auto& arg = arguments[startChildOffset + childOffset];
+	    uint64_t tmp = static_cast<uint64_t>(arg.asLong);
+
+	    if constexpr(std::is_same_v<T, bool>) {
+	      data[i] = static_cast<S>(static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI)));
+	    } else if constexpr(std::is_same_v<T, int8_t>) {
+	      data[i] = static_cast<S>(static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI)));
+	    } else if constexpr (std::is_same_v<T, int16_t>) {
+	      data[i] = static_cast<S>(static_cast<int16_t>(extractField<uint16_t>(tmp, shiftAmt * inArgI)));
+	    } else if constexpr (std::is_same_v<T, int32_t>) {
+	      data[i] = static_cast<S>(static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI)));
+	    } else if constexpr (std::is_same_v<T, float_t>) {
+	      uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
+	      union { uint32_t iVal; float f; } u;
+	      u.iVal = val;
+	      data[i] = static_cast<S>(u.f);
+	    } else if constexpr (std::is_same_v<T, int64_t>) {
+	      data[i] = static_cast<S>(arg.asLong);
+	    } else if constexpr (std::is_same_v<T, double_t>) {
+	      data[i] = static_cast<S>(arg.asDouble);
+	    } else if constexpr (std::is_same_v<T, std::string>) {
+	      data[i] = static_cast<S>(std::string(viewString(buffer.root, arg.asString)));
+	    } else {
+	      static_assert(sizeof(T) == 0, "Unsupported type in getCurrentExpressionAsSpanAsTypeWithIndices<T, S, U>()");
+	    }
+	  }
+	  res.push_back(std::move(boss::expressions::Span<S>(std::move(data))));
+	}
+      }
+      return res;
+    }
+    
+    template<typename T, typename U>
+    boss::Span<T> getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices, int64_t spanSize) const {
+      return getCurrentExpressionAsSpanAsTypeWithIndices<T, T, U>(indices, spanSize);
+    }
+
+    template<typename T>
+    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<T>& indices, int64_t spanSize) const {
+      switch(type) {
+      case ArgumentType::ARGUMENT_TYPE_BOOL:
+	return getCurrentExpressionAsSpanWithIndices<bool, T>(indices, spanSize);
+      case ArgumentType::ARGUMENT_TYPE_CHAR:
+	return getCurrentExpressionAsSpanWithIndices<int8_t, T>(indices, spanSize);
+      case ArgumentType::ARGUMENT_TYPE_SHORT:
+	return getCurrentExpressionAsSpanWithIndices<int16_t, T>(indices, spanSize);
+      case ArgumentType::ARGUMENT_TYPE_INT:
+	return getCurrentExpressionAsSpanWithIndices<int32_t, T>(indices, spanSize);
+      case ArgumentType::ARGUMENT_TYPE_LONG:
+	return getCurrentExpressionAsSpanWithIndices<int64_t, T>(indices, spanSize);
+      case ArgumentType::ARGUMENT_TYPE_FLOAT:
+	return getCurrentExpressionAsSpanWithIndices<float_t, T>(indices, spanSize);
+      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+	return getCurrentExpressionAsSpanWithIndices<double_t, T>(indices, spanSize);
+      case ArgumentType::ARGUMENT_TYPE_STRING:
+	return getCurrentExpressionAsSpanWithIndices<std::string, T>(indices, spanSize);
+      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+	return getCurrentExpressionAsSpanWithIndices<boss::Symbol, T>(indices, spanSize);
+      case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
+	break;
+      }
+      throw std::runtime_error("Invalid type in getCurrentExpressionAsSpanWithIndices");
+    }
+
+    template<typename T, typename S, typename U>
     boss::Span<S> getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices) const {
       static_assert(std::is_convertible<T, S>::value, "Cannot convert stored type to requested span type in getCurrentExpressionAsSpanAsTypeWithIndices. Change from <T, S, U> as T cannot be converted to S.");
       auto const& arguments = buffer.flattenedArguments();
@@ -2069,73 +2184,6 @@ public:
     template<typename T, typename U>
     boss::Span<T> getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices) const {
       return getCurrentExpressionAsSpanAsTypeWithIndices<T, T, U>(indices);
-      // auto const& arguments = buffer.flattenedArguments();
-      // auto const& expr = expression();
-      // auto const& startChildOffset = expr.startChildOffset;
-      
-      // const size_t n = indices.size();
-      // constexpr size_t valsPerArg = sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
-      // constexpr size_t shiftAmt = sizeof(T) > sizeof(Argument) ?
-      // 	sizeof(Argument) * sizeof(Argument) :
-      // 	sizeof(Argument) * sizeof(T);
-
-      // constexpr size_t valsPerArgMask = valsPerArg - 1;
-      // constexpr size_t valsPerArgShift = []{
-      // 	size_t s = 0;
-      // 	size_t v = valsPerArg;
-      // 	while ((v >>= 1) > 0) ++s;
-      // 	return s;
-      // }();
-
-      // if constexpr(std::is_same_v<T, boss::Symbol>) {
-      // 	std::vector<T> data;
-      // 	data.reserve(n);
-      // 	for (size_t i = 0; i < n; i++) {
-      // 	  const auto& index = indices[i];
-      // 	  size_t childOffset = index >> valsPerArgShift;
-      // 	  int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
-	  
-      // 	  auto& arg = arguments[startChildOffset + childOffset];
-      // 	  uint64_t tmp = static_cast<uint64_t>(arg.asLong);
-      // 	  data.emplace_back(viewString(buffer.root, arg.asString));
-      // 	}
-      // 	return boss::expressions::Span<T>(std::move(data));
-      // } else {
-      // 	std::vector<T> data(n);
-
-      // 	for (size_t i = 0; i < n; i++) {
-      // 	  const auto& index = indices[i];
-      // 	  size_t childOffset = index >> valsPerArgShift;
-      // 	  int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
-	  
-      // 	  auto& arg = arguments[startChildOffset + childOffset];
-      // 	  uint64_t tmp = static_cast<uint64_t>(arg.asLong);
-
-      // 	  if constexpr(std::is_same_v<T, bool>) {
-      // 	    data[i] = static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
-      // 	  } else if constexpr(std::is_same_v<T, int8_t>) {
-      // 	    data[i] = static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
-      // 	  } else if constexpr (std::is_same_v<T, int16_t>) {
-      // 	    data[i] = static_cast<int16_t>(extractField<uint16_t>(tmp, shiftAmt * inArgI));
-      // 	  } else if constexpr (std::is_same_v<T, int32_t>) {
-      // 	    data[i] = static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI));
-      // 	  } else if constexpr (std::is_same_v<T, float_t>) {
-      // 	    uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
-      // 	    union { uint32_t i; float f; } u;
-      // 	    u.i = val;
-      // 	    data[i] = u.f;
-      // 	  } else if constexpr (std::is_same_v<T, int64_t>) {
-      // 	    data[i] = arg.asLong;
-      // 	  } else if constexpr (std::is_same_v<T, double_t>) {
-      // 	    data[i] = arg.asDouble;
-      // 	  } else if constexpr (std::is_same_v<T, std::string>) {
-      // 	    data[i] = std::string(viewString(buffer.root, arg.asString));
-      // 	  } else {
-      // 	    static_assert(sizeof(T) == 0, "Unsupported type in getCurrentExpressionAsSpanWithIndices<T>()");
-      // 	  }
-      // 	}
-      // 	return boss::expressions::Span<T>(std::move(data));
-      // }
     }
 
     template<typename T>
@@ -2165,6 +2213,122 @@ public:
       throw std::runtime_error("Invalid type in getCurrentExpressionAsSpanWithIndices");
     }
 
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size, int64_t spanSize) const {
+      auto const& arguments = buffer.flattenedArguments();
+      if (spanSize <= 0) {
+	spanSize = size;
+      }
+      boss::expressions::ExpressionSpanArguments res;
+      res.reserve((size / spanSize) + 1);
+      auto const spanFunctors =
+          std::unordered_map<ArgumentType,
+	std::function<void()>>{
+              {ArgumentType::ARGUMENT_TYPE_BOOL,
+               [&] {
+		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
+
+		 size_t tempI = 0;
+		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+		   std::vector<bool> data(currSize);
+		   for (size_t i = 0; i < currSize && tempI < size; tempI++) {
+		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
+		     uint64_t tmp = static_cast<uint64_t>(arg);
+		     for (int64_t j = valsPerArg - 1;
+			  j >= 0 && i < currSize;
+			  j--, i++) {
+		       uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
+		       data[i] = static_cast<bool>(val);
+		     }
+		   }
+		   res.push_back(std::move(boss::expressions::Span<bool>(std::move(data))));
+		 }
+               }},
+              {ArgumentType::ARGUMENT_TYPE_CHAR,
+               [&] {
+		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+		   auto base64 = &arguments[argumentIndex + spanI];
+		   auto base = reinterpret_cast<int8_t*>(base64);
+		   res.push_back(std::move(boss::expressions::Span<int8_t>(base, currSize, nullptr)));
+		 }
+               }},
+              {ArgumentType::ARGUMENT_TYPE_SHORT,
+               [&] {
+		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+		   auto base64 = &arguments[argumentIndex + spanI];
+		   auto base = reinterpret_cast<int16_t*>(base64);
+		   res.push_back(std::move(boss::expressions::Span<int16_t>(base, currSize, nullptr)));
+		 }
+               }},
+              {ArgumentType::ARGUMENT_TYPE_INT,
+               [&] {
+		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+		   auto base64 = &arguments[argumentIndex + spanI];
+		   auto base = reinterpret_cast<int32_t*>(base64);
+		   res.push_back(std::move(boss::expressions::Span<int32_t>(base, currSize, nullptr)));
+		 }
+               }},
+              {ArgumentType::ARGUMENT_TYPE_LONG,
+               [&] {
+		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+		   auto base64 = &arguments[argumentIndex + spanI];
+		   auto base = reinterpret_cast<int64_t*>(base64);
+		   res.push_back(std::move(boss::expressions::Span<int64_t>(base, currSize, nullptr)));
+		 }
+               }},
+              {ArgumentType::ARGUMENT_TYPE_FLOAT,
+               [&] {
+		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+		   auto base64 = &arguments[argumentIndex + spanI];
+		   auto base = reinterpret_cast<float_t*>(base64);
+		   res.push_back(std::move(boss::expressions::Span<float_t>(base, currSize, nullptr)));
+		 }
+               }},
+              {ArgumentType::ARGUMENT_TYPE_DOUBLE,
+               [&] {
+		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+		   auto base64 = &arguments[argumentIndex + spanI];
+		   auto base = reinterpret_cast<double_t*>(base64);
+		   res.push_back(std::move(boss::expressions::Span<double_t>(base, currSize, nullptr)));
+		 }
+               }},
+              {ArgumentType::ARGUMENT_TYPE_STRING,
+               [&] {
+		 size_t tempI = 0;
+		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+		   std::vector<std::string> data(currSize);
+		   for(size_t i = 0; i < currSize && tempI < size; i++, tempI++) {
+		     auto const& arg = arguments[argumentIndex + tempI];
+		     data[i] = std::string(viewString(buffer.root, arg.asString));
+		   }
+		   res.push_back(std::move(boss::expressions::Span<std::string>(std::move(data))));
+		 }
+               }},
+              {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
+	        size_t tempI = 0;
+		for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+		  size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+		  std::vector<boss::Symbol> data;
+		  data.reserve(currSize);
+		  for(size_t i = 0; i < currSize && tempI < size; i++, tempI++) {
+		    auto const& arg = arguments[argumentIndex + tempI];
+		    data.emplace_back(viewString(buffer.root, arg.asString));
+		  }
+		  res.push_back(std::move(boss::expressions::Span<boss::Symbol>(std::move(data))));
+		}
+	      }}};
+      spanFunctors.at(type)();
+      return res;
+    }
+    
     boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size) const {
       auto const& arguments = buffer.flattenedArguments();
       auto const spanFunctors =
