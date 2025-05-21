@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <inttypes.h>
+#include <omp.h>
 #include <iostream>
 #include <iterator>
 #include <optional>
@@ -1996,10 +1997,10 @@ public:
     template<typename T, typename S, typename U>
     boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices, int64_t spanSize) const {
       static_assert(std::is_convertible<T, S>::value, "Cannot convert stored type to requested span type in getCurrentExpressionAsSpanAsTypeWithIndices. Change from <T, S, U> as T cannot be converted to S.");
+      constexpr size_t THREADING_THRESHOLD = 256000;
       auto const& arguments = buffer.flattenedArguments();
       auto const& expr = expression();
       auto const& startChildOffset = expr.startChildOffset;
-      
       
       const size_t n = indices.size();
       constexpr size_t valsPerArg = sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
@@ -2040,35 +2041,70 @@ public:
 	} else {
 	  std::vector<S> data(currSize);
 
-	  for (size_t i = 0; i < currSize; i++) {
-	    const auto& index = indices[i + spanI];
-	    size_t childOffset = index >> valsPerArgShift;
-	    int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	  if (n > THREADING_THRESHOLD && currSize > THREADING_THRESHOLD) {
+	    #pragma omp parallel for schedule(static) num_threads(20)
+	    for (size_t i = 0; i < currSize; i++) {
+	      const auto& index = indices[i + spanI];
+	      size_t childOffset = index >> valsPerArgShift;
+	      int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
 	  
-	    auto& arg = arguments[startChildOffset + childOffset];
-	    uint64_t tmp = static_cast<uint64_t>(arg.asLong);
+	      auto& arg = arguments[startChildOffset + childOffset];
+	      uint64_t tmp = static_cast<uint64_t>(arg.asLong);
 
-	    if constexpr(std::is_same_v<T, bool>) {
-	      data[i] = static_cast<S>(static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI)));
-	    } else if constexpr(std::is_same_v<T, int8_t>) {
-	      data[i] = static_cast<S>(static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI)));
-	    } else if constexpr (std::is_same_v<T, int16_t>) {
-	      data[i] = static_cast<S>(static_cast<int16_t>(extractField<uint16_t>(tmp, shiftAmt * inArgI)));
-	    } else if constexpr (std::is_same_v<T, int32_t>) {
-	      data[i] = static_cast<S>(static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI)));
-	    } else if constexpr (std::is_same_v<T, float_t>) {
-	      uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
-	      union { uint32_t iVal; float f; } u;
-	      u.iVal = val;
-	      data[i] = static_cast<S>(u.f);
-	    } else if constexpr (std::is_same_v<T, int64_t>) {
-	      data[i] = static_cast<S>(arg.asLong);
-	    } else if constexpr (std::is_same_v<T, double_t>) {
-	      data[i] = static_cast<S>(arg.asDouble);
-	    } else if constexpr (std::is_same_v<T, std::string>) {
-	      data[i] = static_cast<S>(std::string(viewString(buffer.root, arg.asString)));
-	    } else {
-	      static_assert(sizeof(T) == 0, "Unsupported type in getCurrentExpressionAsSpanAsTypeWithIndices<T, S, U>()");
+	      if constexpr(std::is_same_v<T, bool>) {
+		data[i] = static_cast<S>(static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI)));
+	      } else if constexpr(std::is_same_v<T, int8_t>) {
+		data[i] = static_cast<S>(static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI)));
+	      } else if constexpr (std::is_same_v<T, int16_t>) {
+		data[i] = static_cast<S>(static_cast<int16_t>(extractField<uint16_t>(tmp, shiftAmt * inArgI)));
+	      } else if constexpr (std::is_same_v<T, int32_t>) {
+		data[i] = static_cast<S>(static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI)));
+	      } else if constexpr (std::is_same_v<T, float_t>) {
+		uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
+		union { uint32_t iVal; float f; } u;
+		u.iVal = val;
+		data[i] = static_cast<S>(u.f);
+	      } else if constexpr (std::is_same_v<T, int64_t>) {
+		data[i] = static_cast<S>(arg.asLong);
+	      } else if constexpr (std::is_same_v<T, double_t>) {
+		data[i] = static_cast<S>(arg.asDouble);
+	      } else if constexpr (std::is_same_v<T, std::string>) {
+		data[i] = static_cast<S>(std::string(viewString(buffer.root, arg.asString)));
+	      } else {
+		static_assert(sizeof(T) == 0, "Unsupported type in getCurrentExpressionAsSpanAsTypeWithIndices<T, S, U>()");
+	      }
+	    }
+	  } else {
+	    for (size_t i = 0; i < currSize; i++) {
+	      const auto& index = indices[i + spanI];
+	      size_t childOffset = index >> valsPerArgShift;
+	      int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	  
+	      auto& arg = arguments[startChildOffset + childOffset];
+	      uint64_t tmp = static_cast<uint64_t>(arg.asLong);
+
+	      if constexpr(std::is_same_v<T, bool>) {
+		data[i] = static_cast<S>(static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI)));
+	      } else if constexpr(std::is_same_v<T, int8_t>) {
+		data[i] = static_cast<S>(static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI)));
+	      } else if constexpr (std::is_same_v<T, int16_t>) {
+		data[i] = static_cast<S>(static_cast<int16_t>(extractField<uint16_t>(tmp, shiftAmt * inArgI)));
+	      } else if constexpr (std::is_same_v<T, int32_t>) {
+		data[i] = static_cast<S>(static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI)));
+	      } else if constexpr (std::is_same_v<T, float_t>) {
+		uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
+		union { uint32_t iVal; float f; } u;
+		u.iVal = val;
+		data[i] = static_cast<S>(u.f);
+	      } else if constexpr (std::is_same_v<T, int64_t>) {
+		data[i] = static_cast<S>(arg.asLong);
+	      } else if constexpr (std::is_same_v<T, double_t>) {
+		data[i] = static_cast<S>(arg.asDouble);
+	      } else if constexpr (std::is_same_v<T, std::string>) {
+		data[i] = static_cast<S>(std::string(viewString(buffer.root, arg.asString)));
+	      } else {
+		static_assert(sizeof(T) == 0, "Unsupported type in getCurrentExpressionAsSpanAsTypeWithIndices<T, S, U>()");
+	      }
 	    }
 	  }
 	  res.push_back(std::move(boss::expressions::Span<S>(std::move(data))));
