@@ -834,7 +834,7 @@ struct SerializedExpression {
 				 uint64_t tmp = 0;
 				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 				   makeBoolArgumentType(root, typeOutputI++);
-				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_BOOL_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_BOOL_SIZE * sizeof(Argument) * j);
 				 }
 				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			       }
@@ -847,7 +847,7 @@ struct SerializedExpression {
 				 uint64_t tmp = 0;
 				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 				   makeCharArgumentType(root, typeOutputI++);
-				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_CHAR_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_CHAR_SIZE * sizeof(Argument) * j);
 				 }
 				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			       }
@@ -857,7 +857,7 @@ struct SerializedExpression {
 				 uint64_t tmp = 0;
 				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 				   makeShortArgumentType(root, typeOutputI++);
-				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_SHORT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_SHORT_SIZE * sizeof(Argument) * j);
 				 }
 				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			       }
@@ -867,7 +867,7 @@ struct SerializedExpression {
 				 uint64_t tmp = 0;
 				 for (size_t j = 0; j < valsPerArg && i+j < spanSize; j++) {
 				   makeIntArgumentType(root, typeOutputI++);
-				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_INT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				   tmp |= static_cast<uint64_t>(spanArgument[i+j]) << (Argument_INT_SIZE * sizeof(Argument) * j);
 				 }
 				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			       }
@@ -889,10 +889,10 @@ struct SerializedExpression {
 				     makeLongArgumentType(root, typeOutputI++);
 				     if (argumentSize == Argument_CHAR_SIZE) {
 				       int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
-				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * j);
 				     } else if (argumentSize == Argument_INT_SIZE) {
 				       int32_t val = dict[DictKey(spanArgument[i+j])]; 
-				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * j);
 				     }				
 				   }
 				   *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
@@ -911,7 +911,7 @@ struct SerializedExpression {
 				   uint32_t rawVal;
 				   std::memcpy(&rawVal, &spanArgument[i+j], sizeof(rawVal));
 				   makeFloatArgumentType(root, typeOutputI++);
-				   tmp |= static_cast<uint64_t>(rawVal) << (Argument_FLOAT_SIZE * sizeof(Argument) * (valsPerArg - 1 - j));
+				   tmp |= static_cast<uint64_t>(rawVal) << (Argument_FLOAT_SIZE * sizeof(Argument) * j);
 				 }
 				 *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
 			       }
@@ -938,10 +938,10 @@ struct SerializedExpression {
 				     makeDoubleArgumentType(root, typeOutputI++);
 				     if (argumentSize == Argument_CHAR_SIZE) {
 				       int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
-				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * j);
 				     } else if (argumentSize == Argument_INT_SIZE) {
 				       int32_t val = dict[DictKey(spanArgument[i+j])];
-				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * j);
 				     }				
 				   }
 				   *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
@@ -973,10 +973,10 @@ struct SerializedExpression {
 				     makeLongArgumentType(root, typeOutputI++);
 				     if (argumentSize == Argument_CHAR_SIZE) {
 				       int8_t val = static_cast<int8_t>(dict[DictKey(spanArgument[i+j])]);
-				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * j);
 				     } else if (argumentSize == Argument_INT_SIZE) {
 				       int32_t val = dict[DictKey(spanArgument[i+j])];
-				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * (valsPerArg - 1 - j));
+				       tmp |= static_cast<uint64_t>(val) << (argumentSize * sizeof(Argument) * j);
 				     }				
 				   }
 				   *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
@@ -1200,7 +1200,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -1215,7 +1215,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -1230,7 +1230,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -1245,7 +1245,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -1262,8 +1262,8 @@ public:
 		for(; childTypeI < prevChildTypeI + spanSize; childI++) {
 		  int64_t& arg = arguments[childI].asLong;
 		  uint64_t tmp = static_cast<uint64_t>(arg);
-		  for (int64_t i = valsPerArg - 1;
-		       i >= 0 && childTypeI < prevChildTypeI + spanSize;
+		  for (int64_t i = 0;
+		       i < valsPerArg && childTypeI < prevChildTypeI + spanSize;
 		       i--, childTypeI++) {
 		    for(auto j = 0; j < exprDepth + 1; j++) {
 		      stream << "  ";
@@ -1280,8 +1280,7 @@ public:
 		for(; childTypeI < prevChildTypeI + spanSize; childI++) {
 		  int64_t& arg = arguments[childI].asLong;
 		  uint64_t tmp = static_cast<uint64_t>(arg);
-		  for (int64_t i = valsPerArg - 1;
-		       i >= 0 && childTypeI < prevChildTypeI + spanSize;
+		  for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize;
 		       i--, childTypeI++) {
 		    for(auto j = 0; j < exprDepth + 1; j++) {
 		      stream << "  ";
@@ -1304,7 +1303,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = valsPerArg - 1; i >= 0 && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -1323,8 +1322,7 @@ public:
 		for(; childTypeI < prevChildTypeI + spanSize; childI++) {
 		  int64_t& arg = arguments[childI].asLong;
 		  uint64_t tmp = static_cast<uint64_t>(arg);
-		  for (int64_t i = valsPerArg - 1;
-		       i >= 0 && childTypeI < prevChildTypeI + spanSize;
+		  for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize;
 		       i--, childTypeI++) {
 		    for(auto j = 0; j < exprDepth + 1; j++) {
 		      stream << "  ";
@@ -1341,8 +1339,7 @@ public:
 		for(; childTypeI < prevChildTypeI + spanSize; childI++) {
 		  int64_t& arg = arguments[childI].asLong;
 		  uint64_t tmp = static_cast<uint64_t>(arg);
-		  for (int64_t i = valsPerArg - 1;
-		       i >= 0 && childTypeI < prevChildTypeI + spanSize;
+		  for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize;
 		       i--, childTypeI++) {
 		    for(auto j = 0; j < exprDepth + 1; j++) {
 		      stream << "  ";
@@ -1367,8 +1364,7 @@ public:
 		for(; childTypeI < prevChildTypeI + spanSize; childI++) {
 		  int64_t& arg = arguments[childI].asLong;
 		  uint64_t tmp = static_cast<uint64_t>(arg);
-		  for (int64_t i = valsPerArg - 1;
-		       i >= 0 && childTypeI < prevChildTypeI + spanSize;
+		  for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize;
 		       i--, childTypeI++) {
 		    for(auto j = 0; j < exprDepth + 1; j++) {
 		      stream << "  ";
@@ -1385,8 +1381,7 @@ public:
 		for(; childTypeI < prevChildTypeI + spanSize; childI++) {
 		  int64_t& arg = arguments[childI].asLong;
 		  uint64_t tmp = static_cast<uint64_t>(arg);
-		  for (int64_t i = valsPerArg - 1;
-		       i >= 0 && childTypeI < prevChildTypeI + spanSize;
+		  for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize;
 		       i--, childTypeI++) {
 		    for(auto j = 0; j < exprDepth + 1; j++) {
 		      stream << "  ";
@@ -1483,8 +1478,7 @@ public:
 		   for(; childTypeIndex < prevChildTypeIndex + size;) {
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t i = valsPerArg - 1;
-			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			  i--, childTypeIndex++) {
 		       uint8_t val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       data.push_back(static_cast<bool>(val));
@@ -1504,8 +1498,7 @@ public:
 		   for(; childTypeIndex < prevChildTypeIndex + size;) {
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t i = valsPerArg - 1;
-			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			  i--, childTypeIndex++) {
 		       uint8_t val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       data.push_back(static_cast<int8_t>(val));
@@ -1525,8 +1518,7 @@ public:
 		   for(; childTypeIndex < prevChildTypeIndex + size;) {
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t i = valsPerArg - 1;
-			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			  i--, childTypeIndex++) {
 		       uint16_t val = static_cast<uint16_t>((tmp >> (Argument_SHORT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       data.push_back(static_cast<int16_t>(val));
@@ -1542,8 +1534,7 @@ public:
 		   for(; childTypeIndex < prevChildTypeIndex + size;) {
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t i = valsPerArg - 1;
-			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			  i--, childTypeIndex++) {
 		       uint32_t val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       data.push_back(static_cast<int32_t>(val));
@@ -1566,8 +1557,7 @@ public:
 		       for(; childTypeIndex < prevChildTypeIndex + size;) {
 			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 			 uint64_t tmp = static_cast<uint64_t>(arg);
-			 for (int64_t i = valsPerArg - 1;
-			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			 for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			      i--, childTypeIndex++) {
 			   uint8_t dictOffset = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int8_t>(dictOffset))];
@@ -1579,8 +1569,7 @@ public:
 		       for(; childTypeIndex < prevChildTypeIndex + size;) {
 			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 			 uint64_t tmp = static_cast<uint64_t>(arg);
-			 for (int64_t i = valsPerArg - 1;
-			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			 for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			      i--, childTypeIndex++) {
 			   uint32_t dictOffset = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int32_t>(dictOffset))];
@@ -1604,8 +1593,7 @@ public:
 		   for(; childTypeIndex < prevChildTypeIndex + size;) {
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t i = valsPerArg - 1;
-			  i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			  i--, childTypeIndex++) {
 		       uint32_t val = static_cast<uint32_t>((tmp >> (Argument_FLOAT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       float realVal;
@@ -1629,8 +1617,7 @@ public:
 		       for(; childTypeIndex < prevChildTypeIndex + size;) {
 			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 			 uint64_t tmp = static_cast<uint64_t>(arg);
-			 for (int64_t i = valsPerArg - 1;
-			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			 for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			      i--, childTypeIndex++) {
 			   uint8_t dictOffset = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int8_t>(dictOffset))];
@@ -1642,8 +1629,7 @@ public:
 		       for(; childTypeIndex < prevChildTypeIndex + size;) {
 			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 			 uint64_t tmp = static_cast<uint64_t>(arg);
-			 for (int64_t i = valsPerArg - 1;
-			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			 for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			      i--, childTypeIndex++) {
 			   uint32_t dictOffset = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int32_t>(dictOffset))];
@@ -1679,8 +1665,7 @@ public:
 		       for(; childTypeIndex < prevChildTypeIndex + size;) {
 			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 			 uint64_t tmp = static_cast<uint64_t>(arg);
-			 for (int64_t i = valsPerArg - 1;
-			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			 for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			      i--, childTypeIndex++) {
 			   uint8_t dictOffset = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int8_t>(dictOffset))];
@@ -1692,8 +1677,7 @@ public:
 		       for(; childTypeIndex < prevChildTypeIndex + size;) {
 			 int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 			 uint64_t tmp = static_cast<uint64_t>(arg);
-			 for (int64_t i = valsPerArg - 1;
-			      i >= 0 && childTypeIndex < prevChildTypeIndex + size;
+			 for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
 			      i--, childTypeIndex++) {
 			   uint32_t dictOffset = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 			   auto const& arg = spanDictionariesBuffer()[(dictI + static_cast<int32_t>(dictOffset))];
@@ -2031,7 +2015,7 @@ public:
 	  for (size_t i = 0; i < currSize; i++) {
 	    const auto& index = indices[i + spanI];
 	    size_t childOffset = index >> valsPerArgShift;
-	    int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	    int64_t inArgI = (index & valsPerArgMask);
 	  
 	    auto& arg = arguments[startChildOffset + childOffset];
 	    uint64_t tmp = static_cast<uint64_t>(arg.asLong);
@@ -2046,7 +2030,7 @@ public:
 	    for (size_t i = 0; i < currSize; i++) {
 	      const auto& index = indices[i + spanI];
 	      size_t childOffset = index >> valsPerArgShift;
-	      int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	      int64_t inArgI = (index & valsPerArgMask);
 	  
 	      auto& arg = arguments[startChildOffset + childOffset];
 	      uint64_t tmp = static_cast<uint64_t>(arg.asLong);
@@ -2078,7 +2062,7 @@ public:
 	    for (size_t i = 0; i < currSize; i++) {
 	      const auto& index = indices[i + spanI];
 	      size_t childOffset = index >> valsPerArgShift;
-	      int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	      int64_t inArgI = (index & valsPerArgMask);
 	  
 	      auto& arg = arguments[startChildOffset + childOffset];
 	      uint64_t tmp = static_cast<uint64_t>(arg.asLong);
@@ -2172,7 +2156,7 @@ public:
 	for (size_t i = 0; i < n; i++) {
 	  const auto& index = indices[i];
 	  size_t childOffset = index >> valsPerArgShift;
-	  int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	  int64_t inArgI = (index & valsPerArgMask);
 	  
 	  auto& arg = arguments[startChildOffset + childOffset];
 	  uint64_t tmp = static_cast<uint64_t>(arg.asLong);
@@ -2185,7 +2169,7 @@ public:
 	for (size_t i = 0; i < n; i++) {
 	  const auto& index = indices[i];
 	  size_t childOffset = index >> valsPerArgShift;
-	  int64_t inArgI = valsPerArg - 1 - (index & valsPerArgMask);
+	  int64_t inArgI = (index & valsPerArgMask);
 	  
 	  auto& arg = arguments[startChildOffset + childOffset];
 	  uint64_t tmp = static_cast<uint64_t>(arg.asLong);
@@ -2271,8 +2255,8 @@ public:
 		   for (size_t i = 0; i < currSize && tempI < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t j = valsPerArg - 1;
-			  j >= 0 && i < currSize;
+		     for (int64_t j = 0;
+			  j < valsPerArg && i < currSize;
 			  j--, i++) {
 		       uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       data[i] = static_cast<bool>(val);
@@ -2379,8 +2363,8 @@ public:
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		   uint64_t tmp = static_cast<uint64_t>(arg);
-		   for (int64_t j = valsPerArg - 1;
-			j >= 0 && i < size;
+		   for (int64_t j = 0;
+			j < valsPerArg && i < size;
 			j--, i++) {
 		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<bool>(val);
@@ -2463,8 +2447,8 @@ public:
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		   uint64_t tmp = static_cast<uint64_t>(arg);
-		   for (int64_t j = valsPerArg - 1;
-			j >= 0 && i < size;
+		   for (int64_t j = 0;
+			j < valsPerArg && i < size;
 			j--, i++) {
 		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<bool>(val);
@@ -2485,8 +2469,8 @@ public:
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		   uint64_t tmp = static_cast<uint64_t>(arg);
-		   for (int64_t j = valsPerArg - 1;
-			j >= 0 && i < size;
+		   for (int64_t j = 0;
+			j < valsPerArg && i < size;
 			j--, i++) {
 		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<int8_t>(val);
@@ -2503,8 +2487,8 @@ public:
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		   uint64_t tmp = static_cast<uint64_t>(arg);
-		   for (int64_t j = valsPerArg - 1;
-			j >= 0 && i < size;
+		   for (int64_t j = 0;
+			j < valsPerArg && i < size;
 			j--, i++) {
 		     uint16_t val = static_cast<uint16_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<int16_t>(val);
@@ -2521,8 +2505,8 @@ public:
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		   uint64_t tmp = static_cast<uint64_t>(arg);
-		   for (int64_t j = valsPerArg - 1;
-			j >= 0 && i < size;
+		   for (int64_t j = 0;
+			j < valsPerArg && i < size;
 			j--, i++) {
 		     uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<int32_t>(val);
@@ -2548,8 +2532,8 @@ public:
 		 for (size_t i = 0; i < size; tempI++) {
 		   int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		   uint64_t tmp = static_cast<uint64_t>(arg);
-		   for (int64_t j = valsPerArg - 1;
-			j >= 0 && i < size;
+		   for (int64_t j = 0;
+			j < valsPerArg && i < size;
 			j--, i++) {
 		     uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     union { uint32_t i; float f; } u;
@@ -2611,8 +2595,8 @@ public:
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t j = valsPerArg - 1;
-			  j >= 0 && i < size;
+		     for (int64_t j = 0;
+			  j < valsPerArg && i < size;
 			  j--, i++) {
 		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
@@ -2626,8 +2610,8 @@ public:
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t j = valsPerArg - 1;
-			  j >= 0 && i < size;
+		     for (int64_t j = 0;
+			  j < valsPerArg && i < size;
 			  j--, i++) {
 		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
@@ -2647,8 +2631,8 @@ public:
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t j = valsPerArg - 1;
-			  j >= 0 && i < size;
+		     for (int64_t j = 0;
+			  j < valsPerArg && i < size;
 			  j--, i++) {
 		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
@@ -2662,8 +2646,8 @@ public:
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t j = valsPerArg - 1;
-			  j >= 0 && i < size;
+		     for (int64_t j = 0;
+			  j < valsPerArg && i < size;
 			  j--, i++) {
 		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
@@ -2683,8 +2667,8 @@ public:
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t j = valsPerArg - 1;
-			  j >= 0 && i < size;
+		     for (int64_t j = 0;
+			  j < valsPerArg && i < size;
 			  j--, i++) {
 		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
@@ -2698,8 +2682,8 @@ public:
 		   for(size_t i = 0; i < size; tempI++) {
 		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t j = valsPerArg - 1;
-			  j >= 0 && i < size;
+		     for (int64_t j = 0;
+			  j < valsPerArg && i < size;
 			  j--, i++) {
 		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
@@ -2742,31 +2726,31 @@ public:
       if constexpr (std::is_same_v<T, bool>) {
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
-	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+	int64_t inArgI = (spanArgI % valsPerArg);
 	return static_cast<bool>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
         // uint32_t val = static_cast<uint8_t>((shiftAmt * inArgI) & 0xFFFFFFFFUL);
 	// return static_cast<bool>(val);
       } else if constexpr (std::is_same_v<T, int8_t>) {
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_CHAR_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_CHAR_SIZE;
-	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+	int64_t inArgI = (spanArgI % valsPerArg);
 	return static_cast<int8_t>(extractField<uint8_t>(tmp, shiftAmt * inArgI));
       } else if constexpr (std::is_same_v<T, int16_t>) {
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_SHORT_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_SHORT_SIZE;
-	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+	int64_t inArgI = (spanArgI % valsPerArg);
 	return static_cast<int16_t>(extractField<uint16_t>(tmp, shiftAmt * inArgI));
       } else if constexpr (std::is_same_v<T, int32_t>) {
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_INT_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_INT_SIZE;
-	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+	int64_t inArgI = (spanArgI % valsPerArg);
 	return static_cast<int32_t>(extractField<uint32_t>(tmp, shiftAmt * inArgI));
       } else if constexpr (std::is_same_v<T, int64_t>) {
 	return argument.asLong;
       } else if constexpr (std::is_same_v<T, float_t>) {
 	constexpr size_t valsPerArg = sizeof(Argument) / Argument_FLOAT_SIZE;
 	constexpr size_t shiftAmt = sizeof(Argument) * Argument_FLOAT_SIZE;
-	int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+	int64_t inArgI = (spanArgI % valsPerArg);
 	uint32_t val = extractField<uint32_t>(tmp, shiftAmt * inArgI);
 	union { int32_t i; float f; } u;
 	u.i = val;
@@ -2817,7 +2801,7 @@ public:
       auto& argument = buffer.flattenedArguments()[argumentIndex];
       uint64_t tmp = static_cast<uint64_t>(argument.asLong);
       size_t valsPerArg = sizeof(Argument) / dictOffsetArgumentSize;
-      int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+      int64_t inArgI = (spanArgI % valsPerArg);
 
       int32_t dictOffset;
       if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
@@ -2844,7 +2828,7 @@ public:
       auto& argument = buffer.flattenedArguments()[argumentIndex];
       uint64_t tmp = static_cast<uint64_t>(argument.asLong);
       size_t valsPerArg = sizeof(Argument) / dictOffsetArgumentSize;
-      int64_t inArgI = valsPerArg - 1 - (spanArgI % valsPerArg);
+      int64_t inArgI = (spanArgI % valsPerArg);
 
       int32_t dictOffset;
       if (dictOffsetArgumentSize == Argument_CHAR_SIZE) {
