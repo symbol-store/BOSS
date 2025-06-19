@@ -1979,8 +1979,11 @@ public:
     }
 
     template<typename T, typename S, typename U>
-    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices, int64_t spanSize) const {
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices, int64_t spanSize, int64_t numSpansOut) const {
       static_assert(std::is_convertible<T, S>::value, "Cannot convert stored type to requested span type in getCurrentExpressionAsSpanAsTypeWithIndices. Change from <T, S, U> as T cannot be converted to S.");
+      if (spanSize > 0 && numSpansOut > 0) {
+	throw std::runtime_error("Cannot call getCurrentExpressionAsSpanAsTypeWithIndices with non-zero spanSize and numSpansOut");
+      }
       constexpr size_t THREADING_THRESHOLD = 256000;
       auto const& arguments = buffer.flattenedArguments();
       auto const& expr = expression();
@@ -2000,12 +2003,20 @@ public:
 	return s;
       }();
 
-      if (spanSize <= 0) {
+      if (spanSize <= 0 && numSpansOut <= 0) {
 	spanSize = n;
+	numSpansOut = 1;
+      } else if (spanSize <= 0 && numSpansOut > 0) {
+	size_t nPerSpan = (n / numSpansOut) + 1;
+	spanSize = nPerSpan;
+      } else if (numSpansOut <= 0 && spanSize > 0) {
+	size_t numSpansUnderEst = n / spanSize;
+	size_t remainder = n % spanSize;
+        numSpansOut = numSpansUnderEst + (remainder == 0 ? 0 : 1);
       }
 
       boss::expressions::ExpressionSpanArguments res;
-      res.reserve((n / spanSize) + 1);
+      res.reserve(numSpansOut);
 
       for (size_t spanI = 0; spanI < n; spanI += spanSize) {
 	size_t currSize = spanSize < (n - spanI) ? spanSize : (n - spanI);
@@ -2025,7 +2036,7 @@ public:
 	} else {
 	  std::vector<S> data(currSize);
 
-	  if (n > THREADING_THRESHOLD && currSize > THREADING_THRESHOLD) {
+	  if (n > THREADING_THRESHOLD && currSize > THREADING_THRESHOLD && numSpansOut != 1) {
 	    #pragma omp parallel for schedule(static) num_threads(20)
 	    for (size_t i = 0; i < currSize; i++) {
 	      const auto& index = indices[i + spanI];
@@ -2098,31 +2109,31 @@ public:
     }
     
     template<typename T, typename U>
-    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices, int64_t spanSize) const {
-      return getCurrentExpressionAsSpanAsTypeWithIndices<T, T, U>(indices, spanSize);
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices, int64_t spanSize, int64_t numSpansOut) const {
+      return getCurrentExpressionAsSpanAsTypeWithIndices<T, T, U>(indices, spanSize, numSpansOut);
     }
 
     template<typename T>
-    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<T>& indices, int64_t spanSize) const {
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<T>& indices, int64_t spanSize, int64_t numSpansOut) const {
       switch(type) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
-	return getCurrentExpressionAsSpanWithIndices<bool, T>(indices, spanSize);
+	return getCurrentExpressionAsSpanWithIndices<bool, T>(indices, spanSize, numSpansOut);
       case ArgumentType::ARGUMENT_TYPE_CHAR:
-	return getCurrentExpressionAsSpanWithIndices<int8_t, T>(indices, spanSize);
+	return getCurrentExpressionAsSpanWithIndices<int8_t, T>(indices, spanSize, numSpansOut);
       case ArgumentType::ARGUMENT_TYPE_SHORT:
-	return getCurrentExpressionAsSpanWithIndices<int16_t, T>(indices, spanSize);
+	return getCurrentExpressionAsSpanWithIndices<int16_t, T>(indices, spanSize, numSpansOut);
       case ArgumentType::ARGUMENT_TYPE_INT:
-	return getCurrentExpressionAsSpanWithIndices<int32_t, T>(indices, spanSize);
+	return getCurrentExpressionAsSpanWithIndices<int32_t, T>(indices, spanSize, numSpansOut);
       case ArgumentType::ARGUMENT_TYPE_LONG:
-	return getCurrentExpressionAsSpanWithIndices<int64_t, T>(indices, spanSize);
+	return getCurrentExpressionAsSpanWithIndices<int64_t, T>(indices, spanSize, numSpansOut);
       case ArgumentType::ARGUMENT_TYPE_FLOAT:
-	return getCurrentExpressionAsSpanWithIndices<float_t, T>(indices, spanSize);
+	return getCurrentExpressionAsSpanWithIndices<float_t, T>(indices, spanSize, numSpansOut);
       case ArgumentType::ARGUMENT_TYPE_DOUBLE:
-	return getCurrentExpressionAsSpanWithIndices<double_t, T>(indices, spanSize);
+	return getCurrentExpressionAsSpanWithIndices<double_t, T>(indices, spanSize, numSpansOut);
       case ArgumentType::ARGUMENT_TYPE_STRING:
-	return getCurrentExpressionAsSpanWithIndices<std::string, T>(indices, spanSize);
+	return getCurrentExpressionAsSpanWithIndices<std::string, T>(indices, spanSize, numSpansOut);
       case ArgumentType::ARGUMENT_TYPE_SYMBOL:
-	return getCurrentExpressionAsSpanWithIndices<boss::Symbol, T>(indices, spanSize);
+	return getCurrentExpressionAsSpanWithIndices<boss::Symbol, T>(indices, spanSize, numSpansOut);
       case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
 	break;
       }
