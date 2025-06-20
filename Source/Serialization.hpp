@@ -2244,13 +2244,26 @@ public:
       throw std::runtime_error("Invalid type in getCurrentExpressionAsSpanWithIndices");
     }
 
-    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size, int64_t spanSize) const {
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size, int64_t spanSize, int64_t numSpansOut) const {
       auto const& arguments = buffer.flattenedArguments();
-      if (spanSize <= 0) {
-	spanSize = size;
+      if (spanSize > 0 && numSpansOut > 0) {
+	throw std::runtime_error("Cannot call getCurrentExpressionAsSpanAsTypeWithTypeAndSize with non-zero spanSize and numSpansOut");
       }
+
+      if (spanSize <= 0 && numSpansOut <= 0) {
+	spanSize = size;
+	numSpansOut = 1;
+      } else if (spanSize <= 0 && numSpansOut > 0) {
+	size_t nPerSpan = (size / numSpansOut) + 1;
+	spanSize = nPerSpan;
+      } else if (numSpansOut <= 0 && spanSize > 0) {
+	size_t numSpansUnderEst = size / spanSize;
+	size_t remainder = size % spanSize;
+        numSpansOut = numSpansUnderEst + (remainder == 0 ? 0 : 1);
+      }
+
       boss::expressions::ExpressionSpanArguments res;
-      res.reserve((size / spanSize) + 1);
+      res.reserve(numSpansOut);
       auto const spanFunctors =
           std::unordered_map<ArgumentType,
 	std::function<void()>>{
