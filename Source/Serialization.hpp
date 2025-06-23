@@ -2036,7 +2036,7 @@ public:
 	} else {
 	  std::vector<S> data(currSize);
 
-	  if (n > THREADING_THRESHOLD && currSize > THREADING_THRESHOLD && numSpansOut != 1) {
+	  if (n > THREADING_THRESHOLD && currSize > THREADING_THRESHOLD && numSpansOut == 1) {
 	    #pragma omp parallel for schedule(static) num_threads(20)
 	    for (size_t i = 0; i < currSize; i++) {
 	      const auto& index = indices[i + spanI];
@@ -2281,7 +2281,7 @@ public:
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t j = 0;
 			  j < valsPerArg && i < currSize;
-			  j--, i++) {
+			  j++, i++) {
 		       uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       data[i] = static_cast<bool>(val);
 		     }
@@ -2370,6 +2370,17 @@ public:
 		}
 	      }}};
       spanFunctors.at(type)();
+      // size_t spanI = 0;
+      // for (const auto &spanRes : res) {
+      // 	std::cout << "SPAN NUM: " << spanI++ << std::endl;
+      // 	std::visit([](const auto& typedSpanRes) {
+      // 	  for (size_t i = 0; i < typedSpanRes.size(); i++) {
+      // 	    std::cout << typedSpanRes[i] << ",";
+      // 	  }
+      // 	  std::endl;
+      // 	},
+      // 	  res);
+      // }
       return res;
     }
     
@@ -2389,7 +2400,7 @@ public:
 		   uint64_t tmp = static_cast<uint64_t>(arg);
 		   for (int64_t j = 0;
 			j < valsPerArg && i < size;
-			j--, i++) {
+			j++, i++) {
 		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<bool>(val);
 		   }
@@ -2473,7 +2484,7 @@ public:
 		   uint64_t tmp = static_cast<uint64_t>(arg);
 		   for (int64_t j = 0;
 			j < valsPerArg && i < size;
-			j--, i++) {
+			j++, i++) {
 		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<bool>(val);
 		   }
@@ -2495,7 +2506,7 @@ public:
 		   uint64_t tmp = static_cast<uint64_t>(arg);
 		   for (int64_t j = 0;
 			j < valsPerArg && i < size;
-			j--, i++) {
+			j++, i++) {
 		     uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<int8_t>(val);
 		   }
@@ -2513,7 +2524,7 @@ public:
 		   uint64_t tmp = static_cast<uint64_t>(arg);
 		   for (int64_t j = 0;
 			j < valsPerArg && i < size;
-			j--, i++) {
+			j++, i++) {
 		     uint16_t val = static_cast<uint16_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<int16_t>(val);
 		   }
@@ -2531,7 +2542,7 @@ public:
 		   uint64_t tmp = static_cast<uint64_t>(arg);
 		   for (int64_t j = 0;
 			j < valsPerArg && i < size;
-			j--, i++) {
+			j++, i++) {
 		     uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     data[i] = static_cast<int32_t>(val);
 		   }
@@ -2558,7 +2569,7 @@ public:
 		   uint64_t tmp = static_cast<uint64_t>(arg);
 		   for (int64_t j = 0;
 			j < valsPerArg && i < size;
-			j--, i++) {
+			j++, i++) {
 		     uint32_t val = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		     union { uint32_t i; float f; } u;
 		     u.i = val;
@@ -2621,7 +2632,7 @@ public:
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t j = 0;
 			  j < valsPerArg && i < size;
-			  j--, i++) {
+			  j++, i++) {
 		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
 		       data[i] = arg.asLong;
@@ -2636,7 +2647,7 @@ public:
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t j = 0;
 			  j < valsPerArg && i < size;
-			  j--, i++) {
+			  j++, i++) {
 		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
 		       data[i] = arg.asLong;
@@ -2657,7 +2668,7 @@ public:
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t j = 0;
 			  j < valsPerArg && i < size;
-			  j--, i++) {
+			  j++, i++) {
 		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
 		       data[i] = arg.asDouble;
@@ -2672,7 +2683,7 @@ public:
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t j = 0;
 			  j < valsPerArg && i < size;
-			  j--, i++) {
+			  j++, i++) {
 		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
 		       data[i] = arg.asDouble;
@@ -2693,7 +2704,7 @@ public:
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t j = 0;
 			  j < valsPerArg && i < size;
-			  j--, i++) {
+			  j++, i++) {
 		       uint8_t dictOffset = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int8_t>(dictOffset))];
 		       data[i] = std::string(viewString(buffer.root, arg.asString));
@@ -2708,7 +2719,7 @@ public:
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t j = 0;
 			  j < valsPerArg && i < size;
-			  j--, i++) {
+			  j++, i++) {
 		       uint32_t dictOffset = static_cast<uint32_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
 		       auto const& arg = dicts[(dictI + static_cast<int32_t>(dictOffset))];
 		       data[i] = std::string(viewString(buffer.root, arg.asString));
