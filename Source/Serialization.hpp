@@ -2007,7 +2007,7 @@ public:
 	spanSize = n;
 	numSpansOut = 1;
       } else if (spanSize <= 0 && numSpansOut > 0) {
-	size_t nPerSpan = (n / numSpansOut) + 1;
+	size_t nPerSpan = (n + numSpansOut - 1) / numSpansOut;
 	spanSize = nPerSpan;
       } else if (numSpansOut <= 0 && spanSize > 0) {
 	size_t numSpansUnderEst = n / spanSize;
@@ -2244,144 +2244,102 @@ public:
       throw std::runtime_error("Invalid type in getCurrentExpressionAsSpanWithIndices");
     }
 
-    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size, int64_t spanSize, int64_t numSpansOut) const {
+    template<typename T>
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithTypeAndSize(size_t size, int64_t spanSize, int64_t numSpansOut) const {
       auto const& arguments = buffer.flattenedArguments();
       if (spanSize > 0 && numSpansOut > 0) {
-	throw std::runtime_error("Cannot call getCurrentExpressionAsSpanAsTypeWithTypeAndSize with non-zero spanSize and numSpansOut");
+	throw std::runtime_error("Cannot call getCurrentExpressionAsSpanAsTypeWithTypeAndSize<T> with non-zero spanSize and numSpansOut");
       }
 
       if (spanSize <= 0 && numSpansOut <= 0) {
 	spanSize = size;
 	numSpansOut = 1;
       } else if (spanSize <= 0 && numSpansOut > 0) {
-	size_t nPerSpan = (size / numSpansOut) + 1;
+	size_t nPerSpan = (size + numSpansOut - 1) / numSpansOut;
 	spanSize = nPerSpan;
       } else if (numSpansOut <= 0 && spanSize > 0) {
 	size_t numSpansUnderEst = size / spanSize;
 	size_t remainder = size % spanSize;
         numSpansOut = numSpansUnderEst + (remainder == 0 ? 0 : 1);
       }
-
+      
       boss::expressions::ExpressionSpanArguments res;
       res.reserve(numSpansOut);
-      auto const spanFunctors =
-          std::unordered_map<ArgumentType,
-	std::function<void()>>{
-              {ArgumentType::ARGUMENT_TYPE_BOOL,
-               [&] {
-		 constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
-		 constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
+      auto base64 = &arguments[argumentIndex];
 
-		 size_t tempI = 0;
-		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
-		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
-		   std::vector<bool> data(currSize);
-		   for (size_t i = 0; i < currSize && tempI < size; tempI++) {
-		     int64_t& arg = arguments[argumentIndex + tempI].asLong;
-		     uint64_t tmp = static_cast<uint64_t>(arg);
-		     for (int64_t j = 0;
-			  j < valsPerArg && i < currSize;
-			  j++, i++) {
-		       uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
-		       data[i] = static_cast<bool>(val);
-		     }
-		   }
-		   res.push_back(std::move(boss::expressions::Span<bool>(std::move(data))));
-		 }
-               }},
-              {ArgumentType::ARGUMENT_TYPE_CHAR,
-               [&] {
-		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
-		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
-		   auto base64 = &arguments[argumentIndex + spanI];
-		   auto base = reinterpret_cast<int8_t*>(base64);
-		   res.push_back(std::move(boss::expressions::Span<int8_t>(base, currSize, nullptr)));
-		 }
-               }},
-              {ArgumentType::ARGUMENT_TYPE_SHORT,
-               [&] {
-		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
-		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
-		   auto base64 = &arguments[argumentIndex + spanI];
-		   auto base = reinterpret_cast<int16_t*>(base64);
-		   res.push_back(std::move(boss::expressions::Span<int16_t>(base, currSize, nullptr)));
-		 }
-               }},
-              {ArgumentType::ARGUMENT_TYPE_INT,
-               [&] {
-		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
-		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
-		   auto base64 = &arguments[argumentIndex + spanI];
-		   auto base = reinterpret_cast<int32_t*>(base64);
-		   res.push_back(std::move(boss::expressions::Span<int32_t>(base, currSize, nullptr)));
-		 }
-               }},
-              {ArgumentType::ARGUMENT_TYPE_LONG,
-               [&] {
-		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
-		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
-		   auto base64 = &arguments[argumentIndex + spanI];
-		   auto base = reinterpret_cast<int64_t*>(base64);
-		   res.push_back(std::move(boss::expressions::Span<int64_t>(base, currSize, nullptr)));
-		 }
-               }},
-              {ArgumentType::ARGUMENT_TYPE_FLOAT,
-               [&] {
-		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
-		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
-		   auto base64 = &arguments[argumentIndex + spanI];
-		   auto base = reinterpret_cast<float_t*>(base64);
-		   res.push_back(std::move(boss::expressions::Span<float_t>(base, currSize, nullptr)));
-		 }
-               }},
-              {ArgumentType::ARGUMENT_TYPE_DOUBLE,
-               [&] {
-		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
-		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
-		   auto base64 = &arguments[argumentIndex + spanI];
-		   auto base = reinterpret_cast<double_t*>(base64);
-		   res.push_back(std::move(boss::expressions::Span<double_t>(base, currSize, nullptr)));
-		 }
-               }},
-              {ArgumentType::ARGUMENT_TYPE_STRING,
-               [&] {
-		 size_t tempI = 0;
-		 for (size_t spanI = 0; spanI < size; spanI += spanSize) {
-		   size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
-		   std::vector<std::string> data(currSize);
-		   for(size_t i = 0; i < currSize && tempI < size; i++, tempI++) {
-		     auto const& arg = arguments[argumentIndex + tempI];
-		     data[i] = std::string(viewString(buffer.root, arg.asString));
-		   }
-		   res.push_back(std::move(boss::expressions::Span<std::string>(std::move(data))));
-		 }
-               }},
-              {ArgumentType::ARGUMENT_TYPE_SYMBOL, [&] {
-	        size_t tempI = 0;
-		for (size_t spanI = 0; spanI < size; spanI += spanSize) {
-		  size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
-		  std::vector<boss::Symbol> data;
-		  data.reserve(currSize);
-		  for(size_t i = 0; i < currSize && tempI < size; i++, tempI++) {
-		    auto const& arg = arguments[argumentIndex + tempI];
-		    data.emplace_back(viewString(buffer.root, arg.asString));
-		  }
-		  res.push_back(std::move(boss::expressions::Span<boss::Symbol>(std::move(data))));
-		}
-	      }}};
-      spanFunctors.at(type)();
-      // size_t spanI = 0;
-      // for (const auto &spanRes : res) {
-      // 	std::cout << "SPAN NUM: " << spanI++ << std::endl;
-      // 	std::visit([](const auto& typedSpanRes) {
-      // 	  for (size_t i = 0; i < typedSpanRes.size(); i++) {
-      // 	    std::cout << typedSpanRes[i] << ",";
-      // 	  }
-      // 	  std::endl;
-      // 	},
-      // 	  res);
-      // }
+      if constexpr(std::is_same_v<T, bool>) {
+	constexpr size_t valsPerArg = sizeof(Argument) / Argument_BOOL_SIZE;
+	constexpr size_t shiftAmt = sizeof(Argument) * Argument_BOOL_SIZE;
+
+	size_t tempI = 0;
+	for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+	  size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+	  std::vector<bool> data(currSize);
+	  for (size_t i = 0; i < currSize && tempI < size; tempI++) {
+	    int64_t& arg = arguments[argumentIndex + tempI].asLong;
+	    uint64_t tmp = static_cast<uint64_t>(arg);
+	    for (int64_t j = 0;
+		 j < valsPerArg && i < currSize;
+		 j++, i++) {
+	      uint8_t val = static_cast<uint8_t>((tmp >> (shiftAmt * j)) & 0xFFFFFFFFUL);
+	      data[i] = static_cast<bool>(val);
+	    }
+	  }
+	  res.push_back(std::move(boss::expressions::Span<bool>(std::move(data))));
+	}
+      } else if constexpr(std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> ||
+			  std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
+			  std::is_same_v<T, float_t> || std::is_same_v<T, double_t>) {
+        auto base = reinterpret_cast<T*>(base64);
+	for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+	  size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+	  auto shiftedBase = base + spanI;
+	  res.push_back(std::move(boss::expressions::Span<T>(shiftedBase, currSize, nullptr)));
+	}
+      } else if constexpr(std::is_same_v<T, std::string> ||
+			  std::is_same_v<T, boss::Symbol>) {
+	size_t tempI = 0;
+	for (size_t spanI = 0; spanI < size; spanI += spanSize) {
+	  size_t currSize = spanSize < (size - spanI) ? spanSize : (size - spanI);
+	  std::vector<T> data;
+	  data.reserve(currSize);
+	  for(size_t i = 0; i < currSize && tempI < size; i++, tempI++) {
+	    auto const& arg = arguments[argumentIndex + tempI];
+	    data.emplace_back(viewString(buffer.root, arg.asString));
+	  }
+	  res.push_back(std::move(boss::expressions::Span<T>(std::move(data))));
+	}
+      } else {
+	throw std::runtime_error("Unsupported template type requested for getCurrentExpressionAsSpanWithTypeAndSize<T>.");
+      }
+
       return res;
+    }
+
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size, int64_t spanSize, int64_t numSpansOut) const {
+      switch(type) {
+      case ArgumentType::ARGUMENT_TYPE_BOOL:
+	return getCurrentExpressionAsSpanWithTypeAndSize<bool>(size, spanSize, numSpansOut);
+      case ArgumentType::ARGUMENT_TYPE_CHAR:
+	return getCurrentExpressionAsSpanWithTypeAndSize<int8_t>(size, spanSize, numSpansOut);
+      case ArgumentType::ARGUMENT_TYPE_SHORT:
+	return getCurrentExpressionAsSpanWithTypeAndSize<int16_t>(size, spanSize, numSpansOut);
+      case ArgumentType::ARGUMENT_TYPE_INT:
+	return getCurrentExpressionAsSpanWithTypeAndSize<int32_t>(size, spanSize, numSpansOut);
+      case ArgumentType::ARGUMENT_TYPE_LONG:
+	return getCurrentExpressionAsSpanWithTypeAndSize<int64_t>(size, spanSize, numSpansOut);
+      case ArgumentType::ARGUMENT_TYPE_FLOAT:
+	return getCurrentExpressionAsSpanWithTypeAndSize<float_t>(size, spanSize, numSpansOut);
+      case ArgumentType::ARGUMENT_TYPE_DOUBLE:
+	return getCurrentExpressionAsSpanWithTypeAndSize<double_t>(size, spanSize, numSpansOut);
+      case ArgumentType::ARGUMENT_TYPE_STRING:
+	return getCurrentExpressionAsSpanWithTypeAndSize<std::string>(size, spanSize, numSpansOut);
+      case ArgumentType::ARGUMENT_TYPE_SYMBOL:
+	return getCurrentExpressionAsSpanWithTypeAndSize<boss::Symbol>(size, spanSize, numSpansOut);
+      case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
+	break;
+      }
+      throw std::runtime_error("Invalid type in getCurrentExpressionAsSpanWithTypeAndSize.");
     }
     
     boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size) const {
