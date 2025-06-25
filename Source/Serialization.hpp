@@ -1929,6 +1929,15 @@ public:
       return buffer.flattenedArguments()[argumentIndex].asString;
     }
 
+    std::vector<size_t> getCurrentExpressionAsStringOffsetsVector(size_t size) const {
+      std::vector<size_t> res(size);
+      const auto &arguments = buffer.flattenedArguments()[argumentIndex];
+      for (size_t i = 0; i < size; i++) {
+	res[i] = arguments[argumentIndex + i].asString();
+      }
+      return res;
+    }
+
     bool currentIsExpression() const {
       auto const& argumentType = (buffer.flattenedArgumentTypes()[typeIndex] & ArgumentType_MASK);
       return argumentType == ArgumentType::ARGUMENT_TYPE_EXPRESSION;
