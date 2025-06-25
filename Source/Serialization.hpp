@@ -1931,7 +1931,7 @@ public:
 
     std::vector<size_t> getCurrentExpressionAsStringOffsetsVector(size_t size) const {
       std::vector<size_t> res(size);
-      const auto &arguments = buffer.flattenedArguments()[argumentIndex];
+      const auto &arguments = buffer.flattenedArguments();
       for (size_t i = 0; i < size; i++) {
 	res[i] = arguments[argumentIndex + i].asString();
       }
