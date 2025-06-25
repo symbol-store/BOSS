@@ -1933,7 +1933,7 @@ public:
       std::vector<size_t> res(size);
       const auto &arguments = buffer.flattenedArguments();
       for (size_t i = 0; i < size; i++) {
-	res[i] = arguments[argumentIndex + i].asString();
+	res[i] = arguments[argumentIndex + i].asString;
       }
       return res;
     }
