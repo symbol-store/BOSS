@@ -1938,6 +1938,17 @@ public:
       return res;
     }
 
+    template<typename T>
+    std::vector<size_t> getCurrentExpressionAsStringOffsetsVectorWithIndices(const std::vector<T> &indices) const {
+      const size_t n = indices.size();
+      std::vector<size_t> res(n);
+      const auto &arguments = buffer.flattenedArguments();
+      for (size_t i = 0; i < n; i++) {
+	res[i] = arguments[argumentIndex + indices[i]].asString;
+      }
+      return res;
+    }
+
     bool currentIsExpression() const {
       auto const& argumentType = (buffer.flattenedArgumentTypes()[typeIndex] & ArgumentType_MASK);
       return argumentType == ArgumentType::ARGUMENT_TYPE_EXPRESSION;
