@@ -1925,6 +1925,10 @@ public:
       return buffer.flattenedArguments()[argumentIndex].asString;
     }
 
+    size_t getCurrentExpressionAsStringUnconditional() const {
+      return buffer.flattenedArguments()[argumentIndex].asString;
+    }
+
     bool currentIsExpression() const {
       auto const& argumentType = (buffer.flattenedArgumentTypes()[typeIndex] & ArgumentType_MASK);
       return argumentType == ArgumentType::ARGUMENT_TYPE_EXPRESSION;
