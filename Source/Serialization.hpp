@@ -2003,7 +2003,7 @@ public:
     }
 
     template<typename T, typename S, typename U>
-    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices, int64_t spanSize, int64_t numSpansOut) const {
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices, int64_t spanSize, int64_t numSpansOut, int64_t numThreads = 1) const {
       static_assert(std::is_convertible<T, S>::value, "Cannot convert stored type to requested span type in getCurrentExpressionAsSpanAsTypeWithIndices. Change from <T, S, U> as T cannot be converted to S.");
       if (spanSize > 0 && numSpansOut > 0) {
 	throw std::runtime_error("Cannot call getCurrentExpressionAsSpanAsTypeWithIndices with non-zero spanSize and numSpansOut");
@@ -2060,8 +2060,9 @@ public:
 	} else {
 	  std::vector<S> data(currSize);
 
-	  if (n > THREADING_THRESHOLD && currSize > THREADING_THRESHOLD && numSpansOut != 1) {
-	    #pragma omp parallel for schedule(static) num_threads(20)
+	  if (n > THREADING_THRESHOLD && currSize > THREADING_THRESHOLD && (numSpansOut != 1 || numThreads != 1)) {
+	    int64_t numThreadsToUse = numSpansOut != 1 ? 20 : numThreads;
+	    #pragma omp parallel for schedule(static) num_threads(numThreadsToUse)
 	    for (size_t i = 0; i < currSize; i++) {
 	      const auto& index = indices[i + spanI];
 	      size_t childOffset = index >> valsPerArgShift;
