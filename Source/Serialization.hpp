@@ -362,8 +362,8 @@ struct SerializedExpression {
                        std::make_index_sequence<std::tuple_size_v<
                            std::decay_t<decltype(input.getStaticArguments())>>>()) +
 	      std::accumulate(
-                       input.getSpanArguments().begin(), input.getSpanArguments().end(), 0,
-                       [&dict, &spanI](auto runningSum, auto const& argument) {
+			      input.getSpanArguments().begin(), input.getSpanArguments().end(), uint64_t(0),
+                       [&dict, &spanI](auto runningSum, auto const& argument) -> uint64_t {
                          return runningSum +
                                 std::visit([&](auto const& spanArgument) {
 				  auto spanBytes = 0;
@@ -720,19 +720,19 @@ struct SerializedExpression {
                             uint64_t& expressionOutputI, uint64_t dictOutputI, SpanDictionary& spanDict, size_t& spanI,
 			    std::unordered_map<std::string, size_t>& stringMap,
 			    bool dictEncodeStrings) {
-    auto const nextLayerTypeOffset =
+    uint64_t const nextLayerTypeOffset =
       typeOutputI +
-      std::accumulate(inputs.begin(), inputs.end(), 0, [this](auto count, auto const& expression) {
+      std::accumulate(inputs.begin(), inputs.end(), uint64_t(0), [this](uint64_t count, auto const& expression) -> uint64_t {
 	return count + countArgumentTypes(expression);
       });
-    auto const nextLayerOffset =
+    uint64_t const nextLayerOffset =
         argumentOutputI +
-      std::accumulate(inputs.begin(), inputs.end(), 0, [this, &spanDict, spanI](auto count, auto const& expression) {
+      std::accumulate(inputs.begin(), inputs.end(),  uint64_t(0), [this, &spanDict, spanI](uint64_t count, auto const& expression) -> uint64_t {
 	return count + countArgumentsPacked(expression, spanDict, spanI);
         });
     auto children = std::vector<boss::ComplexExpression>();
-    auto childrenCountRunningSum = 0UL;
-    auto childrenTypeCountRunningSum = 0UL;
+    uint64_t childrenCountRunningSum = 0UL;
+    uint64_t childrenTypeCountRunningSum = 0UL;
 
     std::for_each(
         std::move_iterator(inputs.begin()), std::move_iterator(inputs.end()),
@@ -754,13 +754,13 @@ struct SerializedExpression {
 			    &stringMap, &dictEncodeStrings, &spanDict, spanI](auto&& argument) {
                       if constexpr(boss::expressions::generic::isComplexExpression<
                                        decltype(argument)>) {
-			auto const childrenCount = countArgumentsPacked(argument, spanDict, spanI);
-			auto const childrenTypeCount = countArgumentTypes(argument);
-                        auto const startChildArgOffset = nextLayerOffset + childrenCountRunningSum;
-                        auto const endChildArgOffset =
+			uint64_t const childrenCount = countArgumentsPacked(argument, spanDict, spanI);
+			uint64_t const childrenTypeCount = countArgumentTypes(argument);
+                        uint64_t const startChildArgOffset = nextLayerOffset + childrenCountRunningSum;
+                        uint64_t const endChildArgOffset =
                             nextLayerOffset + childrenCountRunningSum + childrenCount;
-                        auto const startChildTypeOffset = nextLayerTypeOffset + childrenTypeCountRunningSum;
-                        auto const endChildTypeOffset =
+                        uint64_t const startChildTypeOffset = nextLayerTypeOffset + childrenTypeCountRunningSum;
+                        uint64_t const endChildTypeOffset =
                             nextLayerTypeOffset + childrenTypeCountRunningSum + childrenTypeCount;
 			// std::cout << "HEAD: " << argument.getHead().getName() << std::endl;
 			// std::cout << "  argOutput: " << argumentOutputI << std::endl;
@@ -824,7 +824,7 @@ struct SerializedExpression {
               [this, &argumentOutputI, &typeOutputI, &dictOutputI, &spanDict, &spanI, &stringMap, &dictEncodeStrings](auto&& argument) {
                 std::visit(
 			   [&](auto&& spanArgument) {
-			     auto spanSize = spanArgument.size();
+			     const size_t spanSize = spanArgument.size();
 			     auto const& arg0 = spanArgument[0];
 			     if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
 					  std::is_same_v<std::decay_t<decltype(arg0)>,
@@ -1043,13 +1043,13 @@ public:
 		     uint64_t typeIterator = 0;
                      uint64_t expressionIterator = 0;
 		     uint64_t dictIterator = 0;
-		     auto const childrenTypeCount = countArgumentTypes(input);
-		     auto const childrenCount = countArgumentsPacked(input, spanDict);
-                     auto const startChildArgOffset = 1;
-                     auto const endChildArgOffset =
+		     uint64_t const childrenTypeCount = countArgumentTypes(input);
+		     uint64_t const childrenCount = countArgumentsPacked(input, spanDict);
+                     uint64_t const startChildArgOffset = 1;
+                     uint64_t const endChildArgOffset =
                          startChildArgOffset + childrenCount;
-                     auto const startChildTypeOffset = 1;
-                     auto const endChildTypeOffset =
+                     uint64_t const startChildTypeOffset = 1;
+                     uint64_t const endChildTypeOffset =
                          startChildArgOffset + childrenTypeCount;
                      auto storedString = storeString(&root, input.getHead().getName().c_str());
                      *makeExpression(root, expressionIterator) =
