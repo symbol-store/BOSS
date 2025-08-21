@@ -189,7 +189,7 @@ public: // surface
   // NOLINTEND(bugprone-exception-escape)
 
   friend std::ostream& operator<<(std::ostream& stream, Span const& span) {
-    return stream << span.size;
+    return stream << span.size();
   }
 };
 } // namespace atoms
