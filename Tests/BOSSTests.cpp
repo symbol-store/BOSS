@@ -1580,7 +1580,7 @@ TEST_CASE("Lazy Expression Serialization With Int32_t Spans") {
   auto listTwoSpans = boss::ComplexExpression{"List"_, {}, {}, std::move(spanArgs)};
   boss::Expression const tableExpr = "Table"_("Column"_(std::move(listTwoSpans)));
 
-  auto e =  boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
+  auto e = boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
   CHECK(e.lazilyDeserialize() == tableExpr);
 
   auto e2 = boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
@@ -1609,21 +1609,22 @@ TEST_CASE("Lazy Expression Serialization With Int32_t Spans") {
   int64_t idxsPerSpan = (spanSize + (uint64_t)argsPerSpanIdx - 1) & -(uint64_t)argsPerSpanIdx;
   std::vector<int64_t> matches;
   matches.reserve(indices.size());
-  std::for_each(
-		indices.begin(), indices.end(), [&](const auto& idx) {
-		  auto idxInSpan = idx % spanSize;
-		  auto spansSeen = idx / spanSize;
-		  auto currLogicalSpanIdxStart = spansSeen * idxsPerSpan;
-		  auto currLogicalIdxInSpan = currLogicalSpanIdxStart + idxInSpan;
-		  auto currArgumentIdx = currLogicalIdxInSpan / argsPerSpanIdx;
-		  auto lazyChildExpr = lazyListExpr(currArgumentIdx, idx);
-		  matches.emplace_back(static_cast<int64_t>(get<int8_t>(lazyChildExpr.getCurrentExpressionInSpanAt(currLogicalIdxInSpan))));
-		});
-  
+  std::for_each(indices.begin(), indices.end(), [&](const auto& idx) {
+    auto idxInSpan = idx % spanSize;
+    auto spansSeen = idx / spanSize;
+    auto currLogicalSpanIdxStart = spansSeen * idxsPerSpan;
+    auto currLogicalIdxInSpan = currLogicalSpanIdxStart + idxInSpan;
+    auto currArgumentIdx = currLogicalIdxInSpan / argsPerSpanIdx;
+    auto lazyChildExpr = lazyListExpr(currArgumentIdx, idx);
+    matches.emplace_back(static_cast<int64_t>(
+        get<int8_t>(lazyChildExpr.getCurrentExpressionInSpanAt(currLogicalIdxInSpan))));
+  });
+
   auto resTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(matches))))));
 
-  std::vector<int64_t> expectedMatches = {2,9,10,11,12,17};
-  auto expectedTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(expectedMatches))))));
+  std::vector<int64_t> expectedMatches = {2, 9, 10, 11, 12, 17};
+  auto expectedTable =
+      "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(expectedMatches))))));
   CHECK(resTable == expectedTable);
 }
 

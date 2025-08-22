@@ -70,8 +70,8 @@ public:
    */
   template <typename... Ts>
   ::std::enable_if_t<(sizeof...(Ts) > 0) &&
-                         !(std::conjunction_v<isSpanArgument<::std::decay_t<Ts>>...>)&&!(
-                             std::disjunction_v<isDynamicArgument<Ts>...>),
+                         !(std::conjunction_v<isSpanArgument<::std::decay_t<Ts>>...>) &&
+                         !(std::disjunction_v<isDynamicArgument<Ts>...>),
                      typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
                          ::std::decay_t<Ts>...>>
   operator()(Ts&&... args /*a*/) const {

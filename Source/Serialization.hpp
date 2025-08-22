@@ -507,18 +507,15 @@ struct SerializedExpression {
                         uint64_t const endChildTypeOffset =
                             nextLayerTypeOffset + childrenTypeCountRunningSum + childrenTypeCount;
 #ifdef SERIALIZATION_DEBUG
-			std::cout << "HEAD: " << argument.getHead().getName() << std::endl;
+                        std::cout << "HEAD: " << argument.getHead().getName() << std::endl;
                         std::cout << "  argOutput: " << argumentOutputI << std::endl;
                         std::cout << "  typeOutput: " << typeOutputI << std::endl;
                         std::cout << "  exprOutput: " << expressionOutputI << std::endl;
-                        std::cout << "  startChildArgOffset: " <<
-			  startChildArgOffset << std::endl;
-			std::cout << "  endChildArgOffset: " <<
-			  endChildArgOffset << std::endl;
-			std::cout << "  startChildArgTypeOffset: " <<
-			  startChildTypeOffset << std::endl;
-			std::cout << "  endChildArgTypeOffset:" <<
-			  endChildTypeOffset << std::endl;
+                        std::cout << "  startChildArgOffset: " << startChildArgOffset << std::endl;
+                        std::cout << "  endChildArgOffset: " << endChildArgOffset << std::endl;
+                        std::cout << "  startChildArgTypeOffset: " << startChildTypeOffset
+                                  << std::endl;
+                        std::cout << "  endChildArgTypeOffset:" << endChildTypeOffset << std::endl;
 #endif
                         auto storedString = checkMapAndStoreString(argument.getHead().getName(),
                                                                    stringMap, dictEncodeStrings);
@@ -2336,10 +2333,9 @@ public:
       std::cout << "  argumentCount: " << root->argumentCount << std::endl;
       std::cout << "  argumentBytesCount: " << root->argumentBytesCount << std::endl;
       std::cout << "  expressionCount: " << root->expressionCount << std::endl;
-      std::cout << "  argumentDictionaryBytesCount: " <<
-	root->argumentDictionaryBytesCount << std::endl;
-      std::cout << "  stringArgumentsFillIndex: " <<
-	root->stringArgumentsFillIndex << std::endl;
+      std::cout << "  argumentDictionaryBytesCount: " << root->argumentDictionaryBytesCount
+                << std::endl;
+      std::cout << "  stringArgumentsFillIndex: " << root->stringArgumentsFillIndex << std::endl;
       std::cout << "  originalAddress: " << root->originalAddress << std::endl;
       std::cout << "ROOT: " << root << std::endl;
       std::cout << "ARGS: " << flattenedArguments() << std::endl;

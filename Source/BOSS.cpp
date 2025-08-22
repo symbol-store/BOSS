@@ -84,8 +84,8 @@ char const* bossSymbolToNewString(BOSSSymbol const* arg) {
 }
 
 /**
- *  bool = 0, char = 1, short = 2, int = 3, long = 4, float = 5, double = 6, std::string = 7, Symbol = 8,
- *  ComplexExpression = 9
+ *  bool = 0, char = 1, short = 2, int = 3, long = 4, float = 5, double = 6, std::string = 7, Symbol
+ * = 8, ComplexExpression = 9
  */
 
 size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
