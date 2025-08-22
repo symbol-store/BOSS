@@ -1606,7 +1606,6 @@ TEST_CASE("Lazy Expression Serialization With Spans") {
 
   auto firstIdx = 2;
   auto tempLazyChildExpr = lazyListExpr[firstIdx];
-  auto const& type = tempLazyChildExpr.getCurrentExpressionType();
   std::vector<int64_t> indices;
   indices.push_back(firstIdx);
 
@@ -1614,15 +1613,15 @@ TEST_CASE("Lazy Expression Serialization With Spans") {
   matches.reserve(indices.size());
   std::for_each(
       indices.begin(), indices.end(), [&matches, &lazyListExpr, &numChildren](const auto& idx) {
-        auto lazyChildExpr = (idx < 0 || idx > numChildren ? lazyListExpr[0] : lazyListExpr[idx]);
+        auto lazyChildExpr = lazyListExpr[idx];
         matches.emplace_back(get<int64_t>(lazyChildExpr.getCurrentExpression()));
       });
 
   boss::Expression resTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(matches))))));
-  std::cout << "Lazy Expr: " << lazyListExpr << std::endl;
-  std::cout << "EXPECTED: " << resTable << std::endl;
-  bool equal = lazyListExpr == resTable;
-  CHECK(equal);
+
+  std::vector<int64_t> expectedMatches = {vec4[2]};
+  boss::Expression expectedTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(expectedMatches))))));
+  CHECK(expectedTable == resTable);
 }
 
 // TEST_CASE("Lazy Expression Serialization With Int32_t Spans") {
