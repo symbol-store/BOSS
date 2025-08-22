@@ -1560,20 +1560,18 @@ TEST_CASE("Expression Serialization With Spans") {
     vec2[i] = 100 + i;
   }
 
-  auto const plans = std::array<boss::Expression, 1>{
+  auto const plans = std::array<boss::Expression, 4>{
       "Table"_("List"_(boss::Span<int8_t>(vector(vec1))),
-               "List"_(boss::Span<int8_t>(vector(vec2)))) //,
-      // "Table"_("Column"_("List"_(boss::Span<int8_t>(vector(vec1)))),
-      //          "Column"_("List"_(boss::Span<int8_t>(vector(vec2))))),
-      // "Table"_("Column"_(std::move(listTwoSpans))),
-      // "Table"_("List"_(boss::Span<int64_t>(vector(vec))))
+               "List"_(boss::Span<int8_t>(vector(vec2)))),
+      "Table"_("Column"_("List"_(boss::Span<int8_t>(vector(vec1)))),
+               "Column"_("List"_(boss::Span<int8_t>(vector(vec2))))),
+      "Table"_("Column"_(std::move(listTwoSpans))),
+      "Table"_("List"_(boss::Span<int64_t>(vector(vec))))
   };
 
   for(auto const& plan : plans) {
-    std::cout << "Plan: " << plan << std::endl;
     auto res = boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
       .deserialize();
-    std::cout << "Res: " << res << std::endl;
     CHECK(res == plan);
   }
 }

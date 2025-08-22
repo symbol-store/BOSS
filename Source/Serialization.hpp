@@ -773,7 +773,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i++, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -788,7 +788,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i++, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -803,7 +803,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i++, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -818,7 +818,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i++, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -837,7 +837,7 @@ public:
 	    for (; childTypeI < prevChildTypeI + spanSize; childI++) {
 	      int64_t& arg = arguments[childI].asLong;
 	      uint64_t tmp = static_cast<uint64_t>(arg);
-	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i--, childTypeI++) {
+	      for (int64_t i = 0; i < valsPerArg && childTypeI < prevChildTypeI + spanSize; i++, childTypeI++) {
 		for(auto j = 0; j < exprDepth + 1; j++) {
 		  stream << "  ";
 		}
@@ -920,15 +920,11 @@ public:
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
-			  i--, childTypeIndex++) {
+			  i++, childTypeIndex++) {
 		       uint8_t val = static_cast<uint8_t>((tmp >> (Argument_BOOL_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       data.push_back(static_cast<bool>(val));
 		     }
                    }
-                   // for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++) {
-                   //   auto const& arg = flattenedArguments()[childTypeIndex];
-                   //   data.push_back(arg.asBool);
-                   // }
                    return boss::expressions::Span<bool>(std::move(data));
                  }},
                 {ArgumentType::ARGUMENT_TYPE_CHAR,
@@ -940,15 +936,11 @@ public:
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
-			  i--, childTypeIndex++) {
+			  i++, childTypeIndex++) {
 		       uint8_t val = static_cast<uint8_t>((tmp >> (Argument_CHAR_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       data.push_back(static_cast<int8_t>(val));
 		     }
                    }
-		   // for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++) {
-                   //   auto const& arg = flattenedArguments()[childTypeIndex];
-                   //   data.push_back(arg.asChar);
-                   // }
                    return boss::expressions::Span<int8_t>(std::move(data));
                  }},
                 {ArgumentType::ARGUMENT_TYPE_SHORT,
@@ -960,7 +952,7 @@ public:
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
-			  i--, childTypeIndex++) {
+			  i++, childTypeIndex++) {
 		       uint16_t val = static_cast<uint16_t>((tmp >> (Argument_SHORT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       data.push_back(static_cast<int16_t>(val));
 		     }
@@ -976,15 +968,11 @@ public:
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
-			  i--, childTypeIndex++) {
+			  i++, childTypeIndex++) {
 		       uint32_t val = static_cast<uint32_t>((tmp >> (Argument_INT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       data.push_back(static_cast<int32_t>(val));
 		     }
                    }
-                   // for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++) {
-                   //   auto const& arg = flattenedArguments()[childTypeIndex];
-                   //   data.push_back(arg.asInt);
-                   // }
                    return boss::expressions::Span<int32_t>(std::move(data));
                  }},
                 {ArgumentType::ARGUMENT_TYPE_LONG,
@@ -1007,17 +995,13 @@ public:
                      int64_t& arg = flattenedArguments()[childArgIndex++].asLong;
 		     uint64_t tmp = static_cast<uint64_t>(arg);
 		     for (int64_t i = 0; i < valsPerArg && childTypeIndex < prevChildTypeIndex + size;
-			  i--, childTypeIndex++) {
+			  i++, childTypeIndex++) {
 		       uint32_t val = static_cast<uint32_t>((tmp >> (Argument_FLOAT_SIZE * sizeof(Argument) * i)) & 0xFFFFFFFFUL);
 		       float realVal;
 		       std::memcpy(&realVal, &val, sizeof(realVal));
 		       data.push_back(realVal);
 		     }
                    }
-                   // for(; childTypeIndex < prevChildTypeIndex + size; childTypeIndex++) {
-                   //   auto const& arg = flattenedArguments()[childTypeIndex];
-                   //   data.push_back(arg.asFloat);
-                   // }
                    return boss::expressions::Span<float>(std::move(data));
                  }},
                 {ArgumentType::ARGUMENT_TYPE_DOUBLE,
@@ -2230,17 +2214,17 @@ public:
     case ArgumentType::ARGUMENT_TYPE_SYMBOL:
       return boss::Symbol(viewString(root, flattenedArguments()[0].asString));
     case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
-      std::cout << "ROOT METADATA: " << std::endl;
-      std::cout << "  argumentCount: " << root->argumentCount << std::endl;
-      std::cout << "  argumentBytesCount: " << root->argumentBytesCount << std::endl;
-      std::cout << "  expressionCount: " << root->expressionCount << std::endl;
-      std::cout << "  argumentDictionaryBytesCount: " << root->argumentDictionaryBytesCount << std::endl;
-      std::cout << "  stringArgumentsFillIndex: " << root->stringArgumentsFillIndex << std::endl;
-      std::cout << "  originalAddress: " << root->originalAddress << std::endl;
-      std::cout << "ROOT: " << root << std::endl;
-      std::cout << "ARGS: " << flattenedArguments() << std::endl;
-      std::cout << "TYPES: " << flattenedArgumentTypes() << std::endl;
-      std::cout << "EXPRS: " << expressionsBuffer() << std::endl;
+      // std::cout << "ROOT METADATA: " << std::endl;
+      // std::cout << "  argumentCount: " << root->argumentCount << std::endl;
+      // std::cout << "  argumentBytesCount: " << root->argumentBytesCount << std::endl;
+      // std::cout << "  expressionCount: " << root->expressionCount << std::endl;
+      // std::cout << "  argumentDictionaryBytesCount: " << root->argumentDictionaryBytesCount << std::endl;
+      // std::cout << "  stringArgumentsFillIndex: " << root->stringArgumentsFillIndex << std::endl;
+      // std::cout << "  originalAddress: " << root->originalAddress << std::endl;
+      // std::cout << "ROOT: " << root << std::endl;
+      // std::cout << "ARGS: " << flattenedArguments() << std::endl;
+      // std::cout << "TYPES: " << flattenedArgumentTypes() << std::endl;
+      // std::cout << "EXPRS: " << expressionsBuffer() << std::endl;
       auto const& expr = expressionsBuffer()[0];
       auto s = boss::Symbol(viewString(root, expr.symbolNameOffset));
       if(root->expressionCount == 0) {
