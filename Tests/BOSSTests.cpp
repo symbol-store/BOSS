@@ -72,8 +72,7 @@ TEST_CASE("Expressions", "[expressions]") {
 
   SECTION("dynamic in-place initialized expression arguments") {
     auto spanArgumentExpression =
-        boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, ExpressionArguments(v1,
-        v2));
+        boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, ExpressionArguments(v1, v2));
     CHECK(e == spanArgumentExpression);
   }
 
@@ -97,12 +96,11 @@ TEST_CASE("Expressions", "[expressions]") {
     std::array<int64_t, 2> values = {v1, v2};
     SpanArguments args;
     args.emplace_back(Span<int64_t const>(values.data(), 2, nullptr));
-    auto nested = boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {},
-    std::move(args)); boss::expressions::ExpressionArguments subExpressions;
+    auto nested = boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, {}, std::move(args));
+    boss::expressions::ExpressionArguments subExpressions;
     subExpressions.emplace_back(std::move(nested));
     auto spanArgumentExpression =
-        boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, std::move(subExpressions),
-        {});
+        boss::expressions::ComplexExpression("UnevaluatedPlus"_, {}, std::move(subExpressions), {});
     CHECK("UnevaluatedPlus"_("UnevaluatedPlus"_(v1, v2)) == spanArgumentExpression);
   }
 }
@@ -122,8 +120,7 @@ TEST_CASE("Expressions with static Arguments", "[expressions]") {
     auto const e = boss::ComplexExpressionWithStaticArguments<
         boss::ComplexExpressionWithStaticArguments<std::int64_t>>(
         {"Duh"_,
-         boss::ComplexExpressionWithStaticArguments<std::int64_t>{"UnevaluatedPlus"_, {v1}, {},
-         {}},
+         boss::ComplexExpressionWithStaticArguments<std::int64_t>{"UnevaluatedPlus"_, {v1}, {}, {}},
          {},
          {}});
     CHECK(e.getHead().getName() == "Duh");
@@ -168,24 +165,22 @@ TEST_CASE("Expression cast to more general expression system", "[expressions]") 
   auto a = boss::ExtensibleExpressionSystem<>::Expression("howdie"_());
   auto b = (boss::ExtensibleExpressionSystem<DummyAtom>::Expression)std::move(a);
   CHECK(
-      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b).getHead().getName()
-      == "howdie");
+      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b).getHead().getName() ==
+      "howdie");
   auto& srcExpr = get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b);
   auto const& cexpr = std::decay_t<decltype(srcExpr)>(std::move(srcExpr));
   auto const& args = cexpr.getArguments();
   CHECK(args.empty());
 }
 
-TEST_CASE("Complex expression's argument cast to more general expression system",
-"[expressions]") {
+TEST_CASE("Complex expression's argument cast to more general expression system", "[expressions]") {
   auto a = "List"_("howdie"_(1, 2, 3));
   auto const& b1 =
       (boss::ExtensibleExpressionSystem<DummyAtom>::Expression)(std::move(a).getArgument(0));
   CHECK(
-      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).getHead().getName()
-      == "howdie");
-  auto b2 =
-  get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).cloneArgument(
+      get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).getHead().getName() ==
+      "howdie");
+  auto b2 = get<boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression>(b1).cloneArgument(
       1, CloneReason::FOR_TESTING);
   CHECK(get<int32_t>(b2) == 2);
 }
@@ -204,8 +199,7 @@ TEST_CASE("Extract typed arguments from complex expression (using std::accumulat
                  visit(boss::utilities::overload(
                            [](auto const& value) { return std::to_string(value); },
                            [](DummyAtom const& /*value*/) { return ""s; },
-                           [](boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression
-                           const&
+                           [](boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression const&
                                   expr) { return expr.getHead().getName(); },
                            [](boss::Symbol const& symbol) { return symbol.getName(); },
                            [](std::string const& str) { return str; }),
@@ -215,8 +209,7 @@ TEST_CASE("Extract typed arguments from complex expression (using std::accumulat
   CHECK(str == "List_howdie_1_unknown_hello world");
 }
 
-TEST_CASE("Extract typed arguments from complex expression (manual iteration)", "[expressions]")
-{
+TEST_CASE("Extract typed arguments from complex expression (manual iteration)", "[expressions]") {
   auto exprBase = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   auto const& expr0 =
       boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression(std::move(exprBase));
@@ -230,8 +223,7 @@ TEST_CASE("Extract typed arguments from complex expression (manual iteration)", 
           visit(boss::utilities::overload(
                     [](auto const& value) { return std::to_string(value); },
                     [](DummyAtom const& /*value*/) { return ""s; },
-                    [](boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression const&
-                    expr) {
+                    [](boss::ExtensibleExpressionSystem<DummyAtom>::ComplexExpression const& expr) {
                       return expr.getHead().getName();
                     },
                     [](boss::Symbol const& symbol) { return symbol.getName(); },
@@ -327,7 +319,7 @@ TEST_CASE("move expression's arguments to a new expression", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
   auto&& movedExpr = std::move(expr);
   boss::ExpressionArguments args = movedExpr.getArguments();
-  auto expr2 = boss::ComplexExpression(std::move(movedExpr.getHead()), std::move(args)); //NOLINT
+  auto expr2 = boss::ComplexExpression(std::move(movedExpr.getHead()), std::move(args)); // NOLINT
   CHECK(get<boss::ComplexExpression>(expr2.getArguments().at(0)) == "howdie"_());
   CHECK(get<int32_t>(expr2.getArguments().at(1)) == 1);
   CHECK(get<boss::Symbol>(expr2.getArguments().at(2)) == "unknown"_);
@@ -385,8 +377,7 @@ TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int32_t,
-std::int64_t,
+TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int32_t, std::int64_t,
                    std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto argument = vector<TestType>(input);
@@ -442,9 +433,9 @@ TEMPLATE_TEST_CASE("Cloning Expressions with numeric Spans", "[spans][clone]", s
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, boss::Symbol) {
   using std::literals::string_literals::operator""s;
-  auto vals = GENERATE(take(3, chunk(5, values({"a"s, "b"s, "c"s, "d"s, "e"s, "f"s, "g"s,
-  "h"s})))); auto input = vector<TestType>(); std::transform(begin(vals), end(vals),
-  std::back_inserter(input),
+  auto vals = GENERATE(take(3, chunk(5, values({"a"s, "b"s, "c"s, "d"s, "e"s, "f"s, "g"s, "h"s}))));
+  auto input = vector<TestType>();
+  std::transform(begin(vals), end(vals), std::back_inserter(input),
                  [](auto argument) { return TestType(argument); });
   auto vectorExpression = "duh"_(boss::Span<TestType>(std::move(input)));
   for(auto i = 0U; i < vals.size(); i++) {
@@ -532,11 +523,9 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     auto expectedProjectX = "Table"_("x"_("List"_(thing[0], thing[1], thing[2])));
     auto expectedProjectY = "Table"_("y"_("List"_(y[0], (y[0] + y[2]) / 2, y[2])));
 
-    CHECK(eval("Project"_(interpolationTable.clone(CloneReason::FOR_TESTING), "As"_("x"_, "x"_)))
-    ==
+    CHECK(eval("Project"_(interpolationTable.clone(CloneReason::FOR_TESTING), "As"_("x"_, "x"_))) ==
           expectedProjectX);
-    CHECK(eval("Project"_(interpolationTable.clone(CloneReason::FOR_TESTING), "As"_("y"_, "y"_)))
-    ==
+    CHECK(eval("Project"_(interpolationTable.clone(CloneReason::FOR_TESTING), "As"_("y"_, "y"_))) ==
           expectedProjectY);
   }
 
@@ -568,8 +557,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
       SECTION("Logic") {
         CHECK(eval("Project"_(
                   intTable.clone(CloneReason::FOR_TESTING),
-                  "As"_("Result"_, "And"_("Greater"_("Value"_, 25), "Greater"_(45, "Value"_)))))
-                  ==
+                  "As"_("Result"_, "And"_("Greater"_("Value"_, 25), "Greater"_(45, "Value"_))))) ==
               "Table"_("Result"_("List"_(false, false, true, true, false)))); // NOLINT
       }
     }
@@ -613,8 +601,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     SECTION("Aggregation") {
       SECTION("ConstantGroup") {
         auto result =
-            eval("Group"_(customerTable.clone(CloneReason::FOR_TESTING), "Function"_(0),
-            "Count"_));
+            eval("Group"_(customerTable.clone(CloneReason::FOR_TESTING), "Function"_(0), "Count"_));
         INFO(result);
         CHECK(get<boss::ComplexExpression>(result).getArguments().size() == 2);
         CHECK((get<boss::ComplexExpression>(
@@ -642,8 +629,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
       SECTION("Select+Group") {
         auto result = eval("Group"_("Select"_(customerTable.clone(CloneReason::FOR_TESTING),
-                                              "Where"_("StringContainsQ"_("LastName"_,
-                                              "Madden"))),
+                                              "Where"_("StringContainsQ"_("LastName"_, "Madden"))),
                                     "Function"_(0), "Count"_));
         INFO(result);
         CHECK(get<boss::ComplexExpression>(result).getArguments().size() == 2);
@@ -706,8 +692,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
                              "Country"_("List"_("USA"))));
 
       auto id3 = eval(
-          "Select"_(customerTable.clone(CloneReason::FOR_TESTING), "Where"_("Equal"_("ID"_,
-          3))));
+          "Select"_(customerTable.clone(CloneReason::FOR_TESTING), "Where"_("Equal"_("ID"_, 3))));
       CHECK(id3 == "Table"_("ID"_("List"_(3)), // NOLINT
                             "FirstName"_("List"_("Barbara")), "LastName"_("List"_("Liskov")),
                             "BirthYear"_("List"_(1939)), // NOLINT
@@ -715,8 +700,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
       auto notFound = eval("Select"_(customerTable.clone(CloneReason::FOR_TESTING),
                                      "Where"_("Equal"_("BirthYear"_, 0))));
-      CHECK(notFound == "Table"_("ID"_("List"_()), "FirstName"_("List"_()),
-      "LastName"_("List"_()),
+      CHECK(notFound == "Table"_("ID"_("List"_()), "FirstName"_("List"_()), "LastName"_("List"_()),
                                  "BirthYear"_("List"_()), "Country"_("List"_())));
     }
 
@@ -736,14 +720,12 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
     SECTION("Sorting") {
       auto sortedByID =
-          eval("Sort"_("Select"_(customerTable.clone(CloneReason::FOR_TESTING),
-          "Function"_(true)),
+          eval("Sort"_("Select"_(customerTable.clone(CloneReason::FOR_TESTING), "Function"_(true)),
                        "By"_("ID"_)));
       CHECK(sortedByID == customerTable);
 
       auto sortedByLastName =
-          eval("Sort"_("Select"_(customerTable.clone(CloneReason::FOR_TESTING),
-          "Function"_(true)),
+          eval("Sort"_("Select"_(customerTable.clone(CloneReason::FOR_TESTING), "Function"_(true)),
                        "By"_("LastName"_)));
       CHECK(sortedByLastName == "Table"_("ID"_("List"_(3, 2, 1)), // NOLINT
                                          "FirstName"_("List"_("Barbara", "Sam", "John")),
@@ -754,8 +736,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
 
     SECTION("Aggregation") {
       auto countRows =
-          eval("Group"_(customerTable.clone(CloneReason::FOR_TESTING), "Function"_(0),
-          "Count"_));
+          eval("Group"_(customerTable.clone(CloneReason::FOR_TESTING), "Function"_(0), "Count"_));
       INFO(countRows);
       CHECK(get<boss::ComplexExpression>(countRows).getArguments().size() == 2);
       CHECK(get<boss::ComplexExpression>(
@@ -806,8 +787,7 @@ TEST_CASE("TPC-H", "[tpch]") {
       "Table"_("C_CUSTKEY"_("List"_(4, 7, 1, 4)),                       // NOLINT
                "C_NATIONKEY"_("List"_(15, 13, 1, 4)),                   // NOLINT
                "C_ACCTBAL"_("List"_(711.56, 121.65, 7498.12, 2866.83)), // NOLINT
-               "C_NAME"_("List"_("Customer#000000001", "Customer#000000002",
-               "Customer#000000003",
+               "C_NAME"_("List"_("Customer#000000001", "Customer#000000002", "Customer#000000003",
                                  "Customer#000000004")),
                "C_MKTSEGMENT"_("List"_("AUTOMOBILE", "MACHINERY", "HOUSEHOLD", "BUILDING")));
 
@@ -835,8 +815,8 @@ TEST_CASE("TPC-H", "[tpch]") {
 
   SECTION("Q1 (Select only)") {
     auto output = eval("Select"_(
-        "Project"_(lineitem.clone(CloneReason::FOR_TESTING), "As"_("L_SHIPDATE"_,
-        "L_SHIPDATE"_)), "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))));
+        "Project"_(lineitem.clone(CloneReason::FOR_TESTING), "As"_("L_SHIPDATE"_, "L_SHIPDATE"_)),
+        "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))));
     CHECK(output == eval("Table"_("L_SHIPDATE"_(
                         "List"_("DateObject"_("1992-03-13"), "DateObject"_("1994-04-12"),
                                 "DateObject"_("1996-02-28"), "DateObject"_("1994-12-31"))))));
@@ -846,21 +826,20 @@ TEST_CASE("TPC-H", "[tpch]") {
     auto output = eval("Project"_(
         "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
                    "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                         "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_,
-                         "Plus"_("L_TAX"_, 1.0), "L_DISCOUNT"_, "L_DISCOUNT"_)),
-        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-        "disc_price"_,
+                         "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0),
+                         "L_DISCOUNT"_, "L_DISCOUNT"_)),
+        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "disc_price"_,
               "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "charge"_,
               "Times"_("L_EXTENDEDPRICE"_, "calc1"_, "calc2"_), "L_DISCOUNT"_, "L_DISCOUNT"_)));
     CHECK(
         output ==
         "Table"_("L_QUANTITY"_("List"_(17, 21, 8, 5)),                                    // NOLINT
                  "L_EXTENDEDPRICE"_("List"_(17954.55, 34850.16, 7712.48, 25284.00)),      // NOLINT
-		 "disc_price"_("List"_(17954.55 * (1.0 - 0.10), 34850.16 * (1.0 - 0.05), // NOLINT
+                 "disc_price"_("List"_(17954.55 * (1.0 - 0.10), 34850.16 * (1.0 - 0.05),  // NOLINT
                                        7712.48 * (1.0 - 0.06), 25284.00 * (1.0 - 0.06))), // NOLINT
                  "charge"_("List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),                // NOLINT
                                    34850.16 * (1.0 - 0.05) * (0.06 + 1.0),                // NOLINT
-				   7712.48 * (1.0 - 0.06) * (0.02 + 1.0), // NOLINT
+                                   7712.48 * (1.0 - 0.06) * (0.02 + 1.0),                 // NOLINT
                                    25284.00 * (1.0 - 0.06) * (0.06 + 1.0))),              // NOLINT
                  "L_DISCOUNT"_("List"_(0.10, 0.05, 0.06, 0.06))));                        // NOLINT
   }
@@ -871,19 +850,16 @@ TEST_CASE("TPC-H", "[tpch]") {
             "Project"_("Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
                                             "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
                                                   "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
-                                                  "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-                                                  "L_TAX"_, "L_TAX"_)),
-                                 "Where"_("Greater"_("DateObject"_("1998-08-31"),
-                                 "L_SHIPDATE"_))),
-                       "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
-                       "L_EXTENDEDPRICE"_,
-                             "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0,
-                             "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0))),
+                                                  "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_TAX"_,
+                                                  "L_TAX"_)),
+                                 "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
+                       "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                             "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
+                             "calc2"_, "Plus"_("L_TAX"_, 1.0))),
             "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
                   "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
                   "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
-        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
-        "L_DISCOUNT"_,
+        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
               "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
               "Times"_("disc_price"_, "calc2"_))));
     CHECK(output ==
@@ -896,8 +872,8 @@ TEST_CASE("TPC-H", "[tpch]") {
                                      7712.48 * (1.0 - 0.06), 25284.00 * (1.0 - 0.06))),   // NOLINT
                    "Column"_("calc"_, "List"_(17954.55 * (1.0 - 0.10) * (0.02 + 1.0),     // NOLINT
                                               34850.16 * (1.0 - 0.05) * (0.06 + 1.0),     // NOLINT
-					      7712.48 * (1.0 - 0.06) * (0.02 + 1.0), // NOLINT
-					      25284.00 * (1.0 - 0.06) * (0.06 + 1.0))))); // NOLINT
+                                              7712.48 * (1.0 - 0.06) * (0.02 + 1.0),      // NOLINT
+                                              25284.00 * (1.0 - 0.06) * (0.06 + 1.0))))); // NOLINT
   }
 
   SECTION("Q1 (No Order, No Strings)") {
@@ -907,8 +883,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                 "Project"_(
                     "Select"_(
                         "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
-                                   "L_DISCOUNT"_,
+                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
                                          "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
                                          "L_EXTENDEDPRICE"_, "L_RETURNFLAG_INT"_,
                                          "L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_,
@@ -928,9 +903,9 @@ TEST_CASE("TPC-H", "[tpch]") {
                   "calc"_, "Times"_("disc_price"_, "calc2"_))),
         "By"_("L_RETURNFLAG_INT"_, "L_LINESTATUS_INT"_),
         "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
-              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_),
-              "AVG_QTY"_, "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_),
-              "AVG_DISC"_, "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
+              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_,
+              "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_,
+              "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
     CHECK(output ==
           "Table"_("L_RETURNFLAG_INT"_("List"_('N'_i64, 'A'_i64)),                      // NOLINT
                    "L_LINESTATUS_INT"_("List"_('O'_i64, 'F'_i64)),                      // NOLINT
@@ -956,8 +931,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                 "Project"_(
                     "Select"_(
                         "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
-                                   "L_DISCOUNT"_,
+                                   "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
                                          "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
                                          "L_EXTENDEDPRICE"_, "L_RETURNFLAG"_, "L_RETURNFLAG"_,
                                          "L_LINESTATUS"_, "L_LINESTATUS"_, "L_TAX"_, "L_TAX"_)),
@@ -970,16 +944,15 @@ TEST_CASE("TPC-H", "[tpch]") {
                       "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
                       "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
                       "Times"_("L_EXTENDEDPRICE"_, "calc1"_), "calc2"_, "calc2"_)),
-            "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
-            "L_QUANTITY"_,
+            "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_, "L_QUANTITY"_,
                   "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_, "L_DISCOUNT"_,
                   "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
                   "Times"_("disc_price"_, "calc2"_))),
         "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
         "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
-              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_),
-              "AVG_QTY"_, "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_),
-              "AVG_DISC"_, "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
+              "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_), "AVG_QTY"_,
+              "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_), "AVG_DISC"_,
+              "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))));
     CHECK(output ==
           "Table"_("Column"_("L_RETURNFLAG"_, "List"_("N", "A")),  // NOLINT
                    "Column"_("L_LINESTATUS"_, "List"_("O", "F")),  // NOLINT
@@ -997,7 +970,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                    "Column"_("AVG_PRICE"_, "List"_((17954.55 + 34850.16) / 2,             // NOLINT
                                                    (7712.48 + 25284.00) / 2)),            // NOLINT
                    "Column"_("AVG_DISC"_, "List"_((0.10 + 0.05) / 2, (0.06 + 0.06) / 2)), // NOLINT
-		   "Column"_("COUNT_ORDER"_, "List"_(2, 2)))); // NOLINT
+                   "Column"_("COUNT_ORDER"_, "List"_(2, 2))));                            // NOLINT
   }
 
   SECTION("Q1") {
@@ -1013,12 +986,11 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                    "L_RETURNFLAG"_, "L_RETURNFLAG"_,
                                                    "L_LINESTATUS"_, "L_LINESTATUS"_, "L_TAX"_,
                                                    "L_TAX"_)),
-                                  "Where"_("Greater"_("DateObject"_("1998-08-31"),
-                                  "L_SHIPDATE"_))),
+                                  "Where"_("Greater"_("DateObject"_("1998-08-31"), "L_SHIPDATE"_))),
                         "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
-                              "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_,
-                              "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_,
-                              "Minus"_(1.0, "L_DISCOUNT"_), "calc2"_, "Plus"_("L_TAX"_, 1.0))),
+                              "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                              "L_DISCOUNT"_, "L_DISCOUNT"_, "calc1"_, "Minus"_(1.0, "L_DISCOUNT"_),
+                              "calc2"_, "Plus"_("L_TAX"_, 1.0))),
                     "As"_("L_RETURNFLAG"_, "L_RETURNFLAG"_, "L_LINESTATUS"_, "L_LINESTATUS"_,
                           "L_QUANTITY"_, "L_QUANTITY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
                           "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_,
@@ -1028,8 +1000,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                       "L_DISCOUNT"_, "L_DISCOUNT"_, "disc_price"_, "disc_price"_, "calc"_,
                       "Times"_("disc_price"_, "calc2"_))),
             "By"_("L_RETURNFLAG"_, "L_LINESTATUS"_),
-            "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_,
-            "Sum"_("L_EXTENDEDPRICE"_),
+            "As"_("SUM_QTY"_, "Sum"_("L_QUANTITY"_), "SUM_BASE_PRICE"_, "Sum"_("L_EXTENDEDPRICE"_),
                   "SUM_DISC_PRICE"_, "Sum"_("disc_price"_), "SUM_CHARGES"_, "Sum"_("calc"_),
                   "AVG_QTY"_, "Avg"_("L_QUANTITY"_), "AVG_PRICE"_, "Avg"_("L_EXTENDEDPRICE"_),
                   "AVG_DISC"_, "Avg"_("l_discount"_), "COUNT_ORDER"_, "Count"_("*"_))),
@@ -1057,8 +1028,7 @@ TEST_CASE("TPC-H", "[tpch]") {
         "Select"_(
             "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
                        "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
-                             "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
-                             "L_EXTENDEDPRICE"_)),
+                             "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
             "Where"_("And"_("Greater"_(24, "L_QUANTITY"_),      // NOLINT
                             "Greater"_("L_DISCOUNT"_, 0.0499),  // NOLINT
                             "Greater"_(0.07001, "L_DISCOUNT"_), // NOLINT
@@ -1072,8 +1042,7 @@ TEST_CASE("TPC-H", "[tpch]") {
     auto output = eval("Group"_(
         "Project"_(
             "Select"_("Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                 "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_,
-                                 "L_DISCOUNT"_,
+                                 "As"_("L_QUANTITY"_, "L_QUANTITY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
                                        "L_SHIPDATE"_, "L_SHIPDATE"_, "L_EXTENDEDPRICE"_,
                                        "L_EXTENDEDPRICE"_)),
                       "Where"_("And"_("Greater"_(24, "L_QUANTITY"_),      // NOLINT
@@ -1095,8 +1064,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                         "Join"_(
                             "Project"_(
                                 "Select"_("Project"_(customer.clone(CloneReason::FOR_TESTING),
-                                                     "As"_("C_CUSTKEY"_, "C_CUSTKEY"_,
-                                                     "C_ACCTBAL"_,
+                                                     "As"_("C_CUSTKEY"_, "C_CUSTKEY"_, "C_ACCTBAL"_,
                                                            "C_ACCTBAL"_)),
                                           "Where"_("Equal"_("C_ACCTBAL"_, 2866.83))), // NOLINT
                                 "As"_("C_CUSTKEY"_, "C_CUSTKEY"_)),
@@ -1105,8 +1073,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                                            "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
                                                  "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
                                                  "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-                                "Where"_("Greater"_("DateObject"_("1995-03-15"),
-                                "O_ORDERDATE"_))),
+                                "Where"_("Greater"_("DateObject"_("1995-03-15"), "O_ORDERDATE"_))),
                             "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
                         "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
                               "O_CUSTKEY"_, "O_CUSTKEY"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
@@ -1115,8 +1082,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                                              "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_,
                                                    "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
                                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
-                                  "Where"_("Greater"_("L_SHIPDATE"_,
-                                  "DateObject"_("1993-03-15")))),
+                                  "Where"_("Greater"_("L_SHIPDATE"_, "DateObject"_("1993-03-15")))),
                         "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
                               "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
                     "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
@@ -1148,8 +1114,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                                            "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
                                                  "O_ORDERDATE"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
                                                  "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
-                                "Where"_("Greater"_("DateObject"_("1995-03-15"),
-                                "O_ORDERDATE"_))),
+                                "Where"_("Greater"_("DateObject"_("1995-03-15"), "O_ORDERDATE"_))),
                             "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
                         "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
                               "O_CUSTKEY"_, "O_CUSTKEY"_, "O_SHIPPRIORITY"_, "O_SHIPPRIORITY"_)),
@@ -1158,8 +1123,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                                              "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_,
                                                    "L_DISCOUNT"_, "L_SHIPDATE"_, "L_SHIPDATE"_,
                                                    "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
-                                  "Where"_("Greater"_("L_SHIPDATE"_,
-                                  "DateObject"_("1993-03-15")))),
+                                  "Where"_("Greater"_("L_SHIPDATE"_, "DateObject"_("1993-03-15")))),
                         "As"_("L_ORDERKEY"_, "L_ORDERKEY"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
                               "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_)),
                     "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
@@ -1185,8 +1149,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                                         "Select"_(
                                             "Project"_(part.clone(CloneReason::FOR_TESTING),
                                                        "As"_("P_PARTKEY"_, "P_PARTKEY"_,
-                                                             "P_RETAILPRICE"_,
-                                                             "P_RETAILPRICE"_)),
+                                                             "P_RETAILPRICE"_, "P_RETAILPRICE"_)),
                                             "Where"_("Equal"_("P_RETAILPRICE"_, 100.01))), // NOLINT
                                         "As"_("P_PARTKEY"_, "P_PARTKEY"_)),
                                     "Project"_(
@@ -1202,40 +1165,33 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                         "As"_("S_SUPPKEY"_, "S_SUPPKEY"_,
                                                               "S_NATIONKEY"_, "S_NATIONKEY"_)),
                                                     "Where"_(
-                                                        "Equal"_("N_NATIONKEY"_,
-                                                        "S_NATIONKEY"_))),
-                                                "As"_("N_REGIONKEY"_, "N_REGIONKEY"_,
-                                                "S_SUPPKEY"_,
+                                                        "Equal"_("N_NATIONKEY"_, "S_NATIONKEY"_))),
+                                                "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "S_SUPPKEY"_,
                                                       "S_SUPPKEY"_)),
                                             "Project"_(partsupp.clone(CloneReason::FOR_TESTING),
                                                        "As"_("PS_PARTKEY"_, "PS_PARTKEY"_,
                                                              "PS_SUPPKEY"_, "PS_SUPPKEY"_,
-                                                             "PS_SUPPLYCOST"_,
-                                                             "PS_SUPPLYCOST"_)),
+                                                             "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
                                             "Where"_("Equal"_("S_SUPPKEY"_, "PS_SUPPKEY"_))),
                                         "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_PARTKEY"_,
                                               "PS_PARTKEY"_, "PS_SUPPKEY"_, "PS_SUPPKEY"_,
                                               "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
                                     "Where"_("Equal"_("P_PARTKEY"_, "PS_PARTKEY"_))),
-                                "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_PARTKEY"_,
-                                "PS_PARTKEY"_,
+                                "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_PARTKEY"_, "PS_PARTKEY"_,
                                       "PS_SUPPKEY"_, "PS_SUPPKEY"_, "PS_SUPPLYCOST"_,
                                       "PS_SUPPLYCOST"_)),
                             "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                       "As"_("L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_,
-                                       "L_SUPPKEY"_,
+                                       "As"_("L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_, "L_SUPPKEY"_,
                                              "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_,
                                              "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
                                              "L_QUANTITY"_, "L_QUANTITY"_)),
                             "Where"_("Equal"_("List"_("PS_PARTKEY"_, "PS_SUPPKEY"_),
                                               "List"_("L_PARTKEY"_, "L_SUPPKEY"_)))),
                         "As"_("N_REGIONKEY"_, "N_REGIONKEY"_, "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_,
-                              "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_,
-                              "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_,
-                              "L_QUANTITY"_)),
+                              "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                              "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_, "L_QUANTITY"_)),
                     "Project"_(orders.clone(CloneReason::FOR_TESTING),
-                               "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
-                               "O_ORDERDATE"_)),
+                               "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_)),
                     "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
                 "As"_("nation"_, "N_REGIONKEY"_, "O_YEAR"_, "Year"_("O_ORDERDATE"_), "amount"_,
                       "Minus"_("Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)),
@@ -1258,8 +1214,7 @@ TEST_CASE("TPC-H", "[tpch]") {
                                         "Select"_("Project"_(part.clone(CloneReason::FOR_TESTING),
                                                              "As"_("P_PARTKEY"_, "P_PARTKEY"_,
                                                                    "P_NAME"_, "P_NAME"_)),
-                                                  "Where"_("StringContainsQ"_("P_NAME"_,
-                                                  "green"))),
+                                                  "Where"_("StringContainsQ"_("P_NAME"_, "green"))),
                                         "As"_("P_PARTKEY"_, "P_PARTKEY"_)),
                                     "Project"_(
                                         "Join"_(
@@ -1267,23 +1222,20 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                 "Join"_(
                                                     "Project"_(
                                                         nation.clone(CloneReason::FOR_TESTING),
-                                                        "As"_("N_NAME"_, "N_NAME"_,
-                                                        "N_NATIONKEY"_,
+                                                        "As"_("N_NAME"_, "N_NAME"_, "N_NATIONKEY"_,
                                                               "N_NATIONKEY"_)),
                                                     "Project"_(
                                                         supplier.clone(CloneReason::FOR_TESTING),
                                                         "As"_("S_SUPPKEY"_, "S_SUPPKEY"_,
                                                               "S_NATIONKEY"_, "S_NATIONKEY"_)),
                                                     "Where"_(
-                                                        "Equal"_("N_NATIONKEY"_,
-                                                        "S_NATIONKEY"_))),
+                                                        "Equal"_("N_NATIONKEY"_, "S_NATIONKEY"_))),
                                                 "As"_("N_NAME"_, "N_NAME"_, "S_SUPPKEY"_,
                                                       "S_SUPPKEY"_)),
                                             "Project"_(partsupp.clone(CloneReason::FOR_TESTING),
                                                        "As"_("PS_PARTKEY"_, "PS_PARTKEY"_,
                                                              "PS_SUPPKEY"_, "PS_SUPPKEY"_,
-                                                             "PS_SUPPLYCOST"_,
-                                                             "PS_SUPPLYCOST"_)),
+                                                             "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_)),
                                             "Where"_("Equal"_("S_SUPPKEY"_, "PS_SUPPKEY"_))),
                                         "As"_("N_NAME"_, "N_NAME"_, "PS_PARTKEY"_, "PS_PARTKEY"_,
                                               "PS_SUPPKEY"_, "PS_SUPPKEY"_, "PS_SUPPLYCOST"_,
@@ -1293,20 +1245,17 @@ TEST_CASE("TPC-H", "[tpch]") {
                                       "PS_SUPPKEY"_, "PS_SUPPKEY"_, "PS_SUPPLYCOST"_,
                                       "PS_SUPPLYCOST"_)),
                             "Project"_(lineitem.clone(CloneReason::FOR_TESTING),
-                                       "As"_("L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_,
-                                       "L_SUPPKEY"_,
+                                       "As"_("L_PARTKEY"_, "L_PARTKEY"_, "L_SUPPKEY"_, "L_SUPPKEY"_,
                                              "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_,
                                              "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_,
                                              "L_QUANTITY"_, "L_QUANTITY"_)),
                             "Where"_("Equal"_("List"_("PS_PARTKEY"_, "PS_SUPPKEY"_),
                                               "List"_("L_PARTKEY"_, "L_SUPPKEY"_)))),
                         "As"_("N_NAME"_, "N_NAME"_, "PS_SUPPLYCOST"_, "PS_SUPPLYCOST"_,
-                              "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_,
-                              "L_EXTENDEDPRICE"_, "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_,
-                              "L_QUANTITY"_)),
+                              "L_ORDERKEY"_, "L_ORDERKEY"_, "L_EXTENDEDPRICE"_, "L_EXTENDEDPRICE"_,
+                              "L_DISCOUNT"_, "L_DISCOUNT"_, "L_QUANTITY"_, "L_QUANTITY"_)),
                     "Project"_(orders.clone(CloneReason::FOR_TESTING),
-                               "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_,
-                               "O_ORDERDATE"_)),
+                               "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_)),
                     "Where"_("Equal"_("O_ORDERKEY"_, "L_ORDERKEY"_))),
                 "As"_("nation"_, "N_NAME"_, "O_YEAR"_, "Year"_("O_ORDERDATE"_), "amount"_,
                       "Minus"_("Times"_("L_EXTENDEDPRICE"_, "Minus"_(1.0, "L_DISCOUNT"_)),
@@ -1332,16 +1281,14 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                      "C_CUSTKEY"_)),
                                     "Project"_(orders.clone(CloneReason::FOR_TESTING),
                                                "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_CUSTKEY"_,
-                                                     "O_CUSTKEY"_, "O_ORDERDATE"_,
-                                                     "O_ORDERDATE"_, "O_TOTALPRICE"_,
-                                                     "O_TOTALPRICE"_)),
+                                                     "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                                     "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
                                     "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
                             "As"_("C_ACCTBAL"_, "C_ACCTBAL"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
                                   "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
                                   "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
                         "Where"_("Equal"_("L_ORDERKEY"_, "O_ORDERKEY"_))),
-                "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
-                "O_TOTALPRICE"_,
+                "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_, "O_TOTALPRICE"_,
                       "O_TOTALPRICE"_, "C_ACCTBAL"_, "C_ACCTBAL"_, "O_CUSTKEY"_, "O_CUSTKEY"_,
                       "sum_l_quantity"_, "sum_l_quantity"_)),
             "By"_("C_ACCTBAL"_, "O_CUSTKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_TOTALPRICE"_),
@@ -1360,15 +1307,13 @@ TEST_CASE("TPC-H", "[tpch]") {
                                                 "As"_("sum_l_quantity"_, "Sum"_("L_QUANTITY"_))),
                                        "Where"_("Greater"_("sum_l_quantity"_, 1.0))), // NOLINT
                              "Project"_("Join"_("Project"_(customer.clone(CloneReason::FOR_TESTING),
-                                                           "As"_("C_NAME"_, "C_NAME"_,
-                                                           "C_CUSTKEY"_,
+                                                           "As"_("C_NAME"_, "C_NAME"_, "C_CUSTKEY"_,
                                                                  "C_CUSTKEY"_)),
                                                 "Project"_(orders.clone(CloneReason::FOR_TESTING),
                                                            "As"_("O_ORDERKEY"_, "O_ORDERKEY"_,
                                                                  "O_CUSTKEY"_, "O_CUSTKEY"_,
                                                                  "O_ORDERDATE"_, "O_ORDERDATE"_,
-                                                                 "O_TOTALPRICE"_,
-                                                                 "O_TOTALPRICE"_)),
+                                                                 "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
                                                 "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
                                         "As"_("C_NAME"_, "C_NAME"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
                                               "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_,
@@ -1420,8 +1365,7 @@ TEST_CASE("Expression Serialization") {
                                        "Where"_("Greater"_("sum_l_quantity"_, 1.0))), // NOLINT
                              "Project"_(
                                  "Join"_("Project"_("customer"_, "As"_("C_NAME"_, "C_NAME"_,
-                                                                       "C_CUSTKEY"_,
-                                                                       "C_CUSTKEY"_)),
+                                                                       "C_CUSTKEY"_, "C_CUSTKEY"_)),
                                          "Project"_("orders"_,
                                                     "As"_("O_ORDERKEY"_, "O_ORDERKEY"_,
                                                           "O_CUSTKEY"_, "O_CUSTKEY"_,
@@ -1429,8 +1373,8 @@ TEST_CASE("Expression Serialization") {
                                                           "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
                                          "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
                                  "As"_("C_NAME"_, "C_NAME"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
-                                       "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_,
-                                       "O_ORDERDATE"_, "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
+                                       "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                       "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
                              "Where"_("Equal"_("L_ORDERKEY"_, "O_ORDERKEY"_))),
                      "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
                            "O_TOTALPRICE"_, "O_TOTALPRICE"_, "C_NAME"_, "C_NAME"_, "O_CUSTKEY"_,
@@ -1464,8 +1408,7 @@ TEST_CASE("Lazy Expression Serialization") {
                                        "Where"_("Greater"_("sum_l_quantity"_, 1.0))), // NOLINT
                              "Project"_(
                                  "Join"_("Project"_("customer"_, "As"_("C_NAME"_, "C_NAME"_,
-                                                                       "C_CUSTKEY"_,
-                                                                       "C_CUSTKEY"_)),
+                                                                       "C_CUSTKEY"_, "C_CUSTKEY"_)),
                                          "Project"_("orders"_,
                                                     "As"_("O_ORDERKEY"_, "O_ORDERKEY"_,
                                                           "O_CUSTKEY"_, "O_CUSTKEY"_,
@@ -1473,8 +1416,8 @@ TEST_CASE("Lazy Expression Serialization") {
                                                           "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
                                          "Where"_("Equal"_("C_CUSTKEY"_, "O_CUSTKEY"_))),
                                  "As"_("C_NAME"_, "C_NAME"_, "O_ORDERKEY"_, "O_ORDERKEY"_,
-                                       "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_,
-                                       "O_ORDERDATE"_, "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
+                                       "O_CUSTKEY"_, "O_CUSTKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
+                                       "O_TOTALPRICE"_, "O_TOTALPRICE"_)),
                              "Where"_("Equal"_("L_ORDERKEY"_, "O_ORDERKEY"_))),
                      "As"_("O_ORDERKEY"_, "O_ORDERKEY"_, "O_ORDERDATE"_, "O_ORDERDATE"_,
                            "O_TOTALPRICE"_, "O_TOTALPRICE"_, "C_NAME"_, "C_NAME"_, "O_CUSTKEY"_,
@@ -1554,7 +1497,7 @@ TEST_CASE("Expression Serialization With Spans") {
   auto listTwoSpans = boss::ComplexExpression{"List"_, {}, {}, std::move(spanArgs)};
 
   std::vector<int64_t> vec;
-  for (auto i = 0; i < dataSetSize; i++) {
+  for(auto i = 0; i < dataSetSize; i++) {
     vec.push_back(100);
     vec1[i] = 100;
     vec2[i] = 100 + i;
@@ -1566,12 +1509,11 @@ TEST_CASE("Expression Serialization With Spans") {
       "Table"_("Column"_("List"_(boss::Span<int8_t>(vector(vec1)))),
                "Column"_("List"_(boss::Span<int8_t>(vector(vec2))))),
       "Table"_("Column"_(std::move(listTwoSpans))),
-      "Table"_("List"_(boss::Span<int64_t>(vector(vec))))
-  };
+      "Table"_("List"_(boss::Span<int64_t>(vector(vec))))};
 
   for(auto const& plan : plans) {
     auto res = boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
-      .deserialize();
+                   .deserialize();
     CHECK(res == plan);
   }
 }
@@ -1582,12 +1524,12 @@ TEST_CASE("Lazy Expression Serialization With Spans") {
   std::vector<int32_t> vec3(dataSetSize);
   std::vector<int64_t> vec4(dataSetSize);
   std::vector<int8_t> vec5(dataSetSize);
-  for (auto i = 0; i < dataSetSize; i++) {
+  for(auto i = 0; i < dataSetSize; i++) {
     vec3[i] = 10 + i;
     vec4[i] = 10 + dataSetSize + i;
     vec5[i] = 50 + i;
   }
-  boss::Expression const tableExpr = 
+  boss::Expression const tableExpr =
       "Table"_("Column"_("List"_(boss::Span<int32_t>(vector(vec3)))),
                "Column"_(boss::Span<int8_t>(vector(vec5))),
                "Column"_("List"_(boss::Span<int64_t>(vector(vec4)))));
@@ -1611,95 +1553,80 @@ TEST_CASE("Lazy Expression Serialization With Spans") {
 
   std::vector<int64_t> matches;
   matches.reserve(indices.size());
-  std::for_each(
-      indices.begin(), indices.end(), [&matches, &lazyListExpr, &numChildren](const auto& idx) {
-        auto lazyChildExpr = lazyListExpr[idx];
-        matches.emplace_back(get<int64_t>(lazyChildExpr.getCurrentExpression()));
-      });
+  std::for_each(indices.begin(), indices.end(),
+                [&matches, &lazyListExpr, &numChildren](const auto& idx) {
+                  auto lazyChildExpr = lazyListExpr[idx];
+                  matches.emplace_back(get<int64_t>(lazyChildExpr.getCurrentExpression()));
+                });
 
-  boss::Expression resTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(matches))))));
+  boss::Expression resTable =
+      "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(matches))))));
 
   std::vector<int64_t> expectedMatches = {vec4[2]};
-  boss::Expression expectedTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(expectedMatches))))));
+  boss::Expression expectedTable =
+      "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(expectedMatches))))));
   CHECK(expectedTable == resTable);
 }
 
-// TEST_CASE("Lazy Expression Serialization With Int32_t Spans") {
+TEST_CASE("Lazy Expression Serialization With Int32_t Spans") {
 
-//   auto dataSetSize = 20;
-//   std::vector<int8_t> vec3(dataSetSize);
-//   std::vector<int8_t> vec4(dataSetSize);
-//   std::iota(vec3.begin(), vec3.end(), 0);
-//   std::iota(vec4.begin(), vec4.end(), dataSetSize);
-//   boss::expressions::ExpressionSpanArguments spanArgs;
-//   spanArgs.push_back(std::move(boss::Span<int8_t>(vector(vec3))));
-//   auto listTwoSpans = boss::ComplexExpression{"List"_, {}, {}, std::move(spanArgs)};
-//   boss::Expression const tableExpr = "Table"_("Column"_(std::move(listTwoSpans)));
+  auto dataSetSize = 20;
+  std::vector<int8_t> vec3(dataSetSize);
+  std::vector<int8_t> vec4(dataSetSize);
+  std::iota(vec3.begin(), vec3.end(), 0);
+  std::iota(vec4.begin(), vec4.end(), dataSetSize);
+  boss::expressions::ExpressionSpanArguments spanArgs;
+  spanArgs.push_back(std::move(boss::Span<int8_t>(vector(vec3))));
+  auto listTwoSpans = boss::ComplexExpression{"List"_, {}, {}, std::move(spanArgs)};
+  boss::Expression const tableExpr = "Table"_("Column"_(std::move(listTwoSpans)));
 
-//   // auto e = boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
-//   // CHECK(e.lazilyDeserialize() == tableExpr);
+  auto e =  boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
+  CHECK(e.lazilyDeserialize() == tableExpr);
 
-//   auto e2 = boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
-//   auto lazyExpr = e2.lazilyDeserialize();
-//   auto lazyColExpr = lazyExpr[0];
-//   auto lazyListExpr = lazyColExpr[0];
+  auto e2 = boss::serialization::SerializedExpression(tableExpr.clone(CloneReason::FOR_TESTING));
+  auto lazyExpr = e2.lazilyDeserialize();
+  auto lazyColExpr = lazyExpr[0];
+  auto lazyListExpr = lazyColExpr[0];
 
-//   auto exprOffsets = lazyListExpr.expression();
-//   auto const& startChildOffset = exprOffsets.startChildTypeOffset;
-//   auto const& endChildOffset = exprOffsets.endChildTypeOffset;
-//   auto const numChildren = endChildOffset - startChildOffset;
+  auto exprOffsets = lazyListExpr.expression();
+  auto const& startChildOffset = exprOffsets.startChildTypeOffset;
+  auto const& endChildOffset = exprOffsets.endChildTypeOffset;
+  auto const numChildren = endChildOffset - startChildOffset;
 
-//   auto firstIdx = 2;
-//   auto tempLazyChildExpr = lazyListExpr[firstIdx];
-//   auto const& type = tempLazyChildExpr.getCurrentExpressionType();
-//   std::vector<int64_t> indices;
-//   indices.push_back(firstIdx);
-//   indices.push_back(9);
-//   indices.push_back(10);
-//   indices.push_back(11);
-//   indices.push_back(12);
-//   indices.push_back(17);
-//   int64_t spanSize = dataSetSize;
-//   int64_t argSize = sizeof(int8_t);
-//   int64_t argsPerSpanIdx = sizeof(int64_t) / argSize;
-//   int64_t idxsPerSpan = (spanSize + (uint64_t)argsPerSpanIdx - 1) & -(uint64_t)argsPerSpanIdx;
-//   std::vector<int64_t> matches;
-//   matches.reserve(indices.size());
-//   std::for_each(
-// 		indices.begin(), indices.end(), [&](const auto& idx) {
-// 		  auto idxInSpan = idx % spanSize;
-// 		  auto spansSeen = idx / spanSize;
-// 		  auto currLogicalSpanIdxStart = spansSeen * idxsPerSpan;
-// 		  auto currLogicalIdxInSpan = currLogicalSpanIdxStart + idxInSpan;
-// 		  auto currArgumentIdx = currLogicalIdxInSpan / argsPerSpanIdx;
-// 		  auto lazyChildExpr = (idx < 0 || idx > numChildren ? lazyListExpr(0,0) : lazyListExpr(currArgumentIdx, idx));
-// 		  matches.emplace_back(static_cast<int32_t>(get<int8_t>(lazyChildExpr.getCurrentExpressionInSpanAt(currLogicalIdxInSpan))));
-//       });
+  auto firstIdx = 2;
+  auto tempLazyChildExpr = lazyListExpr[firstIdx];
+  auto const& type = tempLazyChildExpr.getCurrentExpressionType();
+  std::vector<int64_t> indices;
+  indices.push_back(firstIdx);
+  indices.push_back(9);
+  indices.push_back(10);
+  indices.push_back(11);
+  indices.push_back(12);
+  indices.push_back(17);
+  int64_t spanSize = dataSetSize;
+  int64_t argSize = sizeof(int8_t);
+  int64_t argsPerSpanIdx = sizeof(int64_t) / argSize;
+  int64_t idxsPerSpan = (spanSize + (uint64_t)argsPerSpanIdx - 1) & -(uint64_t)argsPerSpanIdx;
+  std::vector<int64_t> matches;
+  matches.reserve(indices.size());
+  std::for_each(
+		indices.begin(), indices.end(), [&](const auto& idx) {
+		  auto idxInSpan = idx % spanSize;
+		  auto spansSeen = idx / spanSize;
+		  auto currLogicalSpanIdxStart = spansSeen * idxsPerSpan;
+		  auto currLogicalIdxInSpan = currLogicalSpanIdxStart + idxInSpan;
+		  auto currArgumentIdx = currLogicalIdxInSpan / argsPerSpanIdx;
+		  auto lazyChildExpr = lazyListExpr(currArgumentIdx, idx);
+		  matches.emplace_back(static_cast<int64_t>(get<int8_t>(lazyChildExpr.getCurrentExpressionInSpanAt(currLogicalIdxInSpan))));
+		});
+  
+  auto resTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(matches))))));
 
-//   auto resTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(matches))))));
-//   std::cout << "INT64_t LAZY RESULT: " << lazyListExpr << std::endl;
-//   std::cout << "INT64_T RESULT: " << resTable << std::endl;
-// }
+  std::vector<int64_t> expectedMatches = {2,9,10,11,12,17};
+  auto expectedTable = "Table"_("Column"_("List"_(std::move(boss::Span<int64_t>(vector(expectedMatches))))));
+  CHECK(resTable == expectedTable);
+}
 
-// TEST_CASE("DELEGATE BOOTSTRAPPING", "[]") {
-//   auto engine = boss::engines::BootstrapEngine();
-
-//   // auto res =
-//   engine.evaluate("DelegateBootstrapping"_("/home/david/Documents/PhD/symbol-store/BOSSLazyLoadingCoordinatorEngine/build/libBOSSLazyLoadingCoordinatorEngine.so",
-//   "List"_("/home/david/Documents/PhD/symbol-store/BOSSRemoteBinaryLoaderEngine/build/libBOSSRemoteBinaryLoaderEngine.so",
-//   "/home/david/Documents/PhD/symbol-store/BOSSWisentDeserialiserEngine/build/libBOSSWisentDeserialiserEngine.so"),
-//   "Parse"_("Fetch"_((int64_t) 0, (int64_t) 274,
-//   "https://www.doc.ic.ac.uk/~dcl19/simpleWisentTable.bin"))));
-
-//   auto res =
-//   engine.evaluate("EvaluateInEngines"_("List"_("/home/david/Documents/PhD/symbol-store/BOSSRemoteBinaryLoaderEngine/build/libBOSSRemoteBinaryLoaderEngine.so",
-//   "/home/david/Documents/PhD/symbol-store/BOSSWisentDeserialiserEngine/build/libBOSSWisentDeserialiserEngine.so"),
-//   "Parse"_("Fetch"_((int64_t) 0, (int64_t) 274,
-//   "https://www.doc.ic.ac.uk/~dcl19/simpleWisentTable.bin"))));
-
-//     std::cout << res << std::endl;
-
-// }
 int main(int argc, char* argv[]) {
   Catch::Session session;
   session.cli(session.cli() | Catch::clara::Opt(librariesToTest, "library")["--library"]);
