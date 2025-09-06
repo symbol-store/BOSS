@@ -1359,7 +1359,7 @@ public:
       size_t startOffset = argumentIndex;
       if(startFromExpression) {
         auto const& expr = expression();
-        auto const& startChildOffset = expr.startChildOffset;
+        startOffset = expr.startChildOffset;
       }
 
       for(size_t i = 0; i < size; i++) {
@@ -1378,7 +1378,7 @@ public:
       size_t startOffset = argumentIndex;
       if(startFromExpression) {
         auto const& expr = expression();
-        auto const& startChildOffset = expr.startChildOffset;
+        startOffset = expr.startChildOffset;
       }
 
       for(size_t i = 0; i < n; i++) {
@@ -1433,7 +1433,7 @@ public:
       size_t startOffset = argumentIndex;
       if(startFromExpression) {
         auto const& expr = expression();
-        auto const& startChildOffset = expr.startChildOffset;
+        startOffset = expr.startChildOffset;
       }
 
       const size_t n = indices.size();
@@ -1634,7 +1634,7 @@ public:
       size_t startOffset = argumentIndex;
       if(startFromExpression) {
         auto const& expr = expression();
-        auto const& startChildOffset = expr.startChildOffset;
+        startOffset = expr.startChildOffset;
       }
 
       const size_t n = indices.size();
@@ -1754,7 +1754,7 @@ public:
       size_t startOffset = argumentIndex;
       if(startFromExpression) {
         auto const& expr = expression();
-        auto const& startChildOffset = expr.startChildOffset;
+        startOffset = expr.startChildOffset;
       }
       if(spanSize > 0 && numSpansOut > 0) {
         throw std::runtime_error("Cannot call getCurrentExpressionAsSpanAsTypeWithTypeAndSize<T> "
@@ -1869,7 +1869,7 @@ public:
       size_t startOffset = argumentIndex;
       if(startFromExpression) {
         auto const& expr = expression();
-        auto const& startChildOffset = expr.startChildOffset;
+        startOffset = expr.startChildOffset;
       }
 
       auto const spanFunctors =
@@ -1955,7 +1955,7 @@ public:
       size_t startOffset = argumentIndex;
       if(startFromExpression) {
         auto const& expr = expression();
-        auto const& startChildOffset = expr.startChildOffset;
+        startOffset = expr.startChildOffset;
       }
 
       auto const spanFunctors =
