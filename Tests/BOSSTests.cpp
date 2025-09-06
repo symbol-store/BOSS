@@ -1387,10 +1387,10 @@ TEST_CASE("Expression Serialization") {
       Expression(3),
       "SetDefaultEnginePipeline"_(
           "/Users/hlgr/Temp/BOSSWolframEngine/Debug/libBOSSWolframEngine.so")};
-  // for(auto const& plan : plans) {
-  //   CHECK(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
-  //             .deserialize() == plan);
-  // }
+  for(auto const& plan : plans) {
+    CHECK(boss::serialization::SerializedExpression(plan.clone(CloneReason::FOR_TESTING))
+              .deserialize() == plan);
+  }
 }
 
 TEST_CASE("Lazy Expression Serialization") {
