@@ -1352,15 +1352,16 @@ public:
       return buffer.flattenedArguments()[argumentIndex].asString;
     }
 
-    std::vector<size_t> getCurrentExpressionAsStringOffsetsVector(size_t size, bool startFromExpression = true) const {
+    std::vector<size_t>
+    getCurrentExpressionAsStringOffsetsVector(size_t size, bool startFromExpression = true) const {
       std::vector<size_t> res(size);
       const auto& arguments = buffer.flattenedArguments();
       size_t startOffset = argumentIndex;
-      if (startFromExpression) {
-	auto const& expr = expression();
-	auto const& startChildOffset = expr.startChildOffset;
+      if(startFromExpression) {
+        auto const& expr = expression();
+        auto const& startChildOffset = expr.startChildOffset;
       }
-  
+
       for(size_t i = 0; i < size; i++) {
         res[i] = arguments[startOffset + i].asString;
       }
@@ -1369,16 +1370,17 @@ public:
 
     template <typename T>
     std::vector<size_t>
-    getCurrentExpressionAsStringOffsetsVectorWithIndices(const std::vector<T>& indices, bool startFromExpression = true) const {
+    getCurrentExpressionAsStringOffsetsVectorWithIndices(const std::vector<T>& indices,
+                                                         bool startFromExpression = true) const {
       const size_t n = indices.size();
       std::vector<size_t> res(n);
       const auto& arguments = buffer.flattenedArguments();
       size_t startOffset = argumentIndex;
-      if (startFromExpression) {
-	auto const& expr = expression();
-	auto const& startChildOffset = expr.startChildOffset;
+      if(startFromExpression) {
+        auto const& expr = expression();
+        auto const& startChildOffset = expr.startChildOffset;
       }
-  
+
       for(size_t i = 0; i < n; i++) {
         res[i] = arguments[startOffset + indices[i]].asString;
       }
@@ -1416,7 +1418,8 @@ public:
     template <typename T, typename S, typename U>
     boss::expressions::ExpressionSpanArguments
     getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices, int64_t spanSize,
-                                                int64_t numSpansOut, int64_t numThreads = 1, bool startFromExpression = true) const {
+                                                int64_t numSpansOut, int64_t numThreads = 1,
+                                                bool startFromExpression = true) const {
       static_assert(std::is_convertible<T, S>::value,
                     "Cannot convert stored type to requested span type in "
                     "getCurrentExpressionAsSpanAsTypeWithIndices. Change from <T, S, U> as T "
@@ -1428,11 +1431,11 @@ public:
       constexpr size_t THREADING_THRESHOLD = 256000;
       auto const& arguments = buffer.flattenedArguments();
       size_t startOffset = argumentIndex;
-      if (startFromExpression) {
-	auto const& expr = expression();
-	auto const& startChildOffset = expr.startChildOffset;
+      if(startFromExpression) {
+        auto const& expr = expression();
+        auto const& startChildOffset = expr.startChildOffset;
       }
-  
+
       const size_t n = indices.size();
       constexpr size_t valsPerArg = sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
       constexpr size_t shiftAmt = sizeof(T) > sizeof(Argument) ? sizeof(Argument) * sizeof(Argument)
@@ -1575,16 +1578,16 @@ public:
     template <typename T, typename U>
     boss::expressions::ExpressionSpanArguments
     getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices, int64_t spanSize,
-                                          int64_t numSpansOut, int64_t numThreads = 1, bool startFromExpression = true) const {
+                                          int64_t numSpansOut, int64_t numThreads = 1,
+                                          bool startFromExpression = true) const {
       return getCurrentExpressionAsSpanAsTypeWithIndices<T, T, U>(indices, spanSize, numSpansOut,
                                                                   numThreads, startFromExpression);
     }
 
     template <typename T>
-    boss::expressions::ExpressionSpanArguments
-    getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<T>& indices,
-                                          int64_t spanSize, int64_t numSpansOut,
-                                          int64_t numThreads = 1, bool startFromExpression = true) const {
+    boss::expressions::ExpressionSpanArguments getCurrentExpressionAsSpanWithIndices(
+        ArgumentType type, const std::vector<T>& indices, int64_t spanSize, int64_t numSpansOut,
+        int64_t numThreads = 1, bool startFromExpression = true) const {
       switch(type) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
         return getCurrentExpressionAsSpanWithIndices<bool, T>(indices, spanSize, numSpansOut,
@@ -1608,11 +1611,11 @@ public:
         return getCurrentExpressionAsSpanWithIndices<double_t, T>(indices, spanSize, numSpansOut,
                                                                   numThreads, startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_STRING:
-        return getCurrentExpressionAsSpanWithIndices<std::string, T>(indices, spanSize, numSpansOut,
-                                                                     numThreads, startFromExpression);
+        return getCurrentExpressionAsSpanWithIndices<std::string, T>(
+            indices, spanSize, numSpansOut, numThreads, startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_SYMBOL:
-        return getCurrentExpressionAsSpanWithIndices<boss::Symbol, T>(indices, spanSize,
-                                                                      numSpansOut, numThreads, startFromExpression);
+        return getCurrentExpressionAsSpanWithIndices<boss::Symbol, T>(
+            indices, spanSize, numSpansOut, numThreads, startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
         break;
       }
@@ -1620,18 +1623,20 @@ public:
     }
 
     template <typename T, typename S, typename U>
-    boss::Span<S> getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices, bool startFromExpression = true) const {
+    boss::Span<S>
+    getCurrentExpressionAsSpanAsTypeWithIndices(const std::vector<U>& indices,
+                                                bool startFromExpression = true) const {
       static_assert(std::is_convertible<T, S>::value,
                     "Cannot convert stored type to requested span type in "
                     "getCurrentExpressionAsSpanAsTypeWithIndices. Change from <T, S, U> as T "
                     "cannot be converted to S.");
       auto const& arguments = buffer.flattenedArguments();
       size_t startOffset = argumentIndex;
-      if (startFromExpression) {
-	auto const& expr = expression();
-	auto const& startChildOffset = expr.startChildOffset;
+      if(startFromExpression) {
+        auto const& expr = expression();
+        auto const& startChildOffset = expr.startChildOffset;
       }
-  
+
       const size_t n = indices.size();
       constexpr size_t valsPerArg = sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
       constexpr size_t shiftAmt = sizeof(T) > sizeof(Argument) ? sizeof(Argument) * sizeof(Argument)
@@ -1707,13 +1712,15 @@ public:
     }
 
     template <typename T, typename U>
-    boss::Span<T> getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices, bool startFromExpression = true) const {
+    boss::Span<T> getCurrentExpressionAsSpanWithIndices(const std::vector<U>& indices,
+                                                        bool startFromExpression = true) const {
       return getCurrentExpressionAsSpanAsTypeWithIndices<T, T, U>(indices, startFromExpression);
     }
 
     template <typename T>
     boss::expressions::ExpressionSpanArgument
-    getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<T>& indices, bool startFromExpression = true) const {
+    getCurrentExpressionAsSpanWithIndices(ArgumentType type, const std::vector<T>& indices,
+                                          bool startFromExpression = true) const {
       switch(type) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
         return getCurrentExpressionAsSpanWithIndices<bool, T>(indices, startFromExpression);
@@ -1741,13 +1748,13 @@ public:
 
     template <typename T>
     boss::expressions::ExpressionSpanArguments
-    getCurrentExpressionAsSpanWithTypeAndSize(size_t size, int64_t spanSize,
-                                              int64_t numSpansOut, bool startFromExpression = true) const {
+    getCurrentExpressionAsSpanWithTypeAndSize(size_t size, int64_t spanSize, int64_t numSpansOut,
+                                              bool startFromExpression = true) const {
       auto const& arguments = buffer.flattenedArguments();
       size_t startOffset = argumentIndex;
-      if (startFromExpression) {
-	auto const& expr = expression();
-	auto const& startChildOffset = expr.startChildOffset;
+      if(startFromExpression) {
+        auto const& expr = expression();
+        auto const& startChildOffset = expr.startChildOffset;
       }
       if(spanSize > 0 && numSpansOut > 0) {
         throw std::runtime_error("Cannot call getCurrentExpressionAsSpanAsTypeWithTypeAndSize<T> "
@@ -1819,26 +1826,36 @@ public:
 
     boss::expressions::ExpressionSpanArguments
     getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size, int64_t spanSize,
-                                              int64_t numSpansOut, bool startFromExpression = true) const {
+                                              int64_t numSpansOut,
+                                              bool startFromExpression = true) const {
       switch(type) {
       case ArgumentType::ARGUMENT_TYPE_BOOL:
-        return getCurrentExpressionAsSpanWithTypeAndSize<bool>(size, spanSize, numSpansOut, startFromExpression);
+        return getCurrentExpressionAsSpanWithTypeAndSize<bool>(size, spanSize, numSpansOut,
+                                                               startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_CHAR:
-        return getCurrentExpressionAsSpanWithTypeAndSize<int8_t>(size, spanSize, numSpansOut, startFromExpression);
+        return getCurrentExpressionAsSpanWithTypeAndSize<int8_t>(size, spanSize, numSpansOut,
+                                                                 startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_SHORT:
-        return getCurrentExpressionAsSpanWithTypeAndSize<int16_t>(size, spanSize, numSpansOut, startFromExpression);
+        return getCurrentExpressionAsSpanWithTypeAndSize<int16_t>(size, spanSize, numSpansOut,
+                                                                  startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_INT:
-        return getCurrentExpressionAsSpanWithTypeAndSize<int32_t>(size, spanSize, numSpansOut, startFromExpression);
+        return getCurrentExpressionAsSpanWithTypeAndSize<int32_t>(size, spanSize, numSpansOut,
+                                                                  startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_LONG:
-        return getCurrentExpressionAsSpanWithTypeAndSize<int64_t>(size, spanSize, numSpansOut, startFromExpression);
+        return getCurrentExpressionAsSpanWithTypeAndSize<int64_t>(size, spanSize, numSpansOut,
+                                                                  startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_FLOAT:
-        return getCurrentExpressionAsSpanWithTypeAndSize<float_t>(size, spanSize, numSpansOut, startFromExpression);
+        return getCurrentExpressionAsSpanWithTypeAndSize<float_t>(size, spanSize, numSpansOut,
+                                                                  startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_DOUBLE:
-        return getCurrentExpressionAsSpanWithTypeAndSize<double_t>(size, spanSize, numSpansOut, startFromExpression);
+        return getCurrentExpressionAsSpanWithTypeAndSize<double_t>(size, spanSize, numSpansOut,
+                                                                   startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_STRING:
-        return getCurrentExpressionAsSpanWithTypeAndSize<std::string>(size, spanSize, numSpansOut, startFromExpression);
+        return getCurrentExpressionAsSpanWithTypeAndSize<std::string>(size, spanSize, numSpansOut,
+                                                                      startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_SYMBOL:
-        return getCurrentExpressionAsSpanWithTypeAndSize<boss::Symbol>(size, spanSize, numSpansOut, startFromExpression);
+        return getCurrentExpressionAsSpanWithTypeAndSize<boss::Symbol>(size, spanSize, numSpansOut,
+                                                                       startFromExpression);
       case ArgumentType::ARGUMENT_TYPE_EXPRESSION:
         break;
       }
@@ -1846,14 +1863,15 @@ public:
     }
 
     boss::expressions::ExpressionSpanArgument
-    getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size, bool startFromExpression = true) const {
+    getCurrentExpressionAsSpanWithTypeAndSize(ArgumentType type, size_t size,
+                                              bool startFromExpression = true) const {
       auto const& arguments = buffer.flattenedArguments();
       size_t startOffset = argumentIndex;
-      if (startFromExpression) {
-	auto const& expr = expression();
-	auto const& startChildOffset = expr.startChildOffset;
+      if(startFromExpression) {
+        auto const& expr = expression();
+        auto const& startChildOffset = expr.startChildOffset;
       }
-      
+
       auto const spanFunctors =
           std::unordered_map<ArgumentType,
                              std::function<boss::expressions::ExpressionSpanArgument()>>{
@@ -1931,14 +1949,15 @@ public:
     }
 
     boss::expressions::ExpressionSpanArgument
-    getCurrentExpressionAsSpanWithTypeAndSizeWithCopy(ArgumentType type, size_t size, bool startFromExpression = true) const {
+    getCurrentExpressionAsSpanWithTypeAndSizeWithCopy(ArgumentType type, size_t size,
+                                                      bool startFromExpression = true) const {
       auto const& arguments = buffer.flattenedArguments();
       size_t startOffset = argumentIndex;
-      if (startFromExpression) {
-	auto const& expr = expression();
-	auto const& startChildOffset = expr.startChildOffset;
+      if(startFromExpression) {
+        auto const& expr = expression();
+        auto const& startChildOffset = expr.startChildOffset;
       }
-  
+
       auto const spanFunctors =
           std::unordered_map<ArgumentType,
                              std::function<boss::expressions::ExpressionSpanArgument()>>{
@@ -2066,18 +2085,21 @@ public:
       return spanFunctors.at(type)();
     }
 
-    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpan(bool startFromExpression = true) const {
+    boss::expressions::ExpressionSpanArgument
+    getCurrentExpressionAsSpan(bool startFromExpression = true) const {
       size_t size = currentIsRLE();
       assert(size != 0);
       auto const& type = getCurrentExpressionType();
       return std::move(getCurrentExpressionAsSpanWithTypeAndSize(type, size, startFromExpression));
     }
 
-    boss::expressions::ExpressionSpanArgument getCurrentExpressionAsSpanWithCopy(bool startFromExpression = true) const {
+    boss::expressions::ExpressionSpanArgument
+    getCurrentExpressionAsSpanWithCopy(bool startFromExpression = true) const {
       size_t size = currentIsRLE();
       assert(size != 0);
       auto const& type = getCurrentExpressionType();
-      return std::move(getCurrentExpressionAsSpanWithTypeAndSizeWithCopy(type, size, startFromExpression));
+      return std::move(
+          getCurrentExpressionAsSpanWithTypeAndSizeWithCopy(type, size, startFromExpression));
     }
 
     template <typename T> inline T getCurrentExpressionInSpanAtAs(size_t spanArgI) const {
