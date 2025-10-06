@@ -16,6 +16,8 @@
 #include <unordered_set>
 #include <utility>
 #include <variant>
+#include <filesystem>
+#include <fstream>
 #ifndef _MSC_VER
 #include <cxxabi.h>
 #include <memory>
@@ -2427,6 +2429,53 @@ public:
       freeExpressionTree(root, freeFunction);
   }
 };
+
+using SerializationExpression = boss::serialization::Expression;
+
+inline bool writeExpressionToWisentFile(boss::Expression&& expr, std::string const& filename) {
+  std::vector<int8_t> zeroedInt64_t = {0, 0, 0, 0, 0, 0, 0, 0};
+  RootExpression *root = SerializedExpression(std::move(expr)).extractRoot();
+  size_t bufferSize = alignTo8Bytes(root->argumentBytesCount) +
+    alignTo8Bytes(sizeof(ArgumentType) * root->argumentCount) +
+    sizeof(SerializationExpression) * root->expressionCount +
+    root->argumentDictionaryBytesCount +
+    root->stringArgumentsFillIndex;
+
+  // std::cout << "######### " << filename << " #########" << std::endl;
+  // std::cout << "arg byte size:" << root->argumentBytesCount << std::endl;
+  // std::cout << "arg byte size 8B aligned:" << alignTo8Bytes(root->argumentBytesCount) << std::endl;
+  // std::cout << "arg type byte size:" << (sizeof(ArgumentType) * root->argumentCount) << std::endl;
+  // std::cout << "arg type byte size 8B aligned:" << alignTo8Bytes((sizeof(ArgumentType) * root->argumentCount)) << std::endl;
+  // std::cout << "expr byte size:" << (sizeof(SerializationExpression) * root->expressionCount) << std::endl;
+  // std::cout << "dict byte size:" << root->argumentDictionaryBytesCount << std::endl;
+  // std::cout << "str byte size:" << root->stringArgumentsFillIndex << std::endl;
+  // std::cout << "########################################" << std::endl;
+  if (!root) {
+    std::cerr << "Could not serialize expression to root." << std::endl;
+    return false;  // Ensure root is valid
+  }
+
+  std::ofstream fileStream(filename, std::ios::binary);
+  if (!fileStream.is_open()) {
+    std::free(root);
+    std::cerr << "Could not open file at path: " << filename << std::endl;
+    return false;  // File couldn't be opened
+  }
+
+  // Write various fields to file
+  fileStream.write(reinterpret_cast<const char*>(&root->argumentCount), sizeof(root->argumentCount));
+  fileStream.write(reinterpret_cast<const char*>(&root->argumentBytesCount), sizeof(root->argumentBytesCount));
+  fileStream.write(reinterpret_cast<const char*>(&root->expressionCount), sizeof(root->expressionCount));
+  fileStream.write(reinterpret_cast<const char*>(&root->argumentDictionaryBytesCount), sizeof(root->argumentDictionaryBytesCount));
+  fileStream.write(reinterpret_cast<const char*>(zeroedInt64_t.data()), zeroedInt64_t.size());
+  fileStream.write(reinterpret_cast<const char*>(&root->stringArgumentsFillIndex), sizeof(root->stringArgumentsFillIndex));
+  fileStream.write(reinterpret_cast<const char*>(&root->arguments), bufferSize);
+  
+  fileStream.close();
+  std::free(root);
+
+  return true;  // Return success
+}
 
 // NOLINTEND(cppcoreguidelines-pro-type-union-access)
 } // namespace boss::serialization
