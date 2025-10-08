@@ -2477,5 +2477,41 @@ inline bool writeExpressionToWisentFile(boss::Expression&& expr, std::string con
   return true;  // Return success
 }
 
+inline boss::Expression readExpressionFromWisentFile(std::string const& filename) {
+  std::ifstream fileStream(filename, std::ios::binary);
+  if (!fileStream.is_open()) {
+    throw std::runtime_error("Could not open file at path: " + filename);
+  }
+
+  fileStream.seekg(0, std::ios::end);
+  auto fileSize = fileStream.tellg();
+  fileStream.seekg(0, std::ios::beg);
+
+  if (fileSize <= 0) {
+    fileStream.close();
+    throw std::runtime_error("File is empty or could not determine size: " + filename);
+  } else if (fileSize < static_cast<std::streamoff>(sizeof(RootExpression))) {
+    fileStream.close();
+    throw std::runtime_error("File is too small to contain a valid RootExpression: " + filename);
+  }
+  std::vector<int8_t> buffer(static_cast<size_t>(fileSize));
+  if (!fileStream.read(reinterpret_cast<char*>(buffer.data()), fileSize)) {
+    fileStream.close();
+    throw std::runtime_error("Error reading file: " + filename);
+  }
+  fileStream.close();
+
+  auto* root = reinterpret_cast<RootExpression*>(buffer.data());
+  *((void**)&root->originalAddress) = buffer.data();
+  auto res = SerializedExpression(root);
+
+  #ifdef SERIALIZATION_DEBUG
+  std::cout << "ARG COUNT: " << res.argumentCount() << std::endl;
+  std::cout << "EXPR COUNT: " << res.expressionCount() << std::endl;
+  #endif
+
+  return std::move(std::move(res).deserialize());
+}
+
 // NOLINTEND(cppcoreguidelines-pro-type-union-access)
 } // namespace boss::serialization
