@@ -430,8 +430,14 @@ struct SerializedExpression {
                      [&](auto const& spanArgument) -> uint64_t {
                        uint64_t spanSize = spanArgument.size();
                        auto const& arg0 = spanArgument[0];
+                       using ArgType = std::decay_t<decltype(arg0)>;
+                       constexpr size_t sizeofType = sizeof(ArgType);
                        uint64_t valsPerArg = static_cast<uint64_t>(
-                           sizeof(arg0) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(arg0));
+                           sizeofType > sizeof(Argument) ? 1 : sizeof(Argument) / sizeofType);
+                       if constexpr(std::is_same_v<ArgType, bool> ||
+                                    std::is_same_v<ArgType, std::_Bit_reference>) {
+                          valsPerArg = sizeof(Argument) / sizeof(bool);
+                       }
                        return (spanSize + valsPerArg - 1) / valsPerArg;
                      },
                      std::forward<decltype(spanArg)>(spanArg));
@@ -462,7 +468,7 @@ struct SerializedExpression {
                             std::vector<boss::ComplexExpression>&& inputs,
                             uint64_t& expressionOutputI,
                             std::unordered_map<std::string, size_t>& stringMap,
-                            bool dictEncodeStrings) {
+                            bool dictEncodeStrings, uint64_t layer = 0) {
     uint64_t const nextLayerTypeOffset =
         typeOutputI + std::accumulate(inputs.begin(), inputs.end(), uint64_t(0),
                                       [this](uint64_t count, auto const& expression) -> uint64_t {
@@ -477,6 +483,16 @@ struct SerializedExpression {
     auto children = std::vector<boss::ComplexExpression>();
     uint64_t childrenCountRunningSum = 0UL;
     uint64_t childrenTypeCountRunningSum = 0UL;
+
+    #ifdef SERIALIZATION_DEBUG
+    std::cout << "\n\nLAYER: " << layer << std::endl;
+    std::cout << "  argOutputI: " << argumentOutputI << std::endl;
+    std::cout << "  typeOutputI: " << typeOutputI << std::endl;
+    std::cout << "  exprOutputI: " << expressionOutputI << std::endl;
+    std::cout << "  nextLayerOffset: " << nextLayerOffset << std::endl;
+    std::cout << "  nextLayerTypeOffset: " << nextLayerTypeOffset << std::endl;
+    std::cout << "  inputs.size(): " << inputs.size() << std::endl;
+    #endif
 
     std::for_each(
         std::move_iterator(inputs.begin()), std::move_iterator(inputs.end()),
@@ -498,6 +514,11 @@ struct SerializedExpression {
                      nextLayerTypeOffset, nextLayerOffset, &childrenCountRunningSum,
                      &childrenTypeCountRunningSum, &stringMap,
                      &dictEncodeStrings](auto&& argument) {
+                      #ifdef SERIALIZATION_DEBUG
+                        std::cout << "  argOutput: " << argumentOutputI << std::endl;
+                        std::cout << "  typeOutput: " << typeOutputI << std::endl;
+                        std::cout << "  exprOutput: " << expressionOutputI << std::endl;
+                      #endif
                       if constexpr(boss::expressions::generic::isComplexExpression<
                                        decltype(argument)>) {
                         uint64_t const childrenCount = countArgumentsPacked(argument);
@@ -512,9 +533,15 @@ struct SerializedExpression {
                             nextLayerTypeOffset + childrenTypeCountRunningSum + childrenTypeCount;
 #ifdef SERIALIZATION_DEBUG
                         std::cout << "HEAD: " << argument.getHead().getName() << std::endl;
-                        std::cout << "  argOutput: " << argumentOutputI << std::endl;
-                        std::cout << "  typeOutput: " << typeOutputI << std::endl;
-                        std::cout << "  exprOutput: " << expressionOutputI << std::endl;
+                        std::cout << "  childrenCount: " << childrenCount << std::endl;
+                        std::cout << "  childrenTypeCount: " << childrenTypeCount << std::endl;
+                        std::cout << "  childrenCountRunningSum: " << childrenCountRunningSum
+                                  << std::endl;
+                        std::cout << "  childrenTypeCountRunningSum: "
+                                  << childrenTypeCountRunningSum << std::endl;
+                        std::cout << "  nextLayerOffset: " << nextLayerOffset << std::endl;
+                        std::cout << "  nextLayerTypeOffset: " << nextLayerTypeOffset
+                                  << std::endl;
                         std::cout << "  startChildArgOffset: " << startChildArgOffset << std::endl;
                         std::cout << "  endChildArgOffset: " << endChildArgOffset << std::endl;
                         std::cout << "  startChildArgTypeOffset: " << startChildTypeOffset
@@ -576,6 +603,11 @@ struct SerializedExpression {
                 std::visit(
                     [&](auto&& spanArgument) {
                       const size_t spanSize = spanArgument.size();
+                      #ifdef SERIALIZATION_DEBUG
+                      std::cout << "  argOutput: " << argumentOutputI << std::endl;
+                      std::cout << "  typeOutput: " << typeOutputI << std::endl;
+                      std::cout << "  spanSize: " << spanSize << std::endl;
+                      #endif
                       auto const& arg0 = spanArgument[0];
                       if constexpr(std::is_same_v<std::decay_t<decltype(arg0)>, bool> ||
                                    std::is_same_v<std::decay_t<decltype(arg0)>,
@@ -674,7 +706,7 @@ struct SerializedExpression {
         });
     if(!children.empty()) {
       return flattenArguments(argumentOutputI, typeOutputI, std::move(children), expressionOutputI,
-                              stringMap, dictEncodeStrings);
+                              stringMap, dictEncodeStrings, layer + 1);
     }
     return argumentOutputI;
   }
@@ -696,7 +728,7 @@ public:
                      uint64_t const startChildArgOffset = 1;
                      uint64_t const endChildArgOffset = startChildArgOffset + childrenCount;
                      uint64_t const startChildTypeOffset = 1;
-                     uint64_t const endChildTypeOffset = startChildArgOffset + childrenTypeCount;
+                     uint64_t const endChildTypeOffset = startChildTypeOffset + childrenTypeCount;
                      auto storedString = storeString(&root, input.getHead().getName().c_str());
                      *makeExpression(root, expressionIterator) = PortableBOSSExpression{
                          storedString, startChildArgOffset, endChildArgOffset, startChildTypeOffset,
@@ -1119,6 +1151,7 @@ public:
         childArgIndex--;
 
       } else {
+        // CURRENTLY ASSUMES SPANS WITHOUT RLE ARE NOT PACKED
         auto const& arg = flattenedArguments()[childArgIndex];
         auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
             {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
@@ -1133,11 +1166,19 @@ public:
             {ArgumentType::ARGUMENT_TYPE_EXPRESSION,
              [&arg, this]() -> boss::Expression {
                auto const& expr = expressionsBuffer()[arg.asExpression];
+               auto s = boss::Symbol(viewString(root, expr.symbolNameOffset));
+               #ifdef SERIALIZATION_DEBUG
+               std::cout << "\nDESERIALIZING SUB EXPRESSION: " << s << std::endl;
+               std::cout << "  startChildOffset: " << expr.startChildOffset << std::endl;
+               std::cout << "  endChildOffset: " << expr.endChildOffset << std::endl;
+               std::cout << "  startChildTypeOffset: " << expr.startChildTypeOffset << std::endl;
+               std::cout << "  endChildTypeOffset: " << expr.endChildTypeOffset << std::endl;
+               #endif
                auto [args, spanArgs] =
                    deserializeArguments(expr.startChildOffset, expr.endChildOffset,
                                         expr.startChildTypeOffset, expr.endChildTypeOffset);
                auto result = boss::expressions::ComplexExpression(
-                   boss::Symbol(viewString(root, expr.symbolNameOffset)), {}, std::move(args),
+                   s, {}, std::move(args),
                    std::move(spanArgs));
                return result;
              }},
@@ -1248,8 +1289,15 @@ public:
                             currSpan);
                         typeI += typedSpanArg.size();
                         const auto& arg0 = typedSpanArg[0];
+                        using ArgType = std::decay_t<decltype(arg0)>;
+                        constexpr size_t ArgSize = sizeof(ArgType);
                         auto valsPerArg =
-                            sizeof(arg0) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(arg0);
+                            ArgSize > sizeof(Argument) ? 1 : sizeof(Argument) / ArgSize;
+                        if constexpr(std::is_same_v<ArgType, bool> || 
+                                     std::is_same_v<ArgType, std::_Bit_reference>) {
+                          // Special case for bool since we pack them
+                          valsPerArg = sizeof(Argument) / sizeof(bool);
+                        }
                         argI += (typedSpanArg.size() + valsPerArg - 1) / valsPerArg;
                       },
                       e.getSpanArguments().at(j));
@@ -1441,8 +1489,8 @@ public:
       }
 
       const size_t n = indices.size();
-      constexpr size_t valsPerArg = sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
-      constexpr size_t shiftAmt = sizeof(T) > sizeof(Argument) ? sizeof(Argument) * sizeof(Argument)
+      constexpr size_t valsPerArg = std::is_same_v<T, std::_Bit_reference> ? sizeof(Argument) / sizeof(bool) : sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
+      constexpr size_t shiftAmt = std::is_same_v<T, std::_Bit_reference> ? sizeof(bool) * sizeof(Argument) : sizeof(T) > sizeof(Argument) ? sizeof(Argument) * sizeof(Argument)
                                                                : sizeof(Argument) * sizeof(T);
 
       constexpr size_t valsPerArgMask = valsPerArg - 1;
@@ -1642,8 +1690,8 @@ public:
       }
 
       const size_t n = indices.size();
-      constexpr size_t valsPerArg = sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
-      constexpr size_t shiftAmt = sizeof(T) > sizeof(Argument) ? sizeof(Argument) * sizeof(Argument)
+      constexpr size_t valsPerArg = std::is_same_v<T, std::_Bit_reference> ? sizeof(Argument) / sizeof(bool) : sizeof(T) > sizeof(Argument) ? 1 : sizeof(Argument) / sizeof(T);
+      constexpr size_t shiftAmt = std::is_same_v<T, std::_Bit_reference> ? sizeof(Argument) * sizeof(bool) : sizeof(T) > sizeof(Argument) ? sizeof(Argument) * sizeof(Argument)
                                                                : sizeof(Argument) * sizeof(T);
 
       constexpr size_t valsPerArgMask = valsPerArg - 1;
@@ -2405,6 +2453,13 @@ public:
 #endif
       auto const& expr = expressionsBuffer()[0];
       auto s = boss::Symbol(viewString(root, expr.symbolNameOffset));
+      #ifdef SERIALIZATION_DEBUG
+      std::cout << "DESERIALIZING ROOT EXPRESSION: " << s << std::endl;
+      std::cout << "  startChildOffset: " << expr.startChildOffset << std::endl;
+      std::cout << "  endChildOffset: " << expr.endChildOffset << std::endl;
+      std::cout << "  startChildTypeOffset: " << expr.startChildTypeOffset << std::endl;
+      std::cout << "  endChildTypeOffset: " << expr.endChildTypeOffset << std::endl;
+      #endif
       if(root->expressionCount == 0) {
         return s;
       }
@@ -2496,15 +2551,21 @@ inline boss::Expression readExpressionFromWisentFile(std::string const& filename
     fileStream.close();
     throw std::runtime_error("File is too small to contain a valid RootExpression: " + filename);
   }
-  std::vector<int8_t> buffer(static_cast<size_t>(fileSize));
-  if (!fileStream.read(reinterpret_cast<char*>(buffer.data()), fileSize)) {
+  size_t bufSize = static_cast<size_t>(fileSize);
+  int8_t* buffer = static_cast<int8_t*>(std::malloc(bufSize));
+  if (!buffer) {
     fileStream.close();
+    throw std::bad_alloc();
+  }
+  if (!fileStream.read(reinterpret_cast<char*>(buffer), fileSize)) {
+    fileStream.close();
+    std::free(buffer);
     throw std::runtime_error("Error reading file: " + filename);
   }
   fileStream.close();
 
-  auto* root = reinterpret_cast<RootExpression*>(buffer.data());
-  *((void**)&root->originalAddress) = buffer.data();
+  auto* root = reinterpret_cast<RootExpression*>(buffer);
+  *((void**)&root->originalAddress) = buffer;
   auto res = SerializedExpression(root);
 
   #ifdef SERIALIZATION_DEBUG
@@ -2512,7 +2573,8 @@ inline boss::Expression readExpressionFromWisentFile(std::string const& filename
   std::cout << "EXPR COUNT: " << res.expressionCount() << std::endl;
   #endif
 
-  return std::move(std::move(res).deserialize());
+  auto deserializedExpr = std::move(res).deserialize();
+  return deserializedExpr;
 }
 
 // NOLINTEND(cppcoreguidelines-pro-type-union-access)
