@@ -16,6 +16,7 @@
 #include <type_traits>
 #include <typeinfo>
 #include <unordered_set>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <filesystem>
@@ -108,12 +109,22 @@ constexpr uint64_t Argument_EXPRESSION_SIZE = PortableBOSSArgument_EXPRESSION_SI
  */
 template <void* (*allocateFunction)(size_t) = std::malloc,
           void* (*reallocateFunction)(void*, size_t) = std::realloc,
-          void (*freeFunction)(void*) = std::free>
+          void (*freeFunction)(void*) = std::free,
+          class StringSet = std::unordered_set<std::string>,
+          class StringMap = std::unordered_map<std::string, size_t>>
 struct SerializedExpression {
   using BOSSArgumentPair =
       std::pair<boss::expressions::ExpressionArguments, boss::expressions::ExpressionSpanArguments>;
 
   RootExpression* root = nullptr;
+  using string_set_t = StringSet;
+  using string_map_t = StringMap;
+  static_assert(std::is_same_v<typename string_set_t::value_type, std::string>,
+                "StringSet must have std::string as value_type");
+  static_assert(std::is_same_v<typename string_map_t::key_type, std::string>,
+                "StringMap must have std::string as key_type");
+  static_assert(std::is_same_v<typename string_map_t::mapped_type, size_t>,
+                "StringMap must have size_t as mapped_type");
   uint64_t argumentCount() const { return root->argumentCount; };
   uint64_t argumentBytesCount() const { return root->argumentBytesCount; };
   uint64_t expressionCount() const { return root->expressionCount; };
@@ -286,19 +297,19 @@ struct SerializedExpression {
   //////////////////////////////// Count String Bytes ///////////////////////////////
 
   template <typename TupleLike, uint64_t... Is>
-  static uint64_t countStringBytesInTuple(std::unordered_set<std::string>& stringSet,
+  static uint64_t countStringBytesInTuple(string_set_t& stringSet,
                                           bool dictEncodeStrings, TupleLike const& tuple,
                                           std::index_sequence<Is...> /*unused*/) {
     return (countStringBytes(std::get<Is>(tuple), stringSet, dictEncodeStrings) + ... + 0);
   };
 
   static uint64_t countStringBytes(boss::Expression const& input, bool dictEncodeStrings = true) {
-    std::unordered_set<std::string> stringSet;
+    string_set_t stringSet;
     return 1 + countStringBytes(input, stringSet, dictEncodeStrings);
   }
 
   static uint64_t countStringBytes(boss::Expression const& input,
-                                   std::unordered_set<std::string>& stringSet,
+                                   string_set_t& stringSet,
                                    bool dictEncodeStrings) {
     return std::visit(
         [&](auto& input) -> uint64_t {
@@ -389,7 +400,7 @@ struct SerializedExpression {
   //////////////////////////////   Flatten Arguments /////////////////////////////
 
   size_t checkMapAndStoreString(const std::string& key,
-                                std::unordered_map<std::string, size_t>& stringMap,
+                                string_map_t& stringMap,
                                 bool dictEncodeStrings) {
     size_t storedString = 0;
     if(dictEncodeStrings) {
@@ -448,7 +459,7 @@ struct SerializedExpression {
   template <typename TupleLike, uint64_t... Is>
   void flattenArgumentsInTuple(TupleLike&& tuple, std::index_sequence<Is...> /*unused*/,
                                uint64_t& argumentOutputI, uint64_t& typeOutputI,
-                               std::unordered_map<std::string, size_t>& stringMap,
+                               string_map_t& stringMap,
                                bool dictEncodeStrings) {
     (flattenArguments(std::get<Is>(tuple), argumentOutputI, typeOutputI, stringMap,
                       dictEncodeStrings),
@@ -459,15 +470,15 @@ struct SerializedExpression {
   uint64_t flattenArguments(uint64_t argumentOutputI, uint64_t typeOutputI,
                             std::vector<boss::ComplexExpression>&& inputs,
                             uint64_t& expressionOutputI, bool dictEncodeStrings = true) {
-    std::unordered_map<std::string, size_t> stringMap;
-    return flattenArguments(argumentOutputI, typeOutputI, std::move(inputs), expressionOutputI,
-                            stringMap, dictEncodeStrings);
+  string_map_t stringMap;
+  return flattenArguments(argumentOutputI, typeOutputI, std::move(inputs), expressionOutputI,
+              stringMap, dictEncodeStrings);
   }
 
   uint64_t flattenArguments(uint64_t argumentOutputI, uint64_t typeOutputI,
                             std::vector<boss::ComplexExpression>&& inputs,
                             uint64_t& expressionOutputI,
-                            std::unordered_map<std::string, size_t>& stringMap,
+                            string_map_t& stringMap,
                             bool dictEncodeStrings, uint64_t layer = 0) {
     uint64_t const nextLayerTypeOffset =
         typeOutputI + std::accumulate(inputs.begin(), inputs.end(), uint64_t(0),
