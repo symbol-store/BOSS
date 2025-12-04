@@ -639,7 +639,7 @@ struct SerializedExpression {
                           uint64_t tmp = 0;
                           for(size_t j = 0; j < valsPerArg && i + j < spanSize; j++) {
                             makeCharArgumentType(root, typeOutputI++);
-                            tmp |= static_cast<uint64_t>(spanArgument[i + j])
+                            tmp |= static_cast<uint64_t>(static_cast<uint8_t>(spanArgument[i + j]))
                                    << (Argument_CHAR_SIZE * sizeof(Argument) * j);
                           }
                           *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
@@ -650,7 +650,7 @@ struct SerializedExpression {
                           uint64_t tmp = 0;
                           for(size_t j = 0; j < valsPerArg && i + j < spanSize; j++) {
                             makeShortArgumentType(root, typeOutputI++);
-                            tmp |= static_cast<uint64_t>(spanArgument[i + j])
+                            tmp |= static_cast<uint64_t>(static_cast<uint16_t>(spanArgument[i + j]))
                                    << (Argument_SHORT_SIZE * sizeof(Argument) * j);
                           }
                           *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
@@ -661,7 +661,7 @@ struct SerializedExpression {
                           uint64_t tmp = 0;
                           for(size_t j = 0; j < valsPerArg && i + j < spanSize; j++) {
                             makeIntArgumentType(root, typeOutputI++);
-                            tmp |= static_cast<uint64_t>(spanArgument[i + j])
+                            tmp |= static_cast<uint64_t>(static_cast<uint32_t>(spanArgument[i + j]))
                                    << (Argument_INT_SIZE * sizeof(Argument) * j);
                           }
                           *makeArgument(root, argumentOutputI++) = static_cast<int64_t>(tmp);
