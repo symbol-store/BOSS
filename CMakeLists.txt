@@ -70,6 +70,8 @@ ExternalProject_Add(spdlog
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
   )
 
+find_package(OpenMP REQUIRED)
+
 ########################## Other Library Dependencies ##########################
 
 set(VTune_DIR "" CACHE PATH "Where to look for VTune installation")
@@ -123,8 +125,6 @@ foreach(Target IN LISTS AllTargets)
     # also using -E option to expose all symbols with the symbol table when dynamically loading the plugins (https://stackoverflow.com/a/9445178)
     if(APPLE)
       target_link_libraries(${Target} "-Wl,-export_dynamic")
-      target_link_libraries(${Target} "-Wl,-all_load")
-      target_link_libraries(${Target} "-Wl,-noall_load")
     endif()
   else()  
     # for Windows, we need to generate an "import library" for the plugins to link against it
@@ -133,7 +133,7 @@ foreach(Target IN LISTS AllTargets)
   endif()
 
   add_dependencies(${Target} spdlog)
-  target_link_libraries(${Target} Threads::Threads)
+  target_link_libraries(${Target} Threads::Threads OpenMP::OpenMP_CXX)
   set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
   if(MSVC)
     target_compile_options(${Target} PUBLIC "/Zc:__cplusplus")
