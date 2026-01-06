@@ -11,7 +11,7 @@ extern "C" {
 
 struct BOSSSymbol;
 struct BOSSSymbol* symbolNameToNewBOSSSymbol(char const* name);
-char const* symbolToNewString(struct BOSSSymbol const* arg);
+char const* bossSymbolToNewString(struct BOSSSymbol const* arg);
 
 struct BOSSExpression;
 struct BOSSExpression* boolToNewBOSSExpression(bool value);

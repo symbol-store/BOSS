@@ -51,9 +51,9 @@ endif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 ExternalProject_Add(googlebenchmark
 	URL "https://github.com/google/benchmark/archive/refs/tags/v1.7.1.tar.gz"
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
-		CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_GTEST_TESTS=OFF $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_GTEST_TESTS=OFF $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
   BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main${CMAKE_STATIC_LIBRARY_SUFFIX}
-  )
+)
 set_target_properties(googlebenchmark PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 
@@ -61,14 +61,30 @@ ExternalProject_Add(catch2
 	URL https://github.com/catchorg/Catch2/archive/v2.13.6.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCATCH_BUILD_TESTING=NO -DBUILD_TESTING=NO -DCATCH_ENABLE_WERROR=NO -DCATCH_INSTALL_DOCS=NO -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-  )
+)
 
 
 ExternalProject_Add(spdlog
 	URL https://github.com/gabime/spdlog/archive/refs/tags/v1.8.5.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
-	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-  )
+	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DSPDLOG_BUILD_EXAMPLE=OFF
+)
+
+
+find_program(MAKE_EXECUTABLE
+  NAMES gmake mingw32-make make
+  NAMES_PER_DIR
+  DOC "GNU Make"
+)
+
+ExternalProject_Add(chibi-scheme
+	URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.11.tar.gz
+  DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${BOSS_BINARY_DIR}/deps CFLAGS=${CMAKE_C_FLAGS_SANITIZE} LDFLAGS=${CMAKE_C_FLAGS_SANITIZE} CC=${CMAKE_C_COMPILER} LD=${CMAKE_C_COMPILER}
+  INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${BOSS_BINARY_DIR}/deps
+  BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
+)
 
 ########################## Other Library Dependencies ##########################
 
@@ -83,17 +99,36 @@ find_package(Threads REQUIRED)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 set(ImplementationFiles Source/BOSS.cpp Source/Serialization.cpp)
+set(REPLStubFiles Source/Shims/chibi-bindings.stub)
+set(SchemeModuleFiles Source/Shims/BOSS.sld)
+set(REPLFiles Source/Shims/chibi-bindings.c)
 set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
 # BOSS
-add_library(BOSS SHARED ${ImplementationFiles})
+
+add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles})
+
+add_custom_command(
+  OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${REPLFiles}
+  COMMAND PATH=${BOSS_BINARY_DIR}/deps/bin/:${PATH} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles}
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
+  VERBATIM)
+
+target_link_libraries(BOSS
+  ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+
+add_custom_command(TARGET BOSS POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/${SchemeModuleFiles} ${BOSS_BINARY_DIR}
+  VERBATIM
+  BYPRODUCTS ${BOSS_BINARY_DIR}/${SchemeModuleFiles})
+
 
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
 add_dependencies(Tests catch2)
 if(WIN32)
-    target_compile_options(Tests PUBLIC /bigobj)
+  target_compile_options(Tests PUBLIC /bigobj)
 endif(WIN32)
 
 # Benchmarks
@@ -147,15 +182,15 @@ endforeach()
 
 #################################### Install ###################################
 set(PUBLIC_HEADER_LIST
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.h;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Algorithm.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.h;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Algorithm.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
 )
 set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
 

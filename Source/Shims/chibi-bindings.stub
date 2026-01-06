@@ -1,0 +1,48 @@
+(c-include "../BOSS.h")
+(define-c-struct BOSSExpression)
+(define-c-struct BOSSSymbol)
+(define-c BOSSSymbol symbolNameToNewBOSSSymbol ((const string)))
+(define-c (const string) bossSymbolToNewString ((const BOSSSymbol)))
+
+
+(define-c BOSSExpression boolToNewBOSSExpression ((const bool)))
+(define-c BOSSExpression charToNewBOSSExpression ((const int8_t)))
+(define-c BOSSExpression doubleToNewBOSSExpression ((const double)))
+(define-c BOSSExpression floatToNewBOSSExpression ((const float)))
+(define-c BOSSExpression intToNewBOSSExpression ((const int)))
+(define-c BOSSExpression longToNewBOSSExpression ((const long)))
+(define-c BOSSExpression stringToNewBOSSExpression ((const string)))
+
+(define-c BOSSExpression newComplexBOSSExpression (BOSSSymbol long (array BOSSExpression)))
+
+(define-c long getBOSSExpressionTypeID (BOSSExpression))
+
+(define-c float getFloatValueFromBOSSExpression ((const BOSSExpression)))
+(define-c bool getBoolValueFromBOSSExpression ((const BOSSExpression)))
+(define-c int8_t getCharValueFromBOSSExpression ((const BOSSExpression)))
+(define-c int getIntValueFromBOSSExpression ((const BOSSExpression)))
+(define-c long getLongValueFromBOSSExpression ((const BOSSExpression)))
+(define-c double getDoubleValueFromBOSSExpression ((const BOSSExpression)))
+(define-c string getNewStringValueFromBOSSExpression ((const BOSSExpression)))
+(define-c (const string) getNewSymbolNameFromBOSSExpression ((const BOSSExpression)))
+
+
+(define-c BOSSSymbol getHeadFromBOSSExpression ((const BOSSExpression)))
+(define-c long getArgumentCountFromBOSSExpression ((const BOSSExpression)))
+(define-c (pointer BOSSExpression) getArgumentsFromBOSSExpression ((const BOSSExpression)))
+
+
+(define-c void freeBOSSExpression (BOSSExpression))
+(define-c void freeBOSSArguments ((array BOSSExpression)))
+(define-c void freeBOSSSymbol (BOSSSymbol))
+(define-c void freeBOSSString (string))
+
+
+
+(define-c BOSSExpression BOSSEvaluate (BOSSExpression))
+
+
+
+;; Local Variables:
+;; mode: lisp
+;; End:
