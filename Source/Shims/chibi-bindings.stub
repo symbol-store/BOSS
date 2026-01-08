@@ -5,13 +5,13 @@
 (define-c (const string) bossSymbolToNewString ((const BOSSSymbol)))
 
 
-(define-c BOSSExpression boolToNewBOSSExpression ((const bool)))
-(define-c BOSSExpression charToNewBOSSExpression ((const int8_t)))
-(define-c BOSSExpression doubleToNewBOSSExpression ((const double)))
-(define-c BOSSExpression floatToNewBOSSExpression ((const float)))
-(define-c BOSSExpression intToNewBOSSExpression ((const int)))
-(define-c BOSSExpression longToNewBOSSExpression ((const long)))
-(define-c BOSSExpression stringToNewBOSSExpression ((const string)))
+(define-c (free BOSSExpression) boolToNewBOSSExpression ((const bool)))
+(define-c (free BOSSExpression) charToNewBOSSExpression ((const int8_t)))
+(define-c (free BOSSExpression) doubleToNewBOSSExpression ((const double)))
+(define-c (free BOSSExpression) floatToNewBOSSExpression ((const float)))
+(define-c (free BOSSExpression) intToNewBOSSExpression ((const int)))
+(define-c (free BOSSExpression) longToNewBOSSExpression ((const long)))
+(define-c (free BOSSExpression) stringToNewBOSSExpression ((const string)))
 
 (define-c BOSSExpression newComplexBOSSExpression (BOSSSymbol long (array BOSSExpression)))
 
@@ -27,12 +27,12 @@
 (define-c (const string) getNewSymbolNameFromBOSSExpression ((const BOSSExpression)))
 
 
-(define-c BOSSSymbol getHeadFromBOSSExpression ((const BOSSExpression)))
+(define-c (free BOSSSymbol) getHeadFromBOSSExpression ((const BOSSExpression)))
 (define-c long getArgumentCountFromBOSSExpression ((const BOSSExpression)))
-(define-c (pointer BOSSExpression) getArgumentsFromBOSSExpression ((const BOSSExpression)))
+(define-c (pointer (free BOSSExpression)) getArgumentsFromBOSSExpression ((const BOSSExpression)))
 
 
-(define-c BOSSExpression BOSSEvaluate (BOSSExpression))
+(define-c (free BOSSExpression) BOSSEvaluate (BOSSExpression))
 
 
 
