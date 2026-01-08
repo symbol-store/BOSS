@@ -12,20 +12,22 @@ endif()
 
 ############################## Custom build modes ###############################
 
-set(CMAKE_CXX_FLAGS_SANITIZE "-fno-omit-frame-pointer -fsanitize=address,signed-integer-overflow,null,alignment,bounds,function,return,vla-bound -O0 -g"
+set(SANITIZATION_FLAGS "-fsanitize=address,signed-integer-overflow,null,alignment,bounds,function,return,vla-bound")
+
+set(CMAKE_CXX_FLAGS_SANITIZE "-fno-omit-frame-pointer ${SANITIZATION_FLAGS} -O0 -g"
   CACHE STRING
   "Flags used by the C++ compiler during Sanitize builds."
   FORCE)
-set(CMAKE_C_FLAGS_SANITIZE "-fno-omit-frame-pointer -fsanitize=address,signed-integer-overflow,null,alignment,bounds,function,return,vla-bound -O0 -g"
+set(CMAKE_C_FLAGS_SANITIZE "-fno-omit-frame-pointer ${SANITIZATION_FLAGS} -O0 -g"
   CACHE STRING
   "Flags used by the C compiler during Sanitize builds."
   FORCE)
 set(CMAKE_EXE_LINKER_FLAGS_SANITIZE
-  ${CMAKE_EXE_LINKER_FLAGS_DEBUG} CACHE STRING
+  "${CMAKE_EXE_LINKER_FLAGS_DEBUG} ${SANITIZATION_FLAGS}" CACHE STRING
   "Flags used for linking binaries during Sanitize builds."
   FORCE)
 set(CMAKE_SHARED_LINKER_FLAGS_SANITIZE
-  ${CMAKE_SHARED_LINKER_FLAGS_DEBUG} CACHE STRING
+  "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} ${SANITIZATION_FLAGS}" CACHE STRING
   "Flags used by the shared libraries linker during Sanitize builds."
   FORCE)
 mark_as_advanced(
@@ -51,6 +53,7 @@ endif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 ExternalProject_Add(googlebenchmark
 	URL "https://github.com/google/benchmark/archive/refs/tags/v1.7.1.tar.gz"
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+  DOWNLOAD_EXTRACT_TIMESTAMP NEW
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_GTEST_TESTS=OFF $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
   BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main${CMAKE_STATIC_LIBRARY_SUFFIX}
 )
@@ -60,6 +63,7 @@ set_target_properties(googlebenchmark PROPERTIES EXCLUDE_FROM_ALL TRUE)
 ExternalProject_Add(catch2
 	URL https://github.com/catchorg/Catch2/archive/v2.13.6.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+  DOWNLOAD_EXTRACT_TIMESTAMP NEW
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCATCH_BUILD_TESTING=NO -DBUILD_TESTING=NO -DCATCH_ENABLE_WERROR=NO -DCATCH_INSTALL_DOCS=NO -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
 )
 
@@ -67,6 +71,7 @@ ExternalProject_Add(catch2
 ExternalProject_Add(spdlog
 	URL https://github.com/gabime/spdlog/archive/refs/tags/v1.8.5.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+  DOWNLOAD_EXTRACT_TIMESTAMP NEW
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DSPDLOG_BUILD_EXAMPLE=OFF
 )
 
@@ -77,11 +82,18 @@ find_program(MAKE_EXECUTABLE
   DOC "GNU Make"
 )
 
+if(CMAKE_BUILD_TYPE)
+  string(TOUPPER "_${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_TOUPPER)
+else()
+  set(CMAKE_BUILD_TYPE_TOUPPER "")
+endif(CMAKE_BUILD_TYPE)
+
 ExternalProject_Add(chibi-scheme
 	URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.11.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+  DOWNLOAD_EXTRACT_TIMESTAMP NEW
   CONFIGURE_COMMAND ""
-  BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${BOSS_BINARY_DIR}/deps CFLAGS=${CMAKE_C_FLAGS_SANITIZE} LDFLAGS=${CMAKE_C_FLAGS_SANITIZE} CC=${CMAKE_C_COMPILER} LD=${CMAKE_C_COMPILER}
+  BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${BOSS_BINARY_DIR}/deps CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
   INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${BOSS_BINARY_DIR}/deps
   BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
 )
@@ -108,11 +120,11 @@ set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 # BOSS
 
 add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles})
+add_dependencies(BOSS chibi-scheme)
 
 add_custom_command(
-  OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${REPLFiles}
+  TARGET BOSS PRE_BUILD
   COMMAND PATH=${BOSS_BINARY_DIR}/deps/bin/:${PATH} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles}
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
   VERBATIM)
 
 target_link_libraries(BOSS
