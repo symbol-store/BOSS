@@ -1,8 +1,8 @@
 (c-include "../BOSS.h")
 (define-c-struct BOSSExpression finalizer: freeBOSSExpression)
 (define-c-struct BOSSSymbol finalizer: freeBOSSSymbol)
-(define-c BOSSSymbol symbolNameToNewBOSSSymbol ((const string)))
-(define-c (const string) bossSymbolToNewString ((const BOSSSymbol)))
+(define-c (free BOSSSymbol) symbolNameToNewBOSSSymbol ((const string)))
+(define-c (free (const string)) bossSymbolToNewString ((const BOSSSymbol)))
 
 
 (define-c (free BOSSExpression) boolToNewBOSSExpression ((const bool)))
@@ -31,7 +31,7 @@
 (define-c long getArgumentCountFromBOSSExpression ((const BOSSExpression)))
 (c-declare "struct BOSSExpression* getArgumentFromBOSSExpressionArray(struct BOSSExpression** array, size_t index) {return array[index];}")
 (define-c BOSSExpression getArgumentFromBOSSExpressionArray ((pointer BOSSExpression) long))
-(define-c  (pointer  BOSSExpression) getArgumentsFromBOSSExpression ((const BOSSExpression)))
+(define-c (free (pointer BOSSExpression)) getArgumentsFromBOSSExpression ((const BOSSExpression)))
 
 
 (define-c (free BOSSExpression) BOSSEvaluate (BOSSExpression))
