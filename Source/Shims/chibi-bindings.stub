@@ -29,7 +29,9 @@
 
 (define-c (free BOSSSymbol) getHeadFromBOSSExpression ((const BOSSExpression)))
 (define-c long getArgumentCountFromBOSSExpression ((const BOSSExpression)))
-(define-c (pointer (free BOSSExpression)) getArgumentsFromBOSSExpression ((const BOSSExpression)))
+(c-declare "struct BOSSExpression* getArgumentFromBOSSExpressionArray(struct BOSSExpression** array, size_t index) {return array[index];}")
+(define-c BOSSExpression getArgumentFromBOSSExpressionArray ((pointer BOSSExpression) long))
+(define-c  (pointer  BOSSExpression) getArgumentsFromBOSSExpression ((const BOSSExpression)))
 
 
 (define-c (free BOSSExpression) BOSSEvaluate (BOSSExpression))
@@ -38,4 +40,5 @@
 
 ;; Local Variables:
 ;; mode: lisp
+;; eval: (lispy-mode)
 ;; End:
