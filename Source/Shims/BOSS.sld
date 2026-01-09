@@ -3,7 +3,7 @@
 
   (export symbolNameToNewBOSSSymbol boolToNewBOSSExpression getBOSSExpressionTypeID floatToNewBOSSExpression
           newComplexBOSSExpression BOSSEvaluate getFloatValueFromBOSSExpression convert-to-boss-expression convert-from-boss-expression
-          stringToNewBOSSExpression getIntValueFromBOSSExpression intToNewBOSSExpression)
+          stringToNewBOSSExpression getIntValueFromBOSSExpression intToNewBOSSExpression boss-eval)
   (begin
    (define bossTypeID '(bool int8 int32 long float double string symbol complexExpression))
 
@@ -11,7 +11,7 @@
        (match x
               ((head arguments ...) (newComplexBOSSExpression (convert-to-boss-expression head) (length arguments) (map convert-to-boss-expression arguments)))
               (('quote argument) (convert-to-boss-expression argument))
-              ((? exact-integer? i) (longToNewBOSSExpression i))
+              ((? exact-integer? i) (intToNewBOSSExpression i))
               ((? real? f) (doubleToNewBOSSExpression f))
               ((? string? s) (stringToNewBOSSExpression s))
               ((? symbol? s) (symbolNameToNewBOSSSymbol (symbol->string s)))
@@ -36,6 +36,7 @@
          )
      )
 
+   (define-syntax boss-eval (syntax-rules () ((boss-eval query) (convert-from-boss-expression (BOSSEvaluate (convert-to-boss-expression (quote query)))))))
 
    )
   (include-shared "libBOSS"))
