@@ -60,7 +60,7 @@ BOSSExpression* doubleToNewBOSSExpression(double value) {
 BOSSExpression* stringToNewBOSSExpression(char const* string) {
   return new BOSSExpression{boss::Expression(::std::string(string))};
 }
-BOSSExpression* bossSymbolNameToNewBOSSExpression(char const* name) {
+BOSSExpression* symbolNameToNewBOSSExpression(char const* name) {
   return new BOSSExpression{boss::Expression(boss::Symbol(name))};
 }
 

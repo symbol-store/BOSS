@@ -14,7 +14,7 @@
               ((? exact-integer? i) (intToNewBOSSExpression i))
               ((? real? f) (doubleToNewBOSSExpression f))
               ((? string? s) (stringToNewBOSSExpression s))
-              ((? symbol? s) (symbolNameToNewBOSSSymbol (symbol->string s)))
+              ((? symbol? s) (symbolNameToNewBOSSExpression (symbol->string s)))
               )
      )
 

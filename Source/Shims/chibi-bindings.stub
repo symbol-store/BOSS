@@ -12,6 +12,7 @@
 (define-c (free BOSSExpression) intToNewBOSSExpression ((const int)))
 (define-c (free BOSSExpression) longToNewBOSSExpression ((const long)))
 (define-c (free BOSSExpression) stringToNewBOSSExpression ((const string)))
+(define-c (free BOSSExpression) symbolNameToNewBOSSExpression ((const string)))
 
 (define-c BOSSExpression newComplexBOSSExpression (BOSSSymbol long (array BOSSExpression)))
 
