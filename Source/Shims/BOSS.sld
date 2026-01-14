@@ -9,7 +9,7 @@
 
    (define (convert-to-boss-expression x)
        (match x
-              ((head arguments ...) (newComplexBOSSExpression (convert-to-boss-expression head) (length arguments) (map convert-to-boss-expression arguments)))
+              ((head arguments ...) (newComplexBOSSExpression (symbolNameToNewBOSSSymbol head) (length arguments) (map convert-to-boss-expression arguments)))
               (('quote argument) (convert-to-boss-expression argument))
               ((? exact-integer? i) (intToNewBOSSExpression i))
               ((? real? f) (doubleToNewBOSSExpression f))
