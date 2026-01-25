@@ -32,7 +32,7 @@
 (define-c long getArgumentCountFromBOSSExpression ((const BOSSExpression)))
 (c-declare "struct BOSSExpression* getArgumentFromBOSSExpressionArray(struct BOSSExpression** array, size_t index) {return array[index];}")
 (define-c BOSSExpression getArgumentFromBOSSExpressionArray ((pointer BOSSExpression) long))
-(define-c (free (pointer BOSSExpression)) getArgumentsFromBOSSExpression ((const BOSSExpression)))
+(define-c (pointer BOSSExpression) getArgumentsFromBOSSExpression ((const BOSSExpression)))
 
 
 (define-c (free BOSSExpression) BOSSEvaluate (BOSSExpression))
