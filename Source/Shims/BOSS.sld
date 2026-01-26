@@ -36,6 +36,7 @@
          ('double (getDoubleValueFromBOSSExpression x))
          ('float (getFloatValueFromBOSSExpression x))
          ('bool (getBoolValueFromBOSSExpression x))
+         ('symbol (string->symbol (getNewSymbolNameFromBOSSExpression x)))
          (else (show #f "unknown, type: " (list-ref bossTypeID  (getBOSSExpressionTypeID x))) )
          )
      )
