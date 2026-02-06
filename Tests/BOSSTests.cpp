@@ -1448,6 +1448,17 @@ TEST_CASE("Laxy Expression Serialization") {
   }
 }
 
+TEST_CASE("Recursive Pattern Matching") {
+  using namespace boss::utilities::experimental;
+  static auto evaluate = [](boss::Expression&& e) -> boss::Expression { return e; };
+  auto hasRun = false;
+  auto _ =
+      "Howdie"_()<"Howdie" >= Recurse(evaluate)>[&hasRun](auto, auto, auto) -> boss::Expression {
+    return hasRun = true;
+  };
+  REQUIRE(hasRun);
+}
+
 int main(int argc, char* argv[]) {
   Catch::Session session;
   session.cli(session.cli() | Catch::clara::Opt(librariesToTest, "library")["--library"]);

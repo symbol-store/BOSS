@@ -125,13 +125,13 @@
     )
   )
 
-(define _Expression (make-ctype _pointer (lambda (racketExpression) (let ( [bossExpression (convert-to-boss-expression racketExpression)])
-                                                                      (set-cpointer-tag! bossExpression 'unowned)
-
-
-                                                                      bossExpression))
-                                (lambda (x) (convert-from-boss-expression (gcExpression x)) )
-                                ))
+(define _Expression
+  (make-ctype _pointer
+              (lambda (racketExpression)
+                (let ( [bossExpression (convert-to-boss-expression racketExpression)])
+                  (set-cpointer-tag! bossExpression 'unowned)
+                  bossExpression))
+              (lambda (x) (convert-from-boss-expression (gcExpression x)) )))
 
 (define evaluate
   (get-ffi-obj "BOSSEvaluate" libBoss (_fun _Expression -> _Expression)))
