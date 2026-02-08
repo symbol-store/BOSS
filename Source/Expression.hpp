@@ -42,7 +42,7 @@ class Symbol {
   std::string name;
 
 public:
-  explicit Symbol(std::string name) noexcept : name(std::move(name)){};
+  explicit Symbol(std::string name) noexcept : name(std::move(name)) {};
   std::string const& getName() const& { return name; };
   std::string getName() && { return std::move(name); };
   inline bool operator==(Symbol const& other) const { return getName() == other.getName(); };
@@ -861,8 +861,9 @@ public:
                                              std::vector<bool>::const_reference> &&
                               !IsConstWrapper) ||
                              ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                               std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                   0))>>)&&!IsConstWrapper)) {
+                               std::is_const_v<
+                                   std::remove_reference_t<decltype(spanArgument.at(0))>>) &&
+                              !IsConstWrapper)) {
                   throw std::runtime_error("cannot convert const span to non-const argument");
                 } else {
                   return spanArgument[index - argumentPrefixScan];
@@ -894,8 +895,9 @@ public:
                             std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
                                            std::vector<bool>::const_reference>) ||
                            ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                             std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                 0))>>)&&!IsConstWrapper)) {
+                             std::is_const_v<
+                                 std::remove_reference_t<decltype(spanArgument.at(0))>>) &&
+                            !IsConstWrapper)) {
                 throw std::runtime_error("cannot convert const span to non-const argument");
               } else if constexpr(
 
