@@ -11,9 +11,7 @@ on:
 
 jobs:
   format-check:
-    runs-on: [self-hosted, ARM64]
-    container:
-      image: holgerpirk/bossbuild
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - name: check
