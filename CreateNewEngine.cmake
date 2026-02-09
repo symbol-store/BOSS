@@ -44,7 +44,7 @@ set(CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE}" CACHE STRING
 include(ExternalProject)
 ]=]
 
-"set(BOSS_SOURCE_BRANCH ${BOSS_BRANCH} CACHE STRING \"if boss core is built from source, which thread should be fetched\")
+"set(BOSS_SOURCE_BRANCH ${BOSS_BRANCH} CACHE STRING \"if boss core is built from source, which branch should be fetched\")
 set(BOSS_SOURCE_REPOSITORY ${BOSS_REMOTE_URL} CACHE STRING \"url for the boss repository\")
 ExternalProject_Add(BOSS
   GIT_REPOSITORY \${BOSS_SOURCE_REPOSITORY}

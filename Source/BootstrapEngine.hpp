@@ -78,7 +78,7 @@ class BootstrapEngine : public boss::Engine {
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
           if(auto* evalSym = dlsym(library, "evaluate")) {
             auto* resetSym = dlsym(library, "reset");
-            emplace(libraryPath, LibraryAndFunctions{library, evalSym, resetSym});
+            emplace(libraryPath, LibraryAndFunctions {library, evalSym, resetSym});
           } else {
             throw ::std::runtime_error("library \"" + libraryPath +
                                        "\" does not provide an evaluate function: " + dlerror());
@@ -110,24 +110,25 @@ class BootstrapEngine : public boss::Engine {
     LibraryCache& operator=(LibraryCache&&) = delete;
   } libraries;
 
-  ::std::vector<::std::string> defaultEngine = {};
+  ::std::vector<::std::string> defaultEngine;
 
   ::std::unordered_map<boss::Symbol, ::std::function<boss::Expression(
-                                         boss::ComplexExpression&&)>> const registeredOperators{
+                                         boss::ComplexExpression&&)>> const registeredOperators {
       {boss::Symbol("EvaluateInEngines"),
        [this](auto&& e) -> boss::Expression {
          auto symbols = ::std::vector<BOSSExpression* (*)(BOSSExpression*)>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
-         ::std::for_each(args.begin(), args.end(), [this, &e, &symbols](auto&& enginePath) {
-           symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-               libraries.at(get<::std::string>(enginePath)).evaluateFunction));
-         });
+         ::std::for_each(args.begin(), args.end(),
+                         [&libraries = this->libraries, &e, &symbols](auto&& enginePath) {
+                           symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
+                               libraries.at(get<::std::string>(enginePath)).evaluateFunction));
+                         });
          ::std::for_each(::std::make_move_iterator(::std::next(
                              e.getArguments().begin())), // Note: first argument is the engine path
                          ::std::make_move_iterator(::std::prev(e.getArguments().end())),
                          [&symbols](auto&& argument) {
                            auto* wrapper =
-                               new BOSSExpression{::std::forward<decltype(argument)>(argument)};
+                               new BOSSExpression {::std::forward<decltype(argument)>(argument)};
                            for(auto sym : symbols) {
                              auto* oldWrapper = wrapper;
                              wrapper = (sym(wrapper));
@@ -136,7 +137,7 @@ class BootstrapEngine : public boss::Engine {
                            freeBOSSExpression(wrapper);
                          });
 
-         auto* r = new BOSSExpression{*::std::prev(e.getArguments().end())};
+         auto* r = new BOSSExpression {*::std::prev(e.getArguments().end())};
          for(auto sym : symbols) {
            auto* oldWrapper = r;
            r = sym(r);
@@ -148,16 +149,17 @@ class BootstrapEngine : public boss::Engine {
        }},
       {boss::Symbol("SetDefaultEnginePipeline"),
        [this](auto&& expression) -> boss::Expression {
-         algorithm::visitEach(expression.getArguments(), [this](auto&& engine) {
-           if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
-             defaultEngine.push_back(engine);
-           } else {
-             throw std::runtime_error((std::stringstream()
-                                       << "SetDefaultEnginePipeline received non-string argument: "
-                                       << engine)
+         algorithm::visitEach(
+             expression.getArguments(), [&defaultEngine = this->defaultEngine](auto&& engine) {
+               if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
+                 defaultEngine.push_back(engine);
+               } else {
+                 throw std::runtime_error((std::stringstream()
+                                           << "SetDefaultEnginePipeline received non-string argument: "
+                                           << engine)
                                           .str());
-           }
-         });
+               }
+             });
          return "okay";
        }},
       {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {

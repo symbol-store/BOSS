@@ -12,8 +12,8 @@ template <typename ExpressionSystem = DefaultExpressionSystem> class ExtensibleE
   Symbol const s;
 
 public:
-  explicit ExtensibleExpressionBuilder(Symbol const& s) : s(s){};
-  explicit ExtensibleExpressionBuilder(const ::std::string& s) : s(Symbol(s)){};
+  explicit ExtensibleExpressionBuilder(Symbol const& s) : s(s) {};
+  explicit ExtensibleExpressionBuilder(const ::std::string& s) : s(Symbol(s)) {};
   /**
    * This thing is a bit hacky: when construction Expression, some standard
    * libraries convert char const* to int or bool, not to ::std::string -- so I do
@@ -21,7 +21,7 @@ public:
    */
   typename ExpressionSystem::Expression
   convertConstCharToStringAndOnToExpression(char const* v) const {
-    return ::std::string((char const*)v);
+    return ::std::string(v);
   }
   template <typename T>
   typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {
@@ -61,7 +61,8 @@ public:
   /**
    * build expression from dynamic arguments (or no arguments)
    */
-  typename ExpressionSystem::ComplexExpression operator()(typename ExpressionSystem::ExpressionArguments&& argList /*a*/) const {
+  typename ExpressionSystem::ComplexExpression
+  operator()(typename ExpressionSystem::ExpressionArguments&& argList /*a*/) const {
     return {s, {}, ::std::move(argList)};
   }
 
@@ -71,8 +72,8 @@ public:
    */
   template <typename... Ts>
   ::std::enable_if_t<(sizeof...(Ts) > 0) &&
-                         !(std::conjunction_v<isSpanArgument<::std::decay_t<Ts>>...>)&&!(
-                             std::disjunction_v<isDynamicArgument<Ts>...>),
+                         !(std::conjunction_v<isSpanArgument<::std::decay_t<Ts>>...>) &&
+                         !(std::disjunction_v<isDynamicArgument<Ts>...>),
                      typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
                          ::std::decay_t<Ts>...>>
   operator()(Ts&&... args /*a*/) const {
@@ -87,7 +88,7 @@ public:
                          (sizeof...(Ts) > 0),
                      typename ExpressionSystem::ComplexExpression>
   operator()(Ts&&... args) const {
-    auto spans = std::array{
+    auto spans = std::array {
         std::forward<Ts>(args)...}; // unfortunately, vectors cannot be initialized with move-only
                                     // types which is why we need to put spans into an array first
     return {s, {}, {}, {std::move_iterator(begin(spans)), std::move_iterator(end(spans))}};
@@ -154,9 +155,9 @@ public:
 
   template <typename Visitor> Transformer operator>(Visitor&& visitor) && {
     if(isInLineWithMatched ||
-       isActive && std::holds_alternative<ComplexExpression>(c) &&
-           (std::get<ComplexExpression>(c).getHead().getName() == expectedHead ||
-            expectedHead == AnyHead)) {
+       (isActive && std::holds_alternative<ComplexExpression>(c) &&
+        (std::get<ComplexExpression>(c).getHead().getName() == expectedHead ||
+         expectedHead == AnyHead))) {
       return {process(std::move(std::get<ComplexExpression>(c)), std::forward<Visitor>(visitor)),
               expectedHead, false, true};
     }
@@ -184,13 +185,13 @@ template <typename EvaluateFunctionType> struct Recurse {
   EvaluateFunctionType& evaluate;
   explicit Recurse(EvaluateFunctionType& evaluate) : evaluate(evaluate) {}
 
-  template <typename StaticAgumentTuple, typename DynamicArgumentContainer,
+  template <typename StaticArgumentTuple, typename DynamicArgumentContainer,
             typename SpanArgumentContainer>
-  Expression operator()(Symbol&& head, StaticAgumentTuple&& statics,
+  Expression operator()(Symbol&& head, StaticArgumentTuple&& statics,
                         DynamicArgumentContainer&& dynamics, SpanArgumentContainer&& spans) {
     boss::algorithm::visitTransform(
         dynamics, [this](auto&& arg) { return evaluate(std::forward<decltype(arg)>(arg)); });
-    return ComplexExpression(std::move(head), std::forward<StaticAgumentTuple>(statics),
+    return ComplexExpression(std::move(head), std::forward<StaticArgumentTuple>(statics),
                              std::forward<DynamicArgumentContainer>(dynamics),
                              std::forward<SpanArgumentContainer>(spans));
   }

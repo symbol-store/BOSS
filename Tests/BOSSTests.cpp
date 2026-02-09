@@ -30,20 +30,21 @@ using std::int64_t;
 using std::int8_t;
 
 namespace {
-std::vector<string> librariesToTest{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+std::vector<string>
+    librariesToTest {}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 }
 // NOLINTBEGIN(readability-magic-numbers)
 // NOLINTBEGIN(bugprone-exception-escape)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // TODO: @Hubert, can you reduce the complexity of the tests, please?
 TEST_CASE("Subspans work correctly", "[spans]") {
-  auto input = boss::Span<int64_t>{std::vector<int64_t>{1, 2, 4, 3}};
+  auto input = boss::Span<int64_t> {std::vector<int64_t> {1, 2, 4, 3}};
   auto subrange = std::move(input).subspan(1, 3);
   CHECK(subrange.size() == 3);
   CHECK(subrange[0] == 2);
   CHECK(subrange[1] == 4);
   CHECK(subrange[2] == 3);
-  auto subrange2 = boss::Span<int64_t>{std::vector<int64_t>{1, 2, 3, 2}}.subspan(2);
+  auto subrange2 = boss::Span<int64_t> {std::vector<int64_t> {1, 2, 3, 2}}.subspan(2);
   CHECK(subrange2[0] == 3);
   CHECK(subrange2[1] == 2);
 }
@@ -117,7 +118,8 @@ TEST_CASE("Expressions with static Arguments", "[expressions]") {
     auto const e = boss::ComplexExpressionWithStaticArguments<
         boss::ComplexExpressionWithStaticArguments<std::int64_t>>(
         {"Duh"_,
-         boss::ComplexExpressionWithStaticArguments<std::int64_t>{"UnevaluatedPlus"_, {v1}, {}, {}},
+         boss::ComplexExpressionWithStaticArguments<std::int64_t> {
+             "UnevaluatedPlus"_, {v1}, {}, {}},
          {},
          {}});
     CHECK(e.getHead().getName() == "Duh");
@@ -1346,7 +1348,7 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int32_t, std::i
 }
 
 TEST_CASE("Expression Serialization") {
-  auto const plans = std::array<boss::Expression, 8>{
+  auto const plans = std::array<boss::Expression, 8> {
       "Yo"_,
       "Howdie"_("Yo"_(5, 17, "duh"_(3)), "Five"_(6), 9, 1),
       "Howdie"_(1, 4, 9, "You"_(1, 3), 9, 3),
@@ -1389,7 +1391,7 @@ TEST_CASE("Expression Serialization") {
 }
 
 TEST_CASE("Laxy Expression Serialization") {
-  auto const plans = std::array<boss::Expression, 8>{
+  auto const plans = std::array<boss::Expression, 8> {
       "HiThere"_(1, 4, 9, "You"_(1, 3), 9, 3),
       "Howdie"_("Yo"_(5, 17, "duh"_(3)), "Five"_(6), 9, 1),
       "Yo"_,
@@ -1446,6 +1448,17 @@ TEST_CASE("Laxy Expression Serialization") {
     CHECK(e.lazilyDeserialize() == plan);
     CHECK(!(e.lazilyDeserialize() == "Thingy"_));
   }
+}
+
+TEST_CASE("Recursive Pattern Matching") {
+  using namespace boss::utilities::experimental;
+  static auto evaluate = [](boss::Expression&& e) -> boss::Expression { return e; };
+  auto hasRun = false;
+  auto _ =
+      "Howdie"_()<"Howdie" >= Recurse(evaluate)>[&hasRun](auto, auto, auto) -> boss::Expression {
+    return hasRun = true;
+  };
+  REQUIRE(hasRun);
 }
 
 int main(int argc, char* argv[]) {
