@@ -6,3 +6,4 @@ PointerAlignment: Left
 DerivePointerAlignment: false
 SpaceBeforeParens: Never
 Standard: c++17
+SpaceBeforeCpp11BracedList: true

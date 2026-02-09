@@ -28,44 +28,44 @@ extern "C" {
 BOSSExpression* BOSSEvaluate(BOSSExpression* arg) {
   try {
     static boss::engines::BootstrapEngine engine;
-    auto* output = new BOSSExpression{engine.evaluate(std::move(arg->delegate))};
+    auto* output = new BOSSExpression {engine.evaluate(std::move(arg->delegate))};
     freeBOSSExpression(arg);
     return output;
   } catch(::std::exception const& e) {
     auto args = boss::ExpressionArguments();
     args.emplace_back(std::move(arg->delegate));
-    args.emplace_back(std::string{e.what()});
-    return new BOSSExpression{
+    args.emplace_back(std::string {e.what()});
+    return new BOSSExpression {
         boss::ComplexExpression("ErrorWhenEvaluatingExpression"_, std::move(args))};
   }
 };
 BOSSExpression* boolToNewBOSSExpression(bool value) {
-  return new BOSSExpression{boss::Expression(value)};
+  return new BOSSExpression {boss::Expression(value)};
 }
 BOSSExpression* charToNewBOSSExpression(int8_t value) {
-  return new BOSSExpression{boss::Expression(value)};
+  return new BOSSExpression {boss::Expression(value)};
 }
 BOSSExpression* intToNewBOSSExpression(int32_t value) {
-  return new BOSSExpression{boss::Expression(value)};
+  return new BOSSExpression {boss::Expression(value)};
 }
 BOSSExpression* longToNewBOSSExpression(int64_t value) {
-  return new BOSSExpression{boss::Expression(value)};
+  return new BOSSExpression {boss::Expression(value)};
 }
 BOSSExpression* floatToNewBOSSExpression(float value) {
-  return new BOSSExpression{boss::Expression(value)};
+  return new BOSSExpression {boss::Expression(value)};
 }
 BOSSExpression* doubleToNewBOSSExpression(double value) {
-  return new BOSSExpression{boss::Expression(value)};
+  return new BOSSExpression {boss::Expression(value)};
 }
 BOSSExpression* stringToNewBOSSExpression(char const* string) {
-  return new BOSSExpression{boss::Expression(::std::string(string))};
+  return new BOSSExpression {boss::Expression(::std::string(string))};
 }
 BOSSExpression* bossSymbolNameToNewBOSSExpression(char const* name) {
-  return new BOSSExpression{boss::Expression(boss::Symbol(name))};
+  return new BOSSExpression {boss::Expression(boss::Symbol(name))};
 }
 
 BOSSSymbol* symbolNameToNewBOSSSymbol(char const* name) {
-  return new BOSSSymbol{boss::Symbol(name)};
+  return new BOSSSymbol {boss::Symbol(name)};
 }
 
 BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
@@ -75,7 +75,7 @@ BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                    [](auto const* a) {
                      return a->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION);
                    });
-  return new BOSSExpression{boss::ComplexExpression(head->delegate, ::std::move(args))};
+  return new BOSSExpression {boss::ComplexExpression(head->delegate, ::std::move(args))};
 }
 
 char const* bossSymbolToNewString(BOSSSymbol const* arg) {
@@ -144,7 +144,7 @@ char const* getNewSymbolNameFromBOSSExpression(BOSSExpression const* arg) {
 }
 
 BOSSSymbol* getHeadFromBOSSExpression(BOSSExpression const* arg) {
-  return new BOSSSymbol{get<boss::ComplexExpression>(arg->delegate).getHead()};
+  return new BOSSSymbol {get<boss::ComplexExpression>(arg->delegate).getHead()};
 }
 size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
   return get<boss::ComplexExpression>(arg->delegate).getArguments().size();
@@ -153,7 +153,7 @@ BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
   auto const& args = get<boss::ComplexExpression>(arg->delegate).getArguments();
   auto* result = new BOSSExpression*[args.size() + 1];
   ::std::transform(begin(args), end(args), result, [](auto const& arg) {
-    return new BOSSExpression{arg.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
+    return new BOSSExpression {arg.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
   });
   result[args.size()] = nullptr;
   return result;
@@ -178,7 +178,7 @@ void freeBOSSString(char* string) {
 
 namespace boss {
 Expression evaluate(Expression&& expr) {
-  auto* e = new BOSSExpression{std::move(expr)};
+  auto* e = new BOSSExpression {std::move(expr)};
   auto* result = BOSSEvaluate(e);
   auto output = ::std::move(result->delegate);
   freeBOSSExpression(result);
@@ -192,6 +192,6 @@ struct PortableBOSSRootExpression* serializeBOSSExpression(struct BOSSExpression
   return boss::serialization::SerializedExpression(std::move(e->delegate)).extractRoot();
 }
 struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSRootExpression* root) {
-  return new BOSSExpression{boss::serialization::SerializedExpression(root).deserialize()};
+  return new BOSSExpression {boss::serialization::SerializedExpression(root).deserialize()};
 }
 }

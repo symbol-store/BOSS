@@ -88,7 +88,7 @@ public:
                          (sizeof...(Ts) > 0),
                      typename ExpressionSystem::ComplexExpression>
   operator()(Ts&&... args) const {
-    auto spans = std::array{
+    auto spans = std::array {
         std::forward<Ts>(args)...}; // unfortunately, vectors cannot be initialized with move-only
                                     // types which is why we need to put spans into an array first
     return {s, {}, {}, {std::move_iterator(begin(spans)), std::move_iterator(end(spans))}};

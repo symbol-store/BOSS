@@ -169,7 +169,7 @@ struct SerializedExpression {
                         auto storedString = storeString(&root, argument.getHead().getName().c_str(),
                                                         reallocateFunction);
                         *makeExpression(root, expressionOutputI) =
-                            PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
+                            PortableBOSSExpression {storedString, startChildOffset, endChildOffset};
                         *makeExpressionArgument(root, argumentOutputI++) = expressionOutputI++;
                         auto head = viewString(root, storedString);
                         childrenCountRunningSum += childrenCount;
@@ -222,8 +222,8 @@ public:
                                                     allocateFunction)) {
     std::visit(utilities::overload(
                    [this](boss::ComplexExpression&& input) {
-                     auto argumentIterator = uint64_t{};
-                     auto expressionIterator = uint64_t{};
+                     auto argumentIterator = uint64_t {};
+                     auto expressionIterator = uint64_t {};
                      auto const headOffset = 0;
                      auto const startChildOffset = 1;
                      auto const endChildOffset =
@@ -231,7 +231,7 @@ public:
                      auto storedString =
                          storeString(&root, input.getHead().getName().c_str(), reallocateFunction);
                      *makeExpression(root, expressionIterator) =
-                         PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
+                         PortableBOSSExpression {storedString, startChildOffset, endChildOffset};
                      *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
                      auto inputs = std::vector<boss::ComplexExpression>();
                      inputs.push_back(std::move(input));
@@ -262,7 +262,7 @@ public:
     for(auto childIndex = startChildOffset; childIndex < endChildOffset; childIndex++) {
       auto const& arg = flattenedArguments()[childIndex];
       auto const& type = flattenedArgumentTypes()[childIndex];
-      auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>>{
+      auto const functors = std::unordered_map<ArgumentType, std::function<boss::Expression()>> {
           {ArgumentType::ARGUMENT_TYPE_BOOL, [&] { return (arg.asBool); }},
           {ArgumentType::ARGUMENT_TYPE_CHAR, [&] { return (arg.asChar); }},
           {ArgumentType::ARGUMENT_TYPE_INT, [&] { return (arg.asInt); }},
@@ -374,7 +374,7 @@ public:
       if(root->expressionCount == 0) {
         return s;
       }
-      auto result = boss::ComplexExpression{
+      auto result = boss::ComplexExpression {
           s, deserializeArguments(1, expressionsBuffer()[0].endChildOffset)};
       return result;
     }

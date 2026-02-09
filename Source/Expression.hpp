@@ -219,14 +219,14 @@ public:
             output << "valueless by exception";
           }
           static auto typenames =
-              ::std::map<::std::type_index, char const*>{{typeid(bool), "bool"},
-                                                         {typeid(int8_t), "char"},
-                                                         {typeid(int32_t), "int"},
-                                                         {typeid(int64_t), "long"},
-                                                         {typeid(float_t), "float"},
-                                                         {typeid(double_t), "double"},
-                                                         {typeid(::std::string), "string"},
-                                                         {typeid(Symbol), "Symbol"}};
+              ::std::map<::std::type_index, char const*> {{typeid(bool), "bool"},
+                                                          {typeid(int8_t), "char"},
+                                                          {typeid(int32_t), "int"},
+                                                          {typeid(int64_t), "long"},
+                                                          {typeid(float_t), "float"},
+                                                          {typeid(double_t), "double"},
+                                                          {typeid(::std::string), "string"},
+                                                          {typeid(Symbol), "Symbol"}};
           output << "\", expected "
                  << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
                                                          : typeid(TargetType).name());
@@ -828,7 +828,7 @@ public:
   constexpr ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>
   getStaticArgument(size_t index, std::index_sequence<I...> /*unused*/) const {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-    return std::move(std::array<ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>, sizeof...(I)>{
+    return std::move(std::array<ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>, sizeof...(I)> {
         std::get<I>(staticArguments)...}[index]);
   }
 
@@ -994,9 +994,9 @@ template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms {
 private:
   Symbol head;
-  StaticArgumentsTuple staticArguments{};
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments{};
-  ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments{};
+  StaticArgumentsTuple staticArguments {};
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments {};
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments {};
 
 public:
   template <size_t... I>
@@ -1075,7 +1075,7 @@ public:
                 std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
             {std::move_iterator(
                  next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
-             std::move_iterator(end(arguments))}){};
+             std::move_iterator(end(arguments))}) {};
 
   template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
@@ -1088,7 +1088,7 @@ public:
                 std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
             {std::move_iterator(
                  next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
-             std::move_iterator(end(arguments))}){};
+             std::move_iterator(end(arguments))}) {};
 
   operator ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
       std::tuple<>, AdditionalCustomAtoms...>() const {
@@ -1561,7 +1561,7 @@ decltype(auto) visit(Func&& func,
 };
 template <> struct hash<boss::expressions::Symbol> {
   ::std::size_t operator()(boss::expressions::Symbol const& s) const noexcept {
-    return ::std::hash<::std::string>{}(s.getName());
+    return ::std::hash<::std::string> {}(s.getName());
   }
 };
 
