@@ -23,12 +23,10 @@ jobs:
         exit $(git status -s | wc -l)
 
   build:
-    runs-on: [self-hosted, ARM64]
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         build-type: [Release, Debug] # Sanitize
-    container:
-      image: holgerpirk/bossbuild
     steps:
     - uses: actions/checkout@v2
       with:
@@ -47,7 +45,7 @@ jobs:
     - name: install
       run: cmake --build ${{ matrix.build-type }} --target install
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.build-type }}
         retention-days: 1
