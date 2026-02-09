@@ -2,16 +2,18 @@
 #include "BootstrapEngine.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "PortableBOSSSerialization.h"
 #include "Serialization.hpp"
-#include "Utilities.hpp"
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <exception>
-#include <iostream>
 #include <iterator>
-#include <optional>
-#include <ostream>
 #include <sstream>
+#include <string.h> //NOLINT(hicpp-deprecated-headers) // for strdup
+#include <type_traits>
+#include <utility>
 #include <variant>
 using namespace boss::utilities;
 using boss::expressions::CloneReason;
