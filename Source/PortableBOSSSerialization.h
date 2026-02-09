@@ -29,7 +29,7 @@ union PortableBOSSArgumentValue {
   PortableBOSSExpressionIndex asExpression;
 };
 
-enum PortableBOSSArgumentType : size_t {
+enum PortableBOSSArgumentType : uint8_t {
   ARGUMENT_TYPE_BOOL,
   ARGUMENT_TYPE_CHAR,
   ARGUMENT_TYPE_INT,
@@ -102,10 +102,10 @@ getExpressionSubexpressions(struct PortableBOSSRootExpression* root) {
 }
 
 static char* getStringBuffer(struct PortableBOSSRootExpression* root) {
-  return (char*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[root->argumentCount * (sizeof(union PortableBOSSArgumentValue) +
-                                              sizeof(enum PortableBOSSArgumentType)) +
-                       root->expressionCount * (sizeof(struct PortableBOSSExpression))];
+  return //(char*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+      &root->arguments[(root->argumentCount * (sizeof(union PortableBOSSArgumentValue) +
+                                               sizeof(enum PortableBOSSArgumentType))) +
+                       (root->expressionCount * (sizeof(struct PortableBOSSExpression)))];
 }
 
 //////////////////////////////   Memory Management /////////////////////////////
@@ -117,9 +117,9 @@ allocateExpressionTree(uint64_t argumentCount, uint64_t expressionCount,
       (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       allocateFunction(                    // NOLINT(hicpp-no-malloc,cppcoreguidelines-no-malloc)
           sizeof(struct PortableBOSSRootExpression) +
-          sizeof(union PortableBOSSArgumentValue) * argumentCount +
-          sizeof(enum PortableBOSSArgumentType) * argumentCount +
-          sizeof(struct PortableBOSSExpression) * expressionCount);
+          (sizeof(union PortableBOSSArgumentValue) * argumentCount) +
+          (sizeof(enum PortableBOSSArgumentType) * argumentCount) +
+          (sizeof(struct PortableBOSSExpression) * expressionCount));
   *((uint64_t*)&root->argumentCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       argumentCount;
   *((uint64_t*)&root->expressionCount) = // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
@@ -153,7 +153,7 @@ static int8_t* makeCharArgument(struct PortableBOSSRootExpression* root, uint64_
   getArgumentTypes(root)[argumentOutputI] = ARGUMENT_TYPE_CHAR;
   return &getExpressionArguments(root)[argumentOutputI].asChar;
 };
-  
+
 static int32_t* makeIntArgument(struct PortableBOSSRootExpression* root, uint64_t argumentOutputI) {
 #ifdef __cplusplus
   auto ARGUMENT_TYPE_INT = PortableBOSSArgumentType::ARGUMENT_TYPE_INT;
@@ -239,7 +239,7 @@ static int8_t* makeCharArgumentsRun(struct PortableBOSSRootExpression* root,
   setRLEArgumentFlagOrPropagateTypes(root, argumentOutputI, size);
   return value;
 }
-  
+
 static int32_t* makeIntArgumentsRun(struct PortableBOSSRootExpression* root,
                                     uint64_t argumentOutputI, uint32_t size) {
   int32_t* value = makeIntArgument(root, argumentOutputI);
@@ -299,7 +299,7 @@ static size_t storeString(struct PortableBOSSRootExpression** root, char const* 
   size_t const inputStringLength = strlen(inputString);
   *root = (struct PortableBOSSRootExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
       reallocateFunction(*root, // NOLINT(hicpp-no-malloc, cppcoreguidelines-no-malloc)
-                         ((char*)(getStringBuffer(*root)) -
+                         ((getStringBuffer(*root)) -
                           ((char*)*root)) + // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
                              (*root)->stringArgumentsFillIndex +
                              inputStringLength + 1);

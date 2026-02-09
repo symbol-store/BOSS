@@ -21,7 +21,7 @@ public:
    */
   typename ExpressionSystem::Expression
   convertConstCharToStringAndOnToExpression(char const* v) const {
-    return ::std::string((char const*)v);
+    return ::std::string(v);
   }
   template <typename T>
   typename ExpressionSystem::Expression convertConstCharToStringAndOnToExpression(T&& v) const {
