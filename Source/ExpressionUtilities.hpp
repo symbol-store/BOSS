@@ -153,6 +153,10 @@ public:
     return std::move(*this) > std::forward<Visitor>(visitor);
   }
 
+  template <typename Visitor> Transformer operator>>=(Visitor&& visitor) && {
+    return std::move(*this) >= std::forward<Visitor>(visitor);
+  }
+
   template <typename Visitor> Transformer operator>(Visitor&& visitor) && {
     if(isInLineWithMatched ||
        (isActive && std::holds_alternative<ComplexExpression>(c) &&
@@ -163,10 +167,15 @@ public:
     }
     return std::move(*this);
   }
+  template <typename Visitor> Transformer operator>>(Visitor&& visitor) && {
+    return std::move(*this) > std::forward<Visitor>(visitor);
+  }
 
   Transformer operator<(char const* expectedHead) && {
     return Transformer(std::move(c), expectedHead, isActive, false);
   }
+  Transformer operator<<(char const* expectedHead) && { return std::move(*this) < expectedHead; }
+
   /*implicit*/ operator Expression() { // NOLINT(hicpp-explicit-conversions)
     return std::visit([](auto&& x) -> Expression { return std::forward<decltype(x)>(x); },
                       std::move(c));
@@ -176,9 +185,16 @@ public:
 Transformer operator<(ComplexExpression&& e, char const* expectedHead) {
   return Transformer(std::move(e), expectedHead);
 }
+Transformer operator<<(ComplexExpression&& e, char const* expectedHead) {
+  return std::move(e) < expectedHead;
+}
 
 Transformer operator<(Expression&& e, char const* expectedHead) {
   return Transformer(std::move(e), expectedHead);
+}
+
+Transformer operator<<(Expression&& e, char const* expectedHead) {
+  return std::move(e) < expectedHead;
 }
 
 template <typename EvaluateFunctionType> struct Recurse {

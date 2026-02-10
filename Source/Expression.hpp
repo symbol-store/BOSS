@@ -999,22 +999,26 @@ private:
   ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments {};
 
 public:
-  template <size_t... I>
-  static StaticArgumentsTuple
-  convertToTuple(ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& arguments,
-                 std::index_sequence<I...> /*unused*/) {
-    return {(std::get<
-             std::remove_reference_t<typename std::tuple_element<I, StaticArgumentsTuple>::type>>(
-        arguments.at(I)))...};
+  template <size_t N = std::tuple_size_v<StaticArgumentsTuple>>
+  static typename std::enable_if<N != 0, StaticArgumentsTuple>::type convertToTuple(
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& arguments) {
+    return std::bind([](auto&... args) -> StaticArgumentsTuple { return {args...}; }, arguments);
   }
 
-  template <size_t... I>
-  static StaticArgumentsTuple
-  convertToTuple(ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments,
-                 std::index_sequence<I...> /*unused*/) {
-    return {std::get<
-        std::remove_reference_t<typename std::tuple_element<I, StaticArgumentsTuple>::type>>(
-        std::move(arguments).at(I))...};
+  template <size_t N = std::tuple_size_v<StaticArgumentsTuple>>
+  static typename std::enable_if<N == 0, StaticArgumentsTuple>::type convertToTuple(
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> noArguments) {
+    if(!noArguments.empty()) {
+      throw std::runtime_error("arguments passed to no-argument tuple conversion");
+    }
+    return {};
+  }
+
+  template <size_t N = std::tuple_size_v<StaticArgumentsTuple>>
+  static typename std::enable_if<N != 0, StaticArgumentsTuple>::type convertToTuple(
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments) {
+    return std::bind([](auto&&... args) -> StaticArgumentsTuple { return {args...}; },
+                     std::move(arguments));
   }
 
   /**
@@ -1065,26 +1069,24 @@ public:
       typename std::enable_if<N == 0, Symbol const&>::type head,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
       : ComplexExpressionWithAdditionalCustomAtoms(
-            head,
-            convertToTuple(
-                std::move(arguments), // probably undefined behavior to move and use later
-                std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
+            head, {},
             {std::move_iterator(
                  next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
-             std::move_iterator(end(arguments))}) {};
+             std::move_iterator(end(arguments))}) {
+    auto _ = std::move(arguments); // make clang-tify happy
+  };
 
   template <std::size_t N = std::tuple_size<StaticArgumentsTuple>::value>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       typename std::enable_if<N == 0, Symbol&&>::type head,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
       : ComplexExpressionWithAdditionalCustomAtoms(
-            std::move(head),
-            convertToTuple(
-                std::move(arguments), // probably undefined behavior to move and use later
-                std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
+            std::move(head), {},
             {std::move_iterator(
                  next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
-             std::move_iterator(end(arguments))}) {};
+             std::move_iterator(end(arguments))}) {
+    auto _ = std::move(arguments); // make clang-tify happy
+  };
 
   operator ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
       std::tuple<>, AdditionalCustomAtoms...>() && {

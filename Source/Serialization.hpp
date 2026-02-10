@@ -123,8 +123,8 @@ struct SerializedExpression {
 
   template <typename TupleLike, uint64_t... Is>
   void flattenArgumentsInTuple(TupleLike&& tuple, std::index_sequence<Is...> /*unused*/,
-                               uint64_t& argumentOutputI) {
-    (flattenArguments(std::get<Is>(tuple), argumentOutputI), ...);
+                               uint64_t& /*argumentOutputI*/) {
+    std::bind([&](auto&&... a) { flattenArguments(a...); }, std::forward<decltype(tuple)>(tuple));
   };
 
   uint64_t flattenArguments(uint64_t argumentOutputI, std::vector<boss::ComplexExpression>&& inputs,
@@ -208,6 +208,7 @@ struct SerializedExpression {
                     std::forward<decltype(argument)>(argument));
               });
         });
+    auto _ = std::move(inputs); // make clang-tidy happy
     if(!children.empty()) {
       return flattenArguments(argumentOutputI, std::move(children), expressionOutputI);
     }
@@ -239,7 +240,7 @@ public:
                    },
                    [this](expressions::atoms::Symbol&& input) {
                      auto storedString =
-                         storeString(&root, input.getName().c_str(), reallocateFunction);
+                         storeString(&root, std::move(input).getName().c_str(), reallocateFunction);
                      *makeSymbolArgument(root, 0) = storedString;
                    },
                    [this](bool input) { *makeBoolArgument(root, 0) = input; },

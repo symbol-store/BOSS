@@ -1,7 +1,8 @@
 #include <array>
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <string>
 
-#include "../Source/BOSS.hpp"
+#include "../Source/BOSS.h"
 
 TEST_CASE("Build Expression", "[api]") {
   auto input = (std::array {longToNewBOSSExpression(3), longToNewBOSSExpression(4)});
