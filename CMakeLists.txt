@@ -58,7 +58,7 @@ set_target_properties(googlebenchmark PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 
 ExternalProject_Add(catch2
-	URL https://github.com/catchorg/Catch2/archive/v2.13.6.tar.gz
+	URL https://github.com/catchorg/Catch2/archive/v3.12.0.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCATCH_BUILD_TESTING=NO -DBUILD_TESTING=NO -DCATCH_ENABLE_WERROR=NO -DCATCH_INSTALL_DOCS=NO -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
   )
@@ -92,6 +92,8 @@ add_library(BOSS SHARED ${ImplementationFiles})
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
 add_dependencies(Tests catch2)
+
+target_link_libraries(Tests ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX})
 if(WIN32)
     target_compile_options(Tests PUBLIC /bigobj)
 endif(WIN32)

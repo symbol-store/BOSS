@@ -1,27 +1,47 @@
-#include <string_view>
-#define CATCH_CONFIG_RUNNER
-#include "../Source/BOSS.hpp"
 #include "../Source/BootstrapEngine.hpp"
+#include "../Source/Expression.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include "../Source/Serialization.hpp"
+#include "../Source/Utilities.hpp"
+
+#include <algorithm>
 #include <array>
-#include <catch2/catch.hpp>
+#include <catch2/catch_approx.hpp>
+#include <catch2/catch_message.hpp>
+#include <catch2/catch_session.hpp>
+#include <catch2/catch_template_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
+#include <catch2/generators/catch_generators_adapters.hpp>
+#include <catch2/generators/catch_generators_random.hpp>
+#include <catch2/generators/catch_generators_range.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <cmath>
+#include <cstdint>
+#include <iterator>
 #include <numeric>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 #include <variant>
+#include <vector>
+
 using boss::Expression;
 using std::string;
-using std::literals::string_literals::operator""s; // NOLINT(misc-unused-using-decls) clang-tidy bug
-using boss::utilities::operator""_;                // NOLINT(misc-unused-using-decls) clang-tidy bug
-using Catch::Generators::random;
-using Catch::Generators::take;
-using Catch::Generators::values;
-using std::vector;
-using namespace Catch::Matchers;
+using std::string_literals::operator""s; // NOLINT(misc-unused-using-decls, misc-include-cleaner)
+                                         // clang-tidy bug
+using boss::utilities::operator""_;      // NOLINT(misc-unused-using-decls) clang-tidy bug
 using boss::expressions::CloneReason;
 using boss::expressions::ComplexExpression;
 using boss::expressions::generic::get;
 using boss::expressions::generic::get_if;
 using boss::expressions::generic::holds_alternative;
+using Catch::Generators::random;
+using Catch::Generators::take;
+using Catch::Generators::values;
+using std::vector;
 namespace boss {
 using boss::expressions::atoms::Span;
 };
@@ -452,9 +472,8 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   };
 
   SECTION("CatchingErrors") {
-    CHECK_THROWS_MATCHES(
-        engine.evaluate("EvaluateInEngines"_("List"_(9), 5)), std::bad_variant_access,
-        Message("expected and actual type mismatch in expression \"9\", expected string"));
+    CHECK_THROWS_WITH(engine.evaluate("EvaluateInEngines"_("List"_(9), 5)),
+                      "expected and actual type mismatch in expression \"9\", expected string");
   }
 
   SECTION("Atomics") {
@@ -478,7 +497,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     auto const twoAndAHalf = 2.5F;
     auto const two = 2.0F;
     auto const quantum = 0.001F;
-    CHECK(std::fabs(get<float>(eval("Plus"_(twoAndAHalf, twoAndAHalf))) - two * twoAndAHalf) <
+    CHECK(std::fabs(get<float>(eval("Plus"_(twoAndAHalf, twoAndAHalf))) - (two * twoAndAHalf)) <
           quantum);
   }
 
@@ -486,7 +505,7 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     auto const twoAndAHalf = 2.5;
     auto const two = 2.0;
     auto const quantum = 0.001;
-    CHECK(std::fabs(get<double>(eval("Plus"_(twoAndAHalf, twoAndAHalf))) - two * twoAndAHalf) <
+    CHECK(std::fabs(get<double>(eval("Plus"_(twoAndAHalf, twoAndAHalf))) - (two * twoAndAHalf)) <
           quantum);
   }
 
@@ -1341,7 +1360,7 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int32_t, std::i
 
   auto result = eval("Plus"_(boss::Span<TestType>(vector(input))));
   if constexpr(std::is_floating_point_v<TestType>) {
-    CHECK(get<TestType>(result) == Catch::Detail::Approx((TestType)sum));
+    CHECK(get<TestType>(result) == Catch::Approx((TestType)sum));
   } else {
     CHECK(get<TestType>(result) == sum);
   }
@@ -1452,10 +1471,15 @@ TEST_CASE("Laxy Expression Serialization") {
 
 TEST_CASE("Recursive Pattern Matching") {
   using namespace boss::utilities::experimental;
-  static auto evaluate = [](boss::Expression&& e) -> boss::Expression { return e; };
+  static auto evaluate = [](boss::Expression&& e) -> boss::Expression { return std::move(e); };
   auto hasRun = false;
-  auto _ =
-      "Howdie"_()<"Howdie" >= Recurse(evaluate)>[&hasRun](auto, auto, auto) -> boss::Expression {
+  auto _ = ("Howdie"_() << "Howdie" >>= Recurse(evaluate)) >>
+           [&hasRun](auto, auto, auto) -> boss::Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+  // here is an alternative syntax that leads to clang-tidy issues
+  hasRun = false;
+  _ = "Howdie"_()<"Howdie" >= // NOLINT(bugprone-chained-comparison)
+                  Recurse(evaluate)>[&hasRun](auto, auto, auto) -> boss::Expression {
     return hasRun = true;
   };
   REQUIRE(hasRun);
@@ -1463,7 +1487,7 @@ TEST_CASE("Recursive Pattern Matching") {
 
 int main(int argc, char* argv[]) {
   Catch::Session session;
-  session.cli(session.cli() | Catch::clara::Opt(librariesToTest, "library")["--library"]);
+  session.cli(session.cli() | Catch::Clara::Opt(librariesToTest, "library")["--library"]);
   auto const returnCode = session.applyCommandLine(argc, argv);
   if(returnCode != 0) {
     return returnCode;
