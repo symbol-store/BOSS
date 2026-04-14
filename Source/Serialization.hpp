@@ -1,9 +1,11 @@
 #include "Expression.hpp"
 #include "Utilities.hpp"
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -52,8 +54,8 @@ template <void* (*allocateFunction)(size_t) = std::malloc,
           void (*freeFunction)(void*) = std::free>
 struct SerializedExpression {
   RootExpression* root = nullptr;
-  uint64_t argumentCount() const { return root->argumentCount; };
-  uint64_t expressionCount() const { return root->expressionCount; };
+  size_t argumentCount() const { return root->argumentCount; };
+  size_t expressionCount() const { return root->expressionCount; };
 
   Argument* flattenedArguments() const { return getExpressionArguments(root); }
   ArgumentType* flattenedArgumentTypes() const { return getArgumentTypes(root); }
@@ -61,9 +63,9 @@ struct SerializedExpression {
 
   //////////////////////////////// Count Arguments ///////////////////////////////
 
-  template <typename TupleLike, uint64_t... Is>
-  static uint64_t countArgumentsInTuple(TupleLike const& tuple,
-                                        std::index_sequence<Is...> /*unused*/) {
+  template <typename TupleLike, size_t... Is>
+  static size_t countArgumentsInTuple(TupleLike const& tuple,
+                                      std::index_sequence<Is...> /*unused*/) {
     return (countArguments(std::get<Is>(tuple)) + ... + 0);
   };
 
@@ -90,13 +92,11 @@ struct SerializedExpression {
 
   //////////////////////////////// Count Expressions ///////////////////////////////
 
-  template <typename TupleLike, uint64_t... Is>
-  static uint64_t countExpressionsInTuple(TupleLike const& tuple,
-                                          std::index_sequence<Is...> /*unused*/) {
+  template <typename TupleLike, size_t... Is>
+  static size_t countExpressionsInTuple(TupleLike const& tuple,
+                                        std::index_sequence<Is...> /*unused*/) {
     return (countExpressions(std::get<Is>(tuple)) + ... + 0);
   };
-
-  template <typename T> static uint64_t countExpressions(T const& /*unused*/) { return 0; }
 
   static uint64_t countExpressions(boss::Expression const& input) {
     return std::visit(utilities::overload(
@@ -254,8 +254,8 @@ public:
 
   explicit SerializedExpression(RootExpression* root) : root(root) {}
 
-  boss::expressions::ExpressionArguments deserializeArguments(uint64_t startChildOffset,
-                                                              uint64_t endChildOffset) {
+  boss::expressions::ExpressionArguments deserializeArguments(size_t startChildOffset,
+                                                              size_t endChildOffset) {
     boss::expressions::ExpressionArguments arguments;
     for(auto childIndex = startChildOffset; childIndex < endChildOffset; childIndex++) {
       auto const& arg = flattenedArguments()[childIndex];
