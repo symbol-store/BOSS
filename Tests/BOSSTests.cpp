@@ -179,6 +179,25 @@ public:
     return s << "dummy";
   }
 };
+// Teach the serializer how to encode DummyAtom as a uint64_t (it carries no data, so 0).
+uint64_t serializeCustomAtom(DummyAtom const& /*unused*/) { return 0; }
+
+// Instrumented atom that counts moves and copies to verify serialization efficiency.
+struct CountingAtom {
+  int value;
+  static int moves;
+  static int copies;
+  static void reset() { moves = copies = 0; }
+  explicit CountingAtom(int v) : value(v) {}
+  CountingAtom(CountingAtom&& other) noexcept : value(other.value) { ++moves; }
+  CountingAtom(CountingAtom const& other) : value(other.value) { ++copies; }
+  CountingAtom& operator=(CountingAtom&&) noexcept = delete;
+  CountingAtom& operator=(CountingAtom const&) = delete;
+};
+int CountingAtom::moves = 0;
+int CountingAtom::copies = 0;
+// Encode as the atom's integer payload so values can be checked after deserialization.
+uint64_t serializeCustomAtom(CountingAtom const& a) { return static_cast<uint64_t>(a.value); }
 
 TEST_CASE("Expression cast to more general expression system", "[expressions]") {
   auto a = boss::ExtensibleExpressionSystem<>::Expression("howdie"_());
@@ -1364,6 +1383,43 @@ TEMPLATE_TEST_CASE("Summation of numeric Spans", "[spans]", std::int32_t, std::i
   } else {
     CHECK(get<TestType>(result) == sum);
   }
+}
+
+TEST_CASE("Extended Expression System Serialization") {
+  // Verify that a custom atom type used as a static argument is serialized via the
+  // user-defined serializeCustomAtom() hook rather than throwing "unknown type".
+  // DummyAtom carries no data so it round-trips as int64_t(0).
+  auto expr = boss::ComplexExpressionWithStaticArguments<DummyAtom>{"Test"_, {DummyAtom{}}, {}, {}};
+  auto result = boss::serialization::SerializedExpression(std::move(expr)).deserialize();
+  auto& ce = std::get<boss::ComplexExpression>(result);
+  REQUIRE(ce.getHead().getName() == "Test");
+  REQUIRE(ce.getDynamicArguments().size() == 1);
+  CHECK(std::get<int64_t>(ce.getDynamicArguments()[0]) == 0);
+}
+
+TEST_CASE("Static arguments bypass dynamic-argument wrapping during serialization") {
+  // CountingAtom is not a boss::Expression variant alternative, so it can only reach the
+  // serializer via the direct static-argument path (flattenArgumentsInTuple). If the old
+  // implicit-conversion path were taken, this test would fail to compile because
+  // convertStaticToDynamicArguments cannot place a CountingAtom into boss::Expression.
+  //
+  // Beyond the compile-time proof, we verify at runtime that:
+  //  - no copies occur (copies would indicate an unexpected wrapping step), and
+  //  - the payload values survive the round-trip (stored as int64_t via serializeCustomAtom).
+  CountingAtom::reset();
+  using Expr = boss::ComplexExpressionWithStaticArguments<CountingAtom, CountingAtom, CountingAtom>;
+  auto expr = Expr{"Test"_, {CountingAtom{1}, CountingAtom{2}, CountingAtom{3}}, {}, {}};
+  auto const movesAfterConstruction = CountingAtom::moves;
+  auto const copiesAfterConstruction = CountingAtom::copies;
+  auto result = boss::serialization::SerializedExpression(std::move(expr)).deserialize();
+  CHECK(CountingAtom::copies == copiesAfterConstruction); // no copies during serialization
+  CHECK(CountingAtom::moves > movesAfterConstruction);    // at least the args were touched
+  auto& ce = std::get<boss::ComplexExpression>(result);
+  REQUIRE(ce.getHead().getName() == "Test");
+  REQUIRE(ce.getDynamicArguments().size() == 3);
+  CHECK(std::get<int64_t>(ce.getDynamicArguments()[0]) == 1);
+  CHECK(std::get<int64_t>(ce.getDynamicArguments()[1]) == 2);
+  CHECK(std::get<int64_t>(ce.getDynamicArguments()[2]) == 3);
 }
 
 TEST_CASE("Expression Serialization") {

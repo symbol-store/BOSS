@@ -13,6 +13,19 @@ extern "C" {
 #include "PortableBOSSSerialization.h"
 }
 namespace boss::serialization {
+
+// Detection trait for user-defined serializeCustomAtom(T const&) -> uint64_t overloads.
+// Found via ADL: define serializeCustomAtom in the same namespace as the custom atom type.
+namespace detail {
+template <typename T>
+auto detectCustomAtomSerializer(T const& t, int)
+    -> decltype(serializeCustomAtom(t), uint64_t {});
+template <typename T> void detectCustomAtomSerializer(T const&, ...);
+} // namespace detail
+
+template <typename T>
+static constexpr bool hasCustomAtomSerializer =
+    !std::is_void_v<decltype(detail::detectCustomAtomSerializer(std::declval<T const&>(), 0))>;
 // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
 
 static_assert(
@@ -114,6 +127,62 @@ struct SerializedExpression {
                           },
                           [](auto const&) -> uint64_t { return 0; }),
                       input);
+  }
+
+  // Overloads for ExpressionWithAdditionalCustomAtoms (used when iterating extended dynamics).
+  template <typename... AdditionalCustomAtoms>
+  static uint64_t countArguments(
+      boss::expressions::generic::ExpressionWithAdditionalCustomAtoms<
+          AdditionalCustomAtoms...> const& input) {
+    return std::visit(
+        [](auto const& a) -> uint64_t {
+          using T = std::decay_t<decltype(a)>;
+          if constexpr(boss::expressions::generic::isComplexExpression<T>) {
+            return countArguments(a);
+          }
+          return 1;
+        },
+        input);
+  }
+
+  template <typename... AdditionalCustomAtoms>
+  static uint64_t countExpressions(
+      boss::expressions::generic::ExpressionWithAdditionalCustomAtoms<
+          AdditionalCustomAtoms...> const& input) {
+    return std::visit(
+        [](auto const& a) -> uint64_t {
+          using T = std::decay_t<decltype(a)>;
+          if constexpr(boss::expressions::generic::isComplexExpression<T>) {
+            return countExpressions(a);
+          }
+          return 0;
+        },
+        input);
+  }
+
+  // Overloads for ComplexExpressionWithAdditionalCustomAtoms (static-argument expressions).
+  // Static args each occupy one argument slot; complex-expression statics are not yet counted.
+  template <typename StaticArgsTuple, typename... AdditionalCustomAtoms>
+  static uint64_t countArguments(
+      boss::expressions::generic::ComplexExpressionWithAdditionalCustomAtoms<
+          StaticArgsTuple, AdditionalCustomAtoms...> const& input) {
+    return 1 + std::tuple_size_v<StaticArgsTuple> +
+           std::accumulate(input.getDynamicArguments().begin(), input.getDynamicArguments().end(),
+                           size_t{0}, [](size_t sum, auto const& arg) {
+                             return sum + countArguments(arg);
+                           }) +
+           input.getSpanArguments().size();
+  }
+
+  template <typename StaticArgsTuple, typename... AdditionalCustomAtoms>
+  static uint64_t countExpressions(
+      boss::expressions::generic::ComplexExpressionWithAdditionalCustomAtoms<
+          StaticArgsTuple, AdditionalCustomAtoms...> const& input) {
+    return 1 + std::accumulate(input.getDynamicArguments().begin(),
+                               input.getDynamicArguments().end(), size_t{0},
+                               [](size_t sum, auto const& arg) {
+                                 return sum + countExpressions(arg);
+                               });
   }
 
   //////////////////////////////   Flatten Arguments /////////////////////////////
@@ -252,6 +321,109 @@ public:
                std::move(input));
   }
 
+  // Promote static args to dynamics, then construct SerializedExpression from the result.
+  // Called for expressions with non-empty StaticArgsTuple.
+  template <typename StaticArgsTuple, typename... AdditionalCustomAtoms>
+  static SerializedExpression makeFromStatic(
+      boss::expressions::generic::ComplexExpressionWithAdditionalCustomAtoms<
+          StaticArgsTuple, AdditionalCustomAtoms...>&& input) {
+    using ExprType = boss::expressions::generic::ComplexExpressionWithAdditionalCustomAtoms<
+        StaticArgsTuple, AdditionalCustomAtoms...>;
+    // Under the assumption that custom atoms are never base expression types,
+    // StaticAtomsTuple is always identical to StaticArgsTuple, and the extended
+    // constructor handles the promoted type directly.
+    using PromotedType =
+        typename ExprType::template WithStaticTypesAsAtoms<
+            typename ExprType::StaticAtomsTuple>::ComplexExpression;
+    return SerializedExpression(std::move(input).operator PromotedType());
+  }
+
+  // Constructor for expressions with non-empty static args: promote statics to dynamics first.
+  template <typename StaticArgsTuple, typename... AdditionalCustomAtoms,
+            std::enable_if_t<(std::tuple_size_v<StaticArgsTuple> > 0), int> = 0>
+  explicit SerializedExpression(
+      boss::expressions::generic::ComplexExpressionWithAdditionalCustomAtoms<
+          StaticArgsTuple, AdditionalCustomAtoms...>&& input)
+      : SerializedExpression(makeFromStatic(std::move(input))) {}
+
+  // Constructor for extended expressions (no static args, additional atoms in dynamics).
+  // Serializes like boss::Expression but visits the extended variant so custom atoms
+  // can be dispatched via serializeCustomAtom.
+  template <typename... AdditionalCustomAtoms,
+            std::enable_if_t<(sizeof...(AdditionalCustomAtoms) > 0), int> = 0>
+  explicit SerializedExpression(
+      boss::expressions::generic::ComplexExpressionWithAdditionalCustomAtoms<
+          std::tuple<>, AdditionalCustomAtoms...>&& input)
+      : SerializedExpression(
+            allocateExpressionTree(countArguments(input), countExpressions(input),
+                                   allocateFunction)) {
+    auto argumentIterator = uint64_t{};
+    auto expressionIterator = uint64_t{};
+    auto const startChildOffset = uint64_t{1};
+    auto const endChildOffset = startChildOffset + input.getDynamicArguments().size();
+    auto storedString = storeString(&root, input.getHead().getName().c_str(), reallocateFunction);
+    *makeExpression(root, expressionIterator) =
+        PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
+    *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
+    auto const nextLayerOffset = endChildOffset;
+    auto children = std::vector<boss::ComplexExpression>();
+    auto childrenCountRunningSum = 0UL;
+    std::for_each(
+        std::make_move_iterator(input.getDynamicArguments().begin()),
+        std::make_move_iterator(input.getDynamicArguments().end()),
+        [this, &argumentIterator, &children, &expressionIterator, nextLayerOffset,
+         &childrenCountRunningSum](auto&& argument) {
+          std::visit(
+              [this, &children, &argumentOutputI = argumentIterator, &expressionOutputI =
+                                                                         expressionIterator,
+               nextLayerOffset, &childrenCountRunningSum](auto&& argument) {
+                using ArgT = std::decay_t<decltype(argument)>;
+                if constexpr(std::is_same_v<ArgT, boss::ComplexExpression>) {
+                  auto const childrenCount = argument.getDynamicArguments().size() +
+                                             argument.getSpanArguments().size();
+                  auto const headOffset = argumentOutputI;
+                  auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
+                  auto const endChildOffset = startChildOffset + childrenCount;
+                  auto storedString = storeString(&root, argument.getHead().getName().c_str(),
+                                                  reallocateFunction);
+                  *makeExpression(root, expressionOutputI) =
+                      PortableBOSSExpression{storedString, startChildOffset, endChildOffset};
+                  *makeExpressionArgument(root, argumentOutputI++) = expressionOutputI++;
+                  childrenCountRunningSum += childrenCount;
+                  children.push_back(std::forward<decltype(argument)>(argument));
+                } else if constexpr(std::is_same_v<ArgT, bool>) {
+                  *makeBoolArgument(root, argumentOutputI++) = argument;
+                } else if constexpr(std::is_same_v<ArgT, int8_t>) {
+                  *makeCharArgument(root, argumentOutputI++) = argument;
+                } else if constexpr(std::is_same_v<ArgT, int32_t>) {
+                  *makeIntArgument(root, argumentOutputI++) = argument;
+                } else if constexpr(std::is_same_v<ArgT, int64_t>) {
+                  *makeLongArgument(root, argumentOutputI++) = argument;
+                } else if constexpr(std::is_same_v<ArgT, float_t>) {
+                  *makeFloatArgument(root, argumentOutputI++) = argument;
+                } else if constexpr(std::is_same_v<ArgT, double_t>) {
+                  *makeDoubleArgument(root, argumentOutputI++) = argument;
+                } else if constexpr(std::is_same_v<ArgT, std::string>) {
+                  auto storedString = storeString(&root, argument.c_str(), reallocateFunction);
+                  *makeStringArgument(root, argumentOutputI++) = storedString;
+                } else if constexpr(std::is_same_v<ArgT, boss::Symbol>) {
+                  auto storedString =
+                      storeString(&root, argument.getName().c_str(), reallocateFunction);
+                  *makeSymbolArgument(root, argumentOutputI++) = storedString;
+                } else if constexpr(hasCustomAtomSerializer<ArgT>) {
+                  *makeLongArgument(root, argumentOutputI++) =
+                      static_cast<int64_t>(serializeCustomAtom(argument));
+                } else {
+                  throw std::runtime_error("unknown type");
+                }
+              },
+              std::forward<decltype(argument)>(argument));
+        });
+    if(!children.empty()) {
+      flattenArguments(argumentIterator, std::move(children), expressionIterator);
+    }
+  }
+
   explicit SerializedExpression(RootExpression* root) : root(root) {}
 
   boss::expressions::ExpressionArguments deserializeArguments(size_t startChildOffset,
@@ -384,9 +556,16 @@ public:
     return root;
   };
 
-  SerializedExpression(SerializedExpression&&) noexcept = default;
+  SerializedExpression(SerializedExpression&& other) noexcept
+      : root(std::exchange(other.root, nullptr)) {}
   SerializedExpression(SerializedExpression const&) = delete;
-  SerializedExpression& operator=(SerializedExpression&&) noexcept = default;
+  SerializedExpression& operator=(SerializedExpression&& other) noexcept {
+    if(this != &other) {
+      freeExpressionTree(root, freeFunction);
+      root = std::exchange(other.root, nullptr);
+    }
+    return *this;
+  }
   SerializedExpression& operator=(SerializedExpression const&) = delete;
   ~SerializedExpression() { freeExpressionTree(root, freeFunction); }
 };
