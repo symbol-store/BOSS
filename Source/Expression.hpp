@@ -1143,8 +1143,7 @@ public:
   };
 
   operator typename WithStaticTypesAsAtoms< // NOLINT(hicpp-explicit-conversions)
-      StaticAtomsTuple>::ComplexExpression()
-      && {
+      StaticAtomsTuple>::ComplexExpression() && {
     return typename WithStaticTypesAsAtoms<StaticAtomsTuple>::ComplexExpression(
         head, std::move(*this).convertStaticToDynamicArguments(
                   std::make_index_sequence<std::tuple_size_v<StaticArgumentsTuple>>()));
