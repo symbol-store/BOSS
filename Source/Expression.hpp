@@ -1142,8 +1142,8 @@ public:
     auto _ = std::move(arguments); // make clang-tify happy
   };
 
-  operator typename WithStaticTypesAsAtoms<
-      StaticAtomsTuple>::ComplexExpression() // NOLINT(hicpp-explicit-conversions)
+  operator typename WithStaticTypesAsAtoms< // NOLINT(hicpp-explicit-conversions)
+      StaticAtomsTuple>::ComplexExpression()
       && {
     return typename WithStaticTypesAsAtoms<StaticAtomsTuple>::ComplexExpression(
         head, std::move(*this).convertStaticToDynamicArguments(

@@ -185,7 +185,7 @@ struct SerializedExpression {
   // Serialize a single element from a static argument tuple.
   // Handles primitives and custom atoms (via serializeCustomAtom ADL hook).
   // Complex expression statics are not yet supported.
-  template <typename ArgT> void flattenSingleStaticArg(ArgT&& arg, uint64_t& argumentOutputI) {
+  template <typename ArgT> void flattenSingleStaticArg(ArgT const& arg, uint64_t& argumentOutputI) {
     using T = std::decay_t<ArgT>;
     if constexpr(boss::expressions::generic::isComplexExpression<T>) {
       throw std::runtime_error("complex expression as static argument is not supported");
