@@ -1389,7 +1389,8 @@ TEST_CASE("Extended Expression System Serialization") {
   // Verify that a custom atom type used as a static argument is serialized via the
   // user-defined serializeCustomAtom() hook rather than throwing "unknown type".
   // DummyAtom carries no data so it round-trips as int64_t(0).
-  auto expr = boss::ComplexExpressionWithStaticArguments<DummyAtom>{"Test"_, {DummyAtom{}}, {}, {}};
+  auto expr =
+      boss::ComplexExpressionWithStaticArguments<DummyAtom> {"Test"_, {DummyAtom {}}, {}, {}};
   auto result = boss::serialization::SerializedExpression(std::move(expr)).deserialize();
   auto& ce = std::get<boss::ComplexExpression>(result);
   REQUIRE(ce.getHead().getName() == "Test");
@@ -1408,7 +1409,7 @@ TEST_CASE("Static arguments bypass dynamic-argument wrapping during serializatio
   //  - the payload values survive the round-trip (stored as int64_t via serializeCustomAtom).
   CountingAtom::reset();
   using Expr = boss::ComplexExpressionWithStaticArguments<CountingAtom, CountingAtom, CountingAtom>;
-  auto expr = Expr{"Test"_, {CountingAtom{1}, CountingAtom{2}, CountingAtom{3}}, {}, {}};
+  auto expr = Expr {"Test"_, {CountingAtom {1}, CountingAtom {2}, CountingAtom {3}}, {}, {}};
   auto const movesAfterConstruction = CountingAtom::moves;
   auto const copiesAfterConstruction = CountingAtom::copies;
   auto result = boss::serialization::SerializedExpression(std::move(expr)).deserialize();

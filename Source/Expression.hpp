@@ -1033,8 +1033,9 @@ public:
             std::move(spanArguments)};
   }
 
-  // True if T is already a variant alternative of ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>
-  // and therefore does not need to be added as a new atom when flattening the static tuple.
+  // True if T is already a variant alternative of
+  // ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> and therefore does not need to be
+  // added as a new atom when flattening the static tuple.
   template <typename T>
   static constexpr bool isAlreadyInExpression =
       std::is_same_v<T, bool> || std::is_same_v<T, std::int8_t> ||
@@ -1045,22 +1046,20 @@ public:
       (false || ... || std::is_same_v<T, AdditionalCustomAtoms>);
 
   // Walks StaticArgumentsTuple and accumulates only types not already in the expression variant.
-  template <typename Remaining, typename Accum = std::tuple<>>
-  struct FilterNewAtoms { using type = Accum; };
+  template <typename Remaining, typename Accum = std::tuple<>> struct FilterNewAtoms {
+    using type = Accum;
+  };
   template <typename Head, typename... Tail, typename... Accum>
   struct FilterNewAtoms<std::tuple<Head, Tail...>, std::tuple<Accum...>> {
     using type = typename FilterNewAtoms<
-        std::tuple<Tail...>,
-        std::conditional_t<isAlreadyInExpression<Head>, std::tuple<Accum...>,
-                           std::tuple<Accum..., Head>>>::type;
+        std::tuple<Tail...>, std::conditional_t<isAlreadyInExpression<Head>, std::tuple<Accum...>,
+                                                std::tuple<Accum..., Head>>>::type;
   };
 
   // Maps a filtered tuple of new atom types to ExpressionArguments and ComplexExpression types
   // that extend AdditionalCustomAtoms with those new atoms.
-  template <typename NewAtomsTuple>
-  struct WithStaticTypesAsAtoms;
-  template <typename... NewAtoms>
-  struct WithStaticTypesAsAtoms<std::tuple<NewAtoms...>> {
+  template <typename NewAtomsTuple> struct WithStaticTypesAsAtoms;
+  template <typename... NewAtoms> struct WithStaticTypesAsAtoms<std::tuple<NewAtoms...>> {
     using Arguments =
         ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms..., NewAtoms...>;
     using ComplexExpression =
@@ -1068,7 +1067,8 @@ public:
                                                    NewAtoms...>;
   };
 
-  // The set of static argument types that are genuinely new (not already in the expression variant).
+  // The set of static argument types that are genuinely new (not already in the expression
+  // variant).
   using StaticAtomsTuple = typename FilterNewAtoms<StaticArgumentsTuple>::type;
 
   template <size_t... I>
@@ -1087,17 +1087,17 @@ public:
       if constexpr(isAlreadyInExpression<T>) {
         result.emplace_back(std::get<J>(staticArguments));
       } else {
-        result.emplace_back(std::in_place_index<baseAtomCount + sizeof...(AdditionalCustomAtoms) + J>,
-                            std::get<J>(staticArguments));
+        result.emplace_back(
+            std::in_place_index<baseAtomCount + sizeof...(AdditionalCustomAtoms) + J>,
+            std::get<J>(staticArguments));
       }
     };
-    (emplaceStatic(std::integral_constant<size_t, I>{}), ...);
+    (emplaceStatic(std::integral_constant<size_t, I> {}), ...);
     std::for_each(std::move_iterator(arguments.begin()), std::move_iterator(arguments.end()),
                   [&result](auto&& e) {
-                    std::visit([&result](auto&& e) {
-                                 result.emplace_back(std::forward<decltype(e)>(e));
-                               },
-                               std::forward<decltype(e)>(e));
+                    std::visit(
+                        [&result](auto&& e) { result.emplace_back(std::forward<decltype(e)>(e)); },
+                        std::forward<decltype(e)>(e));
                   });
     return result;
   }
@@ -1142,7 +1142,8 @@ public:
     auto _ = std::move(arguments); // make clang-tify happy
   };
 
-  operator typename WithStaticTypesAsAtoms<StaticAtomsTuple>::ComplexExpression() // NOLINT(hicpp-explicit-conversions)
+  operator typename WithStaticTypesAsAtoms<
+      StaticAtomsTuple>::ComplexExpression() // NOLINT(hicpp-explicit-conversions)
       && {
     return typename WithStaticTypesAsAtoms<StaticAtomsTuple>::ComplexExpression(
         head, std::move(*this).convertStaticToDynamicArguments(
