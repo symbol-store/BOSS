@@ -1094,7 +1094,10 @@ public:
     (emplaceStatic(std::integral_constant<size_t, I>{}), ...);
     std::for_each(std::move_iterator(arguments.begin()), std::move_iterator(arguments.end()),
                   [&result](auto&& e) {
-                    result.emplace_back(std::forward<decltype(e)>(e));
+                    std::visit([&result](auto&& e) {
+                                 result.emplace_back(std::forward<decltype(e)>(e));
+                               },
+                               std::forward<decltype(e)>(e));
                   });
     return result;
   }
