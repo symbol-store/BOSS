@@ -193,6 +193,7 @@ struct CountingAtom {
   CountingAtom(CountingAtom const& other) : value(other.value) { ++copies; }
   CountingAtom& operator=(CountingAtom&&) noexcept = delete;
   CountingAtom& operator=(CountingAtom const&) = delete;
+  ~CountingAtom() = default;
 };
 int CountingAtom::moves = 0;
 int CountingAtom::copies = 0;
