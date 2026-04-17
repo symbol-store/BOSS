@@ -232,10 +232,11 @@ struct SerializedExpression {
   };
 
   // Serializes all elements of all spans in spanArgs as individual scalar arguments.
-  template <typename SpanArgs>
-  void flattenSpanArguments(SpanArgs&& spanArgs, uint64_t& argumentOutputI) {
-    std::for_each(std::make_move_iterator(spanArgs.begin()),
-                  std::make_move_iterator(spanArgs.end()),
+  void flattenSpanArguments(boss::expressions::ExpressionSpanArguments&& spanArgs,
+                            uint64_t& argumentOutputI) {
+    auto ownedSpans = std::move(spanArgs);
+    std::for_each(std::make_move_iterator(ownedSpans.begin()),
+                  std::make_move_iterator(ownedSpans.end()),
                   [this, &argumentOutputI](auto&& spanArg) {
                     std::visit(
                         [this, &argumentOutputI](auto&& span) {
