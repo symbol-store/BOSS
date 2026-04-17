@@ -1073,8 +1073,7 @@ public:
 
   // Counts how many of the first J elements of StaticArgumentsTuple are new atoms (not already in
   // the expression variant). This gives the index of the J-th element within StaticAtomsTuple.
-  template <size_t... Ks>
-  static constexpr size_t countNewAtomsBefore(std::index_sequence<Ks...>) {
+  template <size_t... Ks> static constexpr size_t countNewAtomsBefore(std::index_sequence<Ks...>) {
     return (size_t(0) + ... +
             (isAlreadyInExpression<std::tuple_element_t<Ks, StaticArgumentsTuple>> ? size_t(0)
                                                                                    : size_t(1)));
@@ -1097,7 +1096,7 @@ public:
       if constexpr(isAlreadyInExpression<T>) {
         result.emplace_back(std::get<J>(staticArguments));
       } else {
-        constexpr size_t K = countNewAtomsBefore(std::make_index_sequence<J>{});
+        constexpr size_t K = countNewAtomsBefore(std::make_index_sequence<J> {});
         result.emplace_back(
             std::in_place_index<baseAtomCount + sizeof...(AdditionalCustomAtoms) + K>,
             std::get<J>(staticArguments));

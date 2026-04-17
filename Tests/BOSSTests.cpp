@@ -1431,8 +1431,7 @@ TEST_CASE("Expression Serialization round-trips span arguments") {
   // are silently lost on deserialization and getDynamicArguments() returns empty.
   boss::expressions::ExpressionSpanArguments spans;
   spans.emplace_back(boss::Span<int64_t>(std::vector<int64_t> {1LL, 2LL, 3LL}));
-  boss::Expression expr =
-      boss::ComplexExpression {"List"_, {}, {}, std::move(spans)};
+  boss::Expression expr = boss::ComplexExpression {"List"_, {}, {}, std::move(spans)};
   auto result = boss::serialization::SerializedExpression(std::move(expr)).deserialize();
   auto& ce = std::get<boss::ComplexExpression>(result);
   REQUIRE(ce.getHead().getName() == "List");
