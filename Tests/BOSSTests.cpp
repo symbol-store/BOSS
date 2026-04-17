@@ -1424,6 +1424,25 @@ TEST_CASE("Static arguments bypass dynamic-argument wrapping during serializatio
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[2]) == 3);
 }
 
+TEST_CASE("Expression Serialization round-trips span arguments") {
+  // Exposes the bug: in the boss::ComplexExpression serialization path,
+  // endChildOffset = startChildOffset + getDynamicArguments().size()
+  // which omits span arguments from the recorded child range, so span elements
+  // are silently lost on deserialization and getDynamicArguments() returns empty.
+  boss::expressions::ExpressionSpanArguments spans;
+  spans.emplace_back(boss::Span<int64_t>(std::vector<int64_t> {1LL, 2LL, 3LL}));
+  boss::Expression expr =
+      boss::ComplexExpression {"List"_, {}, {}, std::move(spans)};
+  auto result = boss::serialization::SerializedExpression(std::move(expr)).deserialize();
+  auto& ce = std::get<boss::ComplexExpression>(result);
+  REQUIRE(ce.getHead().getName() == "List");
+  // Each span element is serialized as a scalar and deserialized as a dynamic int64_t argument.
+  REQUIRE(ce.getDynamicArguments().size() == 3);
+  CHECK(std::get<int64_t>(ce.getDynamicArguments()[0]) == 1LL);
+  CHECK(std::get<int64_t>(ce.getDynamicArguments()[1]) == 2LL);
+  CHECK(std::get<int64_t>(ce.getDynamicArguments()[2]) == 3LL);
+}
+
 TEST_CASE("Expression Serialization") {
   auto const plans = std::array<boss::Expression, 8> {
       "Yo"_,

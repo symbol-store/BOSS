@@ -1071,14 +1071,24 @@ public:
   // variant).
   using StaticAtomsTuple = typename FilterNewAtoms<StaticArgumentsTuple>::type;
 
+  // Counts how many of the first J elements of StaticArgumentsTuple are new atoms (not already in
+  // the expression variant). This gives the index of the J-th element within StaticAtomsTuple.
+  template <size_t... Ks>
+  static constexpr size_t countNewAtomsBefore(std::index_sequence<Ks...>) {
+    return (size_t(0) + ... +
+            (isAlreadyInExpression<std::tuple_element_t<Ks, StaticArgumentsTuple>> ? size_t(0)
+                                                                                   : size_t(1)));
+  }
+
   template <size_t... I>
   typename WithStaticTypesAsAtoms<StaticAtomsTuple>::Arguments
   convertStaticToDynamicArguments(std::index_sequence<I...> /*unused*/) && {
     typename WithStaticTypesAsAtoms<StaticAtomsTuple>::Arguments result;
     result.reserve(arguments.size() + sizeof...(I));
     // Use in_place_index to resolve ambiguity when the same custom atom type appears multiple
-    // times (creating duplicate variant alternatives). Custom atoms are assumed to be distinct
-    // from base expression types, so each position J among new atoms maps directly to index J.
+    // times (creating duplicate variant alternatives). K is the index of this element within
+    // StaticAtomsTuple (number of preceding new atoms), which is the correct offset into the
+    // extended variant's alternatives.
     constexpr size_t baseAtomCount =
         std::variant_size_v<AtomicExpressionWithAdditionalCustomAtoms<>>;
     auto emplaceStatic = [this, &result](auto Idx) {
@@ -1087,8 +1097,9 @@ public:
       if constexpr(isAlreadyInExpression<T>) {
         result.emplace_back(std::get<J>(staticArguments));
       } else {
+        constexpr size_t K = countNewAtomsBefore(std::make_index_sequence<J>{});
         result.emplace_back(
-            std::in_place_index<baseAtomCount + sizeof...(AdditionalCustomAtoms) + J>,
+            std::in_place_index<baseAtomCount + sizeof...(AdditionalCustomAtoms) + K>,
             std::get<J>(staticArguments));
       }
     };

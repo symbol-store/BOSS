@@ -81,6 +81,14 @@ struct SerializedExpression {
     return (countArguments(std::get<Is>(tuple)) + ... + 0);
   };
 
+  // Returns the total number of scalar elements across all spans in a span-arguments container.
+  template <typename SpanArgs> static size_t countSpanElements(SpanArgs const& spanArgs) {
+    return std::accumulate(
+        spanArgs.begin(), spanArgs.end(), size_t {0}, [](size_t sum, auto const& spanArg) {
+          return sum + std::visit([](auto const& s) -> size_t { return s.size(); }, spanArg);
+        });
+  }
+
   static uint64_t countArguments(boss::Expression const& input) {
     return std::visit(
         [](auto& input) -> size_t {
@@ -95,7 +103,7 @@ struct SerializedExpression {
                                    [](auto runningSum, auto const& argument) {
                                      return runningSum + countArguments(argument);
                                    }) +
-                   input.getSpanArguments().size();
+                   countSpanElements(input.getSpanArguments());
           }
           return 1;
         },
@@ -167,7 +175,7 @@ struct SerializedExpression {
            std::accumulate(input.getDynamicArguments().begin(), input.getDynamicArguments().end(),
                            size_t {0},
                            [](size_t sum, auto const& arg) { return sum + countArguments(arg); }) +
-           input.getSpanArguments().size();
+           countSpanElements(input.getSpanArguments());
   }
 
   template <typename StaticArgsTuple, typename... AdditionalCustomAtoms>
@@ -220,15 +228,33 @@ struct SerializedExpression {
     (flattenSingleStaticArg(std::get<Is>(std::forward<TupleLike>(tuple)), argumentOutputI), ...);
   };
 
+  // Serializes all elements of all spans in spanArgs as individual scalar arguments.
+  template <typename SpanArgs>
+  void flattenSpanArguments(SpanArgs&& spanArgs, uint64_t& argumentOutputI) {
+    std::for_each(std::make_move_iterator(spanArgs.begin()),
+                  std::make_move_iterator(spanArgs.end()),
+                  [this, &argumentOutputI](auto&& spanArg) {
+                    std::visit(
+                        [this, &argumentOutputI](auto&& span) {
+                          for(size_t i = 0; i < span.size(); ++i) {
+                            flattenSingleStaticArg(span[i], argumentOutputI);
+                          }
+                        },
+                        std::forward<decltype(spanArg)>(spanArg));
+                  });
+  }
+
   uint64_t flattenArguments(uint64_t argumentOutputI, std::vector<boss::ComplexExpression>&& inputs,
                             uint64_t& expressionOutputI) {
     auto const nextLayerOffset =
         argumentOutputI +
-        std::accumulate(inputs.begin(), inputs.end(), 0, [](auto count, auto const& expression) {
-          return count +
-                 std::tuple_size_v<std::decay_t<decltype(expression.getStaticArguments())>> +
-                 expression.getDynamicArguments().size() + expression.getSpanArguments().size();
-        });
+        std::accumulate(
+            inputs.begin(), inputs.end(), size_t {0}, [](size_t count, auto const& expression) {
+              return count +
+                     std::tuple_size_v<std::decay_t<decltype(expression.getStaticArguments())>> +
+                     expression.getDynamicArguments().size() +
+                     countSpanElements(expression.getSpanArguments());
+            });
     auto children = std::vector<boss::ComplexExpression>();
     auto childrenCountRunningSum = 0UL;
 
@@ -254,7 +280,7 @@ struct SerializedExpression {
                             std::tuple_size_v<
                                 std::decay_t<decltype(argument.getStaticArguments())>> +
                             argument.getDynamicArguments().size() +
-                            argument.getSpanArguments().size();
+                            countSpanElements(argument.getSpanArguments());
                         auto const headOffset = argumentOutputI;
                         auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
                         auto const endChildOffset =
@@ -300,6 +326,7 @@ struct SerializedExpression {
                     },
                     std::forward<decltype(argument)>(argument));
               });
+          flattenSpanArguments(std::move(spans), argumentOutputI);
         });
     auto _ = std::move(inputs); // make clang-tidy happy
     if(!children.empty()) {
@@ -320,8 +347,9 @@ public:
                      auto expressionIterator = uint64_t {};
                      auto const headOffset = 0;
                      auto const startChildOffset = 1;
-                     auto const endChildOffset =
-                         startChildOffset + input.getDynamicArguments().size();
+                     auto const endChildOffset = startChildOffset +
+                                                 input.getDynamicArguments().size() +
+                                                 countSpanElements(input.getSpanArguments());
                      auto storedString =
                          storeString(&root, input.getHead().getName().c_str(), reallocateFunction);
                      *makeExpression(root, expressionIterator) =
