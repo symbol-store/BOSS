@@ -390,7 +390,8 @@ public:
     auto expressionIterator = uint64_t {};
     auto [head, statics, dynamics, spans] = std::move(input).decompose();
     auto const startChildOffset = uint64_t {1};
-    auto const endChildOffset = startChildOffset + numStatics + dynamics.size();
+    auto const endChildOffset =
+        startChildOffset + numStatics + dynamics.size() + countSpanElements(spans);
     auto storedString = storeString(&root, head.getName().c_str(), reallocateFunction);
     *makeExpression(root, expressionIterator) =
         PortableBOSSExpression {storedString, startChildOffset, endChildOffset};
@@ -412,7 +413,7 @@ public:
                 if constexpr(boss::expressions::generic::isComplexExpression<ArgT>) {
                   auto const childrenCount =
                       std::tuple_size_v<std::decay_t<decltype(a.getStaticArguments())>> +
-                      a.getDynamicArguments().size() + a.getSpanArguments().size();
+                      a.getDynamicArguments().size() + countSpanElements(a.getSpanArguments());
                   auto const startChild = nextLayerOffset + childrenCountRunningSum;
                   auto const endChild = startChild + childrenCount;
                   auto stored =
@@ -449,6 +450,7 @@ public:
               },
               std::forward<decltype(arg)>(arg));
         });
+    flattenSpanArguments(std::move(spans), argumentIterator);
     if(!children.empty()) {
       flattenArguments(argumentIterator, std::move(children), expressionIterator);
     }
