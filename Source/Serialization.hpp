@@ -222,10 +222,13 @@ struct SerializedExpression {
     }
   }
 
-  template <typename TupleLike, size_t... Is>
-  void flattenArgumentsInTuple(TupleLike&& tuple, std::index_sequence<Is...> /*unused*/,
-                               uint64_t& argumentOutputI) {
-    (flattenSingleStaticArg(std::get<Is>(std::forward<TupleLike>(tuple)), argumentOutputI), ...);
+  template <typename TupleLike>
+  void flattenArgumentsInTuple(TupleLike&& tuple, uint64_t& argumentOutputI) {
+    std::apply(
+        [this, &argumentOutputI](auto&&... args) {
+          (flattenSingleStaticArg(std::forward<decltype(args)>(args), argumentOutputI), ...);
+        },
+        std::forward<TupleLike>(tuple));
   };
 
   // Serializes all elements of all spans in spanArgs as individual scalar arguments.
@@ -263,10 +266,7 @@ struct SerializedExpression {
         [this, &argumentOutputI, &children, &expressionOutputI, nextLayerOffset,
          &childrenCountRunningSum](boss::ComplexExpression&& input) {
           auto [head, statics, dynamics, spans] = std::move(input).decompose();
-          flattenArgumentsInTuple(
-              statics,
-              std::make_index_sequence<std::tuple_size_v<std::decay_t<decltype(statics)>>>(),
-              argumentOutputI);
+          flattenArgumentsInTuple(statics, argumentOutputI);
           std::for_each(
               std::make_move_iterator(dynamics.begin()), std::make_move_iterator(dynamics.end()),
               [this, &argumentOutputI, &children, &expressionOutputI, nextLayerOffset,
@@ -395,8 +395,7 @@ public:
         PortableBOSSExpression {storedString, startChildOffset, endChildOffset};
     *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
     // Serialize static args directly (custom atoms, primitives)
-    flattenArgumentsInTuple(std::move(statics), std::make_index_sequence<numStatics>(),
-                            argumentIterator);
+    flattenArgumentsInTuple(std::move(statics), argumentIterator);
     // Serialize dynamic args via BFS (same logic as inner loop of flattenArguments)
     auto const nextLayerOffset = endChildOffset;
     auto children = std::vector<boss::ComplexExpression>();
