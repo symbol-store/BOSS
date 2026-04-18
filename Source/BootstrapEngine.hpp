@@ -195,9 +195,7 @@ public:
 
     auto wrappedE =
         isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
-            ? "EvaluateInEngines"_(
-                  "List"_(Span<::std::string>(defaultEngine.data(), defaultEngine.size(), nullptr)),
-                  std::move(e))
+            ? "EvaluateInEngines"_("List"_(Span<::std::string>(defaultEngine)), std::move(e))
             : std::move(e);
     return ::std::visit(boss::utilities::overload(
                             [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
