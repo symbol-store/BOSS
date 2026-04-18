@@ -23,14 +23,18 @@
 
          ('complexExpression
           (let ((args (getArgumentsFromBOSSExpression x)))
-            `(
-              ,(string->symbol (bossSymbolToNewString (getHeadFromBOSSExpression x)))
-              ,@(generator-map->list
-                 (lambda (i) (convert-from-boss-expression (getArgumentFromBOSSExpressionArray args i)))
-                 (make-iota-generator (getArgumentCountFromBOSSExpression x)) ))
-            ))
+            (dynamic-wind
+              (lambda () #f)
+              (lambda ()
+                `(
+                  ,(string->symbol (bossSymbolToNewString (getHeadFromBOSSExpression x)))
+                  ,@(generator-map->list
+                     (lambda (i) (convert-from-boss-expression (getArgumentFromBOSSExpressionArray args i)))
+                     (make-iota-generator (getArgumentCountFromBOSSExpression x)) )))
+              (lambda ()
+                (freeBOSSArguments args)))))
          ('int32 (getIntValueFromBOSSExpression x))
-         ('int8_t (getCharValueFromBOSSExpression x))
+         ('int8 (getCharValueFromBOSSExpression x))
          ('string (getNewStringValueFromBOSSExpression x))
          ('long (getLongValueFromBOSSExpression x))
          ('double (getDoubleValueFromBOSSExpression x))

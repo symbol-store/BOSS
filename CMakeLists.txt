@@ -77,12 +77,22 @@ ExternalProject_Add(spdlog
 )
 
 
-find_program(MAKE_EXECUTABLE
-  NAMES gmake mingw32-make make
-  NAMES_PER_DIR
-  DOC "GNU Make"
-)
+if(CMAKE_MAKE_PROGRAM AND NOT CMAKE_MAKE_PROGRAM MATCHES "-NOTFOUND$")
+  set(MAKE_EXECUTABLE "${CMAKE_MAKE_PROGRAM}")
+else()
+  find_program(MAKE_EXECUTABLE
+    NAMES gmake mingw32-make make
+    NAMES_PER_DIR
+    DOC "GNU Make"
+  )
+endif()
 
+if(NOT MAKE_EXECUTABLE OR MAKE_EXECUTABLE MATCHES "-NOTFOUND$")
+  message(FATAL_ERROR
+    "Could not find a make executable required to build chibi-scheme. "
+    "Please install GNU Make (or a compatible make tool), or configure CMake "
+    "with CMAKE_MAKE_PROGRAM set to a valid executable.")
+endif()
 if(CMAKE_BUILD_TYPE)
   string(TOUPPER "_${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_TOUPPER)
 else()
@@ -125,7 +135,10 @@ add_dependencies(BOSS chibi-scheme)
 
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${REPLFiles}
-  COMMAND LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH} PATH=${BOSS_BINARY_DIR}/deps/bin/:${PATH} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles}
+  COMMAND ${CMAKE_COMMAND} -E env
+          LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
+          PATH=${BOSS_BINARY_DIR}/deps/bin/:$ENV{PATH}
+          ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles}
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h  
   VERBATIM)
 

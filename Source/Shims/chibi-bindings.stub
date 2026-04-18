@@ -24,8 +24,8 @@
 (define-c int getIntValueFromBOSSExpression ((const BOSSExpression)))
 (define-c long getLongValueFromBOSSExpression ((const BOSSExpression)))
 (define-c double getDoubleValueFromBOSSExpression ((const BOSSExpression)))
-(define-c string getNewStringValueFromBOSSExpression ((const BOSSExpression)))
-(define-c (const string) getNewSymbolNameFromBOSSExpression ((const BOSSExpression)))
+(define-c (free string) getNewStringValueFromBOSSExpression ((const BOSSExpression)))
+(define-c (free (const string)) getNewSymbolNameFromBOSSExpression ((const BOSSExpression)))
 
 
 (define-c (free BOSSSymbol) getHeadFromBOSSExpression ((const BOSSExpression)))
