@@ -17,8 +17,9 @@ namespace boss::serialization {
 // Detection trait for user-defined serializeCustomAtom(T const&) -> uint64_t overloads.
 // Found via ADL: define serializeCustomAtom in the same namespace as the custom atom type.
 namespace detail {
-template <typename T>
-auto detectCustomAtomSerializer(T const& t, int) -> decltype(serializeCustomAtom(t), uint64_t {});
+template <typename T, typename = std::enable_if_t<std::is_convertible_v<
+                          decltype(serializeCustomAtom(std::declval<T const&>())), uint64_t>>>
+uint64_t detectCustomAtomSerializer(T const&, int);
 template <typename T> void detectCustomAtomSerializer(T const&, ...);
 } // namespace detail
 

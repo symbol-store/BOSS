@@ -1095,12 +1095,12 @@ public:
       constexpr size_t J = decltype(Idx)::value;
       using T = std::tuple_element_t<J, StaticArgumentsTuple>;
       if constexpr(isAlreadyInExpression<T>) {
-        result.emplace_back(std::get<J>(staticArguments));
+        result.emplace_back(std::move(std::get<J>(staticArguments)));
       } else {
         constexpr size_t K = countNewAtomsBefore(std::make_index_sequence<J> {});
         result.emplace_back(
             std::in_place_index<baseAtomCount + sizeof...(AdditionalCustomAtoms) + K>,
-            std::get<J>(staticArguments));
+            std::move(std::get<J>(staticArguments)));
       }
     };
     (emplaceStatic(std::integral_constant<size_t, I> {}), ...);
