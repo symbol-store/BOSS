@@ -11,6 +11,7 @@
        (match x
               ((head arguments ...) (newComplexBOSSExpression (symbolNameToNewBOSSSymbol (symbol->string head)) (length arguments) (map convert-to-boss-expression arguments)))
               (('quote argument) (convert-to-boss-expression argument))
+              ((? boolean? b) (boolToNewBOSSExpression b))
               ((? exact-integer? i) (intToNewBOSSExpression i))
               ((? real? f) (doubleToNewBOSSExpression f))
               ((? string? s) (stringToNewBOSSExpression s))

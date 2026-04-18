@@ -139,7 +139,7 @@ add_custom_command(
           LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
           PATH=${BOSS_BINARY_DIR}/deps/bin/:$ENV{PATH}
           ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles}
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h  
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
   VERBATIM)
 
 target_link_libraries(BOSS
