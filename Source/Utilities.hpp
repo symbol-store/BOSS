@@ -6,17 +6,11 @@
 
 namespace boss::utilities {
 template <typename... Fs> struct overload : Fs... {
-  explicit overload(Fs&&... ts) : Fs{std::forward<Fs>(ts)}... {}
+  explicit overload(Fs&&... ts) : Fs {std::forward<Fs>(ts)}... {}
   using Fs::operator()...;
 };
 
 template <typename... Ts> overload(Ts&&...) -> overload<std::remove_reference_t<Ts>...>;
-
-template <typename MaybeMember, typename Variant> struct isVariantMember;
-
-template <typename MaybeMember, typename... ActualMembers>
-struct isVariantMember<MaybeMember, std::variant<ActualMembers...>>
-    : public std::disjunction<std::is_same<MaybeMember, ActualMembers>...> {};
 
 template <typename, template <typename...> typename>
 struct isInstanceOfTemplate : public std::false_type {};
@@ -57,6 +51,30 @@ struct variant_amend<std::variant<Args0...>, Args1...> {
   using type = std::variant<Args0..., Args1...>;
 };
 
+namespace {
+// --------------------
+// see https://stackoverflow.com/a/73034562
+// --------------------
+template <template <class...> class Base, typename... Ts> void test(Base<Ts...>&);
+
+template <template <class...> class, class, class = void>
+constexpr bool is_template_base_of = false;
+
+template <template <class...> class Base, class Derived>
+constexpr bool is_template_base_of<Base, Derived,
+                                   std::void_t<decltype(test<Base>(std::declval<Derived&>()))>> =
+    true;
+} // namespace
+
+template <typename Derived>
+constexpr bool is_variant_like = is_template_base_of<std::variant, Derived>;
+
+template <typename MaybeMember, typename Variant> struct isVariantMember;
+
+template <typename MaybeMember, typename... ActualMembers>
+struct isVariantMember<MaybeMember, std::variant<ActualMembers...>>
+    : public std::disjunction<std::is_same<MaybeMember, ActualMembers>...> {};
+
 // ------------------------------
 // see https://stackoverflow.com/a/33196728
 // ------------------------------
@@ -70,13 +88,26 @@ using comparability = decltype(std::declval<L>() == std::declval<R>());
 template <typename L, typename R>
 struct is_comparable<L, R, void_t<comparability<L, R>>> : std::true_type {};
 
-template <typename ReturnType, typename VisitorType, typename InputType,
-          typename = std::enable_if<std::is_invocable_v<VisitorType, ReturnType>>>
-ReturnType opportunisticVisitAndTransform(VisitorType&& visitor, InputType&& x) {
-  if(std::holds_alternative<ReturnType>(x)) {
-    return std::forward<VisitorType>(visitor)(std::get<ReturnType>(std::forward<InputType>(x)));
+namespace {
+template <typename VisitorType, typename InputType, size_t index = 0>
+std::remove_reference_t<InputType> opportunisticVisitAndTransform(VisitorType&& visitor,
+                                                                  InputType&& x) {
+  using VariantType = std::remove_reference_t<InputType>;
+  if constexpr(index >= std::variant_size_v<VariantType>) {
+    return std::forward<InputType>(x);
+  } else if constexpr(std::is_invocable<VisitorType,
+                                        std::variant_alternative_t<index, VariantType>>::value) {
+    if(std::holds_alternative<std::variant_alternative_t<index, VariantType>>(x)) {
+      return std::forward<VisitorType>(visitor)(
+          std::get<std::variant_alternative_t<index, VariantType>>(std::forward<InputType>(x)));
+    }
+    return opportunisticVisitAndTransform<VisitorType, InputType, index + 1>(
+        std::forward<VisitorType>(visitor), std::forward<InputType>(x));
+  } else {
+    return opportunisticVisitAndTransform<VisitorType, InputType, index + 1>(
+        std::forward<VisitorType>(visitor), std::forward<InputType>(x));
   }
-  return std::forward<InputType>(x);
 };
+} // namespace
 
 } // namespace boss::utilities

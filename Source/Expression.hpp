@@ -20,7 +20,7 @@
 namespace boss {
 namespace expressions {
 
-enum class CloneReason {
+enum class CloneReason : std::uint8_t {
   FOR_TESTING,                            // should be used only in BOSSTests!
   CONVERSION_TO_CUSTOM_EXPRESSION,        // from boss::Expression to custom Expression
   CONVERSION_TO_C_BOSS_EXPRESSION,        // from boss::Expression to C BOSSExpression
@@ -42,11 +42,11 @@ class Symbol {
   std::string name;
 
 public:
-  explicit Symbol(std::string name) noexcept : name(std::move(name)){};
+  explicit Symbol(std::string name) noexcept : name(std::move(name)) {};
   std::string const& getName() const& { return name; };
   std::string getName() && { return std::move(name); };
-  inline bool operator==(Symbol const& other) const { return getName() == other.getName(); };
-  inline bool operator!=(Symbol const& other) const { return getName() != other.getName(); };
+  bool operator==(Symbol const& other) const { return getName() == other.getName(); };
+  bool operator!=(Symbol const& other) const { return getName() != other.getName(); };
   friend ::std::ostream& operator<<(::std::ostream& out, Symbol const& thing) {
     return out << thing.getName();
   }
@@ -189,7 +189,7 @@ public: // surface
   // NOLINTEND(bugprone-exception-escape)
 
   friend std::ostream& operator<<(std::ostream& stream, Span const& span) {
-    return stream << span.size;
+    return stream << span.size();
   }
 };
 } // namespace atoms
@@ -219,14 +219,14 @@ public:
             output << "valueless by exception";
           }
           static auto typenames =
-              ::std::map<::std::type_index, char const*>{{typeid(bool), "bool"},
-                                                         {typeid(int8_t), "char"},
-                                                         {typeid(int32_t), "int"},
-                                                         {typeid(int64_t), "long"},
-                                                         {typeid(float_t), "float"},
-                                                         {typeid(double_t), "double"},
-                                                         {typeid(::std::string), "string"},
-                                                         {typeid(Symbol), "Symbol"}};
+              ::std::map<::std::type_index, char const*> {{typeid(bool), "bool"},
+                                                          {typeid(int8_t), "char"},
+                                                          {typeid(int32_t), "int"},
+                                                          {typeid(int64_t), "long"},
+                                                          {typeid(float_t), "float"},
+                                                          {typeid(double_t), "double"},
+                                                          {typeid(::std::string), "string"},
+                                                          {typeid(Symbol), "Symbol"}};
           output << "\", expected "
                  << (typenames.count(typeid(TargetType)) ? typenames.at(typeid(TargetType))
                                                          : typeid(TargetType).name());
@@ -276,7 +276,7 @@ public:
   explicit ExpressionWithAdditionalCustomAtoms(T value) noexcept
       : ExpressionWithAdditionalCustomAtoms(U(value)) {}
 
-  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename... T>
+  template <typename... T>
   ExpressionWithAdditionalCustomAtoms( // NOLINT(hicpp-explicit-conversions)
       ExpressionWithAdditionalCustomAtoms<T...>&& other) noexcept
       : SuperType(std::visit(
@@ -285,7 +285,7 @@ public:
                     -> ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> {
                   return ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>,
                                                                     AdditionalCustomAtoms...>(
-                      std::forward<decltype(unpacked)>(unpacked));
+                      std::move(unpacked));
                 },
                 [](auto&& unpacked) {
                   return ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>(
@@ -367,9 +367,8 @@ public:
                               ...),
                              bool> = false>
   explicit ExpressionArgumentsWithAdditionalCustomAtoms(ArgType&&... arg) {
-
     (std::vector<ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::emplace_back(
-         std::move(arg)),
+         std::forward<decltype(arg)>(arg)),
      ...);
   }
 };
@@ -400,7 +399,7 @@ public:
   explicit ExpressionSpanArgumentsWithAdditionalCustomAtoms(ArgType&&... arg) {
 
     (std::vector<ExpressionSpanArgumentWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::
-         emplace_back(std::move(arg)),
+         emplace_back(std::forward<decltype(arg)>(arg)),
      ...);
   }
 
@@ -431,9 +430,10 @@ public:
   typedef T type;
 
   explicit MovableReferenceWrapper(std::reference_wrapper<T>&& ref)
-      : _ptr(std::addressof(ref.get())) {
-    ;
-  }
+      : _ptr(std::addressof(std::move(ref).get())) {}
+
+  explicit MovableReferenceWrapper(std::reference_wrapper<T>& ref)
+      : _ptr(std::addressof(ref.get())) {}
 
   MovableReferenceWrapper(MovableReferenceWrapper const&) noexcept = default;
   MovableReferenceWrapper& operator=(MovableReferenceWrapper const&) noexcept = default;
@@ -573,9 +573,9 @@ public:
   ArgumentWrapper(T&& argument) // NOLINT(hicpp-explicit-conversions)
       : argument([&argument]() {
           if constexpr(ConstWrappee || std::is_same_v<T, std::vector<bool>::const_reference>) {
-            return static_cast<std::vector<bool>::const_reference>(argument);
+            return static_cast<std::vector<bool>::const_reference>(std::forward<T>(argument));
           } else {
-            return static_cast<std::vector<bool>::reference>(argument);
+            return static_cast<std::vector<bool>::reference>(std::forward<T>(argument));
           }
         }()) {}
 
@@ -691,7 +691,7 @@ decltype(auto) visit(Func&& func,
           return ::std::forward<Func>(func)(unwrapped);
         }
       },
-      wrapper.getArgument());
+      std::move(wrapper).getArgument());
 }
 
 namespace utilities {
@@ -828,7 +828,7 @@ public:
   constexpr ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>
   getStaticArgument(size_t index, std::index_sequence<I...> /*unused*/) const {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-    return std::move(std::array<ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>, sizeof...(I)>{
+    return std::move(std::array<ArgumentWrapper<IsConstWrapper, AdditionalAtoms...>, sizeof...(I)> {
         std::get<I>(staticArguments)...}[index]);
   }
 
@@ -861,8 +861,9 @@ public:
                                              std::vector<bool>::const_reference> &&
                               !IsConstWrapper) ||
                              ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                               std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                   0))>>)&&!IsConstWrapper)) {
+                               std::is_const_v<
+                                   std::remove_reference_t<decltype(spanArgument.at(0))>>) &&
+                              !IsConstWrapper)) {
                   throw std::runtime_error("cannot convert const span to non-const argument");
                 } else {
                   return spanArgument[index - argumentPrefixScan];
@@ -894,8 +895,9 @@ public:
                             std::is_same_v<std::decay_t<decltype(spanArgument.at(0))>,
                                            std::vector<bool>::const_reference>) ||
                            ((std::is_const_v<std::remove_reference_t<decltype(spanArgument)>> ||
-                             std::is_const_v<std::remove_reference_t<decltype(spanArgument.at(
-                                 0))>>)&&!IsConstWrapper)) {
+                             std::is_const_v<
+                                 std::remove_reference_t<decltype(spanArgument.at(0))>>) &&
+                            !IsConstWrapper)) {
                 throw std::runtime_error("cannot convert const span to non-const argument");
               } else if constexpr(
 
@@ -992,34 +994,31 @@ template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms {
 private:
   Symbol head;
-  StaticArgumentsTuple staticArguments{};
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments{};
-  ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments{};
+  StaticArgumentsTuple staticArguments {};
+  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> arguments {};
+  ExpressionSpanArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> spanArguments {};
 
 public:
-  template <size_t... I>
-  static StaticArgumentsTuple
-  convertToTuple(ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& arguments,
-                 std::index_sequence<I...> /*unused*/) {
-    return {(std::get<
-             std::remove_reference_t<typename std::tuple_element<I, StaticArgumentsTuple>::type>>(
-        arguments.at(I)))...};
+  template <size_t N = std::tuple_size_v<StaticArgumentsTuple>>
+  static typename std::enable_if<N != 0, StaticArgumentsTuple>::type convertToTuple(
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& arguments) {
+    return std::bind([](auto&... args) -> StaticArgumentsTuple { return {args...}; }, arguments);
   }
 
-  template <typename T>
-  void cloneIfNecessary(
-      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& result,
-      ComplexExpressionWithAdditionalCustomAtoms<T, AdditionalCustomAtoms...> const& e) const {
-    result.push_back(e.clone());
+  template <size_t N = std::tuple_size_v<StaticArgumentsTuple>>
+  static typename std::enable_if<N == 0, StaticArgumentsTuple>::type convertToTuple(
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> noArguments) {
+    if(!noArguments.empty()) {
+      throw std::runtime_error("arguments passed to no-argument tuple conversion");
+    }
+    return {};
   }
 
-  template <typename T,
-            typename = std::enable_if_t<boss::utilities::isVariantMember<
-                T, AtomicExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...>>::value>>
-  void
-  cloneIfNecessary(ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>& result,
-                   T e) const {
-    result.emplace_back(e);
+  template <size_t N = std::tuple_size_v<StaticArgumentsTuple>>
+  static typename std::enable_if<N != 0, StaticArgumentsTuple>::type convertToTuple(
+      ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments) {
+    return std::bind([](auto&&... args) -> StaticArgumentsTuple { return {args...}; },
+                     std::move(arguments));
   }
 
   /**
@@ -1034,15 +1033,83 @@ public:
             std::move(spanArguments)};
   }
 
+  // True if T is already a variant alternative of
+  // ExpressionWithAdditionalCustomAtoms<AdditionalCustomAtoms...> and therefore does not need to be
+  // added as a new atom when flattening the static tuple.
+  template <typename T>
+  static constexpr bool isAlreadyInExpression =
+      std::is_same_v<T, bool> || std::is_same_v<T, std::int8_t> ||
+      std::is_same_v<T, std::int32_t> || std::is_same_v<T, std::int64_t> ||
+      std::is_same_v<T, std::float_t> || std::is_same_v<T, std::double_t> ||
+      std::is_same_v<T, std::string> || std::is_same_v<T, Symbol> ||
+      expressions::generic::isComplexExpression<T> ||
+      (false || ... || std::is_same_v<T, AdditionalCustomAtoms>);
+
+  // Walks StaticArgumentsTuple and accumulates only types not already in the expression variant.
+  template <typename Remaining, typename Accum = std::tuple<>> struct FilterNewAtoms {
+    using type = Accum;
+  };
+  template <typename Head, typename... Tail, typename... Accum>
+  struct FilterNewAtoms<std::tuple<Head, Tail...>, std::tuple<Accum...>> {
+    using type = typename FilterNewAtoms<
+        std::tuple<Tail...>, std::conditional_t<isAlreadyInExpression<Head>, std::tuple<Accum...>,
+                                                std::tuple<Accum..., Head>>>::type;
+  };
+
+  // Maps a filtered tuple of new atom types to ExpressionArguments and ComplexExpression types
+  // that extend AdditionalCustomAtoms with those new atoms.
+  template <typename NewAtomsTuple> struct WithStaticTypesAsAtoms;
+  template <typename... NewAtoms> struct WithStaticTypesAsAtoms<std::tuple<NewAtoms...>> {
+    using Arguments =
+        ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms..., NewAtoms...>;
+    using ComplexExpression =
+        ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>, AdditionalCustomAtoms...,
+                                                   NewAtoms...>;
+  };
+
+  // The set of static argument types that are genuinely new (not already in the expression
+  // variant).
+  using StaticAtomsTuple = typename FilterNewAtoms<StaticArgumentsTuple>::type;
+
+  // Counts how many of the first J elements of StaticArgumentsTuple are new atoms (not already in
+  // the expression variant). This gives the index of the J-th element within StaticAtomsTuple.
+  template <size_t... Ks>
+  static constexpr size_t countNewAtomsBefore(std::index_sequence<Ks...> /*unused*/) {
+    return (size_t(0) + ... +
+            (isAlreadyInExpression<std::tuple_element_t<Ks, StaticArgumentsTuple>> ? size_t(0)
+                                                                                   : size_t(1)));
+  }
+
   template <size_t... I>
-  ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>
-  convertStaticToDynamicArguments(std::index_sequence<I...> /*unused*/) const {
-    ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...> result;
+  typename WithStaticTypesAsAtoms<StaticAtomsTuple>::Arguments
+  convertStaticToDynamicArguments(std::index_sequence<I...> /*unused*/) && {
+    typename WithStaticTypesAsAtoms<StaticAtomsTuple>::Arguments result;
     result.reserve(arguments.size() + sizeof...(I));
-    (cloneIfNecessary(result, std::get<I>(staticArguments)), ...);
-    std::for_each(arguments.begin(), arguments.end(), [this, &result](auto&& e) {
-      std::visit([this, &result](auto&& e) { cloneIfNecessary(result, e); }, e);
-    });
+    // Use in_place_index to resolve ambiguity when the same custom atom type appears multiple
+    // times (creating duplicate variant alternatives). K is the index of this element within
+    // StaticAtomsTuple (number of preceding new atoms), which is the correct offset into the
+    // extended variant's alternatives.
+    constexpr size_t baseAtomCount =
+        std::variant_size_v<AtomicExpressionWithAdditionalCustomAtoms<>>;
+    auto emplaceStatic = [this, &result](auto Idx) {
+      constexpr size_t J = decltype(Idx)::value;
+      using T = std::tuple_element_t<J, StaticArgumentsTuple>;
+      if constexpr(isAlreadyInExpression<T>) {
+        result.emplace_back(std::move(std::get<J>(staticArguments)));
+      } else {
+        constexpr size_t K = countNewAtomsBefore(std::make_index_sequence<J> {});
+        result.emplace_back(
+            std::in_place_index<baseAtomCount + sizeof...(AdditionalCustomAtoms) + K>,
+            std::move(std::get<J>(staticArguments)));
+      }
+    };
+    (emplaceStatic(std::integral_constant<size_t, I> {}), ...);
+    std::for_each(std::move_iterator(arguments.begin()), std::move_iterator(arguments.end()),
+                  [&result](auto&& e) {
+                    std::visit(
+                        [&result](auto&& e) { result.emplace_back(std::forward<decltype(e)>(e)); },
+                        std::forward<decltype(e)>(e));
+                  });
     return result;
   }
 
@@ -1062,43 +1129,39 @@ public:
       : head(std::move(head)), staticArguments(std::move(staticArguments)),
         arguments(std::move(arguments)), spanArguments(std::move(spanArguments)) {}
 
-  template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
+  template <std::size_t N = std::tuple_size<StaticArgumentsTuple>::value>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
-      Symbol const& head,
+      typename std::enable_if<N == 0, Symbol const&>::type head,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
       : ComplexExpressionWithAdditionalCustomAtoms(
-            head,
-            convertToTuple(
-                arguments,
-                std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
+            head, {},
             {std::move_iterator(
                  next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
-             std::move_iterator(end(arguments))}){};
+             std::move_iterator(end(arguments))}) {
+    auto _ = std::move(arguments); // make clang-tify happy
+  };
 
-  template <typename = std::enable_if<std::tuple_size<StaticArgumentsTuple>::value == 0>>
+  template <std::size_t N = std::tuple_size<StaticArgumentsTuple>::value>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
-      Symbol&& head,
+      typename std::enable_if<N == 0, Symbol&&>::type head,
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalCustomAtoms...>&& arguments)
       : ComplexExpressionWithAdditionalCustomAtoms(
-            std::move(head),
-            convertToTuple(
-                arguments,
-                std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>()),
+            std::move(head), {},
             {std::move_iterator(
                  next(begin(arguments), std::tuple_size<StaticArgumentsTuple>::value)),
-             std::move_iterator(end(arguments))}){};
+             std::move_iterator(end(arguments))}) {
+    auto _ = std::move(arguments); // make clang-tify happy
+  };
 
-  operator ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
-      std::tuple<>, AdditionalCustomAtoms...>() const {
-    return std::move(
-        ComplexExpressionWithAdditionalCustomAtoms< // NOLINT(hicpp-explicit-conversions)
-            std::tuple<>, AdditionalCustomAtoms...>(
-            head, convertStaticToDynamicArguments(
-                      std::make_index_sequence<std::tuple_size<StaticArgumentsTuple>::value>())));
+  operator typename WithStaticTypesAsAtoms< // NOLINT(hicpp-explicit-conversions)
+      StaticAtomsTuple>::ComplexExpression() && {
+    return typename WithStaticTypesAsAtoms<StaticAtomsTuple>::ComplexExpression(
+        head, std::move(*this).convertStaticToDynamicArguments(
+                  std::make_index_sequence<std::tuple_size_v<StaticArgumentsTuple>>()));
   }
 
-  template <typename = std::enable_if<sizeof...(AdditionalCustomAtoms) != 0>, typename OtherTuple,
-            typename... T>
+  template <std::size_t N = sizeof...(AdditionalCustomAtoms),
+            typename = typename std::enable_if_t<N != 0>, typename OtherTuple, typename... T>
   explicit ComplexExpressionWithAdditionalCustomAtoms(
       ComplexExpressionWithAdditionalCustomAtoms<OtherTuple, T...>&& other)
       : head(other.getHead()) {
@@ -1559,7 +1622,7 @@ decltype(auto) visit(Func&& func,
 };
 template <> struct hash<boss::expressions::Symbol> {
   ::std::size_t operator()(boss::expressions::Symbol const& s) const noexcept {
-    return ::std::hash<::std::string>{}(s.getName());
+    return ::std::hash<::std::string> {}(s.getName());
   }
 };
 

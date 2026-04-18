@@ -1,10 +1,11 @@
 #include <array>
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <string>
 
-#include "../Source/BOSS.hpp"
+#include "../Source/BOSS.h"
 
 TEST_CASE("Build Expression", "[api]") {
-  auto input = (std::array{longToNewBOSSExpression(3), longToNewBOSSExpression(4)});
+  auto input = (std::array {longToNewBOSSExpression(3), longToNewBOSSExpression(4)});
   auto* s = symbolNameToNewBOSSSymbol("Plus");
   auto* c = newComplexBOSSExpression(s, 2, input.data());
   auto* res = BOSSEvaluate(c);
@@ -19,7 +20,7 @@ TEST_CASE("Build Expression", "[api]") {
 }
 
 TEST_CASE("Build expression, with strings", "[api]") {
-  auto input = (std::array{stringToNewBOSSExpression("test string")});
+  auto input = (std::array {stringToNewBOSSExpression("test string")});
   auto* s = symbolNameToNewBOSSSymbol("UnevaluatedAsNoEngineIsSet");
   auto* c = newComplexBOSSExpression(s, 1, input.data());
   auto* res = BOSSEvaluate(c);

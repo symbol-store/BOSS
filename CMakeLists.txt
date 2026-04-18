@@ -58,9 +58,10 @@ set_target_properties(googlebenchmark PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 
 ExternalProject_Add(catch2
-	URL https://github.com/catchorg/Catch2/archive/v2.13.6.tar.gz
+	URL https://github.com/catchorg/Catch2/archive/v3.12.0.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCATCH_BUILD_TESTING=NO -DBUILD_TESTING=NO -DCATCH_ENABLE_WERROR=NO -DCATCH_INSTALL_DOCS=NO -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+  BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX}
   )
 
 
@@ -92,6 +93,8 @@ add_library(BOSS SHARED ${ImplementationFiles})
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
 add_dependencies(Tests catch2)
+
+target_link_libraries(Tests ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX})
 if(WIN32)
     target_compile_options(Tests PUBLIC /bigobj)
 endif(WIN32)
@@ -123,8 +126,6 @@ foreach(Target IN LISTS AllTargets)
     # also using -E option to expose all symbols with the symbol table when dynamically loading the plugins (https://stackoverflow.com/a/9445178)
     if(APPLE)
       target_link_libraries(${Target} "-Wl,-export_dynamic")
-      target_link_libraries(${Target} "-Wl,-all_load")
-      target_link_libraries(${Target} "-Wl,-noall_load")
     endif()
   else()  
     # for Windows, we need to generate an "import library" for the plugins to link against it
@@ -176,6 +177,20 @@ install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 
-
-
-
+foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
+  string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\1" Namespace ${Engine})
+  string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\2" EngineName ${Engine})
+  string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\3" BranchName ${Engine})
+  execute_process(COMMAND git branch --show-current WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE BOSS_CHECKOUT_BRANCH OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(BranchName STREQUAL "")
+    set(BranchName "main")
+  endif()
+  ExternalProject_Add(${EngineName}
+    GIT_REPOSITORY "https://github.com/${Namespace}/${EngineName}"
+    HTTP_HEADER "Authorization: token ${GITHUB_TOKEN}" "Accept: application/octet-stream"
+    GIT_TAG ${BranchName}
+    DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/engines $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DBOSS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_REPOSITORY=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_BRANCH=${BOSS_CHECKOUT_BRANCH}
+  )
+endforeach()

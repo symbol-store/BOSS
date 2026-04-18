@@ -9,11 +9,11 @@ class VTuneAPIInterface {
 #endif // WITH_ITT_NOTIFY
 
 public:
-  explicit VTuneAPIInterface(char const*)
 #ifdef WITH_ITT_NOTIFY
-      : domain(__itt_domain_create("wcoj"))
+  explicit VTuneAPIInterface(char const* name) : domain(__itt_domain_create(name)) {};
+#else
+  explicit VTuneAPIInterface(char const*) {};
 #endif // WITH_ITT_NOTIFY
-            {};
   template <typename... DescriptorTypes>
   void startSampling(DescriptorTypes... tasknameComponents) const {
 #ifdef WITH_ITT_NOTIFY

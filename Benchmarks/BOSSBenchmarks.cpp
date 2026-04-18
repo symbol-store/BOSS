@@ -4,7 +4,7 @@
 #include <iostream>
 using namespace std;
 
-static auto const vtune = VTuneAPIInterface{"BOSS"};
+static auto const vtune = VTuneAPIInterface {"BOSS"};
 static void DummyBenchmark(benchmark::State& state) {
   auto dummy = 0;
   vtune.startSampling("DummyBenchmark");
