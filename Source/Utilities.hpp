@@ -90,18 +90,19 @@ struct is_comparable<L, R, void_t<comparability<L, R>>> : std::true_type {};
 
 namespace {
 template <typename VisitorType, typename InputType, size_t index = 0>
-InputType opportunisticVisitAndTransform(VisitorType&& visitor, InputType&& x) {
-  if constexpr(index >= std::variant_size_v<InputType>) {
+std::remove_reference_t<InputType> opportunisticVisitAndTransform(VisitorType&& visitor,
+                                                                  InputType&& x) {
+  using VariantType = std::remove_reference_t<InputType>;
+  if constexpr(index >= std::variant_size_v<VariantType>) {
     return std::forward<InputType>(x);
   } else if constexpr(std::is_invocable<VisitorType,
-                                        std::variant_alternative_t<index, InputType>>::value) {
-    if(std::holds_alternative<std::variant_alternative_t<index, InputType>>(x)) {
+                                        std::variant_alternative_t<index, VariantType>>::value) {
+    if(std::holds_alternative<std::variant_alternative_t<index, VariantType>>(x)) {
       return std::forward<VisitorType>(visitor)(
-          std::get<std::variant_alternative_t<index, InputType>>(std::forward<InputType>(x)));
+          std::get<std::variant_alternative_t<index, VariantType>>(std::forward<InputType>(x)));
     }
     return opportunisticVisitAndTransform<VisitorType, InputType, index + 1>(
         std::forward<VisitorType>(visitor), std::forward<InputType>(x));
-
   } else {
     return opportunisticVisitAndTransform<VisitorType, InputType, index + 1>(
         std::forward<VisitorType>(visitor), std::forward<InputType>(x));
