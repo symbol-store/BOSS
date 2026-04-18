@@ -63,7 +63,7 @@ BOSSExpression* stringToNewBOSSExpression(char const* string) {
   return new BOSSExpression {boss::Expression(::std::string(string))};
 }
 BOSSExpression* symbolNameToNewBOSSExpression(char const* name) {
-  return new BOSSExpression{boss::Expression(boss::Symbol(name))};
+  return new BOSSExpression {boss::Expression(boss::Symbol(name))};
 }
 
 BOSSSymbol* symbolNameToNewBOSSSymbol(char const* name) {
