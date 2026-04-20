@@ -9,14 +9,14 @@
 (define-c (free BOSSExpression) charToNewBOSSExpression ((const int8_t)))
 (define-c (free BOSSExpression) doubleToNewBOSSExpression ((const double)))
 (define-c (free BOSSExpression) floatToNewBOSSExpression ((const float)))
-(define-c (free BOSSExpression) intToNewBOSSExpression ((const int)))
-(define-c (free BOSSExpression) longToNewBOSSExpression ((const long)))
+(define-c (free BOSSExpression) intToNewBOSSExpression ((const int32_t)))
+(define-c (free BOSSExpression) longToNewBOSSExpression ((const int64_t)))
 (define-c (free BOSSExpression) stringToNewBOSSExpression ((const string)))
 (define-c (free BOSSExpression) symbolNameToNewBOSSExpression ((const string)))
 
-(define-c BOSSExpression newComplexBOSSExpression (BOSSSymbol long (array BOSSExpression)))
+(define-c BOSSExpression newComplexBOSSExpression (BOSSSymbol size_t (array BOSSExpression)))
 
-(define-c long getBOSSExpressionTypeID (BOSSExpression))
+(define-c size_t getBOSSExpressionTypeID (BOSSExpression))
 
 (define-c float getFloatValueFromBOSSExpression ((const BOSSExpression)))
 (define-c bool getBoolValueFromBOSSExpression ((const BOSSExpression)))
@@ -29,9 +29,9 @@
 
 
 (define-c (free BOSSSymbol) getHeadFromBOSSExpression ((const BOSSExpression)))
-(define-c long getArgumentCountFromBOSSExpression ((const BOSSExpression)))
+(define-c size_t getArgumentCountFromBOSSExpression ((const BOSSExpression)))
 (c-declare "struct BOSSExpression* getArgumentFromBOSSExpressionArray(struct BOSSExpression** array, size_t index) {return array[index];}")
-(define-c BOSSExpression getArgumentFromBOSSExpressionArray ((pointer BOSSExpression) long))
+(define-c BOSSExpression getArgumentFromBOSSExpressionArray ((pointer BOSSExpression) size_t))
 (define-c (pointer BOSSExpression) getArgumentsFromBOSSExpression ((const BOSSExpression)))
 (define-c void freeBOSSArguments ((pointer BOSSExpression)))
 
