@@ -48,7 +48,14 @@
          )
      )
 
-   (define-syntax boss-eval (syntax-rules () ((boss-eval query) (convert-from-boss-expression (BOSSEvaluate (convert-to-boss-expression (quote query)))))))
+   (define-syntax boss-eval
+     (syntax-rules ()
+       ((boss-eval query)
+        (let ((expr (convert-to-boss-expression (quote query))))
+          ;; BOSSEvaluate takes ownership and frees the input internally,
+          ;; so clear the GC finalizer to prevent a double-free.
+          (boss-expression-transfer! expr)
+          (convert-from-boss-expression (BOSSEvaluate expr))))))
 
    )
   (include-shared "libBOSS"))

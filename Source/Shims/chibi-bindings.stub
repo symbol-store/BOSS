@@ -36,6 +36,11 @@
 (define-c void freeBOSSArguments ((pointer BOSSExpression)))
 
 
+;; BOSSEvaluate takes ownership and frees the input internally.
+;; Call boss-expression-transfer! before passing a GC-managed expression
+;; to prevent the finalizer from double-freeing it.
+(c-declare "static void boss_expression_transfer_x(sexp obj) { sexp_freep(obj) = 0; }")
+(define-c void boss-expression-transfer! (sexp))
 (define-c (free BOSSExpression) BOSSEvaluate (BOSSExpression))
 
 
