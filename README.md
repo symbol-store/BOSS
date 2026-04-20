@@ -17,8 +17,8 @@ brew install cmake
 Let's assume you want to create an engine called ReferenceEngine
 
 ```bash
-git clone git@github.com:Bossdb/Core.git
-cmake -P Core/CreateNewEngine.cmake -- ReferenceEngine
+git clone git@github.com:symbol-store/BOSS.git
+cmake -P BOSS/CreateNewEngine.cmake -- ReferenceEngine
 cmake -S ReferenceEngine -B build
 cmake --build build
 ```
@@ -36,7 +36,7 @@ Obviously, many tests will fail and you need to implement whatever functionality
 After building, you can evaluate BOSS expressions interactively using the bundled Chibi Scheme REPL. Run it from the build directory:
 
 ```bash
-./deps/bin/chibi-scheme -I. -mBOSS -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
+./build/BOSS-prefix/src/BOSS-build/deps/bin/chibi-scheme -Ibuild/BOSS-prefix/src/BOSS-build -mBOSS -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
 ```
 
 - `-I.` adds the build directory to the module search path (where `BOSS.sld` was copied)
@@ -46,7 +46,7 @@ After building, you can evaluate BOSS expressions interactively using the bundle
 To evaluate expressions using an engine, load it first with `SetDefaultEnginePipeline`, then call `boss-eval` as usual:
 
 ```bash
-./deps/bin/chibi-scheme -I. -mBOSS -p'(begin (boss-eval (SetDefaultEnginePipeline "build/libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
+./build/BOSS-prefix/src/BOSS-build/deps/bin/chibi-scheme -Ibuild/BOSS-prefix/src/BOSS-build -mBOSS  -p'(begin (boss-eval (SetDefaultEnginePipeline "build/libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
 ```
 
 ## Implementing a new engine
