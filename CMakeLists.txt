@@ -169,6 +169,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
             ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
     COMMAND ${CMAKE_COMMAND} -E env
             LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
+            DYLD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{DYLD_LIBRARY_PATH}
             PATH=${BOSS_BINARY_DIR}/deps/bin/:$ENV{PATH}
             ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
