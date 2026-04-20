@@ -161,16 +161,23 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   set_source_files_properties(${REPLFiles} PROPERTIES
     INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 
+  if(WIN32)
+    set(_chibi_ffi_env
+      PATH=${BOSS_BINARY_DIR}/deps/bin\;${BOSS_BINARY_DIR}/deps/lib\;$ENV{PATH})
+  else()
+    set(_chibi_ffi_env
+      LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
+      DYLD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{DYLD_LIBRARY_PATH}
+      PATH=${BOSS_BINARY_DIR}/deps/bin/:$ENV{PATH})
+  endif()
+
   add_custom_command(
     OUTPUT ${REPLFiles}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims
     COMMAND ${CMAKE_COMMAND} -E copy
             ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles}
             ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
-    COMMAND ${CMAKE_COMMAND} -E env
-            LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
-            DYLD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{DYLD_LIBRARY_PATH}
-            PATH=${BOSS_BINARY_DIR}/deps/bin/:$ENV{PATH}
+    COMMAND ${CMAKE_COMMAND} -E env ${_chibi_ffi_env}
             ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
     VERBATIM)

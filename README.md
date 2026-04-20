@@ -39,7 +39,7 @@ After building, you can evaluate BOSS expressions interactively using the bundle
 ./build/BOSS-prefix/src/BOSS-build/deps/bin/chibi-scheme -Ibuild/BOSS-prefix/src/BOSS-build -mBOSS -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
 ```
 
-- `-I.` adds the build directory to the module search path (where `BOSS.sld` was copied)
+- `-I<build-dir>` adds the build directory to the module search path (where `BOSS.sld` was copied)
 - `-mBOSS` loads the BOSS Scheme module
 - `boss-eval` converts a Scheme expression to a BOSS expression, evaluates it, and converts the result back
 
