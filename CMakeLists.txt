@@ -119,7 +119,7 @@ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 set(ImplementationFiles Source/BOSS.cpp Source/Serialization.cpp)
 set(REPLStubFiles chibi-bindings.stub)
 set(SchemeModuleFiles BOSS.sld)
-set(REPLFiles Source/Shims/chibi-bindings.c)
+set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
 set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
@@ -127,13 +127,19 @@ set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
 add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles})
 add_dependencies(BOSS chibi-scheme)
+set_source_files_properties(${REPLFiles} PROPERTIES
+  INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 
 add_custom_command(
-  OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${REPLFiles}
+  OUTPUT ${REPLFiles}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims
+  COMMAND ${CMAKE_COMMAND} -E copy
+          ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles}
+          ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
   COMMAND ${CMAKE_COMMAND} -E env
           LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
           PATH=${BOSS_BINARY_DIR}/deps/bin/:$ENV{PATH}
-          ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles}
+          ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
   VERBATIM)
 

@@ -1,4 +1,4 @@
-(c-include "../BOSS.h")
+(c-include "BOSS.h")
 (define-c-struct BOSSExpression finalizer: freeBOSSExpression)
 (define-c-struct BOSSSymbol finalizer: freeBOSSSymbol)
 (define-c (free BOSSSymbol) symbolNameToNewBOSSSymbol ((const string)))
