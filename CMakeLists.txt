@@ -77,32 +77,58 @@ ExternalProject_Add(spdlog
 )
 
 
-find_program(MAKE_EXECUTABLE
-  NAMES gmake mingw32-make make
-  NAMES_PER_DIR
-  DOC "GNU Make"
-)
-
-if(NOT MAKE_EXECUTABLE OR MAKE_EXECUTABLE MATCHES "-NOTFOUND$")
-  message(FATAL_ERROR
-    "Could not find a make executable required to build chibi-scheme. "
-    "Please install GNU Make (or a compatible make tool).")
+# REPL support via Chibi Scheme.
+# DISABLE_REPL (user-facing): OFF by default (REPL enabled).
+#   If not explicitly set and make is not found: warn and skip.
+#   If explicitly set to OFF and make is not found: fatal error.
+#   If explicitly set to ON: REPL skipped unconditionally.
+if(NOT DEFINED CACHE{_DISABLE_REPL_EXPLICITLY_SET})
+  if(DEFINED CACHE{DISABLE_REPL})
+    set(_DISABLE_REPL_EXPLICITLY_SET ON CACHE INTERNAL "DISABLE_REPL was explicitly set by the user")
+  else()
+    set(_DISABLE_REPL_EXPLICITLY_SET OFF CACHE INTERNAL "DISABLE_REPL was explicitly set by the user")
+  endif()
 endif()
+option(DISABLE_REPL "Disable the Chibi Scheme REPL" OFF)
+
+find_program(MAKE_EXECUTABLE NAMES gmake mingw32-make make NAMES_PER_DIR DOC "GNU Make")
+if(MAKE_EXECUTABLE AND NOT MAKE_EXECUTABLE MATCHES "-NOTFOUND$")
+  set(MAKE_FOUND ON)
+else()
+  set(MAKE_FOUND OFF)
+endif()
+
+if(NOT DISABLE_REPL AND NOT MAKE_FOUND)
+  if(_DISABLE_REPL_EXPLICITLY_SET)
+    message(FATAL_ERROR
+      "DISABLE_REPL=OFF requires GNU Make to build Chibi Scheme, but none was found. "
+      "Please install GNU Make (or a compatible make tool).")
+  else()
+    message(WARNING
+      "==================================================================\n"
+      "  GNU Make not found -- Chibi Scheme REPL will NOT be built.\n"
+      "  Install GNU Make or set -DDISABLE_REPL=ON to silence this.\n"
+      "==================================================================")
+  endif()
+endif()
+
 if(CMAKE_BUILD_TYPE)
   string(TOUPPER "_${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_TOUPPER)
 else()
   set(CMAKE_BUILD_TYPE_TOUPPER "")
-endif(CMAKE_BUILD_TYPE)
+endif()
 
-ExternalProject_Add(chibi-scheme
-	URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
-  DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
-  DOWNLOAD_EXTRACT_TIMESTAMP NEW
-  CONFIGURE_COMMAND ""
-  BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${BOSS_BINARY_DIR}/deps CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
-  INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${BOSS_BINARY_DIR}/deps
-  BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
-)
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  ExternalProject_Add(chibi-scheme
+    URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
+    DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+    DOWNLOAD_EXTRACT_TIMESTAMP NEW
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${BOSS_BINARY_DIR}/deps CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
+    INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${BOSS_BINARY_DIR}/deps
+    BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
+  )
+endif()
 
 ########################## Other Library Dependencies ##########################
 
@@ -117,39 +143,45 @@ find_package(Threads REQUIRED)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 set(ImplementationFiles Source/BOSS.cpp Source/Serialization.cpp)
-set(REPLStubFiles chibi-bindings.stub)
-set(SchemeModuleFiles BOSS.sld)
-set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
 set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
+
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  set(REPLStubFiles chibi-bindings.stub)
+  set(SchemeModuleFiles BOSS.sld)
+  set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
+endif()
 
 # BOSS
 
 add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles})
-add_dependencies(BOSS chibi-scheme)
-set_source_files_properties(${REPLFiles} PROPERTIES
-  INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 
-add_custom_command(
-  OUTPUT ${REPLFiles}
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims
-  COMMAND ${CMAKE_COMMAND} -E copy
-          ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles}
-          ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
-  COMMAND ${CMAKE_COMMAND} -E env
-          LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
-          PATH=${BOSS_BINARY_DIR}/deps/bin/:$ENV{PATH}
-          ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
-  VERBATIM)
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  add_dependencies(BOSS chibi-scheme)
+  set_source_files_properties(${REPLFiles} PROPERTIES
+    INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 
-target_link_libraries(BOSS
-  ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+  add_custom_command(
+    OUTPUT ${REPLFiles}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims
+    COMMAND ${CMAKE_COMMAND} -E copy
+            ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles}
+            ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
+    COMMAND ${CMAKE_COMMAND} -E env
+            LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
+            PATH=${BOSS_BINARY_DIR}/deps/bin/:$ENV{PATH}
+            ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
+    VERBATIM)
 
-add_custom_command(TARGET BOSS POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${SchemeModuleFiles} ${BOSS_BINARY_DIR}
-  VERBATIM
-  BYPRODUCTS ${BOSS_BINARY_DIR}/${SchemeModuleFiles})
+  target_link_libraries(BOSS
+    ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+
+  add_custom_command(TARGET BOSS POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${SchemeModuleFiles} ${BOSS_BINARY_DIR}
+    VERBATIM
+    BYPRODUCTS ${BOSS_BINARY_DIR}/${SchemeModuleFiles})
+endif()
 
 
 # Tests
