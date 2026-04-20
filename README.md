@@ -51,47 +51,33 @@ To evaluate expressions using an engine, load it first with `SetDefaultEnginePip
 
 ## Implementing a new engine
 
-Here is an example of a fairly simple engine that only interprets a single expression: (Plus v1 v2)
+Here is an example of a fairly simple engine that only interprets a single expression: (Plus v1 v2 v3 ...)
 
 ```cpp
-#include <Algorithm.hpp>
 #include <BOSS.hpp>
+#include <Expression.hpp>
+#include <ExpressionUtilities.hpp>
+#include <Algorithm.hpp>
 
-using namespace std;
 using namespace boss::algorithm;
+using namespace boss::utilities::experimental;
 
-namespace boss::storage::git {
-boss::Expression evaluate(boss::Expression&& e) {
-  return visit(
-      [](auto&& e) -> boss::Expression {
-        if constexpr(isComplexExpression<decltype(e)>) {
-          boss::ExpressionArguments args = e.getArguments();
-          visitTransform(args, [](auto&& arg) -> boss::Expression {
-            if constexpr(isComplexExpression<decltype(arg)>) {
-              return evaluate(std::move(arg));
-            } else {
-              return std::forward<decltype(arg)>(arg);
-            }
-          });
-          if(e.getHead() == Symbol("Plus")) {
-            return visitAccumulate(move(args), 0L, [](auto&& state, auto&& arg) {
-              if constexpr(is_same_v<decay_t<decltype(arg)>, long long>) {
-                state += arg;
-              }
-              return state;
-            });
-          } else {
-            return boss::ComplexExpression(e.getHead(), {}, std::move(args), {});
+namespace ReferenceEngine {
+static boss::Expression evaluate(boss::Expression&& e) {
+  return std::move(e) //
+      <"Plus" >= Recurse(evaluate)>[](auto, auto dynamics, auto) {
+        return visitAccumulate(std::move(dynamics), 0L, [](auto&& state, auto&& arg) {
+          if constexpr(std::is_same_v<std::decay_t<decltype(arg)>, int>) {
+            state += arg;
           }
-        } else {
-          return forward<decltype(e)>(e);
-        }
-      },
-      move(e));
-}
-} // namespace boss::storage::git
+          return state;
+        });
+      } //
+  ;
+} //
+} // namespace ReferenceEngine
 
 extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
-  return new BOSSExpression{.delegate = boss::storage::git::evaluate(::std::move(e->delegate))};
+  return new BOSSExpression {.delegate = ReferenceEngine::evaluate(::std::move(e->delegate))};
 };
 ```
