@@ -14,6 +14,7 @@ namespace sentinel {
 inline const Symbol String_ {"<String_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
 inline const Symbol Symbol_ {"<Symbol_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
 inline const Symbol Integer_ {"<Integer_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
+inline const Symbol Any_ {"<Any_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
 inline constexpr char const* const AnyHead = "FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;";
 } // namespace sentinel
 } // namespace experimental
@@ -137,6 +138,9 @@ inline bool matchesPattern(ComplexExpression const& subject, ComplexExpression c
 inline bool matchArg(Expression const& subject, Expression const& pattern) {
   if(std::holds_alternative<Symbol>(pattern)) {
     auto const& sym = std::get<Symbol>(pattern).getName();
+    if(sym == sentinel::Any_.getName()) {
+      return true;
+    }
     if(sym == sentinel::String_.getName()) {
       return std::holds_alternative<std::string>(subject);
     }

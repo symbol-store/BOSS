@@ -1639,6 +1639,42 @@ TEST_CASE("Nested Pattern Matching") {
   "Schema"_("Table"_("othername")) << "Schema"_("Table"_("tablename")) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE_FALSE(hasRun);
+
+  // Any_ matches a string argument
+  hasRun = false;
+  "Select"_("hello") << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ matches an integer argument
+  hasRun = false;
+  "Select"_(42L) << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ matches a symbol argument
+  hasRun = false;
+  "Select"_(boss::Symbol("col")) << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ matches a subexpression argument
+  hasRun = false;
+  "Select"_("Table"_("t")) << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ with two arguments matches two arguments of any type
+  hasRun = false;
+  "Select"_("hello", 42L) << "Select"_(Any_, Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ does not match if argument count differs
+  hasRun = false;
+  "Select"_("hello", "world") << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
 }
 
 TEST_CASE("Chained Pattern Matching") {
