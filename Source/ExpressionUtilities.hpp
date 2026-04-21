@@ -286,8 +286,8 @@ Transformer operator<<(E1&& subject, E2&& pattern) {
 // Handles Expression (the variant) as subject
 template <typename E, std::enable_if_t<std::is_constructible_v<ComplexExpression, E&&>, int> = 0>
 Transformer operator<(Expression&& subject, E&& pattern) {
-  return Transformer(std::move(subject), sentinel::AnyHead) <
-         ComplexExpression(std::forward<E>(pattern));
+  ComplexExpression complPattern(std::forward<E>(pattern));
+  return Transformer(std::move(subject), sentinel::AnyHead).operator<(complPattern);
 }
 template <typename E, std::enable_if_t<std::is_constructible_v<ComplexExpression, E&&>, int> = 0>
 Transformer operator<<(Expression&& subject, E&& pattern) {
