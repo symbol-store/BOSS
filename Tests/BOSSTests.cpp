@@ -1549,16 +1549,96 @@ TEST_CASE("Recursive Pattern Matching") {
   using namespace boss::utilities::experimental;
   static auto evaluate = [](boss::Expression&& e) -> boss::Expression { return std::move(e); };
   auto hasRun = false;
-  auto _ = ("Howdie"_() << "Howdie" >>= Recurse(evaluate)) >>
+  auto _ = ("Howdie"_() << "Howdie"_() >>= Recurse(evaluate)) >>
            [&hasRun](auto, auto, auto) -> boss::Expression { return hasRun = true; };
   REQUIRE(hasRun);
   // here is an alternative syntax that leads to clang-tidy issues
   hasRun = false;
-  _ = "Howdie"_()<"Howdie" >= // NOLINT(bugprone-chained-comparison)
+  _ = "Howdie"_()<"Howdie"_() >= // NOLINT(bugprone-chained-comparison)
                   Recurse(evaluate)>[&hasRun](auto, auto, auto) -> boss::Expression {
     return hasRun = true;
   };
   REQUIRE(hasRun);
+}
+
+TEST_CASE("Nested Pattern Matching") {
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+
+  auto hasRun = false;
+
+  // StringMatcher matches a string argument
+  hasRun = false;
+  "Load"_("hello") << "Load"_(String_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // StringMatcher rejects an integer argument
+  hasRun = false;
+  "Load"_(42) << "Load"_(String_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // SymbolMatcher matches a symbol argument
+  hasRun = false;
+  "Load"_(boss::Symbol("col")) << "Load"_(Symbol_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // IntegerMatcher matches an int64 argument
+  hasRun = false;
+  "Load"_(42L) << "Load"_(Integer_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Nested pattern: "Schema"_("Load"_(String_)) matches "Schema"_("Load"_("hello"))
+  hasRun = false;
+  "Schema"_("Load"_("hello")) << "Schema"_("Load"_(String_)) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Nested pattern rejects wrong inner head
+  hasRun = false;
+  "Schema"_("Store"_("hello")) << "Schema"_("Load"_(String_)) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Nested pattern rejects wrong outer head
+  hasRun = false;
+  "Table"_("Load"_("hello")) << "Schema"_("Load"_(String_)) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Nested pattern rejects wrong argument type
+  hasRun = false;
+  "Schema"_("Load"_(42)) << "Schema"_("Load"_(String_)) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Pattern arg count must match exactly
+  hasRun = false;
+  "Load"_("hello", "world") << "Load"_(String_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Literal structural matching: expression matches itself
+  hasRun = false;
+  "Schema"_("Table"_("tablename")) << "Schema"_("Table"_("tablename")) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Literal structural matching rejects different head
+  hasRun = false;
+  "Schema"_("View"_("tablename")) << "Schema"_("Table"_("tablename")) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Literal structural matching rejects different argument value
+  hasRun = false;
+  "Schema"_("Table"_("othername")) << "Schema"_("Table"_("tablename")) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
 }
 
 int main(int argc, char* argv[]) {

@@ -8,6 +8,16 @@
 #include <utility>
 
 namespace boss::utilities {
+
+namespace experimental {
+namespace sentinel {
+inline const Symbol String_ {"<String_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
+inline const Symbol Symbol_ {"<Symbol_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
+inline const Symbol Integer_ {"<Integer_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
+inline constexpr char const* const AnyHead = "FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;";
+} // namespace sentinel
+} // namespace experimental
+
 template <typename ExpressionSystem = DefaultExpressionSystem> class ExtensibleExpressionBuilder {
   Symbol const s;
 
@@ -107,7 +117,46 @@ static ExpressionBuilder operator""_(const char* name, size_t /*unused*/) {
 };
 
 namespace experimental {
+
 namespace {
+
+inline bool matchArg(Expression const& subject, Expression const& pattern);
+
+inline bool matchesPattern(ComplexExpression const& subject, ComplexExpression const& pattern) {
+  auto const& subjectArgs = subject.getDynamicArguments();
+  auto const& patternArgs = pattern.getDynamicArguments();
+  if(subject.getHead().getName() != pattern.getHead().getName())
+    return false;
+  if(subjectArgs.size() != patternArgs.size())
+    return false;
+  return std::equal(subjectArgs.begin(), subjectArgs.end(), patternArgs.begin(), matchArg);
+}
+
+inline bool matchArg(Expression const& subject, Expression const& pattern) {
+  if(std::holds_alternative<Symbol>(pattern)) {
+    auto const& sym = std::get<Symbol>(pattern).getName();
+    if(sym == sentinel::String_.getName())
+      return std::holds_alternative<std::string>(subject);
+    if(sym == sentinel::Symbol_.getName())
+      return std::holds_alternative<Symbol>(subject);
+    if(sym == sentinel::Integer_.getName())
+      return std::holds_alternative<std::int64_t>(subject) ||
+             std::holds_alternative<std::int32_t>(subject) ||
+             std::holds_alternative<std::int8_t>(subject);
+  }
+  if(subject.index() != pattern.index())
+    return false;
+  return std::visit(
+      [&subject](auto const& patVal) -> bool {
+        using T = std::decay_t<decltype(patVal)>;
+        if constexpr(std::is_same_v<T, ComplexExpression>)
+          return matchesPattern(std::get<ComplexExpression>(subject), patVal);
+        else
+          return std::get<T>(subject) == patVal;
+      },
+      pattern);
+}
+
 class Transformer {
 
   Expression c;
@@ -118,14 +167,13 @@ class Transformer {
    */
   bool isActive = true;
   /**
-   * if a transformer is deactivated but the target of a pattern that has been matched, it is still
-   * evaluated. The canonical example is a pattern that leads to recursion and some evaluation
+   * if a transformer is deactivated but the target of a pattern that has been matched, it is
+   * still evaluated. The canonical example is a pattern that leads to recursion and some
+   * evaluation
    */
   bool isInLineWithMatched = false;
 
 public:
-  static constexpr char const* const AnyHead = "FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;";
-
   Transformer(ComplexExpression&& c, char const* expectedHead, bool isActive = true,
               bool isInLineWithMatched = false)
       : c(std::move(c)), expectedHead(expectedHead), isActive(isActive),
@@ -158,12 +206,18 @@ public:
   }
 
   template <typename Visitor> Transformer operator>(Visitor&& visitor) && {
-    if(isInLineWithMatched ||
-       (isActive && std::holds_alternative<ComplexExpression>(c) &&
-        (std::get<ComplexExpression>(c).getHead().getName() == expectedHead ||
-         expectedHead == AnyHead))) {
+    bool shouldFire = isInLineWithMatched || (isActive && expectedHead == sentinel::AnyHead);
+    if(!shouldFire)
+      return std::move(*this);
+    if(std::holds_alternative<ComplexExpression>(c)) {
       return {process(std::move(std::get<ComplexExpression>(c)), std::forward<Visitor>(visitor)),
               expectedHead, false, true};
+    }
+    if constexpr(std::is_invocable_v<std::decay_t<Visitor>, Expression&&>) {
+      return {
+          (Expression)std::forward<Visitor>(visitor)(std::visit(
+              [](auto&& x) -> Expression { return std::forward<decltype(x)>(x); }, std::move(c))),
+          expectedHead, false, true};
     }
     return std::move(*this);
   }
@@ -171,10 +225,21 @@ public:
     return std::move(*this) > std::forward<Visitor>(visitor);
   }
 
-  Transformer operator<(char const* expectedHead) && {
-    return Transformer(std::move(c), expectedHead, isActive, false);
+  Transformer operator<(char const* stringPattern) && {
+    bool matched = isActive && std::holds_alternative<std::string>(c) &&
+                   std::get<std::string>(c) == stringPattern;
+    return Transformer(std::move(c), matched ? sentinel::AnyHead : nullptr, isActive, false);
   }
-  Transformer operator<<(char const* expectedHead) && { return std::move(*this) < expectedHead; }
+  Transformer operator<<(char const* stringPattern) && { return std::move(*this) < stringPattern; }
+
+  Transformer operator<(ComplexExpression&& pattern) && {
+    bool matched = isActive && std::holds_alternative<ComplexExpression>(c) &&
+                   matchesPattern(std::get<ComplexExpression>(c), pattern);
+    return Transformer(std::move(c), matched ? sentinel::AnyHead : nullptr, isActive, false);
+  }
+  Transformer operator<<(ComplexExpression&& pattern) && {
+    return std::move(*this) < std::move(pattern);
+  }
 
   /*implicit*/ operator Expression() { // NOLINT(hicpp-explicit-conversions)
     return std::visit([](auto&& x) -> Expression { return std::forward<decltype(x)>(x); },
@@ -182,19 +247,45 @@ public:
   }
 };
 
-Transformer operator<(ComplexExpression&& e, char const* expectedHead) {
-  return Transformer(std::move(e), expectedHead);
+Transformer operator<(ComplexExpression&& e, char const* stringPattern) {
+  return Transformer(std::move(e), sentinel::AnyHead) < stringPattern;
 }
-Transformer operator<<(ComplexExpression&& e, char const* expectedHead) {
-  return std::move(e) < expectedHead;
-}
-
-Transformer operator<(Expression&& e, char const* expectedHead) {
-  return Transformer(std::move(e), expectedHead);
+Transformer operator<<(ComplexExpression&& e, char const* stringPattern) {
+  return std::move(e) < stringPattern;
 }
 
-Transformer operator<<(Expression&& e, char const* expectedHead) {
-  return std::move(e) < expectedHead;
+Transformer operator<(Expression&& e, char const* stringPattern) {
+  return Transformer(std::move(e), sentinel::AnyHead) < stringPattern;
+}
+Transformer operator<<(Expression&& e, char const* stringPattern) {
+  return std::move(e) < stringPattern;
+}
+
+// Handles ComplexExpression and ComplexExpressionWithStaticArguments<Ts...>
+template <typename E1, typename E2,
+          std::enable_if_t<std::is_constructible_v<ComplexExpression, E1&&> &&
+                               std::is_constructible_v<ComplexExpression, E2&&>,
+                           int> = 0>
+Transformer operator<(E1&& subject, E2&& pattern) {
+  return Transformer(ComplexExpression(std::forward<E1>(subject)), sentinel::AnyHead) <
+         ComplexExpression(std::forward<E2>(pattern));
+}
+template <typename E1, typename E2,
+          std::enable_if_t<std::is_constructible_v<ComplexExpression, E1&&> &&
+                               std::is_constructible_v<ComplexExpression, E2&&>,
+                           int> = 0>
+Transformer operator<<(E1&& subject, E2&& pattern) {
+  return std::forward<E1>(subject) < std::forward<E2>(pattern);
+}
+// Handles Expression (the variant) as subject
+template <typename E, std::enable_if_t<std::is_constructible_v<ComplexExpression, E&&>, int> = 0>
+Transformer operator<(Expression&& subject, E&& pattern) {
+  return Transformer(std::move(subject), sentinel::AnyHead) <
+         ComplexExpression(std::forward<E>(pattern));
+}
+template <typename E, std::enable_if_t<std::is_constructible_v<ComplexExpression, E&&>, int> = 0>
+Transformer operator<<(Expression&& subject, E&& pattern) {
+  return std::move(subject) < std::forward<E>(pattern);
 }
 
 template <typename EvaluateFunctionType> struct Recurse {
