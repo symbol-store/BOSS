@@ -283,15 +283,28 @@ template <typename E1, typename E2,
 Transformer operator<<(E1&& subject, E2&& pattern) {
   return std::forward<E1>(subject) < std::forward<E2>(pattern);
 }
-// Handles Expression (the variant) as subject
-template <typename E, std::enable_if_t<std::is_constructible_v<ComplexExpression, E&&>, int> = 0>
-Transformer operator<(Expression&& subject, E&& pattern) {
+// Handles Expression (the variant) as subject — excluded for Transformer (to avoid ambiguity with
+// its member operator<, since Transformer implicitly converts to Expression) and for types directly
+// constructible to ComplexExpression (already handled by the E1,E2 template above)
+template <typename Subject, typename E,
+          std::enable_if_t<!std::is_same_v<std::decay_t<Subject>, Transformer> &&
+                               !std::is_constructible_v<ComplexExpression, Subject&&> &&
+                               std::is_convertible_v<Subject&&, Expression> &&
+                               std::is_constructible_v<ComplexExpression, E&&>,
+                           int> = 0>
+Transformer operator<(Subject&& subject, E&& pattern) {
   ComplexExpression complPattern(std::forward<E>(pattern));
-  return Transformer(std::move(subject), sentinel::AnyHead).operator<(complPattern);
+  return Transformer(Expression(std::forward<Subject>(subject)), sentinel::AnyHead)
+      .operator<(complPattern);
 }
-template <typename E, std::enable_if_t<std::is_constructible_v<ComplexExpression, E&&>, int> = 0>
-Transformer operator<<(Expression&& subject, E&& pattern) {
-  return std::move(subject) < std::forward<E>(pattern);
+template <typename Subject, typename E,
+          std::enable_if_t<!std::is_same_v<std::decay_t<Subject>, Transformer> &&
+                               !std::is_constructible_v<ComplexExpression, Subject&&> &&
+                               std::is_convertible_v<Subject&&, Expression> &&
+                               std::is_constructible_v<ComplexExpression, E&&>,
+                           int> = 0>
+Transformer operator<<(Subject&& subject, E&& pattern) {
+  return std::forward<Subject>(subject) < std::forward<E>(pattern);
 }
 
 template <typename EvaluateFunctionType> struct Recurse {

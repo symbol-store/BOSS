@@ -1641,6 +1641,50 @@ TEST_CASE("Nested Pattern Matching") {
   REQUIRE_FALSE(hasRun);
 }
 
+TEST_CASE("Chained Pattern Matching") {
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+
+  int whichArm = 0;
+
+  // First arm matches: second arm must not fire
+  whichArm = 0;
+  Expression result = "Load"_("hello") < "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+                      [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 1;
+    return "matched1"_();
+  } < "Store"_(String_) >= [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 2;
+    return "matched2"_();
+  };
+  REQUIRE(whichArm == 1);
+
+  // Second arm matches: first arm must not fire
+  whichArm = 0;
+  result = "Store"_("hello") < "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+           [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 1;
+    return "matched1"_();
+  } < "Store"_(String_) >= [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 2;
+    return "matched2"_();
+  };
+  REQUIRE(whichArm == 2);
+
+  // Neither arm matches: expression passes through unchanged
+  whichArm = 0;
+  result = "Other"_("hello") < "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+           [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 1;
+    return "matched1"_();
+  } < "Store"_(String_) >= [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 2;
+    return "matched2"_();
+  };
+  REQUIRE(whichArm == 0);
+}
+
 int main(int argc, char* argv[]) {
   Catch::Session session;
   session.cli(session.cli() | Catch::Clara::Opt(librariesToTest, "library")["--library"]);
