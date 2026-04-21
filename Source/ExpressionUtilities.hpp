@@ -15,6 +15,7 @@ inline const Symbol String_ {"<String_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
 inline const Symbol Symbol_ {"<Symbol_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
 inline const Symbol Integer_ {"<Integer_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
 inline const Symbol Any_ {"<Any_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
+inline const Symbol AnySequence_ {"<AnySequence_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
 inline constexpr char const* const AnyHead = "FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;";
 } // namespace sentinel
 } // namespace experimental
@@ -122,17 +123,38 @@ namespace experimental {
 namespace {
 
 inline bool matchArg(Expression const& subject, Expression const& pattern);
+inline bool matchArgSequence(ExpressionArguments const& subjects, std::size_t subjectIndex,
+                             ExpressionArguments const& patterns, std::size_t patternIndex);
 
 inline bool matchesPattern(ComplexExpression const& subject, ComplexExpression const& pattern) {
-  auto const& subjectArgs = subject.getDynamicArguments();
-  auto const& patternArgs = pattern.getDynamicArguments();
   if(subject.getHead().getName() != pattern.getHead().getName()) {
     return false;
   }
-  if(subjectArgs.size() != patternArgs.size()) {
+  auto const& subjectArgs = subject.getDynamicArguments();
+  auto const& patternArgs = pattern.getDynamicArguments();
+  return matchArgSequence(subjectArgs, 0, patternArgs, 0);
+}
+
+inline bool matchArgSequence(ExpressionArguments const& subjects, std::size_t subjectIndex,
+                             ExpressionArguments const& patterns, std::size_t patternIndex) {
+  if(patternIndex == patterns.size()) {
+    return subjectIndex == subjects.size();
+  }
+  auto const& currentPattern = patterns[patternIndex];
+  if(std::holds_alternative<Symbol>(currentPattern) &&
+     std::get<Symbol>(currentPattern).getName() == sentinel::AnySequence_.getName()) {
+    for(std::size_t consumed = 0; consumed <= subjects.size() - subjectIndex; ++consumed) {
+      if(matchArgSequence(subjects, subjectIndex + consumed, patterns, patternIndex + 1)) {
+        return true;
+      }
+    }
     return false;
   }
-  return std::equal(subjectArgs.begin(), subjectArgs.end(), patternArgs.begin(), matchArg);
+  if(subjectIndex == subjects.size()) {
+    return false;
+  }
+  return matchArg(subjects[subjectIndex], currentPattern) &&
+         matchArgSequence(subjects, subjectIndex + 1, patterns, patternIndex + 1);
 }
 
 inline bool matchArg(Expression const& subject, Expression const& pattern) {

@@ -1675,6 +1675,42 @@ TEST_CASE("Nested Pattern Matching") {
   "Select"_("hello", "world") << "Select"_(Any_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE_FALSE(hasRun);
+
+  // AnySequence_ matches zero arguments
+  hasRun = false;
+  "Select"_() << "Select"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ matches one argument
+  hasRun = false;
+  "Select"_("hello") << "Select"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ matches multiple arguments of mixed types
+  hasRun = false;
+  "Select"_("hello", 42L, boss::Symbol("col")) << "Select"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ matches a suffix (fixed prefix arg + wildcard rest)
+  hasRun = false;
+  "Select"_("hello", 42L) << "Select"_(Any_, AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ matches a prefix (wildcard rest + fixed suffix arg)
+  hasRun = false;
+  "Select"_("hello", 42L) << "Select"_(AnySequence_, Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ rejects wrong head even with matching args
+  hasRun = false;
+  "From"_("hello") << "Select"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
 }
 
 TEST_CASE("Chained Pattern Matching") {
