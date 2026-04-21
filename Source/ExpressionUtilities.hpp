@@ -125,34 +125,41 @@ inline bool matchArg(Expression const& subject, Expression const& pattern);
 inline bool matchesPattern(ComplexExpression const& subject, ComplexExpression const& pattern) {
   auto const& subjectArgs = subject.getDynamicArguments();
   auto const& patternArgs = pattern.getDynamicArguments();
-  if(subject.getHead().getName() != pattern.getHead().getName())
+  if(subject.getHead().getName() != pattern.getHead().getName()) {
     return false;
-  if(subjectArgs.size() != patternArgs.size())
+  }
+  if(subjectArgs.size() != patternArgs.size()) {
     return false;
+  }
   return std::equal(subjectArgs.begin(), subjectArgs.end(), patternArgs.begin(), matchArg);
 }
 
 inline bool matchArg(Expression const& subject, Expression const& pattern) {
   if(std::holds_alternative<Symbol>(pattern)) {
     auto const& sym = std::get<Symbol>(pattern).getName();
-    if(sym == sentinel::String_.getName())
+    if(sym == sentinel::String_.getName()) {
       return std::holds_alternative<std::string>(subject);
-    if(sym == sentinel::Symbol_.getName())
+    }
+    if(sym == sentinel::Symbol_.getName()) {
       return std::holds_alternative<Symbol>(subject);
-    if(sym == sentinel::Integer_.getName())
+    }
+    if(sym == sentinel::Integer_.getName()) {
       return std::holds_alternative<std::int64_t>(subject) ||
              std::holds_alternative<std::int32_t>(subject) ||
              std::holds_alternative<std::int8_t>(subject);
+    }
   }
-  if(subject.index() != pattern.index())
+  if(subject.index() != pattern.index()) {
     return false;
+  }
   return std::visit(
       [&subject](auto const& patVal) -> bool {
         using T = std::decay_t<decltype(patVal)>;
-        if constexpr(std::is_same_v<T, ComplexExpression>)
+        if constexpr(std::is_same_v<T, ComplexExpression>) {
           return matchesPattern(std::get<ComplexExpression>(subject), patVal);
-        else
+        } else {
           return std::get<T>(subject) == patVal;
+        }
       },
       pattern);
 }
@@ -206,9 +213,10 @@ public:
   }
 
   template <typename Visitor> Transformer operator>(Visitor&& visitor) && {
-    bool shouldFire = isInLineWithMatched || (isActive && expectedHead == sentinel::AnyHead);
-    if(!shouldFire)
+    bool const shouldFire = isInLineWithMatched || (isActive && expectedHead == sentinel::AnyHead);
+    if(!shouldFire) {
       return std::move(*this);
+    }
     if(std::holds_alternative<ComplexExpression>(c)) {
       return {process(std::move(std::get<ComplexExpression>(c)), std::forward<Visitor>(visitor)),
               expectedHead, false, true};
@@ -226,20 +234,18 @@ public:
   }
 
   Transformer operator<(char const* stringPattern) && {
-    bool matched = isActive && std::holds_alternative<std::string>(c) &&
-                   std::get<std::string>(c) == stringPattern;
+    bool const matched = isActive && std::holds_alternative<std::string>(c) &&
+                         std::get<std::string>(c) == stringPattern;
     return Transformer(std::move(c), matched ? sentinel::AnyHead : nullptr, isActive, false);
   }
   Transformer operator<<(char const* stringPattern) && { return std::move(*this) < stringPattern; }
 
-  Transformer operator<(ComplexExpression&& pattern) && {
-    bool matched = isActive && std::holds_alternative<ComplexExpression>(c) &&
-                   matchesPattern(std::get<ComplexExpression>(c), pattern);
+  Transformer operator<(ComplexExpression const& pattern) && {
+    bool const matched = isActive && std::holds_alternative<ComplexExpression>(c) &&
+                         matchesPattern(std::get<ComplexExpression>(c), pattern);
     return Transformer(std::move(c), matched ? sentinel::AnyHead : nullptr, isActive, false);
   }
-  Transformer operator<<(ComplexExpression&& pattern) && {
-    return std::move(*this) < std::move(pattern);
-  }
+  Transformer operator<<(ComplexExpression const& pattern) && { return std::move(*this) < pattern; }
 
   /*implicit*/ operator Expression() { // NOLINT(hicpp-explicit-conversions)
     return std::visit([](auto&& x) -> Expression { return std::forward<decltype(x)>(x); },
