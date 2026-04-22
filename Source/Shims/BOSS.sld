@@ -22,7 +22,11 @@
      )
 
    (define (convert-from-boss-expression x)
-       (case (list-ref bossTypeID  (getBOSSExpressionTypeID x))
+       (let* ((type-index (getBOSSExpressionTypeID x))
+              (type (if (< type-index (length bossTypeID))
+                        (list-ref bossTypeID type-index)
+                        #f)))
+       (case type
 
          ((complexExpression)
           (let ((args (getArgumentsFromBOSSExpression x)))
@@ -44,8 +48,8 @@
          ((float) (getFloatValueFromBOSSExpression x))
          ((bool) (getBoolValueFromBOSSExpression x))
          ((symbol) (string->symbol (getNewSymbolNameFromBOSSExpression x)))
-         (else (show #f "unknown, type: " (list-ref bossTypeID  (getBOSSExpressionTypeID x))) )
-         )
+         (else (show #f "unknown, type: " type-index) )
+         ))
      )
 
    (define-syntax boss-eval

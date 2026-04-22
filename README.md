@@ -36,31 +36,26 @@ Obviously, many tests will fail and you need to implement whatever functionality
 The Scheme-level tests live in `Tests/repl-tests.scm` and use the `(chibi test)` framework. Run them from the repository root using the bundled `chibi-scheme` binary:
 
 ```bash
-./build/BOSS-prefix/src/BOSS-build/deps/bin/chibi-scheme \
-  -Ibuild/BOSS-prefix/src/BOSS-build \
-  Tests/repl-tests.scm
+./build/deps/bin/chibi-scheme Tests/repl-tests.scm
 ```
 
-The `-I` flag points chibi-scheme at the build directory where the `BOSS.sld` module and the compiled `libBOSS` shared library are located. The test file calls `(test-exit)` at the end, so the process exits with a non-zero status if any tests fail.
+The test file calls `(test-exit)` at the end, so the process exits with a non-zero status if any tests fail.
 
 ## Using the Chibi Scheme REPL
 
-After building, you can evaluate BOSS expressions interactively using the bundled Chibi Scheme REPL. Run it from the build directory:
+After building, you can evaluate BOSS expressions interactively using the bundled Chibi Scheme REPL:
 
 ```bash
-cd build
-BOSS-prefix/src/BOSS-build/deps/bin/chibi-scheme -IBOSS-prefix/src/BOSS-build -mBOSS -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
+./build/deps/bin/chibi-scheme -mBOSS -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
 ```
 
-- `-I<build-dir>` adds the build directory to the module search path (where `BOSS.sld` was copied)
 - `-mBOSS` loads the BOSS Scheme module
 - `boss-eval` converts a Scheme expression to a BOSS expression, evaluates it, and converts the result back
 
 To evaluate expressions using an engine, load it first with `SetDefaultEnginePipeline`, then call `boss-eval` as usual:
 
 ```bash
-cd build
-BOSS-prefix/src/BOSS-build/deps/bin/chibi-scheme -IBOSS-prefix/src/BOSS-build -mBOSS -p'(begin (boss-eval (SetDefaultEnginePipeline "libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
+./build/deps/bin/chibi-scheme -mBOSS -p'(begin (boss-eval (SetDefaultEnginePipeline "build/libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
 ```
 
 ## Implementing a new engine
