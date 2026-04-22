@@ -65,7 +65,7 @@ using namespace boss::utilities::experimental;
 namespace ReferenceEngine {
 static boss::Expression evaluate(boss::Expression&& e) {
   return std::move(e) //
-      <"Plus" >= Recurse(evaluate)>[](auto, auto dynamics, auto) {
+      < "Plus"_(AnySequence_) >= Recurse(evaluate) > [](auto, auto dynamics, auto) {
         return visitAccumulate(std::move(dynamics), 0L, [](auto&& state, auto&& arg) {
           if constexpr(std::is_same_v<std::decay_t<decltype(arg)>, int>) {
             state += arg;

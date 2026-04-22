@@ -1588,7 +1588,7 @@ TEST_CASE("Nested Pattern Matching") {
 
   // IntegerMatcher matches an int64 argument
   hasRun = false;
-  "Load"_(42L) << "Load"_(Integer_) >>
+  "Load"_(std::int64_t {42}) << "Load"_(Integer_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE(hasRun);
 
@@ -1648,7 +1648,7 @@ TEST_CASE("Nested Pattern Matching") {
 
   // Any_ matches an integer argument
   hasRun = false;
-  "Select"_(42L) << "Select"_(Any_) >>
+  "Select"_(std::int64_t {42}) << "Select"_(Any_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE(hasRun);
 
@@ -1666,7 +1666,7 @@ TEST_CASE("Nested Pattern Matching") {
 
   // Any_ with two arguments matches two arguments of any type
   hasRun = false;
-  "Select"_("hello", 42L) << "Select"_(Any_, Any_) >>
+  "Select"_("hello", std::int64_t {42}) << "Select"_(Any_, Any_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE(hasRun);
 
@@ -1690,19 +1690,19 @@ TEST_CASE("Nested Pattern Matching") {
 
   // AnySequence_ matches multiple arguments of mixed types
   hasRun = false;
-  "Select"_("hello", 42L, boss::Symbol("col")) << "Select"_(AnySequence_) >>
+  "Select"_("hello", std::int64_t {42}, boss::Symbol("col")) << "Select"_(AnySequence_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE(hasRun);
 
   // AnySequence_ matches a suffix (fixed prefix arg + wildcard rest)
   hasRun = false;
-  "Select"_("hello", 42L) << "Select"_(Any_, AnySequence_) >>
+  "Select"_("hello", std::int64_t {42}) << "Select"_(Any_, AnySequence_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE(hasRun);
 
   // AnySequence_ matches a prefix (wildcard rest + fixed suffix arg)
   hasRun = false;
-  "Select"_("hello", 42L) << "Select"_(AnySequence_, Any_) >>
+  "Select"_("hello", std::int64_t {42}) << "Select"_(AnySequence_, Any_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE(hasRun);
 
