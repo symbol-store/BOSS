@@ -126,8 +126,38 @@ inline bool matchArg(Expression const& subject, Expression const& pattern);
 inline bool matchArgSequence(ExpressionArguments const& subjects, std::size_t subjectIndex,
                              ExpressionArguments const& patterns, std::size_t patternIndex);
 
+inline bool matchSpanArg(boss::expressions::ExpressionSpanArgument const& subjectSpan,
+                         boss::expressions::ExpressionSpanArgument const& patternSpan) {
+  return std::visit(
+      [&subjectSpan](auto const& patSpan) -> bool {
+        using PatternScalar =
+            std::remove_const_t<typename std::decay_t<decltype(patSpan)>::element_type>;
+        return std::visit(
+            [&patSpan](auto const& subjSpan) -> bool {
+              using SubjectScalar =
+                  std::remove_const_t<typename std::decay_t<decltype(subjSpan)>::element_type>;
+              if constexpr(std::is_same_v<PatternScalar, SubjectScalar>) {
+                return subjSpan.size() == patSpan.size() &&
+                       std::equal(subjSpan.begin(), subjSpan.end(), patSpan.begin());
+              }
+              return false;
+            },
+            subjectSpan);
+      },
+      patternSpan);
+}
+
 inline bool matchesPattern(ComplexExpression const& subject, ComplexExpression const& pattern) {
   if(subject.getHead().getName() != pattern.getHead().getName()) {
+    return false;
+  }
+  auto const& subjectSpanArgs = subject.getSpanArguments();
+  auto const& patternSpanArgs = pattern.getSpanArguments();
+  if(subjectSpanArgs.size() != patternSpanArgs.size()) {
+    return false;
+  }
+  if(!std::equal(subjectSpanArgs.begin(), subjectSpanArgs.end(), patternSpanArgs.begin(),
+                 matchSpanArg)) {
     return false;
   }
   auto const& subjectArgs = subject.getDynamicArguments();

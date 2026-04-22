@@ -1757,6 +1757,85 @@ TEST_CASE("Chained Pattern Matching") {
   REQUIRE(whichArm == 0);
 }
 
+TEST_CASE("Span Argument Pattern Matching") {
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+  using SpanArguments = boss::expressions::ExpressionSpanArguments;
+  using boss::expressions::atoms::Span;
+
+  auto hasRun = false;
+
+  // Span values match: same type, same elements
+  hasRun = false;
+  std::vector<std::int64_t> subjectValues = {1, 2, 3};
+  std::vector<std::int64_t> patternValues = {1, 2, 3};
+  auto subjectExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(subjectValues))));
+  auto patternExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
+  std::move(subjectExpr) << std::move(patternExpr) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Span values differ: same type and size but different elements
+  hasRun = false;
+  subjectValues = {1, 2, 3};
+  patternValues = {1, 2, 4};
+  subjectExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(subjectValues))));
+  patternExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
+  std::move(subjectExpr) << std::move(patternExpr) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Span size differs: same type but different number of elements
+  hasRun = false;
+  subjectValues = {1, 2, 3};
+  patternValues = {1, 2};
+  subjectExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(subjectValues))));
+  patternExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
+  std::move(subjectExpr) << std::move(patternExpr) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Span type differs: same values but int32 vs int64
+  hasRun = false;
+  std::vector<std::int32_t> subjectValues32 = {1, 2, 3};
+  patternValues = {1, 2, 3};
+  subjectExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int32_t>(std::move(subjectValues32))));
+  patternExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
+  std::move(subjectExpr) << std::move(patternExpr) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Subject has no span, pattern has span: no match
+  hasRun = false;
+  patternValues = {1, 2, 3};
+  patternExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
+  "Load"_() << std::move(patternExpr) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Const and non-const span with same values match
+  hasRun = false;
+  subjectValues = {10, 20};
+  patternValues = {10, 20};
+  subjectExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(subjectValues))));
+  patternExpr = boss::expressions::ComplexExpression(
+      "Load"_, {}, {}, SpanArguments(Span<std::int64_t const>(std::move(patternValues))));
+  std::move(subjectExpr) << std::move(patternExpr) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+}
+
 int main(int argc, char* argv[]) {
   Catch::Session session;
   session.cli(session.cli() | Catch::Clara::Opt(librariesToTest, "library")["--library"]);
