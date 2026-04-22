@@ -62,7 +62,7 @@
           (convert-from-boss-expression (BOSSEvaluate expr))))))
 
    )
-  (include-shared "libBOSS"))
+  (include-shared "../libBOSS"))
 
 ;; Local Variables:
 ;; mode: lisp
