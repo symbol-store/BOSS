@@ -22,9 +22,13 @@
      )
 
    (define (convert-from-boss-expression x)
-       (case (list-ref bossTypeID  (getBOSSExpressionTypeID x))
+       (let* ((type-index (getBOSSExpressionTypeID x))
+              (type (if (< type-index (length bossTypeID))
+                        (list-ref bossTypeID type-index)
+                        #f)))
+       (case type
 
-         ('complexExpression
+         ((complexExpression)
           (let ((args (getArgumentsFromBOSSExpression x)))
             (dynamic-wind
               (lambda () #f)
@@ -36,16 +40,16 @@
                      (make-iota-generator (getArgumentCountFromBOSSExpression x)) )))
               (lambda ()
                 (freeBOSSArguments args)))))
-         ('int32 (getIntValueFromBOSSExpression x))
-         ('int8 (getCharValueFromBOSSExpression x))
-         ('string (getNewStringValueFromBOSSExpression x))
-         ('long (getLongValueFromBOSSExpression x))
-         ('double (getDoubleValueFromBOSSExpression x))
-         ('float (getFloatValueFromBOSSExpression x))
-         ('bool (getBoolValueFromBOSSExpression x))
-         ('symbol (string->symbol (getNewSymbolNameFromBOSSExpression x)))
-         (else (show #f "unknown, type: " (list-ref bossTypeID  (getBOSSExpressionTypeID x))) )
-         )
+         ((int32) (getIntValueFromBOSSExpression x))
+         ((int8) (getCharValueFromBOSSExpression x))
+         ((string) (getNewStringValueFromBOSSExpression x))
+         ((long) (getLongValueFromBOSSExpression x))
+         ((double) (getDoubleValueFromBOSSExpression x))
+         ((float) (getFloatValueFromBOSSExpression x))
+         ((bool) (getBoolValueFromBOSSExpression x))
+         ((symbol) (string->symbol (getNewSymbolNameFromBOSSExpression x)))
+         (else (show #f "unknown, type: " type-index) )
+         ))
      )
 
    (define-syntax boss-eval
@@ -58,7 +62,7 @@
           (convert-from-boss-expression (BOSSEvaluate expr))))))
 
    )
-  (include-shared "libBOSS"))
+  (include-shared "../libBOSS"))
 
 ;; Local Variables:
 ;; mode: lisp

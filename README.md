@@ -31,22 +31,31 @@ cmake --build build
 
 Obviously, many tests will fail and you need to implement whatever functionality you would like your engine to support.
 
-## Using the Chibi Scheme REPL
+## Running the Scheme tests
 
-After building, you can evaluate BOSS expressions interactively using the bundled Chibi Scheme REPL. Run it from the build directory:
+The Scheme-level tests live in `Tests/repl-tests.scm` and use the `(chibi test)` framework. Run them from the repository root using the bundled `chibi-scheme` binary:
 
 ```bash
-./build/BOSS-prefix/src/BOSS-build/deps/bin/chibi-scheme -Ibuild/BOSS-prefix/src/BOSS-build -mBOSS -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
+./build/deps/bin/chibi-scheme Tests/repl-tests.scm
 ```
 
-- `-I<build-dir>` adds the build directory to the module search path (where `BOSS.sld` was copied)
+The test file calls `(test-exit)` at the end, so the process exits with a non-zero status if any tests fail.
+
+## Using the Chibi Scheme REPL
+
+After building, you can evaluate BOSS expressions interactively using the bundled Chibi Scheme REPL:
+
+```bash
+./build/deps/bin/chibi-scheme -mBOSS -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
+```
+
 - `-mBOSS` loads the BOSS Scheme module
 - `boss-eval` converts a Scheme expression to a BOSS expression, evaluates it, and converts the result back
 
 To evaluate expressions using an engine, load it first with `SetDefaultEnginePipeline`, then call `boss-eval` as usual:
 
 ```bash
-./build/BOSS-prefix/src/BOSS-build/deps/bin/chibi-scheme -Ibuild/BOSS-prefix/src/BOSS-build -mBOSS  -p'(begin (boss-eval (SetDefaultEnginePipeline "build/libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
+./build/deps/bin/chibi-scheme -mBOSS -p'(begin (boss-eval (SetDefaultEnginePipeline "build/libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
 ```
 
 ## Implementing a new engine
