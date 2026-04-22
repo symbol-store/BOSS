@@ -280,10 +280,17 @@ install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  install(PROGRAMS ${BOSS_BINARY_DIR}/deps/bin/chibi-scheme DESTINATION bin)
-  install(FILES ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} DESTINATION lib)
-  install(DIRECTORY ${BOSS_BINARY_DIR}/deps/lib/chibi DESTINATION lib)
-  install(FILES ${BOSS_BINARY_DIR}/${SchemeModuleFiles} DESTINATION lib)
+  install(CODE "
+    execute_process(
+      COMMAND ${MAKE_EXECUTABLE} -C \"${CMAKE_BINARY_DIR}/chibi-scheme-prefix/src/chibi-scheme\"
+              install prefix=\${CMAKE_INSTALL_PREFIX}
+      RESULT_VARIABLE _chibi_install_result
+    )
+    if(NOT _chibi_install_result EQUAL 0)
+      message(FATAL_ERROR \"chibi-scheme installation failed\")
+    endif()
+  ")
+  install(FILES ${BOSS_BINARY_DIR}/${SchemeModuleFiles} DESTINATION lib/chibi)
 endif()
 
 foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
