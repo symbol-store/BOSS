@@ -43,6 +43,12 @@ set(CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE}" CACHE STRING
 
 include(ExternalProject)
 
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(_chibi_prefix "${CMAKE_BINARY_DIR}/deps")
+else()
+  set(_chibi_prefix "${CMAKE_INSTALL_PREFIX}")
+endif()
+
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   set(GOOGLEBENCHMARK_USE_LIBCXX YES CACHE BOOL "build google benchmark with libc++")
 else()
@@ -124,9 +130,9 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
     DOWNLOAD_EXTRACT_TIMESTAMP NEW
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${BOSS_BINARY_DIR}/deps CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
-    INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${BOSS_BINARY_DIR}/deps
-    BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
+    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${_chibi_prefix} CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
+    INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${_chibi_prefix}
+    BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
   )
 endif()
 
@@ -164,12 +170,12 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   if(WIN32)
     string(REPLACE ";" "\\;" _chibi_ffi_windows_path "$ENV{PATH}")
     set(_chibi_ffi_env
-      PATH=${BOSS_BINARY_DIR}/deps/bin\;${BOSS_BINARY_DIR}/deps/lib\;${_chibi_ffi_windows_path})
+      PATH=${_chibi_prefix}/bin\;${_chibi_prefix}/lib\;${_chibi_ffi_windows_path})
   else()
     set(_chibi_ffi_env
-      LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
-      DYLD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{DYLD_LIBRARY_PATH}
-      PATH=${BOSS_BINARY_DIR}/deps/bin/:$ENV{PATH})
+      LD_LIBRARY_PATH=${_chibi_prefix}/lib:$ENV{LD_LIBRARY_PATH}
+      DYLD_LIBRARY_PATH=${_chibi_prefix}/lib:$ENV{DYLD_LIBRARY_PATH}
+      PATH=${_chibi_prefix}/bin/:$ENV{PATH})
   endif()
 
   add_custom_command(
@@ -179,12 +185,13 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles}
             ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
     COMMAND ${CMAKE_COMMAND} -E env ${_chibi_ffi_env}
-            ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${BOSS_BINARY_DIR}/deps/bin/chibi-ffi ${BOSS_BINARY_DIR}/deps/include/chibi/eval.h
+            ${_chibi_prefix}/bin/chibi-ffi ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
     VERBATIM)
 
+  target_include_directories(BOSS SYSTEM PUBLIC ${_chibi_prefix}/include)
   target_link_libraries(BOSS
-    ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+    ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 
   add_custom_command(TARGET BOSS POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${SchemeModuleFiles} ${BOSS_BINARY_DIR}
@@ -280,16 +287,6 @@ install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  install(CODE "
-    execute_process(
-      COMMAND ${MAKE_EXECUTABLE} -C \"${CMAKE_BINARY_DIR}/chibi-scheme-prefix/src/chibi-scheme\"
-              install prefix=\${CMAKE_INSTALL_PREFIX}
-      RESULT_VARIABLE _chibi_install_result
-    )
-    if(NOT _chibi_install_result EQUAL 0)
-      message(FATAL_ERROR \"chibi-scheme installation failed\")
-    endif()
-  ")
   install(FILES ${BOSS_BINARY_DIR}/${SchemeModuleFiles} DESTINATION lib/chibi)
 endif()
 
