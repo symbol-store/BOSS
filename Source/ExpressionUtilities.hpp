@@ -309,13 +309,6 @@ public:
   }
 };
 
-Transformer operator<(ComplexExpression&& e, char const* stringPattern) {
-  return Transformer(std::move(e), sentinel::AnyHead) < stringPattern;
-}
-Transformer operator<<(ComplexExpression&& e, char const* stringPattern) {
-  return std::move(e) < stringPattern;
-}
-
 Transformer operator<(Expression&& e, char const* stringPattern) {
   return Transformer(std::move(e), sentinel::AnyHead) < stringPattern;
 }
