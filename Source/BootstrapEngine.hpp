@@ -154,10 +154,9 @@ class BootstrapEngine : public boss::Engine {
            if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
              defaultEngine.push_back(engine);
            } else {
-             throw std::runtime_error((std::stringstream()
-                                       << "SetDefaultEnginePipeline received non-string argument: "
-                                       << engine)
-                                          .str());
+             std::stringstream errorMessage;
+             errorMessage << "SetDefaultEnginePipeline received non-string argument: " << engine;
+             throw std::runtime_error(errorMessage.str());
            }
          });
          return "okay";

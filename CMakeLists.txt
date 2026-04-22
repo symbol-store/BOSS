@@ -162,8 +162,9 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 
   if(WIN32)
+    string(REPLACE ";" "\\;" _chibi_ffi_windows_path "$ENV{PATH}")
     set(_chibi_ffi_env
-      PATH=${BOSS_BINARY_DIR}/deps/bin\;${BOSS_BINARY_DIR}/deps/lib\;$ENV{PATH})
+      PATH=${BOSS_BINARY_DIR}/deps/bin\;${BOSS_BINARY_DIR}/deps/lib\;${_chibi_ffi_windows_path})
   else()
     set(_chibi_ffi_env
       LD_LIBRARY_PATH=${BOSS_BINARY_DIR}/deps/lib:$ENV{LD_LIBRARY_PATH}
