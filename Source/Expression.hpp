@@ -110,34 +110,6 @@ public: // surface
         }()),
         _end(_begin + adaptee.size()), destructor([owner = std::move(adaptee)]() {}) {}
 
-  /**
-   * The span does not take ownership of the adaptee. The vector better not be modified while the
-   * span lives
-   */
-  explicit Span(std::vector<std::remove_const_t<Scalar>>& adaptee)
-      : _begin([&adaptee]() {
-          if constexpr(std::is_same_v<Scalar, bool>) {
-            return adaptee.begin();
-          } else {
-            return adaptee.data();
-          }
-        }()),
-        _end(_begin + adaptee.size()) {}
-
-  /**
-   * The span does not take ownership of the adaptee. The vector better not be modified while the
-   * span lives
-   */
-  explicit Span(std::vector<std::remove_const_t<Scalar>> const& adaptee)
-      : _begin([&adaptee]() {
-          if constexpr(std::is_same_v<Scalar, bool>) {
-            return adaptee.begin();
-          } else {
-            return adaptee.data();
-          }
-        }()),
-        _end(_begin + adaptee.size()) {}
-
   explicit Span(IteratorType begin, size_t size, std::function<void(void)> destructor)
       : _begin(begin), _end(begin + size), destructor(std::move(destructor)) {}
 
