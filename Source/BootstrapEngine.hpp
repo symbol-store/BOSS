@@ -119,9 +119,9 @@ class BootstrapEngine : public boss::Engine {
          auto symbols = ::std::vector<BOSSExpression* (*)(BOSSExpression*)>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
          ::std::for_each(args.begin(), args.end(),
-                         [&libraries = this->libraries, &symbols](auto&& enginePath) {
+                         [this, &symbols](auto&& enginePath) {
                            symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                               libraries.at(get<::std::string>(enginePath)).evaluateFunction));
+                               this->libraries.at(get<::std::string>(enginePath)).evaluateFunction));
                          });
          ::std::for_each(::std::make_move_iterator(::std::next(
                              e.getArguments().begin())), // Note: first argument is the engine path
@@ -149,10 +149,9 @@ class BootstrapEngine : public boss::Engine {
        }},
       {boss::Symbol("SetDefaultEnginePipeline"),
        [this](auto&& expression) -> boss::Expression {
-         algorithm::visitEach(expression.getArguments(), [&defaultEngine =
-                                                              this->defaultEngine](auto&& engine) {
+         algorithm::visitEach(expression.getArguments(), [this](auto&& engine) {
            if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
-             defaultEngine.push_back(engine);
+             this->defaultEngine.push_back(engine);
            } else {
              std::stringstream errorMessage;
              errorMessage << "SetDefaultEnginePipeline received non-string argument: " << engine;
