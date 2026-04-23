@@ -100,7 +100,7 @@ struct SerializedExpression {
                        std::make_index_sequence<std::tuple_size_v<
                            std::decay_t<decltype(input.getStaticArguments())>>>()) +
                    std::accumulate(input.getDynamicArguments().begin(),
-                                   input.getDynamicArguments().end(), 0,
+                                   input.getDynamicArguments().end(), size_t {0},
                                    [](auto runningSum, auto const& argument) {
                                      return runningSum + countArguments(argument);
                                    }) +
@@ -128,7 +128,7 @@ struct SerializedExpression {
                                        std::make_index_sequence<std::tuple_size_v<
                                            std::decay_t<decltype(input.getStaticArguments())>>>()) +
                                    std::accumulate(input.getDynamicArguments().begin(),
-                                                   input.getDynamicArguments().end(), 0,
+                                                   input.getDynamicArguments().end(), size_t {0},
                                                    [](auto runningSum, auto const& argument) {
                                                      return runningSum + countExpressions(argument);
                                                    });

@@ -732,7 +732,7 @@ public:
   size_t size() const {
     return std::tuple_size_v<StaticArgumentsContainer> + arguments.size() +
            std::accumulate(
-               spanArguments.begin(), spanArguments.end(), 0, [](auto soFar, auto& thisOne) {
+               spanArguments.begin(), spanArguments.end(), size_t {0}, [](auto soFar, auto& thisOne) {
                  return soFar + std::visit([](auto&& thisOne) { return thisOne.size(); }, thisOne);
                });
   }
@@ -1092,7 +1092,7 @@ public:
     // times (creating duplicate variant alternatives). K is the index of this element within
     // StaticAtomsTuple (number of preceding new atoms), which is the correct offset into the
     // extended variant's alternatives.
-    constexpr size_t baseAtomCount =
+    static constexpr size_t baseAtomCount =
         std::variant_size_v<AtomicExpressionWithAdditionalCustomAtoms<>>;
     auto emplaceStatic = [this, &result](auto Idx) {
       constexpr size_t J = decltype(Idx)::value;
