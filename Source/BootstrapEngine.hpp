@@ -118,11 +118,10 @@ class BootstrapEngine : public boss::Engine {
        [this](auto&& e) -> boss::Expression {
          auto symbols = ::std::vector<BOSSExpression* (*)(BOSSExpression*)>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
-         ::std::for_each(args.begin(), args.end(),
-                         [this, &symbols](auto&& enginePath) {
-                           symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                               this->libraries.at(get<::std::string>(enginePath)).evaluateFunction));
-                         });
+         ::std::for_each(args.begin(), args.end(), [this, &symbols](auto&& enginePath) {
+           symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
+               this->libraries.at(get<::std::string>(enginePath)).evaluateFunction));
+         });
          ::std::for_each(::std::make_move_iterator(::std::next(
                              e.getArguments().begin())), // Note: first argument is the engine path
                          ::std::make_move_iterator(::std::prev(e.getArguments().end())),

@@ -729,7 +729,8 @@ public:
   size_t size() const {
     return std::tuple_size_v<StaticArgumentsContainer> + arguments.size() +
            std::accumulate(
-               spanArguments.begin(), spanArguments.end(), size_t {0}, [](auto soFar, auto& thisOne) {
+               spanArguments.begin(), spanArguments.end(), size_t {0},
+               [](auto soFar, auto& thisOne) {
                  return soFar + std::visit([](auto&& thisOne) { return thisOne.size(); }, thisOne);
                });
   }
