@@ -26,6 +26,8 @@ cmake -S ReferenceEngine -B build -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=
 cmake --build build
 ```
 
+</details>
+
 <details>
 <summary><b>Windows (MSVC)</b></summary>
 
@@ -36,6 +38,8 @@ cmake -P BOSS/CreateNewEngine.cmake -- ReferenceEngine
 cmake -S ReferenceEngine -B build -DDISABLE_REPL=ON
 cmake --build build
 ```
+
+</details>
 
 <details>
 <summary><b>Windows (Clang-Cl)</b></summary>
@@ -48,6 +52,8 @@ cmake -S ReferenceEngine -B build -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPIL
 cmake --build build
 ```
 
+</details>
+
 ## Testing your engine
 
 <details open>
@@ -57,12 +63,16 @@ cmake --build build
 ./build/deps/bin/Tests --library build/libReferenceEngine.so
 ```
 
+</details>
+
 <details>
 <summary><b>Window</b></summary>
 
 ```bash
 .\build\deps\bin\Tests.exe --library .\build\ReferenceEngine-win.dll
 ```
+
+</details>
 
 Obviously, many tests will fail and you need to implement whatever functionality you would like your engine to support.
 
@@ -77,6 +87,8 @@ The Scheme-level tests live in `Tests/repl-tests.scm` and use the `(chibi test)`
 ./build/deps/bin/chibi-scheme Tests/repl-tests.scm
 ```
 
+</details>
+
 The test file calls `(test-exit)` at the end, so the process exits with a non-zero status if any tests fail.
 
 ## Using the Chibi Scheme REPL
@@ -90,6 +102,8 @@ After building, you can evaluate BOSS expressions interactively using the bundle
 ./build/deps/bin/chibi-scheme -mBOSS -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
 ```
 
+</details>
+
 - `-mBOSS` loads the BOSS Scheme module
 - `boss-eval` converts a Scheme expression to a BOSS expression, evaluates it, and converts the result back
 
@@ -101,6 +115,8 @@ To evaluate expressions using an engine, load it first with `SetDefaultEnginePip
 ```bash
 ./build/deps/bin/chibi-scheme -mBOSS -p'(begin (boss-eval (SetDefaultEnginePipeline "build/libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
 ```
+
+</details>
 
 ## Implementing a new engine
 
