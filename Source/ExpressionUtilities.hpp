@@ -182,18 +182,18 @@ public:
   }
 };
 
-Transformer operator<(ComplexExpression&& e, char const* expectedHead) {
+inline Transformer operator<(ComplexExpression&& e, char const* expectedHead) {
   return Transformer(std::move(e), expectedHead);
 }
-Transformer operator<<(ComplexExpression&& e, char const* expectedHead) {
+inline Transformer operator<<(ComplexExpression&& e, char const* expectedHead) {
   return std::move(e) < expectedHead;
 }
 
-Transformer operator<(Expression&& e, char const* expectedHead) {
+inline Transformer operator<(Expression&& e, char const* expectedHead) {
   return Transformer(std::move(e), expectedHead);
 }
 
-Transformer operator<<(Expression&& e, char const* expectedHead) {
+inline Transformer operator<<(Expression&& e, char const* expectedHead) {
   return std::move(e) < expectedHead;
 }
 
