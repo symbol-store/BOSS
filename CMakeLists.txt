@@ -97,43 +97,76 @@ if(NOT DEFINED CACHE{_DISABLE_REPL_EXPLICITLY_SET})
 endif()
 option(DISABLE_REPL "Disable the Chibi Scheme REPL" OFF)
 
-find_program(MAKE_EXECUTABLE NAMES gmake mingw32-make make NAMES_PER_DIR DOC "GNU Make")
-if(MAKE_EXECUTABLE AND NOT MAKE_EXECUTABLE MATCHES "-NOTFOUND$")
-  set(MAKE_FOUND ON)
-else()
-  set(MAKE_FOUND OFF)
-endif()
+#find_program(MAKE_EXECUTABLE NAMES gmake mingw32-make make NAMES_PER_DIR DOC "GNU Make")
+#if(MAKE_EXECUTABLE AND NOT MAKE_EXECUTABLE MATCHES "-NOTFOUND$")
+#  set(MAKE_FOUND ON)
+#else()
+#  set(MAKE_FOUND OFF)
+#endif()
+#
+#if(NOT DISABLE_REPL AND NOT MAKE_FOUND)
+#  if(_DISABLE_REPL_EXPLICITLY_SET)
+#    message(FATAL_ERROR
+#      "DISABLE_REPL=OFF requires GNU Make to build Chibi Scheme, but none was found. "
+#      "Please install GNU Make (or a compatible make tool).")
+#  else()
+#    message(WARNING
+#      "==================================================================\n"
+#      "  GNU Make not found -- Chibi Scheme REPL will NOT be built.\n"
+#      "  Install GNU Make or set -DDISABLE_REPL=ON to silence this.\n"
+#      "==================================================================")
+#  endif()
+#endif()
+#
+#if(CMAKE_BUILD_TYPE)
+#  string(TOUPPER "_${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_TOUPPER)
+#else()
+#  set(CMAKE_BUILD_TYPE_TOUPPER "")
+#endif()
+#
+#if(NOT DISABLE_REPL AND MAKE_FOUND)
+#  ExternalProject_Add(chibi-scheme
+#    URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
+#    DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+#    DOWNLOAD_EXTRACT_TIMESTAMP NEW
+#    CONFIGURE_COMMAND ""
+#    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${_chibi_prefix} CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
+#    INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${_chibi_prefix}
+#    BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
+#  )
+#endif()
 
-if(NOT DISABLE_REPL AND NOT MAKE_FOUND)
-  if(_DISABLE_REPL_EXPLICITLY_SET)
-    message(FATAL_ERROR
-      "DISABLE_REPL=OFF requires GNU Make to build Chibi Scheme, but none was found. "
-      "Please install GNU Make (or a compatible make tool).")
-  else()
-    message(WARNING
-      "==================================================================\n"
-      "  GNU Make not found -- Chibi Scheme REPL will NOT be built.\n"
-      "  Install GNU Make or set -DDISABLE_REPL=ON to silence this.\n"
-      "==================================================================")
-  endif()
-endif()
-
-if(CMAKE_BUILD_TYPE)
-  string(TOUPPER "_${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_TOUPPER)
-else()
-  set(CMAKE_BUILD_TYPE_TOUPPER "")
-endif()
-
-if(NOT DISABLE_REPL AND MAKE_FOUND)
+if(NOT DISABLE_REPL)
   ExternalProject_Add(chibi-scheme
-    URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
-    DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
-    DOWNLOAD_EXTRACT_TIMESTAMP NEW
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${_chibi_prefix} CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
-    INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${_chibi_prefix}
-    BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
-  )
+      URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
+      DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+      DOWNLOAD_EXTRACT_TIMESTAMP NEW
+
+      #SOURCE_SUBDIR .
+      CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${_chibi_prefix}
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DCMAKE_BUILD_TYPE=$<IF:$<CONFIG:>,Release,$<CONFIG>>
+        -DBUILD_SHARED_LIBS=ON
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+
+      #BUILD_COMMAND
+      #  ${CMAKE_COMMAND}
+      #  --build <BINARY_DIR>
+      #  --config $<CONFIG>
+
+      #INSTALL_COMMAND
+      #  ${CMAKE_COMMAND}
+      #  --build <BINARY_DIR>
+      #  --config $<CONFIG>
+      #  --target install
+
+      BUILD_BYPRODUCTS
+        ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX}
+        ${_chibi_prefix}/bin/chibi-ffi${CMAKE_EXECUTABLE_SUFFIX}
+        ${_chibi_prefix}/include/chibi/eval.h
+    )
 endif()
 
 ########################## Other Library Dependencies ##########################
