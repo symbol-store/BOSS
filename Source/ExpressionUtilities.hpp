@@ -303,6 +303,13 @@ public:
   }
   Transformer operator<<(ComplexExpression const& pattern) && { return std::move(*this) < pattern; }
 
+  Transformer operator<(Symbol const& pattern) && {
+    bool const matchesAnySentinel = pattern.getName() == sentinel::Any_.getName();
+    bool const matched = isActive && matchesAnySentinel;
+    return Transformer(std::move(c), matched ? sentinel::AnyHead : nullptr, isActive, false);
+  }
+  Transformer operator<<(Symbol const& pattern) && { return std::move(*this) < pattern; }
+
   /*implicit*/ operator Expression() { // NOLINT(hicpp-explicit-conversions)
     return std::visit([](auto&& x) -> Expression { return std::forward<decltype(x)>(x); },
                       std::move(c));

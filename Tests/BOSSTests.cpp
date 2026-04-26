@@ -1559,6 +1559,24 @@ TEST_CASE("Recursive Pattern Matching") {
     return hasRun = true;
   };
   REQUIRE(hasRun);
+
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+
+  hasRun = false;
+  std::function<boss::Expression(boss::Expression&&)> evaluate2 = [&](boss::Expression&& e) {
+    return std::move(e) //
+           <"Inner"_() >= Recurse(evaluate2)>[&hasRun](auto, auto, auto) {
+             hasRun = true;
+             return "InnerResult";
+           } //
+           < Any_ >= Recurse(evaluate2);
+  };
+  auto result = evaluate2("Outer"_("Inner"_()));
+  REQUIRE(result == "Outer"_("InnerResult"));
+
+  REQUIRE(hasRun);
 }
 
 TEST_CASE("Nested Pattern Matching") {
