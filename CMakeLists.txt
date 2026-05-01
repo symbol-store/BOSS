@@ -197,6 +197,28 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${SchemeModuleFiles} ${BOSS_BINARY_DIR}
     VERBATIM
     BYPRODUCTS ${BOSS_BINARY_DIR}/${SchemeModuleFiles})
+
+  # Standalone BOSS REPL binary
+  add_executable(boss Source/boss-repl.cpp ${REPLFiles})
+  add_dependencies(boss BOSS chibi-scheme)
+  target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
+  target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
+  target_link_libraries(boss
+    BOSS
+    ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+
+  # Optional readline support
+  find_library(READLINE_LIB readline)
+  if(READLINE_LIB)
+    target_compile_definitions(boss PRIVATE HAVE_READLINE)
+    target_link_libraries(boss ${READLINE_LIB})
+  endif()
+
+  set_target_properties(boss PROPERTIES
+    BUILD_RPATH "${_chibi_prefix}/lib;${BOSS_BINARY_DIR}"
+    INSTALL_RPATH "$ORIGIN/../lib")
+
+  install(TARGETS boss RUNTIME DESTINATION bin)
 endif()
 
 
@@ -228,6 +250,9 @@ endif(ITT_NOTIFY_INCLUDE_DIR)
 target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX})
 
 list(APPEND AllTargets BOSS Tests Benchmarks)
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  list(APPEND AllTargets boss)
+endif()
 
 ############################ Targets Common Properties ############################
 
