@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.24)
 project(BOSS)
 
 ########################### C++ Compiler Requirements ###########################
@@ -12,20 +12,22 @@ endif()
 
 ############################## Custom build modes ###############################
 
-set(CMAKE_CXX_FLAGS_SANITIZE "-fno-omit-frame-pointer -fsanitize=address,signed-integer-overflow,null,alignment,bounds,function,return,vla-bound -O0 -g"
+set(SANITIZATION_FLAGS "-fsanitize=address,signed-integer-overflow,null,alignment,bounds,function,return,vla-bound")
+
+set(CMAKE_CXX_FLAGS_SANITIZE "-fno-omit-frame-pointer ${SANITIZATION_FLAGS} -O0 -g"
   CACHE STRING
   "Flags used by the C++ compiler during Sanitize builds."
   FORCE)
-set(CMAKE_C_FLAGS_SANITIZE "-fno-omit-frame-pointer -fsanitize=address,signed-integer-overflow,null,alignment,bounds,function,return,vla-bound -O0 -g"
+set(CMAKE_C_FLAGS_SANITIZE "-fno-omit-frame-pointer ${SANITIZATION_FLAGS} -O0 -g"
   CACHE STRING
   "Flags used by the C compiler during Sanitize builds."
   FORCE)
 set(CMAKE_EXE_LINKER_FLAGS_SANITIZE
-  ${CMAKE_EXE_LINKER_FLAGS_DEBUG} CACHE STRING
+  "${CMAKE_EXE_LINKER_FLAGS_DEBUG} ${SANITIZATION_FLAGS}" CACHE STRING
   "Flags used for linking binaries during Sanitize builds."
   FORCE)
 set(CMAKE_SHARED_LINKER_FLAGS_SANITIZE
-  ${CMAKE_SHARED_LINKER_FLAGS_DEBUG} CACHE STRING
+  "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} ${SANITIZATION_FLAGS}" CACHE STRING
   "Flags used by the shared libraries linker during Sanitize builds."
   FORCE)
 mark_as_advanced(
@@ -41,6 +43,12 @@ set(CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE}" CACHE STRING
 
 include(ExternalProject)
 
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(_chibi_prefix "${CMAKE_BINARY_DIR}/deps")
+else()
+  set(_chibi_prefix "${CMAKE_INSTALL_PREFIX}")
+endif()
+
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   set(GOOGLEBENCHMARK_USE_LIBCXX YES CACHE BOOL "build google benchmark with libc++")
 else()
@@ -51,15 +59,17 @@ endif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 ExternalProject_Add(googlebenchmark
 	URL "https://github.com/google/benchmark/archive/refs/tags/v1.7.1.tar.gz"
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
-		CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_GTEST_TESTS=OFF $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+  DOWNLOAD_EXTRACT_TIMESTAMP NEW
+	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_GTEST_TESTS=OFF $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
   BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX} ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark_main${CMAKE_STATIC_LIBRARY_SUFFIX}
-  )
+)
 set_target_properties(googlebenchmark PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 
 ExternalProject_Add(catch2
 	URL https://github.com/catchorg/Catch2/archive/v3.12.0.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+  DOWNLOAD_EXTRACT_TIMESTAMP NEW
 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCATCH_BUILD_TESTING=NO -DBUILD_TESTING=NO -DCATCH_ENABLE_WERROR=NO -DCATCH_INSTALL_DOCS=NO -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
   BUILD_BYPRODUCTS ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX}
   )
@@ -68,8 +78,63 @@ ExternalProject_Add(catch2
 ExternalProject_Add(spdlog
 	URL https://github.com/gabime/spdlog/archive/refs/tags/v1.8.5.tar.gz
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
-	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+  DOWNLOAD_EXTRACT_TIMESTAMP NEW
+	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/deps -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DSPDLOG_BUILD_EXAMPLE=OFF
+)
+
+
+# REPL support via Chibi Scheme.
+# DISABLE_REPL (user-facing): OFF by default (REPL enabled).
+#   If not explicitly set and make is not found: warn and skip.
+#   If explicitly set to OFF and make is not found: fatal error.
+#   If explicitly set to ON: REPL skipped unconditionally.
+if(NOT DEFINED CACHE{_DISABLE_REPL_EXPLICITLY_SET})
+  if(DEFINED CACHE{DISABLE_REPL})
+    set(_DISABLE_REPL_EXPLICITLY_SET ON CACHE INTERNAL "DISABLE_REPL was explicitly set by the user")
+  else()
+    set(_DISABLE_REPL_EXPLICITLY_SET OFF CACHE INTERNAL "DISABLE_REPL was not explicitly set by the user")
+  endif()
+endif()
+option(DISABLE_REPL "Disable the Chibi Scheme REPL" OFF)
+
+find_program(MAKE_EXECUTABLE NAMES gmake mingw32-make make NAMES_PER_DIR DOC "GNU Make")
+if(MAKE_EXECUTABLE AND NOT MAKE_EXECUTABLE MATCHES "-NOTFOUND$")
+  set(MAKE_FOUND ON)
+else()
+  set(MAKE_FOUND OFF)
+endif()
+
+if(NOT DISABLE_REPL AND NOT MAKE_FOUND)
+  if(_DISABLE_REPL_EXPLICITLY_SET)
+    message(FATAL_ERROR
+      "DISABLE_REPL=OFF requires GNU Make to build Chibi Scheme, but none was found. "
+      "Please install GNU Make (or a compatible make tool).")
+  else()
+    message(WARNING
+      "==================================================================\n"
+      "  GNU Make not found -- Chibi Scheme REPL will NOT be built.\n"
+      "  Install GNU Make or set -DDISABLE_REPL=ON to silence this.\n"
+      "==================================================================")
+  endif()
+endif()
+
+if(CMAKE_BUILD_TYPE)
+  string(TOUPPER "_${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_TOUPPER)
+else()
+  set(CMAKE_BUILD_TYPE_TOUPPER "")
+endif()
+
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  ExternalProject_Add(chibi-scheme
+    URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
+    DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
+    DOWNLOAD_EXTRACT_TIMESTAMP NEW
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${_chibi_prefix} CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
+    INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${_chibi_prefix}
+    BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
   )
+endif()
 
 ########################## Other Library Dependencies ##########################
 
@@ -87,8 +152,53 @@ set(ImplementationFiles Source/BOSS.cpp Source/Serialization.cpp)
 set(TestFiles Tests/BOSSTests.cpp Tests/CAPITests.cpp)
 set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  set(REPLStubFiles chibi-bindings.stub)
+  set(SchemeModuleFiles BOSS.sld)
+  set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
+endif()
+
 # BOSS
-add_library(BOSS SHARED ${ImplementationFiles})
+
+add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles})
+
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  add_dependencies(BOSS chibi-scheme)
+  set_source_files_properties(${REPLFiles} PROPERTIES
+    INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
+
+  if(WIN32)
+    string(REPLACE ";" "\\;" _chibi_ffi_windows_path "$ENV{PATH}")
+    set(_chibi_ffi_env
+      PATH=${_chibi_prefix}/bin\;${_chibi_prefix}/lib\;${_chibi_ffi_windows_path})
+  else()
+    set(_chibi_ffi_env
+      LD_LIBRARY_PATH=${_chibi_prefix}/lib:$ENV{LD_LIBRARY_PATH}
+      DYLD_LIBRARY_PATH=${_chibi_prefix}/lib:$ENV{DYLD_LIBRARY_PATH}
+      PATH=${_chibi_prefix}/bin/:$ENV{PATH})
+  endif()
+
+  add_custom_command(
+    OUTPUT ${REPLFiles}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims
+    COMMAND ${CMAKE_COMMAND} -E copy
+            ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles}
+            ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
+    COMMAND ${CMAKE_COMMAND} -E env ${_chibi_ffi_env}
+            ${_chibi_prefix}/bin/chibi-ffi ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/${REPLStubFiles}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
+    VERBATIM)
+
+  target_include_directories(BOSS SYSTEM PUBLIC ${_chibi_prefix}/include)
+  target_link_libraries(BOSS
+    ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+
+  add_custom_command(TARGET BOSS POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${SchemeModuleFiles} ${BOSS_BINARY_DIR}
+    VERBATIM
+    BYPRODUCTS ${BOSS_BINARY_DIR}/${SchemeModuleFiles})
+endif()
+
 
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
@@ -96,7 +206,7 @@ add_dependencies(Tests catch2)
 
 target_link_libraries(Tests ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX})
 if(WIN32)
-    target_compile_options(Tests PUBLIC /bigobj)
+  target_compile_options(Tests PUBLIC /bigobj)
 endif(WIN32)
 
 # Benchmarks
@@ -150,15 +260,15 @@ endforeach()
 
 #################################### Install ###################################
 set(PUBLIC_HEADER_LIST
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.h;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Algorithm.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.h;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/BOSS.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Engine.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Expression.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionUtilities.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Algorithm.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
 )
 set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
 
@@ -176,6 +286,9 @@ endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  install(FILES ${BOSS_BINARY_DIR}/${SchemeModuleFiles} DESTINATION lib/chibi)
+endif()
 
 foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
   string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\1" Namespace ${Engine})

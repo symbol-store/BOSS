@@ -35,7 +35,7 @@
 (define stringToNewExpression
   (get-ffi-obj "stringToNewBOSSExpression" libBoss (_fun _string  -> _pointer)))
 (define symbolNameToNewExpression
-  (get-ffi-obj "bossSymbolNameToNewBOSSExpression" libBoss (_fun _string  -> _pointer)))
+  (get-ffi-obj "symbolNameToNewBOSSExpression" libBoss (_fun _string  -> _pointer)))
 
 (define newComplexExpression
   (get-ffi-obj "newComplexBOSSExpression" libBoss
