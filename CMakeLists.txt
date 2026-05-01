@@ -130,9 +130,9 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
     DOWNLOAD_EXTRACT_TIMESTAMP NEW
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${_chibi_prefix} CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
+    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> libchibi-scheme.a prefix=${_chibi_prefix} CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
     INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${_chibi_prefix}
-    BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
+    BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
   )
 endif()
 
@@ -198,14 +198,16 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     VERBATIM
     BYPRODUCTS ${BOSS_BINARY_DIR}/${SchemeModuleFiles})
 
-  # Standalone BOSS REPL binary
-  add_executable(boss Source/boss-repl.cpp ${REPLFiles})
-  add_dependencies(boss BOSS chibi-scheme)
+  # Standalone BOSS REPL binary (statically linked)
+  add_executable(boss Source/boss-repl.cpp ${ImplementationFiles} ${REPLFiles})
+  add_dependencies(boss chibi-scheme)
   target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
   target_link_libraries(boss
-    BOSS
-    ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+    ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
+  if(UNIX AND NOT APPLE)
+    target_link_libraries(boss dl)
+  endif()
 
   # Optional readline support
   find_library(READLINE_LIB readline)
@@ -215,8 +217,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   endif()
 
   set_target_properties(boss PROPERTIES
-    BUILD_RPATH "${_chibi_prefix}/lib;${BOSS_BINARY_DIR}"
-    INSTALL_RPATH "$ORIGIN/../lib")
+    INSTALL_RPATH "")
 
   install(TARGETS boss RUNTIME DESTINATION bin)
 endif()
