@@ -33,29 +33,28 @@ Obviously, many tests will fail and you need to implement whatever functionality
 
 ## Running the Scheme tests
 
-The Scheme-level tests live in `Tests/repl-tests.scm` and use the `(chibi test)` framework. Run them from the repository root using the bundled `chibi-scheme` binary:
+The Scheme-level tests live in `Tests/repl-tests.scm` and use the `(chibi test)` framework. Run them from the repository root using the `boss` binary:
 
 ```bash
-./build/deps/bin/chibi-scheme Tests/repl-tests.scm
+./build/boss Tests/repl-tests.scm
 ```
 
 The test file calls `(test-exit)` at the end, so the process exits with a non-zero status if any tests fail.
 
 ## Using the Chibi Scheme REPL
 
-After building, you can evaluate BOSS expressions interactively using the bundled Chibi Scheme REPL:
+After building, you can evaluate BOSS expressions interactively using the `boss` binary:
 
 ```bash
-./build/deps/bin/chibi-scheme -mBOSS -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
+./build/boss -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
 ```
 
-- `-mBOSS` loads the BOSS Scheme module
 - `boss-eval` converts a Scheme expression to a BOSS expression, evaluates it, and converts the result back
 
 To evaluate expressions using an engine, load it first with `SetDefaultEnginePipeline`, then call `boss-eval` as usual:
 
 ```bash
-./build/deps/bin/chibi-scheme -mBOSS -p'(begin (boss-eval (SetDefaultEnginePipeline "build/libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
+./build/boss -p'(begin (boss-eval (SetDefaultEnginePipeline "build/libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
 ```
 
 ## Implementing a new engine
@@ -76,7 +75,8 @@ static boss::Expression evaluate(boss::Expression&& e) {
   return std::move(e) //
       < "Plus"_(AnySequence_) >= Recurse(evaluate) > [](auto, auto dynamics, auto) {
         return visitAccumulate(std::move(dynamics), 0L, [](auto&& state, auto&& arg) {
-          if constexpr(std::is_same_v<std::decay_t<decltype(arg)>, int>) {
+          if constexpr(std::is_same_v<std::decay_t<decltype(arg)>, std::int32_t> ||
+                       std::is_same_v<std::decay_t<decltype(arg)>, std::int64_t>) {
             state += arg;
           }
           return state;

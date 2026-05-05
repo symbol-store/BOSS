@@ -164,8 +164,8 @@ static sexp boss_eval_string(sexp ctx, sexp env, const char* str) {
 }
 
 static void run_repl(sexp ctx, sexp env, bool raw) {
-  sexp_gc_var4(obj, result, in, out);
-  sexp_gc_preserve4(ctx, obj, result, in, out);
+  sexp_gc_var5(obj, result, in, out, port);
+  sexp_gc_preserve5(ctx, obj, result, in, out, port);
   in = sexp_current_input_port(ctx);
   out = sexp_current_output_port(ctx);
 
@@ -195,8 +195,7 @@ static void run_repl(sexp ctx, sexp env, bool raw) {
     input_buf += line;
     free(line); // readline allocates with malloc
 
-    sexp port =
-        sexp_open_input_string(ctx, sexp_c_string(ctx, input_buf.c_str(), input_buf.size()));
+    port = sexp_open_input_string(ctx, sexp_c_string(ctx, input_buf.c_str(), input_buf.size()));
     obj = sexp_read(ctx, port);
 
     if(obj == SEXP_EOF ||
@@ -241,15 +240,17 @@ static void run_repl(sexp ctx, sexp env, bool raw) {
 }
 
 static void print_usage(const char* prog) {
-  std::cerr << "Usage: " << prog << " [options]\n"
-            << "  -p <expr>   Evaluate BOSS expression(s) and exit\n"
+  std::cerr << "Usage: " << prog << " [options] [file]\n"
+            << "  -p <expr>   Evaluate BOSS expression and exit\n"
             << "  -e <expr>   Evaluate raw Scheme expression and exit\n"
             << "  --raw       REPL without boss-eval wrapping\n"
-            << "  --help      Show this help\n";
+            << "  --help      Show this help\n"
+            << "  file        Load and evaluate a Scheme file\n";
 }
 
 int main(int argc, char** argv) {
   bool raw_mode = false;
+  std::string input_file;
   std::vector<std::pair<std::string, bool>> exprs;
 
   for(int i = 1; i < argc; i++) {
@@ -263,6 +264,8 @@ int main(int argc, char** argv) {
     } else if(arg == "--help" || arg == "-h") {
       print_usage(argv[0]);
       return 0;
+    } else if(arg[0] != '-' && input_file.empty()) {
+      input_file = arg;
     } else {
       std::cerr << "Unknown option: " << arg << "\n";
       print_usage(argv[0]);
@@ -301,7 +304,19 @@ int main(int argc, char** argv) {
   build_and_eval_boss_scheme(ctx, env);
 
   int exit_code = 0;
-  if(!exprs.empty()) {
+  if(!input_file.empty()) {
+    sexp_gc_var2(filename, result);
+    sexp_gc_preserve2(ctx, filename, result);
+    filename = sexp_c_string(ctx, input_file.c_str(), -1);
+    result = sexp_load(ctx, filename, env);
+    sexp_gc_release2(ctx);
+    if(sexp_exceptionp(result)) {
+      sexp_print_exception(ctx, result, sexp_current_error_port(ctx));
+      exit_code = 1;
+    }
+    sexp_destroy_context(ctx);
+    return exit_code;
+  } else if(!exprs.empty()) {
     for(auto const& [text, raw] : exprs) {
       sexp result = raw ? sexp_eval_string(ctx, text.c_str(), -1, env)
                         : boss_eval_string(ctx, env, text.c_str());
