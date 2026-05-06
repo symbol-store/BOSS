@@ -127,69 +127,67 @@ namespace experimental {
 
 namespace {
 
+using ExpressionSpanArguments = boss::expressions::ExpressionSpanArguments;
+
 inline bool matchArg(Expression const& subject, Expression const& pattern);
-inline bool matchArgSequence(ExpressionArguments const& subjects, std::size_t subjectIndex,
+inline bool matchArgSequence(ExpressionArguments const& subjectDynamics,
+                             ExpressionSpanArguments const& subjectSpans,
+                             std::size_t totalSubjectCount, std::size_t subjectIndex,
                              ExpressionArguments const& patterns, std::size_t patternIndex);
 
-inline bool matchSpanArg(boss::expressions::ExpressionSpanArgument const& subjectSpan,
-                         boss::expressions::ExpressionSpanArgument const& patternSpan) {
-  return std::visit(
-      [&subjectSpan](auto const& patSpan) -> bool {
-        using PatternScalar =
-            std::remove_const_t<typename std::decay_t<decltype(patSpan)>::element_type>;
-        return std::visit(
-            [&patSpan](auto const& subjSpan) -> bool {
-              using SubjectScalar =
-                  std::remove_const_t<typename std::decay_t<decltype(subjSpan)>::element_type>;
-              if constexpr(std::is_same_v<PatternScalar, SubjectScalar>) {
-                return subjSpan.size() == patSpan.size() &&
-                       std::equal(subjSpan.begin(), subjSpan.end(), patSpan.begin());
-              }
-              return false;
-            },
-            subjectSpan);
-      },
-      patternSpan);
+inline Expression getSpanElement(ExpressionSpanArguments const& spans, std::size_t index) {
+  for(auto const& span : spans) {
+    auto const spanSize = std::visit([](auto const& s) { return s.size(); }, span);
+    if(index < spanSize) {
+      return std::visit([index](auto const& s) -> Expression { return s[index]; }, span);
+    }
+    index -= spanSize;
+  }
+  throw std::out_of_range("span element index out of range");
 }
 
 inline bool matchesPattern(ComplexExpression const& subject, ComplexExpression const& pattern) {
   if(subject.getHead().getName() != pattern.getHead().getName()) {
     return false;
   }
-  auto const& subjectSpanArgs = subject.getSpanArguments();
-  auto const& patternSpanArgs = pattern.getSpanArguments();
-  if(subjectSpanArgs.size() != patternSpanArgs.size()) {
-    return false;
+  auto const& subjectDynamics = subject.getDynamicArguments();
+  auto const& subjectSpans = subject.getSpanArguments();
+  std::size_t totalCount = subjectDynamics.size();
+  for(auto const& span : subjectSpans) {
+    totalCount += std::visit([](auto const& s) { return s.size(); }, span);
   }
-  if(!std::equal(subjectSpanArgs.begin(), subjectSpanArgs.end(), patternSpanArgs.begin(),
-                 matchSpanArg)) {
-    return false;
-  }
-  auto const& subjectArgs = subject.getDynamicArguments();
-  auto const& patternArgs = pattern.getDynamicArguments();
-  return matchArgSequence(subjectArgs, 0, patternArgs, 0);
+  return matchArgSequence(subjectDynamics, subjectSpans, totalCount, 0,
+                          pattern.getDynamicArguments(), 0);
 }
 
-inline bool matchArgSequence(ExpressionArguments const& subjects, std::size_t subjectIndex,
+inline bool matchArgSequence(ExpressionArguments const& subjectDynamics,
+                             ExpressionSpanArguments const& subjectSpans,
+                             std::size_t totalSubjectCount, std::size_t subjectIndex,
                              ExpressionArguments const& patterns, std::size_t patternIndex) {
   if(patternIndex == patterns.size()) {
-    return subjectIndex == subjects.size();
+    return subjectIndex == totalSubjectCount;
   }
   auto const& currentPattern = patterns[patternIndex];
   if(std::holds_alternative<Symbol>(currentPattern) &&
      std::get<Symbol>(currentPattern).getName() == sentinel::AnySequence_.getName()) {
-    for(std::size_t consumed = 0; consumed <= subjects.size() - subjectIndex; ++consumed) {
-      if(matchArgSequence(subjects, subjectIndex + consumed, patterns, patternIndex + 1)) {
+    for(std::size_t consumed = 0; consumed <= totalSubjectCount - subjectIndex; ++consumed) {
+      if(matchArgSequence(subjectDynamics, subjectSpans, totalSubjectCount, subjectIndex + consumed,
+                          patterns, patternIndex + 1)) {
         return true;
       }
     }
     return false;
   }
-  if(subjectIndex == subjects.size()) {
+  if(subjectIndex == totalSubjectCount) {
     return false;
   }
-  return matchArg(subjects[subjectIndex], currentPattern) &&
-         matchArgSequence(subjects, subjectIndex + 1, patterns, patternIndex + 1);
+  bool const elementMatched =
+      subjectIndex < subjectDynamics.size()
+          ? matchArg(subjectDynamics[subjectIndex], currentPattern)
+          : matchArg(getSpanElement(subjectSpans, subjectIndex - subjectDynamics.size()),
+                     currentPattern);
+  return elementMatched && matchArgSequence(subjectDynamics, subjectSpans, totalSubjectCount,
+                                            subjectIndex + 1, patterns, patternIndex + 1);
 }
 
 inline bool matchArg(Expression const& subject, Expression const& pattern) {
