@@ -11,11 +11,16 @@ namespace boss::utilities {
 
 namespace experimental {
 namespace sentinel {
-inline const Symbol String_ {"<String_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
-inline const Symbol Symbol_ {"<Symbol_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
-inline const Symbol Integer_ {"<Integer_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
-inline const Symbol Any_ {"<Any_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
-inline const Symbol AnySequence_ {"<AnySequence_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"};
+inline const Symbol String_ {
+    "<String_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"}; // NOLINT(bugprone-throwing-static-initialization)
+inline const Symbol Symbol_ {
+    "<Symbol_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"}; // NOLINT(bugprone-throwing-static-initialization)
+inline const Symbol Integer_ {
+    "<Integer_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"}; // NOLINT(bugprone-throwing-static-initialization)
+inline const Symbol Any_ {
+    "<Any_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"}; // NOLINT(bugprone-throwing-static-initialization)
+inline const Symbol AnySequence_ {
+    "<AnySequence_FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;"}; // NOLINT(bugprone-throwing-static-initialization)
 inline constexpr char const* const AnyHead = "FBP[vNqRLj4n11i?p@-4i:!!H_cTcW;";
 } // namespace sentinel
 } // namespace experimental
@@ -84,8 +89,8 @@ public:
    */
   template <typename... Ts>
   ::std::enable_if_t<(sizeof...(Ts) > 0) &&
-                         !(std::conjunction_v<isSpanArgument<::std::decay_t<Ts>>...>) &&
-                         !(std::disjunction_v<isDynamicArgument<Ts>...>),
+                         !std::conjunction_v<isSpanArgument<::std::decay_t<Ts>>...> &&
+                         !std::disjunction_v<isDynamicArgument<Ts>...>,
                      typename ExpressionSystem::template ComplexExpressionWithStaticArguments<
                          ::std::decay_t<Ts>...>>
   operator()(Ts&&... args /*a*/) const {
@@ -348,7 +353,7 @@ template <typename Subject, typename E,
                                std::is_constructible_v<ComplexExpression, E&&>,
                            int> = 0>
 Transformer operator<(Subject&& subject, E&& pattern) {
-  ComplexExpression complPattern(std::forward<E>(pattern));
+  ComplexExpression const complPattern(std::forward<E>(pattern));
   return Transformer(Expression(std::forward<Subject>(subject)), sentinel::AnyHead)
       .operator<(complPattern);
 }

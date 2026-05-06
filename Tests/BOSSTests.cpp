@@ -18,6 +18,7 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <numeric>
 #include <ostream>
