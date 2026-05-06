@@ -46,15 +46,15 @@ The test file calls `(test-exit)` at the end, so the process exits with a non-ze
 After building, you can evaluate BOSS expressions interactively using the `boss` binary:
 
 ```bash
-./build/boss -p'(begin (boss-eval (ResetEngines)) (boss-eval 9) (boss-eval "howdie") (boss-eval (Plus 9 1)))'
+./build/boss -p '(ResetEngines)' -p '9' -p '"howdie"' -p '(Plus 9 1)'
 ```
 
-- `boss-eval` converts a Scheme expression to a BOSS expression, evaluates it, and converts the result back
+- `-p` evaluates a BOSS expression and prints the result
 
-To evaluate expressions using an engine, load it first with `SetDefaultEnginePipeline`, then call `boss-eval` as usual:
+To evaluate expressions using an engine, load it first with `SetDefaultEnginePipeline`, then call `-p` as usual:
 
 ```bash
-./build/boss -p'(begin (boss-eval (SetDefaultEnginePipeline "build/libReferenceEngine.so")) (boss-eval (Plus 8 1 4 9)))'
+./build/boss -p '(SetDefaultEnginePipeline "build/libReferenceEngine.so")' -p '(Plus 8 1 4 9)'
 ```
 
 ## Implementing a new engine
