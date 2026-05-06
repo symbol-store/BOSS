@@ -56,6 +56,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #include <iterator>
 #include <numeric>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
