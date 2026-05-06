@@ -18,6 +18,7 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <numeric>
 #include <ostream>
@@ -1782,74 +1783,66 @@ TEST_CASE("Span Argument Pattern Matching") {
   using SpanArguments = boss::expressions::ExpressionSpanArguments;
   using boss::expressions::atoms::Span;
 
+  auto loadExpressionFromSpan = [](std::vector<std::int64_t> values) {
+    return boss::expressions::ComplexExpression(
+        "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(values))));
+  };
+  auto loadExpressionFromDynamicAndSpan = [](std::int64_t dynamicValue,
+                                             std::vector<std::int64_t> spanValues) {
+    boss::ExpressionArguments dynamicArgs;
+    dynamicArgs.emplace_back(dynamicValue);
+    return boss::expressions::ComplexExpression(
+        "Load"_, {}, std::move(dynamicArgs),
+        SpanArguments(Span<std::int64_t>(std::move(spanValues))));
+  };
+
   auto hasRun = false;
 
-  // Span values match: same type, same elements
+  // AnySequence_ matches all elements from a single span
   hasRun = false;
-  std::vector<std::int64_t> subjectValues = {1, 2, 3};
-  std::vector<std::int64_t> patternValues = {1, 2, 3};
-  auto subjectExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(subjectValues))));
-  auto patternExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
-  std::move(subjectExpr) << std::move(patternExpr) >>
+  loadExpressionFromSpan({1, 2, 3}) << "Load"_(AnySequence_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE(hasRun);
 
-  // Span values differ: same type and size but different elements
+  // AnySequence_ matches an expression with no arguments and no spans
   hasRun = false;
-  subjectValues = {1, 2, 3};
-  patternValues = {1, 2, 4};
-  subjectExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(subjectValues))));
-  patternExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
-  std::move(subjectExpr) << std::move(patternExpr) >>
+  "Load"_() << "Load"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Integer_ sentinel matches a span element of integer type
+  hasRun = false;
+  loadExpressionFromSpan({42}) << "Load"_(Integer_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Exact value matches the first span element; AnySequence_ absorbs the rest
+  hasRun = false;
+  loadExpressionFromSpan({1, 2, 3}) << "Load"_(std::int64_t {1}, AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Exact value mismatch on first span element: no match
+  hasRun = false;
+  loadExpressionFromSpan({1, 2, 3}) << "Load"_(std::int64_t {2}, AnySequence_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE_FALSE(hasRun);
 
-  // Span size differs: same type but different number of elements
+  // Pattern count mismatch: pattern expects two elements, span has three
   hasRun = false;
-  subjectValues = {1, 2, 3};
-  patternValues = {1, 2};
-  subjectExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(subjectValues))));
-  patternExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
-  std::move(subjectExpr) << std::move(patternExpr) >>
+  loadExpressionFromSpan({1, 2, 3}) << "Load"_(Integer_, Integer_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE_FALSE(hasRun);
 
-  // Span type differs: same values but int32 vs int64
+  // Dynamic args are matched first, then span elements continue the sequence
   hasRun = false;
-  std::vector<std::int32_t> subjectValues32 = {1, 2, 3};
-  patternValues = {1, 2, 3};
-  subjectExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int32_t>(std::move(subjectValues32))));
-  patternExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
-  std::move(subjectExpr) << std::move(patternExpr) >>
+  loadExpressionFromDynamicAndSpan(1, {2, 3}) << "Load"_(Integer_, Integer_, Integer_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  REQUIRE(hasRun);
 
-  // Subject has no span, pattern has span: no match
+  // AnySequence_ covers both dynamic args and span elements in one sweep
   hasRun = false;
-  patternValues = {1, 2, 3};
-  patternExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(patternValues))));
-  "Load"_() << std::move(patternExpr) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
-
-  // Const and non-const span with same values match
-  hasRun = false;
-  subjectValues = {10, 20};
-  patternValues = {10, 20};
-  subjectExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(subjectValues))));
-  patternExpr = boss::expressions::ComplexExpression(
-      "Load"_, {}, {}, SpanArguments(Span<std::int64_t const>(std::move(patternValues))));
-  std::move(subjectExpr) << std::move(patternExpr) >>
+  loadExpressionFromDynamicAndSpan(1, {2, 3}) << "Load"_(AnySequence_) >>
       [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE(hasRun);
 }

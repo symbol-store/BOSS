@@ -57,8 +57,8 @@ template <typename Scalar> struct Span {
 private: // state
   using IteratorType = std::conditional_t<
       std::is_same_v<std::remove_const_t<Scalar>, bool>,
-      std::conditional_t<std::is_const_v<Scalar>, typename std::vector<bool>::const_iterator,
-                         typename std::vector<bool>::iterator>,
+      std::conditional_t<std::is_const_v<Scalar>, std::vector<bool>::const_iterator,
+                         std::vector<bool>::iterator>,
       Scalar*>;
   IteratorType _begin = {};
   IteratorType _end = {};
@@ -636,8 +636,11 @@ public:
                                             ::std::is_same<::std::decay_t<decltype(val)>,
                                                            ::std::vector<bool>::const_reference>>) {
             return stream << (bool)val;
+          } else if constexpr(std::is_same_v<std::remove_reference_t<decltype(val.get())>,
+                                             std::int8_t>) {
+            return stream << static_cast<int>(val.get());
           } else {
-            return stream << val.get();
+            return stream << val.get(); // NOLINT(bugprone-unintended-char-ostream-output)
           }
         },
         argument.getArgument());
@@ -842,7 +845,7 @@ public:
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> front() const { return at(0); }
 
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> operator[](size_t index) const {
-    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) > 0) {
+    if constexpr(std::tuple_size_v<StaticArgumentsContainer> > 0) {
       if(index < std::tuple_size_v<StaticArgumentsContainer>) {
         return getStaticArgument(index);
       }
@@ -875,7 +878,7 @@ public:
             std::visit([](auto&& spanArgument) { return spanArgument.size(); }, spanArgument);
       }
     }
-#if defined(_MSC_VER)
+#ifdef _MSC_VER
     __assume(0);
 #else
     __builtin_unreachable();
@@ -925,7 +928,7 @@ public:
     throw std::out_of_range("Expression has no argument with index " + std::to_string(index));
   }
   ArgumentWrapper<IsConstWrapper, AdditionalAtoms...> at(size_t index) const {
-    if constexpr((std::tuple_size_v<StaticArgumentsContainer>) > 0) {
+    if constexpr(std::tuple_size_v<StaticArgumentsContainer> > 0) {
       if(index < std::tuple_size_v<StaticArgumentsContainer>) {
         return getStaticArgument(index);
       }
@@ -961,7 +964,7 @@ public:
    */
   operator // NOLINT(hicpp-explicit-conversions)
       ExpressionArgumentsWithAdditionalCustomAtoms<AdditionalAtoms...>() && {
-    if constexpr(!IsConstWrapper && (std::tuple_size_v<StaticArgumentsContainer>) == 0) {
+    if constexpr(!IsConstWrapper && std::tuple_size_v<StaticArgumentsContainer> == 0) {
       if(spanArguments.empty()) {
         // avoid any copying if there are only ExpressionArguments
         return std::move(arguments);

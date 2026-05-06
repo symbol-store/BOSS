@@ -69,14 +69,15 @@ Here is an example of a fairly simple engine that only interprets a single expre
 
 using namespace boss::algorithm;
 using namespace boss::utilities::experimental;
+using namespace boss::utilities::experimental::sentinel;
 
 namespace ReferenceEngine {
 static boss::Expression evaluate(boss::Expression&& e) {
   return std::move(e) //
       < "Plus"_(AnySequence_) >= Recurse(evaluate) > [](auto, auto dynamics, auto) {
-        return visitAccumulate(std::move(dynamics), 0L, [](auto&& state, auto&& arg) {
-          if constexpr(std::is_same_v<std::decay_t<decltype(arg)>, std::int32_t> ||
-                       std::is_same_v<std::decay_t<decltype(arg)>, std::int64_t>) {
+        return visitAccumulate(std::move(dynamics), std::int64_t{0}, [](auto&& state, auto&& arg) {
+          if constexpr(std::is_same_v<std::decay_t<decltype(arg)>, std::int64_t> ||
+                       std::is_same_v<std::decay_t<decltype(arg)>, std::int32_t>) {
             state += arg;
           }
           return state;
