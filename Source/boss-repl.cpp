@@ -1,5 +1,6 @@
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "Utilities.hpp"
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -13,6 +14,7 @@
 
 extern "C" {
 #include <chibi/eval.h>
+#include <chibi/sexp.h>
 }
 
 #ifdef HAVE_READLINE
