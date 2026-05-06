@@ -134,7 +134,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> libchibi-scheme.a prefix=${_chibi_prefix} "CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}}" "LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}}" CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
     INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${_chibi_prefix} "LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}}" CC=${CMAKE_C_COMPILER}
-    BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
+    BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
   )
 endif()
 
@@ -156,7 +156,6 @@ set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   set(REPLStubFiles chibi-bindings.stub)
-  set(SchemeModuleFiles BOSS.sld)
   set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
 endif()
 
@@ -191,14 +190,32 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
     VERBATIM)
 
-  target_include_directories(BOSS SYSTEM PUBLIC ${_chibi_prefix}/include)
+  target_include_directories(BOSS SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(BOSS
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 
-  add_custom_command(TARGET BOSS POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${SchemeModuleFiles} ${BOSS_BINARY_DIR}
-    VERBATIM
-    BYPRODUCTS ${BOSS_BINARY_DIR}/${SchemeModuleFiles})
+  # Standalone BOSS REPL binary (statically linked)
+  add_executable(boss Source/boss-repl.cpp ${ImplementationFiles} ${REPLFiles})
+  add_dependencies(boss chibi-scheme)
+  target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
+  target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
+  target_link_libraries(boss
+    ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
+  if(UNIX AND NOT APPLE)
+    target_link_libraries(boss dl)
+  endif()
+
+  # Optional readline support
+  find_library(READLINE_LIB readline)
+  if(READLINE_LIB)
+    target_compile_definitions(boss PRIVATE HAVE_READLINE)
+    target_link_libraries(boss ${READLINE_LIB})
+  endif()
+
+  set_target_properties(boss PROPERTIES
+    INSTALL_RPATH "")
+
+  install(TARGETS boss RUNTIME DESTINATION bin)
 endif()
 
 
@@ -230,6 +247,9 @@ endif(ITT_NOTIFY_INCLUDE_DIR)
 target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX})
 
 list(APPEND AllTargets BOSS Tests Benchmarks)
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  list(APPEND AllTargets boss)
+endif()
 
 ############################ Targets Common Properties ############################
 
@@ -288,9 +308,6 @@ endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
-if(NOT DISABLE_REPL AND MAKE_FOUND)
-  install(FILES ${BOSS_BINARY_DIR}/${SchemeModuleFiles} DESTINATION lib/chibi)
-endif()
 
 foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
   string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\1" Namespace ${Engine})

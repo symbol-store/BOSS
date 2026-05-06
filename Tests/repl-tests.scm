@@ -1,6 +1,5 @@
 (import (scheme base)
-        (chibi test)
-        (BOSS))
+        (chibi test))
 
 ;;; Tests for convert-to-boss-expression / convert-from-boss-expression round-trips
 ;;; and for boss-eval with a passthrough engine.
