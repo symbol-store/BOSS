@@ -88,13 +88,13 @@ ExternalProject_Add(spdlog
 #   If not explicitly set and make is not found: warn and skip.
 #   If explicitly set to OFF and make is not found: fatal error.
 #   If explicitly set to ON: REPL skipped unconditionally.
-if(NOT DEFINED CACHE{_DISABLE_REPL_EXPLICITLY_SET})
-  if(DEFINED CACHE{DISABLE_REPL})
-    set(_DISABLE_REPL_EXPLICITLY_SET ON CACHE INTERNAL "DISABLE_REPL was explicitly set by the user")
-  else()
-    set(_DISABLE_REPL_EXPLICITLY_SET OFF CACHE INTERNAL "DISABLE_REPL was not explicitly set by the user")
+set(_DISABLE_REPL_EXPLICITLY_SET OFF)
+foreach(_cmake_argv IN LISTS CMAKE_ARGV)
+  if(_cmake_argv MATCHES "^-DDISABLE_REPL(:[^=]+)?=")
+    set(_DISABLE_REPL_EXPLICITLY_SET ON)
+    break()
   endif()
-endif()
+endforeach()
 option(DISABLE_REPL "Disable the Chibi Scheme REPL" OFF)
 
 find_program(MAKE_EXECUTABLE NAMES gmake mingw32-make make NAMES_PER_DIR DOC "GNU Make")
@@ -130,7 +130,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
     DOWNLOAD_EXTRACT_TIMESTAMP NEW
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> prefix=${_chibi_prefix} CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
+    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> libchibi-scheme.a prefix=${_chibi_prefix} "CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}}" "LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}}" CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
     INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${_chibi_prefix}
     BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
   )

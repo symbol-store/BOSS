@@ -304,8 +304,7 @@ public:
   Transformer operator<<(ComplexExpression const& pattern) && { return std::move(*this) < pattern; }
 
   Transformer operator<(Symbol const& pattern) && {
-    bool const matchesAnySentinel = pattern.getName() == sentinel::Any_.getName();
-    bool const matched = isActive && matchesAnySentinel;
+    bool const matched = isActive && matchArg(c, pattern);
     return Transformer(std::move(c), matched ? sentinel::AnyHead : nullptr, isActive, false);
   }
   Transformer operator<<(Symbol const& pattern) && { return std::move(*this) < pattern; }
