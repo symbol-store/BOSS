@@ -56,6 +56,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #include <iterator>
 #include <numeric>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -149,14 +150,16 @@ class BootstrapEngine : public boss::Engine {
        }},
       {boss::Symbol("SetDefaultEnginePipeline"),
        [this](auto&& expression) -> boss::Expression {
-         algorithm::visitEach(
-             expression.getArguments(), [&defaultEngine = this->defaultEngine](auto&& engine) {
-               if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
-                 defaultEngine.push_back(engine);
-               } else {
-                 throw std::runtime_error("SetDefaultEnginePipeline received non-string argument");
-               }
-             });
+         algorithm::visitEach(expression.getArguments(), [&defaultEngine =
+                                                              this->defaultEngine](auto&& engine) {
+           if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
+             defaultEngine.push_back(engine);
+           } else {
+             std::stringstream errorMessage;
+             errorMessage << "SetDefaultEnginePipeline received non-string argument: " << engine;
+             throw std::runtime_error(errorMessage.str());
+           }
+         });
          return "okay";
        }},
       {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {

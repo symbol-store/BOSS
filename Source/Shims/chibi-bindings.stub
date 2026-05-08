@@ -1,0 +1,51 @@
+(c-include "BOSS.h")
+(define-c-struct BOSSExpression finalizer: freeBOSSExpression)
+(define-c-struct BOSSSymbol finalizer: freeBOSSSymbol)
+(define-c (free BOSSSymbol) symbolNameToNewBOSSSymbol ((const string)))
+(define-c (free (const string)) bossSymbolToNewString ((const BOSSSymbol)))
+
+
+(define-c (free BOSSExpression) boolToNewBOSSExpression ((const bool)))
+(define-c (free BOSSExpression) charToNewBOSSExpression ((const int8_t)))
+(define-c (free BOSSExpression) doubleToNewBOSSExpression ((const double)))
+(define-c (free BOSSExpression) floatToNewBOSSExpression ((const float)))
+(define-c (free BOSSExpression) intToNewBOSSExpression ((const int32_t)))
+(define-c (free BOSSExpression) longToNewBOSSExpression ((const int64_t)))
+(define-c (free BOSSExpression) stringToNewBOSSExpression ((const string)))
+(define-c (free BOSSExpression) symbolNameToNewBOSSExpression ((const string)))
+
+(define-c (free BOSSExpression) newComplexBOSSExpression (BOSSSymbol size_t (array BOSSExpression)))
+
+(define-c size_t getBOSSExpressionTypeID (BOSSExpression))
+
+(define-c float getFloatValueFromBOSSExpression ((const BOSSExpression)))
+(define-c bool getBoolValueFromBOSSExpression ((const BOSSExpression)))
+(define-c int8_t getCharValueFromBOSSExpression ((const BOSSExpression)))
+(define-c int32_t getIntValueFromBOSSExpression ((const BOSSExpression)))
+(define-c int64_t getLongValueFromBOSSExpression ((const BOSSExpression)))
+(define-c double getDoubleValueFromBOSSExpression ((const BOSSExpression)))
+(define-c (free string) getNewStringValueFromBOSSExpression ((const BOSSExpression)))
+(define-c (free (const string)) getNewSymbolNameFromBOSSExpression ((const BOSSExpression)))
+
+
+(define-c (free BOSSSymbol) getHeadFromBOSSExpression ((const BOSSExpression)))
+(define-c size_t getArgumentCountFromBOSSExpression ((const BOSSExpression)))
+(c-declare "struct BOSSExpression* getArgumentFromBOSSExpressionArray(struct BOSSExpression** array, size_t index) {return array[index];}")
+(define-c BOSSExpression getArgumentFromBOSSExpressionArray ((pointer BOSSExpression) size_t))
+(define-c (pointer BOSSExpression) getArgumentsFromBOSSExpression ((const BOSSExpression)))
+(define-c void freeBOSSArguments ((pointer BOSSExpression)))
+
+
+;; BOSSEvaluate takes ownership and frees the input internally.
+;; Call boss-expression-transfer! before passing a GC-managed expression
+;; to prevent the finalizer from double-freeing it.
+(c-declare "static void boss_expression_transfer_x(sexp obj) { sexp_freep(obj) = 0; }")
+(define-c void boss-expression-transfer! (sexp))
+(define-c (free BOSSExpression) BOSSEvaluate (BOSSExpression))
+
+
+
+;; Local Variables:
+;; mode: lisp
+;; eval: (lispy-mode)
+;; End:

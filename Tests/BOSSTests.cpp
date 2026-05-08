@@ -18,6 +18,7 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <numeric>
 #include <ostream>
@@ -444,8 +445,8 @@ TEMPLATE_TEST_CASE("Complex Expressions with copied numeric Spans", "[spans]", s
 }
 
 // NOLINTNEXTLINE
-TEMPLATE_TEST_CASE("Complex Expressions with copied const numeric Spans", "[spans]",
-                   std::int32_t, std::int64_t, std::float_t, std::double_t) {
+TEMPLATE_TEST_CASE("Complex Expressions with copied const numeric Spans", "[spans]", std::int32_t,
+                   std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto const argument = vector<TestType>(input);
   auto s = boss::Span<TestType const>(std::vector<TestType>(argument));
@@ -1577,15 +1578,300 @@ TEST_CASE("Recursive Pattern Matching") {
   using namespace boss::utilities::experimental;
   static auto evaluate = [](boss::Expression&& e) -> boss::Expression { return std::move(e); };
   auto hasRun = false;
-  auto _ = ("Howdie"_() << "Howdie" >>= Recurse(evaluate)) >>
+  auto _ = ("Howdie"_() << "Howdie"_() >>= Recurse(evaluate)) >>
            [&hasRun](auto, auto, auto) -> boss::Expression { return hasRun = true; };
   REQUIRE(hasRun);
   // here is an alternative syntax that leads to clang-tidy issues
   hasRun = false;
-  _ = "Howdie"_()<"Howdie" >= // NOLINT(bugprone-chained-comparison)
+  _ = "Howdie"_()<"Howdie"_() >= // NOLINT(bugprone-chained-comparison)
                   Recurse(evaluate)>[&hasRun](auto, auto, auto) -> boss::Expression {
     return hasRun = true;
   };
+  REQUIRE(hasRun);
+
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+
+  hasRun = false;
+  std::function<boss::Expression(boss::Expression&&)> evaluate2 = [&](boss::Expression&& e) {
+    return std::move(e) //
+           <"Inner"_() >= Recurse(evaluate2)>[&hasRun](auto, auto, auto) {
+             hasRun = true;
+             return "InnerResult";
+           } //
+           < Any_ >= Recurse(evaluate2);
+  };
+  auto result = evaluate2("Outer"_("Inner"_()));
+  REQUIRE(result == "Outer"_("InnerResult"));
+
+  REQUIRE(hasRun);
+}
+
+TEST_CASE("Nested Pattern Matching") {
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+
+  auto hasRun = false;
+
+  // StringMatcher matches a string argument
+  hasRun = false;
+  "Load"_("hello") << "Load"_(String_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // StringMatcher rejects an integer argument
+  hasRun = false;
+  "Load"_(42) << "Load"_(String_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // SymbolMatcher matches a symbol argument
+  hasRun = false;
+  "Load"_(boss::Symbol("col")) << "Load"_(Symbol_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // IntegerMatcher matches an int64 argument
+  hasRun = false;
+  "Load"_(std::int64_t {42}) << "Load"_(Integer_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Nested pattern: "Schema"_("Load"_(String_)) matches "Schema"_("Load"_("hello"))
+  hasRun = false;
+  "Schema"_("Load"_("hello")) << "Schema"_("Load"_(String_)) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Nested pattern rejects wrong inner head
+  hasRun = false;
+  "Schema"_("Store"_("hello")) << "Schema"_("Load"_(String_)) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Nested pattern rejects wrong outer head
+  hasRun = false;
+  "Table"_("Load"_("hello")) << "Schema"_("Load"_(String_)) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Nested pattern rejects wrong argument type
+  hasRun = false;
+  "Schema"_("Load"_(42)) << "Schema"_("Load"_(String_)) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Pattern arg count must match exactly
+  hasRun = false;
+  "Load"_("hello", "world") << "Load"_(String_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Literal structural matching: expression matches itself
+  hasRun = false;
+  "Schema"_("Table"_("tablename")) << "Schema"_("Table"_("tablename")) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Literal structural matching rejects different head
+  hasRun = false;
+  "Schema"_("View"_("tablename")) << "Schema"_("Table"_("tablename")) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Literal structural matching rejects different argument value
+  hasRun = false;
+  "Schema"_("Table"_("othername")) << "Schema"_("Table"_("tablename")) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Any_ matches a string argument
+  hasRun = false;
+  "Select"_("hello") << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ matches an integer argument
+  hasRun = false;
+  "Select"_(std::int64_t {42}) << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ matches a symbol argument
+  hasRun = false;
+  "Select"_(boss::Symbol("col")) << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ matches a subexpression argument
+  hasRun = false;
+  "Select"_("Table"_("t")) << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ with two arguments matches two arguments of any type
+  hasRun = false;
+  "Select"_("hello", std::int64_t {42}) << "Select"_(Any_, Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Any_ does not match if argument count differs
+  hasRun = false;
+  "Select"_("hello", "world") << "Select"_(Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // AnySequence_ matches zero arguments
+  hasRun = false;
+  "Select"_() << "Select"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ matches one argument
+  hasRun = false;
+  "Select"_("hello") << "Select"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ matches multiple arguments of mixed types
+  hasRun = false;
+  "Select"_("hello", std::int64_t {42}, boss::Symbol("col")) << "Select"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ matches a suffix (fixed prefix arg + wildcard rest)
+  hasRun = false;
+  "Select"_("hello", std::int64_t {42}) << "Select"_(Any_, AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ matches a prefix (wildcard rest + fixed suffix arg)
+  hasRun = false;
+  "Select"_("hello", std::int64_t {42}) << "Select"_(AnySequence_, Any_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ rejects wrong head even with matching args
+  hasRun = false;
+  "From"_("hello") << "Select"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+}
+
+TEST_CASE("Chained Pattern Matching") {
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+
+  int whichArm = 0;
+
+  // First arm matches: second arm must not fire
+  whichArm = 0;
+  Expression result = "Load"_("hello") < "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+                      [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 1;
+    return "matched1"_();
+  } < "Store"_(String_) >= [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 2;
+    return "matched2"_();
+  };
+  REQUIRE(whichArm == 1);
+
+  // Second arm matches: first arm must not fire
+  whichArm = 0;
+  result = "Store"_("hello") < "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+           [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 1;
+    return "matched1"_();
+  } < "Store"_(String_) >= [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 2;
+    return "matched2"_();
+  };
+  REQUIRE(whichArm == 2);
+
+  // Neither arm matches: expression passes through unchanged
+  whichArm = 0;
+  result = "Other"_("hello") < "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+           [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 1;
+    return "matched1"_();
+  } < "Store"_(String_) >= [&whichArm](auto, auto, auto) -> Expression {
+    whichArm = 2;
+    return "matched2"_();
+  };
+  REQUIRE(whichArm == 0);
+}
+
+TEST_CASE("Span Argument Pattern Matching") {
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+  using SpanArguments = boss::expressions::ExpressionSpanArguments;
+  using boss::expressions::atoms::Span;
+
+  auto loadExpressionFromSpan = [](std::vector<std::int64_t> values) {
+    return boss::expressions::ComplexExpression(
+        "Load"_, {}, {}, SpanArguments(Span<std::int64_t>(std::move(values))));
+  };
+  auto loadExpressionFromDynamicAndSpan = [](std::int64_t dynamicValue,
+                                             std::vector<std::int64_t> spanValues) {
+    boss::ExpressionArguments dynamicArgs;
+    dynamicArgs.emplace_back(dynamicValue);
+    return boss::expressions::ComplexExpression(
+        "Load"_, {}, std::move(dynamicArgs),
+        SpanArguments(Span<std::int64_t>(std::move(spanValues))));
+  };
+
+  auto hasRun = false;
+
+  // AnySequence_ matches all elements from a single span
+  hasRun = false;
+  loadExpressionFromSpan({1, 2, 3}) << "Load"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ matches an expression with no arguments and no spans
+  hasRun = false;
+  "Load"_() << "Load"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Integer_ sentinel matches a span element of integer type
+  hasRun = false;
+  loadExpressionFromSpan({42}) << "Load"_(Integer_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Exact value matches the first span element; AnySequence_ absorbs the rest
+  hasRun = false;
+  loadExpressionFromSpan({1, 2, 3}) << "Load"_(std::int64_t {1}, AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // Exact value mismatch on first span element: no match
+  hasRun = false;
+  loadExpressionFromSpan({1, 2, 3}) << "Load"_(std::int64_t {2}, AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Pattern count mismatch: pattern expects two elements, span has three
+  hasRun = false;
+  loadExpressionFromSpan({1, 2, 3}) << "Load"_(Integer_, Integer_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE_FALSE(hasRun);
+
+  // Dynamic args are matched first, then span elements continue the sequence
+  hasRun = false;
+  loadExpressionFromDynamicAndSpan(1, {2, 3}) << "Load"_(Integer_, Integer_, Integer_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
+  REQUIRE(hasRun);
+
+  // AnySequence_ covers both dynamic args and span elements in one sweep
+  hasRun = false;
+  loadExpressionFromDynamicAndSpan(1, {2, 3}) << "Load"_(AnySequence_) >>
+      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
   REQUIRE(hasRun);
 }
 
