@@ -110,6 +110,12 @@ public: // surface
         }()),
         _end(_begin + adaptee.size()), destructor([owner = std::move(adaptee)]() {}) {}
 
+  /**
+   * Non-owning constructor: `begin` must be a random-access iterator that remains valid for the
+   * lifetime of this Span. `destructor` is retained only so callers can capture/keep alive the
+   * owner of that storage (or run other cleanup when the Span is destroyed); it does not make
+   * `begin` owned by the Span by itself.
+   */
   explicit Span(IteratorType begin, size_t size, std::function<void(void)> destructor)
       : _begin(begin), _end(begin + size), destructor(std::move(destructor)) {}
 
