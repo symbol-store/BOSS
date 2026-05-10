@@ -251,6 +251,21 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   list(APPEND AllTargets boss)
 endif()
 
+########################## Default Engine Libraries ############################
+
+set(BOSS_DEFAULT_ENGINES "" CACHE STRING "Default engine library names (semicolon-separated)")
+if(BOSS_DEFAULT_ENGINES)
+  set(_default_engine_defs "")
+  foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
+    list(APPEND _default_engine_defs "${CMAKE_SHARED_LIBRARY_PREFIX}${_eng}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+  endforeach()
+  string(JOIN "\",\"" _default_engine_init ${_default_engine_defs})
+  set(_default_engine_init "\"${_default_engine_init}\"")
+  foreach(Target IN LISTS AllTargets)
+    target_compile_definitions(${Target} PRIVATE BOSS_DEFAULT_ENGINE_LIBS=${_default_engine_init})
+  endforeach()
+endif()
+
 ############################ Targets Common Properties ############################
 
 foreach(Target IN LISTS AllTargets)
