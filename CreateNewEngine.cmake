@@ -84,6 +84,12 @@ file(WRITE ${PROJECT_NAME}/Source/${PROJECT_NAME}.cpp
 #include <ExpressionUtilities.hpp>
 #include <Utilities.hpp>
 
+#ifdef _WIN32
+  #define BOSS_API extern "C" __declspec(dllexport)
+#else
+  #define BOSS_API extern "C"
+#endif
+
 using std::string_literals::operator""s;
 using boss::utilities::operator""_;
 using boss::ComplexExpression;
@@ -96,7 +102,7 @@ static Expression evaluate(Expression &&e) {
   return std::move(e);
 };
 
-extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
+BOSS_API BOSSExpression* evaluate(BOSSExpression* e) {
   return new BOSSExpression{.delegate = evaluate(std::move(e->delegate))};
 };
 ]=]

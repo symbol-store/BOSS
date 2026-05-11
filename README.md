@@ -67,9 +67,17 @@ Here is an example of a fairly simple engine that only interprets a single expre
 #include <ExpressionUtilities.hpp>
 #include <Algorithm.hpp>
 
+#ifdef _WIN32
+  #define BOSS_API extern "C" __declspec(dllexport)
+#else
+  #define BOSS_API extern "C"
+#endif
+
 using namespace boss::algorithm;
 using namespace boss::utilities::experimental;
 using namespace boss::utilities::experimental::sentinel;
+
+using boss::utilities::operator""_;
 
 namespace ReferenceEngine {
 static boss::Expression evaluate(boss::Expression&& e) {
@@ -87,7 +95,7 @@ static boss::Expression evaluate(boss::Expression&& e) {
 } //
 } // namespace ReferenceEngine
 
-extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
+BOSS_API BOSSExpression* evaluate(BOSSExpression* e) {
   return new BOSSExpression {.delegate = ReferenceEngine::evaluate(::std::move(e->delegate))};
 };
 ```
