@@ -150,6 +150,7 @@ class BootstrapEngine : public boss::Engine {
        }},
       {boss::Symbol("SetDefaultEnginePipeline"),
        [this](auto&& expression) -> boss::Expression {
+         defaultEngine.clear();
          algorithm::visitEach(expression.getArguments(), [&defaultEngine =
                                                               this->defaultEngine](auto&& engine) {
            if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
@@ -163,6 +164,7 @@ class BootstrapEngine : public boss::Engine {
          return "okay";
        }},
       {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {
+         defaultEngine.clear();
          libraries.clear();
          return "okay";
        }}};
