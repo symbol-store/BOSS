@@ -205,7 +205,7 @@ public:
     auto wrappedE =
         isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
             ? "EvaluateInEngines"_(
-                  "List"_(Span<::std::string>(defaultEngine.data(), defaultEngine.size(), nullptr)),
+                  "List"_(Span<::std::string>(::std::vector<::std::string>(defaultEngine))),
                   std::move(e))
             : std::move(e);
     return ::std::visit(boss::utilities::overload(

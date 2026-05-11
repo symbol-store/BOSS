@@ -431,11 +431,39 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
 }
 
 // NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with copied numeric Spans", "[spans]", std::int32_t,
+                   std::int64_t, std::float_t, std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
+  auto argument = vector<TestType>(input);
+  auto s = boss::Span<TestType>(std::vector<TestType>(argument));
+  auto vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with copied const numeric Spans", "[spans]", std::int32_t,
+                   std::int64_t, std::float_t, std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
+  auto const argument = vector<TestType>(input);
+  auto s = boss::Span<TestType const>(std::vector<TestType>(argument));
+  auto const vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int32_t,
                    std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto argument = vector<TestType>(input);
-  auto s = boss::Span<TestType>(argument);
+  auto s = boss::Span<TestType>(argument.data(), argument.size(), nullptr);
   auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
@@ -449,7 +477,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
                    std::int32_t, std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto const argument = vector<TestType>(input);
-  auto s = boss::Span<TestType const>(argument);
+  auto s = boss::Span<TestType const>(argument.data(), argument.size(), nullptr);
   auto const vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
