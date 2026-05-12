@@ -47,7 +47,7 @@ Obviously, many tests will fail and you need to implement whatever functionality
 The Scheme-level tests live in `Tests/repl-tests.scm` and use the `(chibi test)` framework. Run them from the repository root using the `boss` binary:
 
 ```bash
-./build/boss Tests/repl-tests.scm
+./build/deps/bin/boss Tests/repl-tests.scm
 ```
 
 The test file calls `(test-exit)` at the end, so the process exits with a non-zero status if any tests fail.
@@ -57,7 +57,7 @@ The test file calls `(test-exit)` at the end, so the process exits with a non-ze
 After building, you can evaluate BOSS expressions interactively using the `boss` binary:
 
 ```bash
-./build/boss -p '(ResetEngines)' -p '9' -p '"howdie"' -p '(Plus 9 1)'
+./build/deps/bin/boss -p '(ResetEngines)' -p '9' -p '"howdie"' -p '(Plus 9 1)'
 ```
 
 - `-p` evaluates a BOSS expression and prints the result
@@ -65,7 +65,7 @@ After building, you can evaluate BOSS expressions interactively using the `boss`
 To evaluate expressions using an engine, load it first with `SetDefaultEnginePipeline`, then call `-p` as usual:
 
 ```bash
-./build/boss -p '(SetDefaultEnginePipeline "build/libReferenceEngine.so")' -p '(Plus 8 1 4 9)'
+./build/deps/bin/boss -p '(SetDefaultEnginePipeline "build/libReferenceEngine.so")' -p '(Plus 8 1 4 9)'
 ```
 
 ## Implementing a new engine

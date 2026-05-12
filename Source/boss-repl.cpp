@@ -75,6 +75,8 @@ void build_and_eval_boss_scheme(sexp ctx, sexp env) {
   eval("import"_(_("srfi"_, kSrfiFormattingLibrary), _("srfi"_, kSrfiGeneratorsLibrary),
                  _("chibi"_, "match"_)));
 
+  eval("define"_(_("boss-print"_, "x"_), "show"_(true, _("pretty"_, "x"_), "nl"_)));
+
   eval("define"_("bossTypeID"_, "quote"_(_("bool"_, "int8"_, "int32"_, "long"_, "float"_, "double"_,
                                            "string"_, "symbol"_, "complexExpression"_))));
 
@@ -140,12 +142,15 @@ void build_and_eval_boss_scheme(sexp ctx, sexp env) {
 
 /* ─── REPL and evaluation ─── */
 
-void print_result(sexp ctx, sexp result) {
+void print_result(sexp ctx, sexp env, sexp result) {
   if(sexp_exceptionp(result)) {
     sexp_print_exception(ctx, result, sexp_current_error_port(ctx));
   } else if(result != SEXP_VOID) {
-    sexp_write(ctx, result, sexp_current_output_port(ctx));
-    sexp_newline(ctx, sexp_current_output_port(ctx));
+    sexp apply_result =
+        sexp_apply1(ctx, sexp_eval(ctx, sexp_intern(ctx, "boss-print", -1), env), result);
+    if(sexp_exceptionp(apply_result)) {
+      sexp_print_exception(ctx, apply_result, sexp_current_error_port(ctx));
+    }
   }
 }
 
@@ -225,7 +230,7 @@ void run_repl(sexp ctx, sexp env, bool raw) {
     }
 
     result = raw ? sexp_eval(ctx, obj, env) : boss_eval_expr(ctx, env, obj);
-    print_result(ctx, result);
+    print_result(ctx, env, result);
     input_buf.clear();
     depth = 0;
   }
@@ -245,7 +250,7 @@ void run_repl(sexp ctx, sexp env, bool raw) {
     }
 
     result = raw ? sexp_eval(ctx, obj, env) : boss_eval_expr(ctx, env, obj);
-    print_result(ctx, result);
+    print_result(ctx, env, result);
   }
 #endif
 
@@ -304,7 +309,7 @@ int run_exprs(sexp ctx, sexp env, std::vector<std::pair<std::string, bool>> cons
   for(auto const& [text, raw] : exprs) {
     sexp result = raw ? sexp_eval_string(ctx, text.c_str(), -1, env)
                       : boss_eval_string(ctx, env, text.c_str());
-    print_result(ctx, result);
+    print_result(ctx, env, result);
     if(sexp_exceptionp(result)) {
       exit_code = 1;
     }
