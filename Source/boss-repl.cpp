@@ -152,18 +152,17 @@ void build_and_eval_boss_scheme(sexp ctx, sexp env) {
 
 /* ─── REPL and evaluation ─── */
 
-void print_result(sexp ctx, sexp env, sexp result) {
-  sexp_gc_var4(rooted_result, proc, arg_list, apply_result);
-  sexp_gc_preserve4(ctx, rooted_result, proc, arg_list, apply_result);
+void print_result(sexp ctx, sexp boss_print_proc, sexp result) {
+  sexp_gc_var3(rooted_result, arg_list, apply_result);
+  sexp_gc_preserve3(ctx, rooted_result, arg_list, apply_result);
   rooted_result = result;
   if(sexp_exceptionp(rooted_result)) {
     sexp_print_exception(ctx, rooted_result, sexp_current_error_port(ctx));
   } else if(rooted_result != SEXP_VOID) {
     bool printed = false;
-    proc = sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
-    if(sexp_procedurep(proc)) {
+    if(sexp_procedurep(boss_print_proc)) {
       arg_list = sexp_list1(ctx, rooted_result);
-      apply_result = sexp_apply(ctx, proc, arg_list);
+      apply_result = sexp_apply(ctx, boss_print_proc, arg_list);
       if(!sexp_exceptionp(apply_result)) {
         printed = true;
       }
@@ -173,7 +172,7 @@ void print_result(sexp ctx, sexp env, sexp result) {
       sexp_newline(ctx, sexp_current_output_port(ctx));
     }
   }
-  sexp_gc_release4(ctx);
+  sexp_gc_release3(ctx);
 }
 
 /* Wrap an expression in (boss-eval <expr>) and evaluate it */
@@ -202,10 +201,11 @@ sexp boss_eval_string(sexp ctx, sexp env, const char* str) {
 }
 
 void run_repl(sexp ctx, sexp env, bool raw) {
-  sexp_gc_var5(obj, result, in, out, port);
-  sexp_gc_preserve5(ctx, obj, result, in, out, port);
+  sexp_gc_var6(obj, result, in, out, port, boss_print_proc);
+  sexp_gc_preserve6(ctx, obj, result, in, out, port, boss_print_proc);
   in = sexp_current_input_port(ctx);
   out = sexp_current_output_port(ctx);
+  boss_print_proc = sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
 
 #ifdef HAVE_READLINE
   std::string input_buf;
@@ -253,7 +253,7 @@ void run_repl(sexp ctx, sexp env, bool raw) {
     }
 
     result = raw ? sexp_eval(ctx, obj, env) : boss_eval_expr(ctx, env, obj);
-    print_result(ctx, env, result);
+    print_result(ctx, boss_print_proc, result);
     input_buf.clear();
     depth = 0;
   }
@@ -273,11 +273,11 @@ void run_repl(sexp ctx, sexp env, bool raw) {
     }
 
     result = raw ? sexp_eval(ctx, obj, env) : boss_eval_expr(ctx, env, obj);
-    print_result(ctx, env, result);
+    print_result(ctx, boss_print_proc, result);
   }
 #endif
 
-  sexp_gc_release5(ctx);
+  sexp_gc_release6(ctx);
 }
 
 void print_usage(const char* prog) {
@@ -329,17 +329,18 @@ int run_file(sexp ctx, sexp env, std::string const& input_file) {
 
 int run_exprs(sexp ctx, sexp env, std::vector<std::pair<std::string, bool>> const& exprs) {
   int exit_code = 0;
-  sexp_gc_var1(result);
-  sexp_gc_preserve1(ctx, result);
+  sexp_gc_var2(result, boss_print_proc);
+  sexp_gc_preserve2(ctx, result, boss_print_proc);
+  boss_print_proc = sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
   for(auto const& [text, raw] : exprs) {
     result = raw ? sexp_eval_string(ctx, text.c_str(), -1, env)
                  : boss_eval_string(ctx, env, text.c_str());
-    print_result(ctx, env, result);
+    print_result(ctx, boss_print_proc, result);
     if(sexp_exceptionp(result)) {
       exit_code = 1;
     }
   }
-  sexp_gc_release1(ctx);
+  sexp_gc_release2(ctx);
   return exit_code;
 }
 
