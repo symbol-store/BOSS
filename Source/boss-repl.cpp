@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -74,7 +75,11 @@ void build_and_eval_boss_scheme(sexp ctx, sexp env) {
      produces (name ...), _(...) produces just (...). expr_to_sexp strips the empty head. */
   auto _ = ""_;
   auto eval = [&](auto&& expr) {
-    sexp_eval(ctx, expr_to_sexp(ctx, Expression(std::forward<decltype(expr)>(expr))), env);
+    sexp_gc_var1(sexp_form);
+    sexp_gc_preserve1(ctx, sexp_form);
+    sexp_form = expr_to_sexp(ctx, Expression(std::forward<decltype(expr)>(expr)));
+    sexp_eval(ctx, sexp_form, env);
+    sexp_gc_release1(ctx);
   };
 
   eval("import"_(_("srfi"_, kSrfiFormattingLibrary), _("srfi"_, kSrfiGeneratorsLibrary),
@@ -340,7 +345,7 @@ int run_exprs(sexp ctx, sexp env, std::vector<std::pair<std::string, bool>> cons
 
 } // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
   bool raw_mode = false;
   std::string input_file;
   std::vector<std::pair<std::string, bool>> exprs;
@@ -357,10 +362,13 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  sexp env = sexp_context_env(ctx);
-  sexp res = sexp_load_standard_env(ctx, env, SEXP_SEVEN);
+  sexp_gc_var2(env, res);
+  sexp_gc_preserve2(ctx, env, res);
+  env = sexp_context_env(ctx);
+  res = sexp_load_standard_env(ctx, env, SEXP_SEVEN);
   if(sexp_exceptionp(res)) {
     std::cerr << "Failed to load standard environment\n";
+    sexp_gc_release2(ctx);
     sexp_destroy_context(ctx);
     return 1;
   }
@@ -374,6 +382,7 @@ int main(int argc, char** argv) {
   if(sexp_exceptionp(res)) {
     std::cerr << "Failed to initialize BOSS FFI bindings\n";
     sexp_print_exception(ctx, res, sexp_current_error_port(ctx));
+    sexp_gc_release2(ctx);
     sexp_destroy_context(ctx);
     return 1;
   }
@@ -389,6 +398,10 @@ int main(int argc, char** argv) {
     run_repl(ctx, env, raw_mode);
   }
 
+  sexp_gc_release2(ctx);
   sexp_destroy_context(ctx);
   return exit_code;
+} catch(std::exception const& e) {
+  std::cerr << e.what() << '\n';
+  return 1;
 }
