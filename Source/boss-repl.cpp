@@ -165,6 +165,8 @@ void print_result(sexp ctx, sexp boss_print_proc, sexp result) {
       apply_result = sexp_apply(ctx, boss_print_proc, arg_list);
       if(!sexp_exceptionp(apply_result)) {
         printed = true;
+      } else {
+        sexp_print_exception(ctx, apply_result, sexp_current_error_port(ctx));
       }
     }
     if(!printed) {
@@ -362,6 +364,12 @@ int main(int argc, char** argv) try {
     std::cerr << "Failed to initialize chibi-scheme context\n";
     return 1;
   }
+  struct CtxGuard {
+    sexp& ctx;
+    CtxGuard(CtxGuard const&) = delete;
+    CtxGuard& operator=(CtxGuard const&) = delete;
+    ~CtxGuard() { sexp_destroy_context(ctx); }
+  } ctx_guard {ctx};
 
   sexp_gc_var2(env, res);
   sexp_gc_preserve2(ctx, env, res);
@@ -370,7 +378,6 @@ int main(int argc, char** argv) try {
   if(sexp_exceptionp(res)) {
     std::cerr << "Failed to load standard environment\n";
     sexp_gc_release2(ctx);
-    sexp_destroy_context(ctx);
     return 1;
   }
 
@@ -384,7 +391,6 @@ int main(int argc, char** argv) try {
     std::cerr << "Failed to initialize BOSS FFI bindings\n";
     sexp_print_exception(ctx, res, sexp_current_error_port(ctx));
     sexp_gc_release2(ctx);
-    sexp_destroy_context(ctx);
     return 1;
   }
 
@@ -400,7 +406,6 @@ int main(int argc, char** argv) try {
   }
 
   sexp_gc_release2(ctx);
-  sexp_destroy_context(ctx);
   return exit_code;
 } catch(std::exception const& e) {
   std::cerr << e.what() << '\n';
