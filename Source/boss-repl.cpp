@@ -148,24 +148,27 @@ void build_and_eval_boss_scheme(sexp ctx, sexp env) {
 /* ─── REPL and evaluation ─── */
 
 void print_result(sexp ctx, sexp env, sexp result) {
-  if(sexp_exceptionp(result)) {
-    sexp_print_exception(ctx, result, sexp_current_error_port(ctx));
-  } else if(result != SEXP_VOID) {
-    sexp_gc_var4(arg, proc, apply_result, arg_list);
-    sexp_gc_preserve4(ctx, arg, proc, apply_result, arg_list);
-    arg = result;
-    proc = sexp_eval(ctx, sexp_intern(ctx, "boss-print", -1), env);
-    if(sexp_exceptionp(proc)) {
-      sexp_print_exception(ctx, proc, sexp_current_error_port(ctx));
-    } else {
-      arg_list = sexp_list1(ctx, arg);
+  sexp_gc_var4(rooted_result, proc, arg_list, apply_result);
+  sexp_gc_preserve4(ctx, rooted_result, proc, arg_list, apply_result);
+  rooted_result = result;
+  if(sexp_exceptionp(rooted_result)) {
+    sexp_print_exception(ctx, rooted_result, sexp_current_error_port(ctx));
+  } else if(rooted_result != SEXP_VOID) {
+    bool printed = false;
+    proc = sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
+    if(sexp_procedurep(proc)) {
+      arg_list = sexp_list1(ctx, rooted_result);
       apply_result = sexp_apply(ctx, proc, arg_list);
-      if(sexp_exceptionp(apply_result)) {
-        sexp_print_exception(ctx, apply_result, sexp_current_error_port(ctx));
+      if(!sexp_exceptionp(apply_result)) {
+        printed = true;
       }
     }
-    sexp_gc_release4(ctx);
+    if(!printed) {
+      sexp_write(ctx, rooted_result, sexp_current_output_port(ctx));
+      sexp_newline(ctx, sexp_current_output_port(ctx));
+    }
   }
+  sexp_gc_release4(ctx);
 }
 
 /* Wrap an expression in (boss-eval <expr>) and evaluate it */
