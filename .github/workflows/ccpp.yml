@@ -10,25 +10,67 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  # check-runner queries the GitHub API to detect idle self-hosted runners and
+  # routes subsequent jobs to them, falling back to ubuntu-latest when none are
+  # available. It requires GitHub Actions credits (ubuntu-latest runner) and is
+  # therefore disabled while the monthly credit budget is exhausted.
+  #
+  # To re-enable the fallback mechanism:
+  #   1. Uncomment this entire check-runner job.
+  #   2. In format-check: replace `needs: []` with `needs: [check-runner]`
+  #      and replace `runs-on: self-hosted` with
+  #      `runs-on: ${{ needs.check-runner.outputs.runner }}`
+  #   3. In build: replace `needs: [format-check]` with
+  #      `needs: [format-check, check-runner]` and replace
+  #      `runs-on: self-hosted` with
+  #      `runs-on: ${{ needs.check-runner.outputs.runner }}`
+  #
+  # check-runner:
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     actions: read
+  #   outputs:
+  #     runner: ${{ steps.pick.outputs.runner }}
+  #   steps:
+  #     - name: Check self-hosted runner availability
+  #       id: pick
+  #       env:
+  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: |
+  #         AVAILABLE=$(curl -s \
+  #           -H "Authorization: Bearer $GH_TOKEN" \
+  #           -H "Accept: application/vnd.github+json" \
+  #           "https://api.github.com/repos/${{ github.repository }}/actions/runners?per_page=100" \
+  #           | jq '[.runners[] | select(.status=="online" and .busy==false)] | length')
+  #         if [ "$AVAILABLE" -gt 0 ]; then
+  #           echo "runner=self-hosted" >> "$GITHUB_OUTPUT"
+  #           echo "Self-hosted runners available: $AVAILABLE — using self-hosted"
+  #         else
+  #           echo "runner=ubuntu-latest" >> "$GITHUB_OUTPUT"
+  #           echo "No self-hosted runners available — falling back to ubuntu-latest"
+  #         fi
+
   format-check:
-    runs-on: ubuntu-latest
+    needs: []  # restore to: needs: [check-runner]
+    runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6
     - name: check
       run: |
-        /usr/bin/git config --global --add safe.directory $GITHUB_WORKSPACE
+        # /usr/bin/git config --global --add safe.directory $GITHUB_WORKSPACE
         clang-format -i -style=file --dump-config
         find . \( -name '*.cpp' -or -name '*.hpp' \) -exec clang-format -i -style=file '{}' ';'
         git diff
         exit $(git status -s | wc -l)
 
   build:
-    runs-on: ubuntu-latest
+    needs: [format-check]  # restore to: needs: [format-check, check-runner]
+    runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
     strategy:
       matrix:
         build-type: [Release, Debug] # Sanitize
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v6
       with:
         submodules: true
     - name: ccache
@@ -51,7 +93,6 @@ jobs:
         retention-days: 1
         path: |
           install
-    needs: [format-check]
 
   release:
     runs-on: ubuntu-latest
@@ -66,7 +107,7 @@ jobs:
           path: ${{ matrix.build-type }}
       - name: Set output
         id: vars
-        run: echo ::set-output name=short_ref::${GITHUB_REF#refs/*/}
+        run: echo "short_ref=${GITHUB_REF#refs/*/}" >> "$GITHUB_OUTPUT"
       - name: list files
         run: find .
       - name: create tarball
