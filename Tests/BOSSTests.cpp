@@ -181,7 +181,9 @@ public:
   }
 };
 // Teach the serializer how to encode DummyAtom as a uint64_t (it carries no data, so 0).
-static uint64_t serializeCustomAtom(DummyAtom const& /*unused*/) { return 0; }
+namespace {
+uint64_t serializeCustomAtom(DummyAtom const& /*unused*/) { return 0; }
+} // namespace
 
 // Instrumented atom that counts moves and copies to verify serialization efficiency.
 struct CountingAtom {
@@ -199,9 +201,9 @@ struct CountingAtom {
 int CountingAtom::moves = 0;
 int CountingAtom::copies = 0;
 // Encode as the atom's integer payload so values can be checked after deserialization.
-static uint64_t serializeCustomAtom(CountingAtom const& a) {
-  return static_cast<uint64_t>(a.value);
-}
+namespace {
+uint64_t serializeCustomAtom(CountingAtom const& a) { return static_cast<uint64_t>(a.value); }
+} // namespace
 
 TEST_CASE("Expression cast to more general expression system", "[expressions]") {
   auto a = boss::ExtensibleExpressionSystem<>::Expression("howdie"_());
@@ -523,8 +525,9 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   };
 
   SECTION("CatchingErrors") {
-    CHECK_THROWS_WITH(engine.evaluate("EvaluateInEngines"_("List"_(9), 5)),
-                      "expected and actual type mismatch in expression \"9\", expected string");
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_(9), 5)),
+        "expected and actual type mismatch in expression \"9\", expected string");
   }
 
   SECTION("Atomics") {
