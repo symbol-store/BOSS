@@ -199,7 +199,9 @@ struct CountingAtom {
 int CountingAtom::moves = 0;
 int CountingAtom::copies = 0;
 // Encode as the atom's integer payload so values can be checked after deserialization.
-static uint64_t serializeCustomAtom(CountingAtom const& a) { return static_cast<uint64_t>(a.value); }
+static uint64_t serializeCustomAtom(CountingAtom const& a) {
+  return static_cast<uint64_t>(a.value);
+}
 
 TEST_CASE("Expression cast to more general expression system", "[expressions]") {
   auto a = boss::ExtensibleExpressionSystem<>::Expression("howdie"_());
