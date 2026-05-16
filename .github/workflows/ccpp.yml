@@ -95,7 +95,7 @@ jobs:
           install
 
   release:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
     strategy:
       matrix:
         build-type: [Release, Debug]
