@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <iostream>
 #include <limits>
 // clang-tidy misc-include-cleaner incorrectly flags <memory> as unused when
@@ -48,13 +49,18 @@ sexp expr_to_sexp(sexp ctx, boss::Expression const& expr) {
           [&](boss::ComplexExpression const& v) -> sexp {
             auto const& head = v.getHead().getName();
             auto const& args = v.getDynamicArguments();
-            sexp lst = SEXP_NULL;
+            sexp_gc_var2(lst, item);
+            sexp_gc_preserve2(ctx, lst, item);
+            lst = SEXP_NULL;
             for(auto it = args.rbegin(); it != args.rend(); ++it) {
-              lst = sexp_cons(ctx, expr_to_sexp(ctx, *it), lst);
+              item = expr_to_sexp(ctx, *it);
+              lst = sexp_cons(ctx, item, lst);
             }
             if(!head.empty()) {
-              lst = sexp_cons(ctx, sexp_intern(ctx, head.c_str(), -1), lst);
+              item = sexp_intern(ctx, head.c_str(), -1);
+              lst = sexp_cons(ctx, item, lst);
             }
+            sexp_gc_release2(ctx);
             return lst;
           }),
       static_cast<boss::Expression::SuperType const&>(expr));
@@ -73,11 +79,17 @@ void build_and_eval_boss_scheme(sexp ctx, sexp env) {
      produces (name ...), _(...) produces just (...). expr_to_sexp strips the empty head. */
   auto _ = ""_;
   auto eval = [&](auto&& expr) {
-    sexp_eval(ctx, expr_to_sexp(ctx, Expression(std::forward<decltype(expr)>(expr))), env);
+    sexp_gc_var1(sexp_form);
+    sexp_gc_preserve1(ctx, sexp_form);
+    sexp_form = expr_to_sexp(ctx, Expression(std::forward<decltype(expr)>(expr)));
+    sexp_eval(ctx, sexp_form, env);
+    sexp_gc_release1(ctx);
   };
 
   eval("import"_(_("srfi"_, kSrfiFormattingLibrary), _("srfi"_, kSrfiGeneratorsLibrary),
                  _("chibi"_, "match"_)));
+
+  eval("define"_(_("boss-print"_, "x"_), "show"_(true, _("pretty"_, "x"_), "nl"_)));
 
   eval("define"_("bossTypeID"_, "quote"_(_("bool"_, "int8"_, "int32"_, "long"_, "float"_, "double"_,
                                            "string"_, "symbol"_, "complexExpression"_))));
@@ -144,21 +156,38 @@ void build_and_eval_boss_scheme(sexp ctx, sexp env) {
 
 /* ─── REPL and evaluation ─── */
 
-void print_result(sexp ctx, sexp result) {
-  if(sexp_exceptionp(result)) {
-    sexp_print_exception(ctx, result, sexp_current_error_port(ctx));
-  } else if(result != SEXP_VOID) {
-    sexp_write(ctx, result, sexp_current_output_port(ctx));
-    sexp_newline(ctx, sexp_current_output_port(ctx));
+void print_result(sexp ctx, sexp boss_print_proc, sexp result) {
+  sexp_gc_var3(rooted_result, arg_list, apply_result);
+  sexp_gc_preserve3(ctx, rooted_result, arg_list, apply_result);
+  rooted_result = result;
+  if(sexp_exceptionp(rooted_result)) {
+    sexp_print_exception(ctx, rooted_result, sexp_current_error_port(ctx));
+  } else if(rooted_result != SEXP_VOID) {
+    bool printed = false;
+    if(sexp_procedurep(boss_print_proc)) {
+      arg_list = sexp_list1(ctx, rooted_result);
+      apply_result = sexp_apply(ctx, boss_print_proc, arg_list);
+      if(!sexp_exceptionp(apply_result)) {
+        printed = true;
+      } else {
+        sexp_print_exception(ctx, apply_result, sexp_current_error_port(ctx));
+      }
+    }
+    if(!printed) {
+      sexp_write(ctx, rooted_result, sexp_current_output_port(ctx));
+      sexp_newline(ctx, sexp_current_output_port(ctx));
+    }
   }
+  sexp_gc_release3(ctx);
 }
 
 /* Wrap an expression in (boss-eval <expr>) and evaluate it */
 sexp boss_eval_expr(sexp ctx, sexp env, sexp expr) {
-  sexp_gc_var1(form);
-  sexp_gc_preserve1(ctx, form);
-  form = sexp_eval(ctx, sexp_list2(ctx, sexp_intern(ctx, "boss-eval", -1), expr), env);
-  sexp_gc_release1(ctx);
+  sexp_gc_var2(form, wrapped);
+  sexp_gc_preserve2(ctx, form, wrapped);
+  wrapped = sexp_list2(ctx, sexp_intern(ctx, "boss-eval", -1), expr);
+  form = sexp_eval(ctx, wrapped, env);
+  sexp_gc_release2(ctx);
   return form;
 }
 
@@ -183,10 +212,11 @@ bool is_incomplete_input(sexp obj) {
 }
 
 void run_repl(sexp ctx, sexp env, bool raw) {
-  sexp_gc_var5(obj, result, in, out, port);
-  sexp_gc_preserve5(ctx, obj, result, in, out, port);
+  sexp_gc_var6(obj, result, in, out, port, boss_print_proc);
+  sexp_gc_preserve6(ctx, obj, result, in, out, port, boss_print_proc);
   in = sexp_current_input_port(ctx);
   out = sexp_current_output_port(ctx);
+  boss_print_proc = sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
 
 #ifdef HAVE_READLINE
   std::string input_buf;
@@ -232,7 +262,7 @@ void run_repl(sexp ctx, sexp env, bool raw) {
     }
 
     result = raw ? sexp_eval(ctx, obj, env) : boss_eval_expr(ctx, env, obj);
-    print_result(ctx, result);
+    print_result(ctx, boss_print_proc, result);
     input_buf.clear();
     depth = 0;
   }
@@ -252,11 +282,11 @@ void run_repl(sexp ctx, sexp env, bool raw) {
     }
 
     result = raw ? sexp_eval(ctx, obj, env) : boss_eval_expr(ctx, env, obj);
-    print_result(ctx, result);
+    print_result(ctx, boss_print_proc, result);
   }
 #endif
 
-  sexp_gc_release5(ctx);
+  sexp_gc_release6(ctx);
 }
 
 void print_usage(const char* prog) {
@@ -308,20 +338,24 @@ int run_file(sexp ctx, sexp env, std::string const& input_file) {
 
 int run_exprs(sexp ctx, sexp env, std::vector<std::pair<std::string, bool>> const& exprs) {
   int exit_code = 0;
+  sexp_gc_var2(result, boss_print_proc);
+  sexp_gc_preserve2(ctx, result, boss_print_proc);
+  boss_print_proc = sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
   for(auto const& [text, raw] : exprs) {
-    sexp result = raw ? sexp_eval_string(ctx, text.c_str(), -1, env)
-                      : boss_eval_string(ctx, env, text.c_str());
-    print_result(ctx, result);
+    result = raw ? sexp_eval_string(ctx, text.c_str(), -1, env)
+                 : boss_eval_string(ctx, env, text.c_str());
+    print_result(ctx, boss_print_proc, result);
     if(sexp_exceptionp(result)) {
       exit_code = 1;
     }
   }
+  sexp_gc_release2(ctx);
   return exit_code;
 }
 
 } // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
   bool raw_mode = false;
   std::string input_file;
   std::vector<std::pair<std::string, bool>> exprs;
@@ -337,12 +371,20 @@ int main(int argc, char** argv) {
     std::cerr << "Failed to initialize chibi-scheme context\n";
     return 1;
   }
+  struct CtxGuard {
+    sexp& ctx;
+    CtxGuard(CtxGuard const&) = delete;
+    CtxGuard& operator=(CtxGuard const&) = delete;
+    ~CtxGuard() { sexp_destroy_context(ctx); }
+  } ctx_guard {ctx};
 
-  sexp env = sexp_context_env(ctx);
-  sexp res = sexp_load_standard_env(ctx, env, SEXP_SEVEN);
+  sexp_gc_var2(env, res);
+  sexp_gc_preserve2(ctx, env, res);
+  env = sexp_context_env(ctx);
+  res = sexp_load_standard_env(ctx, env, SEXP_SEVEN);
   if(sexp_exceptionp(res)) {
     std::cerr << "Failed to load standard environment\n";
-    sexp_destroy_context(ctx);
+    sexp_gc_release2(ctx);
     return 1;
   }
 
@@ -355,7 +397,7 @@ int main(int argc, char** argv) {
   if(sexp_exceptionp(res)) {
     std::cerr << "Failed to initialize BOSS FFI bindings\n";
     sexp_print_exception(ctx, res, sexp_current_error_port(ctx));
-    sexp_destroy_context(ctx);
+    sexp_gc_release2(ctx);
     return 1;
   }
 
@@ -370,6 +412,9 @@ int main(int argc, char** argv) {
     run_repl(ctx, env, raw_mode);
   }
 
-  sexp_destroy_context(ctx);
+  sexp_gc_release2(ctx);
   return exit_code;
+} catch(std::exception const& e) {
+  std::cerr << e.what() << '\n';
+  return 1;
 }
