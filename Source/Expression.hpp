@@ -430,7 +430,7 @@ public:
 
   template <typename T2>
   constexpr std::enable_if_t<boss::utilities::is_comparable<T, T2>::value, bool>
-  operator==(T2 const other) const {
+  operator==(T2 const& other) const {
     return *_ptr == other;
   }
 

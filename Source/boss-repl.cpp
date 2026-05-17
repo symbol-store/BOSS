@@ -4,10 +4,14 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <iostream>
 #include <limits>
+// clang-tidy misc-include-cleaner incorrectly flags <memory> as unused when
+// std::unique_ptr is instantiated with a type from a transitively-included header.
+#include <memory> // NOLINT(misc-include-cleaner)
 #include <string>
 #include <utility>
 #include <variant>
@@ -202,6 +206,11 @@ sexp boss_eval_string(sexp ctx, sexp env, const char* str) {
   return expr;
 }
 
+bool is_incomplete_input(sexp obj) {
+  return sexp_exceptionp(obj) &&
+         (std::strstr(sexp_string_data(sexp_slot_ref(obj, 1)), "missing trailing") != nullptr);
+}
+
 void run_repl(sexp ctx, sexp env, bool raw) {
   sexp_gc_var6(obj, result, in, out, port, boss_print_proc);
   sexp_gc_preserve6(ctx, obj, result, in, out, port, boss_print_proc);
@@ -215,15 +224,16 @@ void run_repl(sexp ctx, sexp env, bool raw) {
 
   while(true) {
     const char* prompt = (depth == 0) ? "boss> " : "....> ";
-    char* line = readline(prompt);
+    std::unique_ptr<char, decltype(&std::free)> line_ptr(readline(prompt), std::free);
 
-    if(!line) {
+    if(line_ptr == nullptr) {
       std::cout << '\n';
       break;
     }
 
+    char* line = line_ptr.get();
+
     if(depth == 0 && line[0] == '\0') {
-      free(line); // readline allocates with malloc
       continue;
     }
 
@@ -235,14 +245,11 @@ void run_repl(sexp ctx, sexp env, bool raw) {
       input_buf += '\n';
     }
     input_buf += line;
-    free(line); // readline allocates with malloc
 
     port = sexp_open_input_string(ctx, sexp_c_string(ctx, input_buf.c_str(), input_buf.size()));
     obj = sexp_read(ctx, port);
 
-    if(obj == SEXP_EOF ||
-       (sexp_exceptionp(obj) &&
-        std::strstr(sexp_string_data(sexp_slot_ref(obj, 1)), "missing trailing"))) {
+    if(obj == SEXP_EOF || is_incomplete_input(obj)) {
       depth = 1;
       continue;
     }
@@ -367,9 +374,11 @@ int main(int argc, char** argv) try {
   struct CtxGuard {
     sexp& ctx;
     CtxGuard(CtxGuard const&) = delete;
+    CtxGuard(CtxGuard&&) = delete;
     CtxGuard& operator=(CtxGuard const&) = delete;
+    CtxGuard& operator=(CtxGuard&&) = delete;
     ~CtxGuard() { sexp_destroy_context(ctx); }
-  } ctx_guard {ctx};
+  } const ctx_guard {ctx};
 
   sexp_gc_var2(env, res);
   sexp_gc_preserve2(ctx, env, res);
