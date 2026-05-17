@@ -374,9 +374,11 @@ int main(int argc, char** argv) try {
   struct CtxGuard {
     sexp& ctx;
     CtxGuard(CtxGuard const&) = delete;
+    CtxGuard(CtxGuard&&) = delete;
     CtxGuard& operator=(CtxGuard const&) = delete;
+    CtxGuard& operator=(CtxGuard&&) = delete;
     ~CtxGuard() { sexp_destroy_context(ctx); }
-  } ctx_guard {ctx};
+  } const ctx_guard {ctx};
 
   sexp_gc_var2(env, res);
   sexp_gc_preserve2(ctx, env, res);
