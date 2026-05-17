@@ -555,7 +555,9 @@ public:
                               }
                               return result;
                             },
-                            [&argument, this](auto v) { return as<decltype(v)>(argument) == v; }),
+                            [&argument, this](const auto& v) {
+                              return as<std::decay_t<decltype(v)>>(argument) == v;
+                            }),
                         other);
       ;
     }
