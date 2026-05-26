@@ -65,6 +65,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 namespace boss {
 namespace engines {
 namespace {
+  using boss::utilities::operator""_;
 
 class BootstrapEngine : public boss::Engine {
 
@@ -162,6 +163,10 @@ class BootstrapEngine : public boss::Engine {
            }
          });
          return "okay";
+       }},
+      {boss::Symbol("GetDefaultEnginePipeline"),
+       [this](auto&& /*expression*/) -> boss::Expression {
+         return "List"_(Span<::std::string>(::std::vector<::std::string>(defaultEngine)));
        }},
       {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {
          defaultEngine.clear();
