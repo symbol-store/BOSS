@@ -198,7 +198,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 
   # Standalone BOSS REPL binary (statically linked)
-  add_executable(boss Source/boss-repl.cpp ${ImplementationFiles} ${REPLFiles})
+  add_executable(boss Source/BOSSREPL.cpp ${ImplementationFiles} ${REPLFiles})
   add_dependencies(boss chibi-scheme)
   target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
@@ -311,6 +311,7 @@ set(PUBLIC_HEADER_LIST
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp;
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Algorithm.hpp;
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
+  ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionParser.hpp;
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
 )
 set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
