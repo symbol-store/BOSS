@@ -158,6 +158,50 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
                                "convert-from-boss-expression"_("BOSSEvaluate"_("expr"_)))))));
 }
 
+/* ─── Unicode escape preprocessing ─── */
+
+// chibi-scheme's sexp_read is a strict R7RS reader: it accepts \xXXXX; for Unicode
+// escapes but not JSON/JavaScript-style \uXXXX. JSON clients always emit \uXXXX,
+// so we translate here before passing the expression string to sexp_read.
+// This covers the full BMP (U+0000–U+FFFF); the translation is purely syntactic
+// (\uXXXX → \xXXXX;) and chibi handles the actual UTF-8 encoding from there.
+inline std::string preprocessUnicodeEscapes(std::string const& input) {
+  // Fast path: scan without allocating; return unchanged if no \uXXXX found.
+  size_t escapeStart = std::string::npos;
+  for(size_t i = 0; input.size() - i >= 6; ++i) {
+    if(input[i] == '\\' && input[i + 1] == 'u' &&
+       std::isxdigit(static_cast<unsigned char>(input[i + 2])) &&
+       std::isxdigit(static_cast<unsigned char>(input[i + 3])) &&
+       std::isxdigit(static_cast<unsigned char>(input[i + 4])) &&
+       std::isxdigit(static_cast<unsigned char>(input[i + 5]))) {
+      escapeStart = i;
+      break;
+    }
+  }
+  if(escapeStart == std::string::npos) {
+    return input;
+  }
+  std::string output;
+  output.reserve(input.size());
+  output.append(input, 0, escapeStart);
+  size_t i = escapeStart;
+  while(i < input.size()) {
+    if(input.size() - i >= 6 && input[i] == '\\' && input[i + 1] == 'u' &&
+       std::isxdigit(static_cast<unsigned char>(input[i + 2])) &&
+       std::isxdigit(static_cast<unsigned char>(input[i + 3])) &&
+       std::isxdigit(static_cast<unsigned char>(input[i + 4])) &&
+       std::isxdigit(static_cast<unsigned char>(input[i + 5]))) {
+      output += "\\x";
+      output.append(input, i + 2, 4);
+      output += ';';
+      i += 6;
+    } else {
+      output += input[i++];
+    }
+  }
+  return output;
+}
+
 /* ─── Evaluation utilities ─── */
 
 inline sexp eval_expr(sexp ctx, sexp env, sexp expr) {
@@ -170,9 +214,10 @@ inline sexp eval_expr(sexp ctx, sexp env, sexp expr) {
 }
 
 inline sexp eval_string(sexp ctx, sexp env, const char* str) {
+  auto const preprocessedStr = preprocessUnicodeEscapes(str);
   sexp_gc_var2(expr, port);
   sexp_gc_preserve2(ctx, expr, port);
-  port = sexp_open_input_string(ctx, sexp_c_string(ctx, str, -1));
+  port = sexp_open_input_string(ctx, sexp_c_string(ctx, preprocessedStr.c_str(), -1));
   expr = sexp_read(ctx, port);
   if(sexp_exceptionp(expr)) {
     sexp_gc_release2(ctx);
