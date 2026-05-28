@@ -65,7 +65,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 namespace boss {
 namespace engines {
 namespace {
-  using boss::utilities::operator""_;
+using boss::utilities::operator""_;
 
 class BootstrapEngine : public boss::Engine {
 
@@ -168,11 +168,36 @@ class BootstrapEngine : public boss::Engine {
        [this](auto&& /*expression*/) -> boss::Expression {
          return "List"_(Span<::std::string>(::std::vector<::std::string>(defaultEngine)));
        }},
+      {boss::Symbol("GetEngineDescription"),
+       [this](auto&& /*expression*/) -> boss::Expression {
+         using boss::utilities::operator""_;
+         std::string descriptions;
+         for(auto const& enginePath : defaultEngine) {
+           auto* evalFn = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
+               libraries.at(enginePath).evaluateFunction);
+           auto* queryWrapper = new BOSSExpression {"GetEngineDescription"_()};
+           auto* resultWrapper = evalFn(queryWrapper);
+           freeBOSSExpression(queryWrapper);
+           auto resultExpr = ::std::move(resultWrapper->delegate);
+           freeBOSSExpression(resultWrapper);
+           ::std::visit(boss::utilities::overload(
+                            [&descriptions](::std::string const& description) {
+                              if(!descriptions.empty()) {
+                                descriptions += "\n";
+                              }
+                              descriptions += description;
+                            },
+                            [](auto const&) {}),
+                        resultExpr);
+         }
+         return descriptions;
+       }},
       {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {
          defaultEngine.clear();
          libraries.clear();
          return "okay";
        }}};
+
   bool isBootstrapCommand(boss::Expression const& expression) {
     return visit(utilities::overload(
                      [this](boss::ComplexExpression const& expression) {
