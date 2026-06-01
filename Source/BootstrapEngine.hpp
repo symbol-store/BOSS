@@ -7,10 +7,11 @@
 #include "ExpressionUtilities.hpp"
 #include "Utilities.hpp"
 
+#include <filesystem>
+
 #ifndef _WIN32
 #include <dlfcn.h>
 #else
-#include <filesystem>
 #define NOMINMAX // max macro in minwindef.h interfering with std::max...
 #include <windows.h>
 constexpr static int RTLD_NOW = 0;
@@ -180,11 +181,19 @@ class BootstrapEngine : public boss::Engine {
            freeBOSSExpression(queryWrapper);
            auto resultExpr = ::std::move(resultWrapper->delegate);
            freeBOSSExpression(resultWrapper);
+           auto engineName = ::std::filesystem::path(enginePath).filename().string();
+           if(engineName.compare(0, 3, "lib") == 0) {
+             engineName.erase(0, 3);
+           }
+           if(engineName.size() >= 3 && engineName.compare(engineName.size() - 3, 3, ".so") == 0) {
+             engineName.erase(engineName.size() - 3);
+           }
            ::std::visit(boss::utilities::overload(
-                            [&descriptions](::std::string const& description) {
+                            [&descriptions, &engineName](::std::string const& description) {
                               if(!descriptions.empty()) {
                                 descriptions += "\n";
                               }
+                              descriptions += "# " + engineName + "\n\n";
                               descriptions += description;
                             },
                             [](auto const&) {}),
