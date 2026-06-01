@@ -193,7 +193,7 @@ class BootstrapEngine : public boss::Engine {
                               if(!descriptions.empty()) {
                                 descriptions += "\n";
                               }
-                              descriptions += "# " + engineName + "\n\n";
+                              descriptions += "## " + engineName + "\n\n";
                               descriptions += description;
                             },
                             [](auto const&) {}),
