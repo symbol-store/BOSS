@@ -1549,6 +1549,7 @@ public:
           if(n > THREADING_THRESHOLD && currSize > THREADING_THRESHOLD &&
              (numSpansOut != 1 || numThreads != 1)) {
             int64_t numThreadsToUse = numSpansOut != 1 ? 20 : numThreads;
+            if(numThreadsToUse <= 0 || numThreadsToUse > 64) numThreadsToUse = 5;
 #pragma omp parallel for schedule(static) num_threads(numThreadsToUse)
             for(size_t i = 0; i < currSize; i++) {
               const auto& index = indices[i + spanI];
