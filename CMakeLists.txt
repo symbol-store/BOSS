@@ -260,7 +260,7 @@ set(BOSS_DEFAULT_ENGINES "" CACHE STRING "Default engine library names (semicolo
 if(BOSS_DEFAULT_ENGINES)
   set(_default_engine_defs "")
   foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
-    list(APPEND _default_engine_defs "${CMAKE_SHARED_MODULE_PREFIX}${_eng}${CMAKE_SHARED_MODULE_SUFFIX}")
+    list(APPEND _default_engine_defs "./${CMAKE_SHARED_MODULE_PREFIX}${_eng}${CMAKE_SHARED_MODULE_SUFFIX}")
   endforeach()
   string(JOIN "\",\"" _default_engine_init ${_default_engine_defs})
   set(_default_engine_init "\"${_default_engine_init}\"")

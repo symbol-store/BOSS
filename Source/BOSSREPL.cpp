@@ -207,7 +207,6 @@ int main(int argc, char** argv) try {
     return parse_result;
   }
 
-  sexp_scheme_init();
   sexp ctx = boss::initialize_boss_context();
   if(!ctx)
     return 1;
