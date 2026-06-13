@@ -181,12 +181,9 @@ class BootstrapEngine : public boss::Engine {
            freeBOSSExpression(queryWrapper);
            auto resultExpr = ::std::move(resultWrapper->delegate);
            freeBOSSExpression(resultWrapper);
-           auto engineName = ::std::filesystem::path(enginePath).filename().string();
+           auto engineName = ::std::filesystem::path(enginePath).stem().string();
            if(engineName.compare(0, 3, "lib") == 0) {
              engineName.erase(0, 3);
-           }
-           if(engineName.size() >= 3 && engineName.compare(engineName.size() - 3, 3, ".so") == 0) {
-             engineName.erase(engineName.size() - 3);
            }
            ::std::visit(boss::utilities::overload(
                             [&descriptions, &engineName](::std::string const& description) {

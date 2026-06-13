@@ -311,9 +311,11 @@ set(PUBLIC_HEADER_LIST
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Utilities.hpp;
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Algorithm.hpp;
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
-  ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionParser.hpp;
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
 )
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  list(APPEND PUBLIC_HEADER_LIST ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionParser.hpp)
+endif()
 set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
 
 if(WIN32)
