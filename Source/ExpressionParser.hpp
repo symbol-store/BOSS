@@ -30,10 +30,13 @@ struct EvalResult {
 struct BossContextGuard {
   sexp ctx;
   BossContextGuard(BossContextGuard const&) = delete;
+  BossContextGuard(BossContextGuard&&) = delete;
   BossContextGuard& operator=(BossContextGuard const&) = delete;
+  BossContextGuard& operator=(BossContextGuard&&) = delete;
   ~BossContextGuard() {
-    if(ctx)
+    if(ctx != nullptr) {
       sexp_destroy_context(ctx);
+    }
   }
 };
 
@@ -168,14 +171,15 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
 // This covers the full BMP (U+0000–U+FFFF); the translation is purely syntactic
 // (\uXXXX → \xXXXX;) and chibi handles the actual UTF-8 encoding from there.
 inline std::string preprocessUnicodeEscapes(std::string input) {
+  constexpr size_t kUnicodeEscapeHexDigits = 4;
+  constexpr size_t kUnicodeEscapeLength = 2 + kUnicodeEscapeHexDigits; // "\\uXXXX"
+  constexpr size_t kUnicodeEscapeLastIndex = 1 + kUnicodeEscapeHexDigits;
+  auto isHex = [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; };
   // Fast path: scan without allocating; return unchanged if no \uXXXX found.
   size_t escapeStart = std::string::npos;
-  for(size_t i = 0; input.size() - i >= 6; ++i) {
-    if(input[i] == '\\' && input[i + 1] == 'u' &&
-       std::isxdigit(static_cast<unsigned char>(input[i + 2])) &&
-       std::isxdigit(static_cast<unsigned char>(input[i + 3])) &&
-       std::isxdigit(static_cast<unsigned char>(input[i + 4])) &&
-       std::isxdigit(static_cast<unsigned char>(input[i + 5]))) {
+  for(size_t i = 0; input.size() - i >= kUnicodeEscapeLength; ++i) {
+    if(input[i] == '\\' && input[i + 1] == 'u' && isHex(input[i + 2]) && isHex(input[i + 3]) &&
+       isHex(input[i + 4]) && isHex(input[i + kUnicodeEscapeLastIndex])) {
       escapeStart = i;
       break;
     }
@@ -188,15 +192,13 @@ inline std::string preprocessUnicodeEscapes(std::string input) {
   output.append(input, 0, escapeStart);
   size_t i = escapeStart;
   while(i < input.size()) {
-    if(input.size() - i >= 6 && input[i] == '\\' && input[i + 1] == 'u' &&
-       std::isxdigit(static_cast<unsigned char>(input[i + 2])) &&
-       std::isxdigit(static_cast<unsigned char>(input[i + 3])) &&
-       std::isxdigit(static_cast<unsigned char>(input[i + 4])) &&
-       std::isxdigit(static_cast<unsigned char>(input[i + 5]))) {
+    if(input.size() - i >= kUnicodeEscapeLength && input[i] == '\\' && input[i + 1] == 'u' &&
+       isHex(input[i + 2]) && isHex(input[i + 3]) && isHex(input[i + 4]) &&
+       isHex(input[i + kUnicodeEscapeLastIndex])) {
       output += "\\x";
-      output.append(input, i + 2, 4);
+      output.append(input, i + 2, kUnicodeEscapeHexDigits);
       output += ';';
-      i += 6;
+      i += kUnicodeEscapeLength;
     } else {
       output += input[i++];
     }
@@ -235,7 +237,7 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 inline sexp initialize_boss_context() {
   sexp_scheme_init();
   sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);
-  if(!ctx || sexp_exceptionp(ctx)) {
+  if(ctx == nullptr || sexp_exceptionp(ctx)) {
     std::cerr << "Failed to initialize chibi-scheme context\n";
     return nullptr;
   }

@@ -1,7 +1,11 @@
-#include "Expression.hpp"
 #include "ExpressionParser.hpp"
+
+extern "C" {
+#include <chibi/eval.h>
+#include <chibi/sexp.h>
+}
+
 #include <cmath>
-#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -208,8 +212,9 @@ int main(int argc, char** argv) try {
   }
 
   sexp ctx = boss::initialize_boss_context();
-  if(!ctx)
+  if(ctx == nullptr) {
     return 1;
+  }
   boss::BossContextGuard const ctx_guard {ctx};
   sexp env = sexp_context_env(ctx);
 
