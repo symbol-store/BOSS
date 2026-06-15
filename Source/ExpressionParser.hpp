@@ -10,6 +10,8 @@ extern "C" {
 #include "ExpressionUtilities.hpp"
 #include "Utilities.hpp"
 
+#include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -165,7 +167,7 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
 // so we translate here before passing the expression string to sexp_read.
 // This covers the full BMP (U+0000–U+FFFF); the translation is purely syntactic
 // (\uXXXX → \xXXXX;) and chibi handles the actual UTF-8 encoding from there.
-inline std::string preprocessUnicodeEscapes(std::string const& input) {
+inline std::string preprocessUnicodeEscapes(std::string input) {
   // Fast path: scan without allocating; return unchanged if no \uXXXX found.
   size_t escapeStart = std::string::npos;
   for(size_t i = 0; input.size() - i >= 6; ++i) {
