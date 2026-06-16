@@ -98,7 +98,7 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
   eval("import"_(_("srfi"_, kSrfiFormattingLibrary), _("srfi"_, kSrfiGeneratorsLibrary),
                  _("chibi"_, "match"_)));
 
-  eval("define"_(_("boss-print"_, "x"_), "show"_(true, _("pretty"_, "x"_), "nl"_)));
+  eval("define"_(_("boss-print"_, "x"_), "show"_(false, _("pretty"_, "x"_), "nl"_)));
 
   eval("define"_("bossTypeID"_, "quote"_(_("bool"_, "int8"_, "int32"_, "long"_, "float"_, "double"_,
                                            "string"_, "symbol"_, "complexExpression"_))));
@@ -270,9 +270,10 @@ inline sexp initialize_boss_context() {
 
 /* ─── Parse, evaluate, and serialize result to string ─── */
 
-inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& expr_str) {
-  sexp_gc_var3(result, out_port, result_str);
-  sexp_gc_preserve3(ctx, result, out_port, result_str);
+inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& expr_str,
+                                      bool pretty = true) {
+  sexp_gc_var4(result, out_port, result_str, arg_list);
+  sexp_gc_preserve4(ctx, result, out_port, result_str, arg_list);
   result = eval_string(ctx, env, expr_str.c_str());
   bool const is_error = sexp_exceptionp(result);
   std::string text;
@@ -282,10 +283,17 @@ inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& exp
     result_str = sexp_get_output_string(ctx, out_port);
     text = sexp_string_data(result_str);
   } else if(result != SEXP_VOID) {
-    result_str = sexp_write_to_string(ctx, result);
+    if(pretty) {
+      sexp const print_proc =
+          sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
+      arg_list = sexp_list1(ctx, result);
+      result_str = sexp_apply(ctx, print_proc, arg_list);
+    } else {
+      result_str = sexp_write_to_string(ctx, result);
+    }
     text = sexp_string_data(result_str);
   }
-  sexp_gc_release3(ctx);
+  sexp_gc_release4(ctx);
   return {is_error, text};
 }
 

@@ -38,10 +38,11 @@ void print_result(sexp ctx, sexp boss_print_proc, sexp result) {
     if(sexp_procedurep(boss_print_proc)) {
       arg_list = sexp_list1(ctx, rooted_result);
       apply_result = sexp_apply(ctx, boss_print_proc, arg_list);
-      if(!sexp_exceptionp(apply_result)) {
-        printed = true;
-      } else {
+      if(sexp_exceptionp(apply_result)) {
         sexp_print_exception(ctx, apply_result, sexp_current_error_port(ctx));
+      } else if(sexp_stringp(apply_result)) {
+        sexp_write_string(ctx, sexp_string_data(apply_result), sexp_current_output_port(ctx));
+        printed = true;
       }
     }
     if(!printed) {
