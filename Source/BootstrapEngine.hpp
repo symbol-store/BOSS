@@ -127,8 +127,8 @@ class BootstrapEngine : public boss::Engine {
   //    the entry point.
   //  - A complex expression: the library is loaded using the same naming rule (from the head), then
   //    the library's "evaluate" function is immediately called with the given expression. If that
-  //    call returns a 64-bit integer, the integer is reinterpreted as a function pointer and used as
-  //    the entry point (instead of "evaluate"); otherwise "evaluate" remains the entry point.
+  //    call returns a 64-bit integer, the integer is reinterpreted as a function pointer and used
+  //    as the entry point (instead of "evaluate"); otherwise "evaluate" remains the entry point.
   //  - Anything else is treated as a direct library path (legacy behaviour, and yields the
   //    "expected string" error for unsupported argument types).
   template <typename EnginePath> EngineEntryPoint resolveEngineEntryPoint(EnginePath&& enginePath) {
@@ -141,9 +141,8 @@ class BootstrapEngine : public boss::Engine {
       auto const libraryPath = engineLibraryPath(expression.getHead().getName());
       auto* evaluateFunction =
           reinterpret_cast<EngineEntryPoint>(libraries.at(libraryPath).evaluateFunction);
-      auto* input =
-          new BOSSExpression {expression.clone(
-              boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
+      auto* input = new BOSSExpression {
+          expression.clone(boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
       auto* output = evaluateFunction(input);
       freeBOSSExpression(input);
       auto entryPoint = evaluateFunction;
