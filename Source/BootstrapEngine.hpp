@@ -53,6 +53,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #endif // _WIN32
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <numeric>
 #include <optional>
@@ -113,17 +114,63 @@ class BootstrapEngine : public boss::Engine {
 
   ::std::vector<::std::string> defaultEngine;
 
+  using EngineEntryPoint = BOSSExpression* (*)(BOSSExpression*);
+
+  // Derives the shared library file name for an engine given as a symbol or a complex expression
+  // (named by its head), following the "lib" + <name> + "Engine.so" rule.
+  static ::std::string engineLibraryPath(::std::string const& engineName) {
+    return "lib" + engineName + "Engine.so";
+  }
+
+  // Resolves a single engine specification to the C entry point used to dispatch expressions:
+  //  - A symbol: the library "lib<Name>Engine.so" is loaded and its "evaluate" function is used as
+  //    the entry point.
+  //  - A complex expression: the library is loaded using the same naming rule (from the head), then
+  //    the library's "evaluate" function is immediately called with the given expression. If that
+  //    call returns a 64-bit integer, the integer is reinterpreted as a function pointer and used as
+  //    the entry point (instead of "evaluate"); otherwise "evaluate" remains the entry point.
+  //  - Anything else is treated as a direct library path (legacy behaviour, and yields the
+  //    "expected string" error for unsupported argument types).
+  template <typename EnginePath> EngineEntryPoint resolveEngineEntryPoint(EnginePath&& enginePath) {
+    if(boss::holds_alternative<boss::Symbol>(enginePath)) {
+      auto const libraryPath = engineLibraryPath(boss::get<boss::Symbol>(enginePath).getName());
+      return reinterpret_cast<EngineEntryPoint>(libraries.at(libraryPath).evaluateFunction);
+    }
+    if(boss::holds_alternative<boss::ComplexExpression>(enginePath)) {
+      auto const& expression = boss::get<boss::ComplexExpression>(enginePath);
+      auto const libraryPath = engineLibraryPath(expression.getHead().getName());
+      auto* evaluateFunction =
+          reinterpret_cast<EngineEntryPoint>(libraries.at(libraryPath).evaluateFunction);
+      auto* input =
+          new BOSSExpression {expression.clone(
+              boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
+      auto* output = evaluateFunction(input);
+      freeBOSSExpression(input);
+      auto entryPoint = evaluateFunction;
+      ::std::visit(boss::utilities::overload(
+                       [&entryPoint](::std::int64_t value) {
+                         entryPoint = reinterpret_cast<EngineEntryPoint>(
+                             static_cast<::std::intptr_t>(value));
+                       },
+                       [](auto const& /*unused*/) {}),
+                   output->delegate);
+      freeBOSSExpression(output);
+      return entryPoint;
+    }
+    return reinterpret_cast<EngineEntryPoint>(
+        libraries.at(boss::get<::std::string>(enginePath)).evaluateFunction);
+  }
+
   ::std::unordered_map<boss::Symbol, ::std::function<boss::Expression(
                                          boss::ComplexExpression&&)>> const registeredOperators {
       {boss::Symbol("EvaluateInEngines"),
        [this](auto&& e) -> boss::Expression {
-         auto symbols = ::std::vector<BOSSExpression* (*)(BOSSExpression*)>();
+         auto symbols = ::std::vector<EngineEntryPoint>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
-         ::std::for_each(args.begin(), args.end(),
-                         [&libraries = this->libraries, &symbols](auto&& enginePath) {
-                           symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                               libraries.at(get<::std::string>(enginePath)).evaluateFunction));
-                         });
+         ::std::for_each(args.begin(), args.end(), [this, &symbols](auto&& enginePath) {
+           symbols.push_back(
+               resolveEngineEntryPoint(::std::forward<decltype(enginePath)>(enginePath)));
+         });
          ::std::for_each(::std::make_move_iterator(::std::next(
                              e.getArguments().begin())), // Note: first argument is the engine path
                          ::std::make_move_iterator(::std::prev(e.getArguments().end())),
