@@ -530,15 +530,10 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
         engine.evaluate("EvaluateInEngines"_("List"_(9), 5)),
         "expected and actual type mismatch in expression \"9\", expected string");
 
-    // A symbol engine spec is resolved to a "lib<Name>Engine.so" library rather than being treated
-    // as a direct path (which would have produced the "expected string" error above): loading a
-    // non-existent engine therefore fails on the derived library name.
     CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
         engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_), 5)),
         Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));
 
-    // A complex-expression engine spec derives the same library name from its head before invoking
-    // the engine's "evaluate" entry point.
     CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
         engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_(9)), 5)),
         Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));

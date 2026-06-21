@@ -70,7 +70,10 @@ namespace {
 class BootstrapEngine : public boss::Engine {
 
   struct LibraryAndFunctions {
-    void *library, *evaluateFunction, *resetFunction;
+    using EntryPoint = BOSSExpression* (*)(BOSSExpression*);
+    void* library;
+    void (*resetFunction)(void);
+    EntryPoint evaluateFunction;
   };
 
   struct LibraryCache : private ::std::unordered_map<::std::string, LibraryAndFunctions> {
@@ -80,7 +83,9 @@ class BootstrapEngine : public boss::Engine {
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
           if(auto* evalSym = dlsym(library, "evaluate")) {
             auto* resetSym = dlsym(library, "reset");
-            emplace(libraryPath, LibraryAndFunctions {library, evalSym, resetSym});
+            emplace(libraryPath, LibraryAndFunctions {
+                                     library, resetSym,
+                                     reinterpret_cast<LibraryAndFunctions::EntryPoint>(evalSym)});
           } else {
             throw ::std::runtime_error("library \"" + libraryPath +
                                        "\" does not provide an evaluate function: " + dlerror());
@@ -118,65 +123,53 @@ class BootstrapEngine : public boss::Engine {
                                          boss::ComplexExpression&&)>> const registeredOperators {
       {boss::Symbol("EvaluateInEngines"),
        [this](auto&& e) -> boss::Expression {
-         using EngineEntryPoint = BOSSExpression* (*)(BOSSExpression*);
-
-         // Derives the shared library file name for an engine given as a symbol or a complex
-         // expression (named by its head): "lib" + <name> + "Engine" + the platform's shared
-         // library extension (".so" elsewhere, ".dll" on Windows where there is no "lib" prefix).
-         auto engineLibraryPath = [](::std::string const& engineName) {
+         auto resolveEngineEntryPoint = [this](auto const& enginePath) {
+           static auto symbolToLibraryName = [](boss::Symbol const& engine) -> ::std::string {
 #ifdef _WIN32
-           return engineName + "Engine.dll";
+             return engine.getName() + "Engine.dll";
 #else
-           return "lib" + engineName + "Engine.so";
+             return "lib" + engine.getName() + "Engine.so";
 #endif
+           };
+           auto getEntryPoint = boss::utilities::overload(
+               [](boss::Symbol const& engine) -> ::std::string {
+                 return symbolToLibraryName(engine);
+               },
+               [](boss::ComplexExpression const& engine) -> ::std::string {
+                 return symbolToLibraryName(engine.getHead());
+               },
+               [&enginePath](auto const& /*unused*/) -> ::std::string {
+                 return boss::get<::std::string>(enginePath);
+               });
+           auto* entryPoint = reinterpret_cast<LibraryAndFunctions::EntryPoint>(
+               libraries.at(::std::visit(getEntryPoint, enginePath.getArgument()))
+                   .evaluateFunction);
+           ::std::visit(boss::utilities::overload(
+                            [&entryPoint](boss::ComplexExpression const& engine) {
+                              auto* input = new BOSSExpression {engine.clone(
+                                  boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
+                              auto* output = entryPoint(input);
+                              freeBOSSExpression(input);
+                              if(output != nullptr) {
+                                ::std::visit(
+                                    boss::utilities::overload(
+                                        [&entryPoint](::std::int64_t value) {
+                                          // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                                          entryPoint =
+                                              reinterpret_cast<LibraryAndFunctions::EntryPoint>(
+                                                  static_cast<::std::intptr_t>(value));
+                                        },
+                                        [](auto const& /*unused*/) {}),
+                                    output->delegate);
+                                freeBOSSExpression(output);
+                              }
+                            },
+                            [](auto const& /*unused*/) {}),
+                        enginePath.getArgument());
+           return entryPoint;
          };
 
-         // Resolves a single engine specification to the C entry point used to dispatch
-         // expressions:
-         //  - A symbol: the library "lib<Name>Engine.so" is loaded and its "evaluate" function is
-         //    used as the entry point.
-         //  - A complex expression: the library is loaded using the same naming rule (from the
-         //    head), then the library's "evaluate" function is immediately called with the given
-         //    expression. If that call returns a 64-bit integer, the integer is reinterpreted as a
-         //    function pointer and used as the entry point (instead of "evaluate"); otherwise
-         //    "evaluate" remains the entry point.
-         //  - Anything else is treated as a direct library path (legacy behaviour, and yields the
-         //    "expected string" error for unsupported argument types).
-         auto resolveEngineEntryPoint =
-             [this, &engineLibraryPath](auto&& enginePath) -> EngineEntryPoint {
-           if(boss::holds_alternative<boss::Symbol>(enginePath)) {
-             return reinterpret_cast<EngineEntryPoint>(
-                 libraries.at(engineLibraryPath(boss::get<boss::Symbol>(enginePath).getName()))
-                     .evaluateFunction);
-           }
-           if(boss::holds_alternative<boss::ComplexExpression>(enginePath)) {
-             auto const& expression = boss::get<boss::ComplexExpression>(enginePath);
-             auto* evaluateFunction = reinterpret_cast<EngineEntryPoint>(
-                 libraries.at(engineLibraryPath(expression.getHead().getName())).evaluateFunction);
-             auto* input = new BOSSExpression {
-                 expression.clone(boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
-             auto* output = evaluateFunction(input);
-             freeBOSSExpression(input);
-             auto entryPoint = evaluateFunction;
-             // An engine may return nullptr (e.g. on error); only inspect a real result, and treat
-             // a returned int64 as an alternate entry point.
-             if(output != nullptr) {
-               ::std::visit(boss::utilities::overload(
-                                [&entryPoint](::std::int64_t value) {
-                                  entryPoint = reinterpret_cast<EngineEntryPoint>(
-                                      static_cast<::std::intptr_t>(value));
-                                },
-                                [](auto const& /*unused*/) {}),
-                            output->delegate);
-               freeBOSSExpression(output);
-             }
-             return entryPoint;
-           }
-           return reinterpret_cast<EngineEntryPoint>(
-               libraries.at(boss::get<::std::string>(enginePath)).evaluateFunction);
-         };
-
-         auto symbols = ::std::vector<EngineEntryPoint>();
+         auto symbols = ::std::vector<LibraryAndFunctions::EntryPoint>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
          ::std::for_each(
              args.begin(), args.end(), [&symbols, &resolveEngineEntryPoint](auto&& enginePath) {
