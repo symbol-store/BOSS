@@ -16,6 +16,7 @@
 #include <catch2/generators/catch_generators_random.hpp>
 #include <catch2/generators/catch_generators_range.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -528,6 +529,14 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
         engine.evaluate("EvaluateInEngines"_("List"_(9), 5)),
         "expected and actual type mismatch in expression \"9\", expected string");
+
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_), 5)),
+        Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));
+
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_(9)), 5)),
+        Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));
   }
 
   SECTION("Atomics") {
