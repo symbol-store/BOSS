@@ -154,10 +154,11 @@ class BootstrapEngine : public boss::Engine {
                                 ::std::visit(
                                     boss::utilities::overload(
                                         [&entryPoint](::std::int64_t value) {
-                                          // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                                          // NOLINTBEGIN(performance-no-int-to-ptr)
                                           entryPoint =
                                               reinterpret_cast<LibraryAndFunctions::EntryPoint>(
                                                   static_cast<::std::intptr_t>(value));
+                                          // NOLINTEND(performance-no-int-to-ptr)
                                         },
                                         [](auto const& /*unused*/) {}),
                                     output->delegate);
