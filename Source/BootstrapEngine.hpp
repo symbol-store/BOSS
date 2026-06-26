@@ -84,7 +84,7 @@ class BootstrapEngine : public boss::Engine {
           if(auto* evalSym = dlsym(library, "evaluate")) {
             auto* resetSym = dlsym(library, "reset");
             emplace(libraryPath, LibraryAndFunctions {
-                                     library, resetSym,
+                                     library, reinterpret_cast<void (*)(void)>(resetSym),
                                      reinterpret_cast<LibraryAndFunctions::EntryPoint>(evalSym)});
           } else {
             throw ::std::runtime_error("library \"" + libraryPath +
