@@ -84,9 +84,8 @@ class BootstrapEngine : public boss::Engine {
         const auto* n = libraryPath.c_str();
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
           if(auto* evalSym = dlsym(library, "evaluate")) {
-            auto* resetSym = dlsym(library, "reset");
             emplace(libraryPath, LibraryAndFunctions {
-                                     library, resetSym,
+                                     library, reinterpret_cast<void (*)(void)>(dlsym(library, "reset")),
                                      reinterpret_cast<LibraryAndFunctions::EntryPoint>(evalSym)});
           } else {
             throw ::std::runtime_error("library \"" + libraryPath +
