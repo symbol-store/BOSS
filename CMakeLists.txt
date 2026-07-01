@@ -198,7 +198,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 
   # Standalone BOSS REPL binary (statically linked)
-  add_executable(boss Source/boss-repl.cpp ${ImplementationFiles} ${REPLFiles})
+  add_executable(boss Source/BOSSREPL.cpp ${ImplementationFiles} ${REPLFiles})
   add_dependencies(boss chibi-scheme)
   target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
@@ -254,6 +254,24 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   list(APPEND AllTargets boss)
 endif()
 
+########################## Default Engine Libraries ############################
+
+set(BOSS_DEFAULT_ENGINES "" CACHE STRING "Default engine library names (semicolon-separated)")
+if(BOSS_DEFAULT_ENGINES)
+  set(_default_engine_defs "")
+  foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
+    list(APPEND _default_engine_defs "./${CMAKE_SHARED_MODULE_PREFIX}${_eng}${CMAKE_SHARED_MODULE_SUFFIX}")
+  endforeach()
+  string(JOIN "\",\"" _default_engine_init ${_default_engine_defs})
+  set(_default_engine_init "\"${_default_engine_init}\"")
+  foreach(Target IN LISTS AllTargets)
+    target_compile_definitions(${Target} PRIVATE BOSS_DEFAULT_ENGINE_LIBS=${_default_engine_init})
+  endforeach()
+  foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
+    list(APPEND BOSS_BUILD_ENGINES "symbol-store/${_eng}")
+  endforeach()
+endif()
+
 ############################ Targets Common Properties ############################
 
 foreach(Target IN LISTS AllTargets)
@@ -295,6 +313,9 @@ set(PUBLIC_HEADER_LIST
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
 )
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  list(APPEND PUBLIC_HEADER_LIST ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionParser.hpp)
+endif()
 set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
 
 if(WIN32)
@@ -327,5 +348,11 @@ foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
     GIT_TAG ${BranchName}
     DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/engines $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DBOSS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_REPOSITORY=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_BRANCH=${BOSS_CHECKOUT_BRANCH}
+  )
+  ExternalProject_Add_StepTargets(${EngineName} install)
+  add_custom_command(TARGET ${EngineName}-install POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${BOSS_BINARY_DIR}/engines/lib/${CMAKE_SHARED_MODULE_PREFIX}${EngineName}${CMAKE_SHARED_MODULE_SUFFIX}"
+      "${CMAKE_BINARY_DIR}/"
   )
 endforeach()

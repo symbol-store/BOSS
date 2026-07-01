@@ -7,10 +7,11 @@
 #include "ExpressionUtilities.hpp"
 #include "Utilities.hpp"
 
+#include <filesystem>
+
 #ifndef _WIN32
 #include <dlfcn.h>
 #else
-#include <filesystem>
 #define NOMINMAX // max macro in minwindef.h interfering with std::max...
 #include <windows.h>
 constexpr static int RTLD_NOW = 0;
@@ -53,6 +54,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #endif // _WIN32
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <numeric>
 #include <optional>
@@ -65,28 +67,70 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 namespace boss {
 namespace engines {
 namespace {
+using boss::utilities::operator""_;
 
-class BootstrapEngine : public boss::Engine {
+using std::for_each;
+using std::make_move_iterator;
+using std::prev;
+using std::runtime_error;
+using std::string;
+using std::to_string;
+using std::unordered_map;
+using std::vector;
+using std::filesystem::path;
+
+using boss::ComplexExpression;
+using boss::Engine;
+using boss::Expression;
+using boss::Symbol;
+using boss::expressions::generic::visit;
+using boss::utilities::overload;
+
+class BootstrapEngine : public Engine {
+  static string symbolToLibraryName(Symbol const& engine) {
+#ifdef _WIN32
+    return engine.getName() + "Engine.dll";
+#else
+    return "lib" + engine.getName() + "Engine.so";
+#endif
+  }
+
+  static string libraryNameForEnginePath(Expression const& enginePath) {
+    return visit(
+        overload(
+            [](Symbol const& engine) { return symbolToLibraryName(engine); },
+            [](ComplexExpression const& engine) { return symbolToLibraryName(engine.getHead()); },
+            [](string const& path) { return path; },
+            [](auto const& /*unused*/) -> string {
+              throw std::runtime_error(
+                  "engine pipeline entry must be Symbol, ComplexExpression, or string");
+            }),
+        enginePath);
+  }
 
   struct LibraryAndFunctions {
-    void *library, *evaluateFunction, *resetFunction;
+    using EntryPoint = BOSSExpression* (*)(BOSSExpression*);
+    void* library;
+    void (*resetFunction)(void);
+    EntryPoint evaluateFunction;
   };
 
-  struct LibraryCache : private ::std::unordered_map<::std::string, LibraryAndFunctions> {
-    LibraryAndFunctions const& at(::std::string const& libraryPath) {
+  struct LibraryCache : private unordered_map<string, LibraryAndFunctions> {
+    LibraryAndFunctions const& at(string const& libraryPath) {
       if(count(libraryPath) == 0) {
         const auto* n = libraryPath.c_str();
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
           if(auto* evalSym = dlsym(library, "evaluate")) {
-            auto* resetSym = dlsym(library, "reset");
-            emplace(libraryPath, LibraryAndFunctions {library, evalSym, resetSym});
+            emplace(libraryPath,
+                    LibraryAndFunctions {
+                        library, reinterpret_cast<void (*)(void)>(dlsym(library, "reset")),
+                        reinterpret_cast<LibraryAndFunctions::EntryPoint>(evalSym)});
           } else {
-            throw ::std::runtime_error("library \"" + libraryPath +
-                                       "\" does not provide an evaluate function: " + dlerror());
+            throw runtime_error("library \"" + libraryPath +
+                                "\" does not provide an evaluate function: " + dlerror());
           }
         } else {
-          throw ::std::runtime_error("library \"" + libraryPath +
-                                     "\" could not be loaded: " + dlerror());
+          throw runtime_error("library \"" + libraryPath + "\" could not be loaded: " + dlerror());
         }
       };
       return unordered_map::at(libraryPath);
@@ -101,7 +145,7 @@ class BootstrapEngine : public boss::Engine {
         }
         dlclose(library.library);
       }
-      ::std::unordered_map<::std::string, LibraryAndFunctions>::clear();
+      unordered_map<string, LibraryAndFunctions>::clear();
     }
 
     LibraryCache() = default;
@@ -111,64 +155,145 @@ class BootstrapEngine : public boss::Engine {
     LibraryCache& operator=(LibraryCache&&) = delete;
   } libraries;
 
-  ::std::vector<::std::string> defaultEngine;
+  vector<Expression> defaultEnginePipeline;
 
-  ::std::unordered_map<boss::Symbol, ::std::function<boss::Expression(
-                                         boss::ComplexExpression&&)>> const registeredOperators {
-      {boss::Symbol("EvaluateInEngines"),
-       [this](auto&& e) -> boss::Expression {
-         auto symbols = ::std::vector<BOSSExpression* (*)(BOSSExpression*)>();
+  unordered_map<Symbol, std::function<Expression(ComplexExpression&&)>> const registeredOperators {
+      {Symbol("EvaluateInEngines"),
+       [this](auto&& e) -> Expression {
+         auto resolveEngineEntryPoint = [this](auto const& enginePath) {
+           auto getEntryPoint = overload(
+               [](Symbol const& engine) -> string { return symbolToLibraryName(engine); },
+               [](ComplexExpression const& engine) -> string {
+                 return symbolToLibraryName(engine.getHead());
+               },
+               [&enginePath](auto const& /*unused*/) -> string { return get<string>(enginePath); });
+           auto* entryPoint = reinterpret_cast<LibraryAndFunctions::EntryPoint>(
+               libraries.at(visit(getEntryPoint, enginePath)).evaluateFunction);
+           visit(overload(
+                     [&entryPoint](ComplexExpression const& engine) {
+                       auto [_originalHead, statics, dynamics, spans] =
+                           engine
+                               .clone(
+                                   boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)
+                               .decompose();
+                       auto* input = new BOSSExpression {
+                           ComplexExpression(Symbol("GetEntryPoint"), std::move(statics),
+                                             std::move(dynamics), std::move(spans))};
+                       auto* output = entryPoint(input);
+                       freeBOSSExpression(input);
+                       if(output != nullptr) {
+                         visit(overload(
+                                   [&entryPoint](std::int64_t value) {
+                                     // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                                     entryPoint = reinterpret_cast<LibraryAndFunctions::EntryPoint>(
+                                         static_cast<std::intptr_t>(value));
+                                   },
+                                   [](auto const& /*unused*/) {}),
+                               output->delegate);
+                         freeBOSSExpression(output);
+                       }
+                     },
+                     [](auto const& /*unused*/) {}),
+                 enginePath);
+           return entryPoint;
+         };
+
+         auto symbols = vector<LibraryAndFunctions::EntryPoint>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
-         ::std::for_each(args.begin(), args.end(),
-                         [&libraries = this->libraries, &symbols](auto&& enginePath) {
-                           symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                               libraries.at(get<::std::string>(enginePath)).evaluateFunction));
-                         });
-         ::std::for_each(::std::make_move_iterator(::std::next(
-                             e.getArguments().begin())), // Note: first argument is the engine path
-                         ::std::make_move_iterator(::std::prev(e.getArguments().end())),
-                         [&symbols](auto&& argument) {
-                           auto* wrapper =
-                               new BOSSExpression {::std::forward<decltype(argument)>(argument)};
-                           for(auto sym : symbols) {
-                             auto* oldWrapper = wrapper;
-                             wrapper = (sym(wrapper));
-                             freeBOSSExpression(oldWrapper);
-                           }
-                           freeBOSSExpression(wrapper);
-                         });
+         for_each(args.begin(), args.end(),
+                  [&symbols, &resolveEngineEntryPoint](auto&& enginePath) {
+                    symbols.push_back(
+                        resolveEngineEntryPoint(std::forward<decltype(enginePath)>(enginePath)));
+                  });
+         for_each(make_move_iterator(std::next(
+                      e.getArguments().begin())), // Note: first argument is the engine path
+                  make_move_iterator(prev(e.getArguments().end())), [&symbols](auto&& argument) {
+                    auto* wrapper = new BOSSExpression {std::forward<decltype(argument)>(argument)};
+                    for(auto sym : symbols) {
+                      auto* oldWrapper = wrapper;
+                      wrapper = (sym(wrapper));
+                      freeBOSSExpression(oldWrapper);
+                    }
+                    freeBOSSExpression(wrapper);
+                  });
 
-         auto* r = new BOSSExpression {*::std::prev(e.getArguments().end())};
+         auto* r = new BOSSExpression {*prev(e.getArguments().end())};
          for(auto sym : symbols) {
            auto* oldWrapper = r;
            r = sym(r);
            freeBOSSExpression(oldWrapper);
          }
-         auto result = ::std::move(r->delegate);
+         auto result = std::move(r->delegate);
          freeBOSSExpression(r); // NOLINT
-         return ::std::move(result);
+         return std::move(result);
        }},
-      {boss::Symbol("SetDefaultEnginePipeline"),
-       [this](auto&& expression) -> boss::Expression {
-         algorithm::visitEach(expression.getArguments(), [&defaultEngine =
-                                                              this->defaultEngine](auto&& engine) {
-           if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
-             defaultEngine.push_back(engine);
+      {Symbol("SetDefaultEnginePipeline"),
+       [this](auto&& expression) -> Expression {
+         defaultEnginePipeline.clear();
+         libraries.clear();
+         algorithm::visitEach(expression.getArguments(), [&pipeline = this->defaultEnginePipeline](
+                                                             auto&& engine) {
+           using EngineArg = std::decay_t<decltype(engine)>;
+           if constexpr(std::is_same_v<EngineArg, string> || std::is_same_v<EngineArg, Symbol>) {
+             pipeline.push_back(engine);
+           } else if constexpr(std::is_same_v<EngineArg, ComplexExpression>) {
+             pipeline.push_back(
+                 engine.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
            } else {
              std::stringstream errorMessage;
-             errorMessage << "SetDefaultEnginePipeline received non-string argument: " << engine;
+             errorMessage << "SetDefaultEnginePipeline received unsupported argument: " << engine;
              throw std::runtime_error(errorMessage.str());
            }
          });
          return "okay";
        }},
-      {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {
+      {Symbol("GetDefaultEnginePipeline"),
+       [this](auto&& /*expression*/) -> Expression {
+         ExpressionArguments args;
+         args.reserve(defaultEnginePipeline.size());
+         for(auto const& entry : defaultEnginePipeline) {
+           args.push_back(entry.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
+         }
+         return "List"_(std::move(args));
+       }},
+      {Symbol("GetEngineDescription"),
+       [this](auto&& /*expression*/) -> Expression {
+         using boss::utilities::operator""_;
+         std::string descriptions;
+         for(auto const& enginePath : defaultEnginePipeline) {
+           auto* evalFn = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
+               libraries.at(libraryNameForEnginePath(enginePath)).evaluateFunction);
+           auto* queryWrapper = new BOSSExpression {"GetEngineDescription"_()};
+           auto* resultWrapper = evalFn(queryWrapper);
+           freeBOSSExpression(queryWrapper);
+           auto resultExpr = std::move(resultWrapper->delegate);
+           freeBOSSExpression(resultWrapper);
+           auto engineName = path(libraryNameForEnginePath(enginePath)).stem().string();
+           if(engineName.compare(0, 3, "lib") == 0) {
+             engineName.erase(0, 3);
+           }
+           visit(overload(
+                     [&descriptions, &engineName](string const& description) {
+                       if(!descriptions.empty()) {
+                         descriptions += "\n";
+                       }
+                       descriptions += "## " + engineName + "\n\n";
+                       descriptions += description;
+                     },
+                     [](auto const&) {}),
+                 resultExpr);
+         }
+         return descriptions;
+       }},
+      {Symbol("ResetEngines"), [this](auto&& /*expression*/) -> Expression {
+         defaultEnginePipeline.clear();
          libraries.clear();
          return "okay";
        }}};
-  bool isBootstrapCommand(boss::Expression const& expression) {
+
+  bool isBootstrapCommand(Expression const& expression) {
     return visit(utilities::overload(
-                     [this](boss::ComplexExpression const& expression) {
+                     [this](ComplexExpression const& expression) {
                        return registeredOperators.count(expression.getHead()) > 0;
                      },
                      [](auto const& /* unused */
@@ -177,41 +302,53 @@ class BootstrapEngine : public boss::Engine {
   }
 
 public:
-  BootstrapEngine() = default;
+  BootstrapEngine() {
+#ifdef BOSS_DEFAULT_ENGINE_LIBS
+    for(auto const& lib : std::initializer_list<std::string> {BOSS_DEFAULT_ENGINE_LIBS}) {
+      defaultEnginePipeline.push_back(lib);
+    }
+#endif
+  }
   ~BootstrapEngine() = default;
   BootstrapEngine(BootstrapEngine const&) = delete;
   BootstrapEngine(BootstrapEngine&&) = delete;
   BootstrapEngine& operator=(BootstrapEngine const&) = delete;
   BootstrapEngine& operator=(BootstrapEngine&&) = delete;
 
-  auto evaluateArguments(boss::ComplexExpression&& expr) {
-    ::std::transform(::std::make_move_iterator(begin(expr.getArguments())),
-                     ::std::make_move_iterator(end(expr.getArguments())),
-                     begin(expr.getArguments()),
-                     [this](auto&& e) { return evaluate(::std::forward<decltype(e)>(e), false); });
-    return ::std::move(expr);
+  auto evaluateArguments(ComplexExpression&& expr) {
+    std::transform(make_move_iterator(begin(expr.getArguments())),
+                   make_move_iterator(end(expr.getArguments())), begin(expr.getArguments()),
+                   [this](auto&& e) { return evaluate(std::forward<decltype(e)>(e), false); });
+    return std::move(expr);
   }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  boss::Expression evaluate(boss::Expression&& e, bool isRootExpression = true) {
+  Expression evaluate(Expression&& e, bool isRootExpression = true) {
     using boss::utilities::operator""_;
 
-    auto wrappedE =
-        isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
-            ? "EvaluateInEngines"_(
-                  "List"_(Span<::std::string>(::std::vector<::std::string>(defaultEngine))),
-                  std::move(e))
-            : std::move(e);
-    return ::std::visit(boss::utilities::overload(
-                            [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
-                              if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
-                                return ::std::move(unevaluatedE);
-                              }
-                              auto const& op = registeredOperators.at(unevaluatedE.getHead());
-                              return op(evaluateArguments(::std::move(unevaluatedE)));
-                            },
-                            [](auto&& e) -> boss::Expression { return e; }),
-                        ::std::forward<boss::Expression>(wrappedE));
+    auto wrappedE = isRootExpression && !defaultEnginePipeline.empty() && !isBootstrapCommand(e)
+                        ? "EvaluateInEngines"_(
+                              [&] {
+                                ExpressionArguments args;
+                                args.reserve(defaultEnginePipeline.size());
+                                for(auto const& entry : defaultEnginePipeline) {
+                                  args.push_back(entry.clone(
+                                      boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
+                                }
+                                return "List"_(std::move(args));
+                              }(),
+                              std::move(e))
+                        : std::move(e);
+    return visit(overload(
+                     [this](ComplexExpression&& unevaluatedE) -> Expression {
+                       if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
+                         return std::move(unevaluatedE);
+                       }
+                       auto const& op = registeredOperators.at(unevaluatedE.getHead());
+                       return op(evaluateArguments(std::move(unevaluatedE)));
+                     },
+                     [](auto&& e) -> Expression { return e; }),
+                 std::forward<Expression>(wrappedE));
   }
 };
 } // namespace
