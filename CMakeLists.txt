@@ -219,6 +219,53 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     INSTALL_RPATH "")
 
   install(TARGETS boss RUNTIME DESTINATION bin)
+
+  # ── Concurrency stress harness (Phase 2 of the thread-safety hardening plan) ──
+  # Mirrors the `boss` REPL target (same chibi bridge + generated FFI bindings) but builds a
+  # multi-threaded driver instrumented with ThreadSanitizer. EXCLUDE_FROM_ALL: this is a
+  # diagnostic tool, not part of the default build. See docs/threading-audit.md and
+  # Tests/Concurrency/known-races.md.
+  #
+  # ThreadSanitizer is mutually exclusive with the AddressSanitizer-based `Sanitize` build
+  # type, so the target is skipped there; configure a separate build dir without
+  # -DCMAKE_BUILD_TYPE=Sanitize to build it.
+  option(BOSS_CONCURRENCY_STRESS "Build the ThreadSanitizer concurrency stress harness" ON)
+  if(BOSS_CONCURRENCY_STRESS AND NOT CMAKE_BUILD_TYPE STREQUAL "Sanitize")
+    add_executable(boss_concurrency_stress EXCLUDE_FROM_ALL
+      Tests/Concurrency/stress.cpp ${ImplementationFiles} ${REPLFiles})
+    add_dependencies(boss_concurrency_stress chibi-scheme)
+    target_include_directories(boss_concurrency_stress SYSTEM PRIVATE ${_chibi_prefix}/include)
+    target_include_directories(boss_concurrency_stress PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
+    target_link_libraries(boss_concurrency_stress
+      ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
+    if(UNIX AND NOT APPLE)
+      target_link_libraries(boss_concurrency_stress dl)
+    endif()
+    # ThreadSanitizer for *this target only*. BOSS core (compiled into this TU set) is fully
+    # instrumented; the chibi static lib is not, but the GC-root-stack macros
+    # (sexp_gc_preserve/release) execute in instrumented header code, so shared-context races
+    # are still observed. See Tests/Concurrency/known-races.md for the instrumentation note.
+    target_compile_options(boss_concurrency_stress PRIVATE
+      -fsanitize=thread -fno-omit-frame-pointer -g)
+    target_link_options(boss_concurrency_stress PRIVATE -fsanitize=thread)
+    # Set the properties the common-target loop would otherwise provide. Deliberately NOT
+    # added to AllTargets: that would bake in BOSS_DEFAULT_ENGINE_LIBS, making the harness
+    # auto-load engines and lose its engine-independence.
+    target_link_libraries(boss_concurrency_stress Threads::Threads)
+    set_target_properties(boss_concurrency_stress PROPERTIES
+      CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+      target_compile_options(boss_concurrency_stress PRIVATE -Wthread-safety -Werror=thread-safety)
+    endif()
+    if(APPLE)
+      target_link_libraries(boss_concurrency_stress "-Wl,-export_dynamic")
+    endif()
+    set(_BUILD_STRESS_TARGET ON)
+  elseif(BOSS_CONCURRENCY_STRESS)
+    message(STATUS
+      "boss_concurrency_stress skipped under the ASan 'Sanitize' build type "
+      "(ThreadSanitizer conflict). Configure a non-Sanitize build dir to build it.")
+  endif()
 endif()
 
 
@@ -289,6 +336,12 @@ foreach(Target IN LISTS AllTargets)
   add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
   set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+  # Clang Thread Safety Analysis: static checking of the engineStateMutex annotations in
+  # Source/ThreadSafety.hpp / BootstrapEngine.hpp (Phase 5). Hard error so unguarded access to
+  # guarded state fails the build. Clang-only; the annotation macros are no-ops elsewhere.
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(${Target} PRIVATE -Wthread-safety -Werror=thread-safety)
+  endif()
   if(MSVC)
     target_compile_options(${Target} PUBLIC "/Zc:__cplusplus")
     target_compile_options(${Target} PUBLIC "/EHsc")

@@ -5,6 +5,7 @@
 #include "Engine.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "ThreadSafety.hpp"
 #include "Utilities.hpp"
 
 #include <filesystem>
@@ -68,14 +69,53 @@ namespace engines {
 namespace {
 using boss::utilities::operator""_;
 
+// ── BOSS core dispatch threading contract ──────────────────────────────────────────────────
+// Caller contract:  one chibi context per concurrent caller (a single context is not
+//   thread-safe — see docs/threading-audit.md §3). Multiple contexts MAY call BOSSEvaluate
+//   concurrently; core serves them concurrently.
+// Engine contract:  an engine's `evaluate` (and `reset`) MUST be reentrant — core may call the
+//   same engine from multiple threads at once and never serializes engine calls.
+// Reconfiguration:  SetDefaultEnginePipeline / ResetEngines mutate shared engine state and are
+//   only valid while NO evaluation is in flight (quiesce first). They keep core's own state
+//   consistent under a lock, but ResetEngines resets+unloads engines, which is unsafe under a
+//   concurrent in-flight call regardless of locking.
+// Implementation invariant: core takes `engineStateMutex` only to read/snapshot the pipeline
+//   and resolve engine function pointers, and NEVER holds it across an engine call (that would
+//   serialize the concurrency this design exists to provide, and could deadlock on re-entry).
+
+struct LibraryAndFunctions {
+  void *library, *evaluateFunction, *resetFunction;
+};
+
+// Reset + unload libraries. MUST run OUTSIDE engineStateMutex: reset() is an engine call.
+void unloadLibraries(::std::vector<LibraryAndFunctions> const& libs) {
+  for(auto const& lib : libs) {
+    if(lib.resetFunction != nullptr) {
+      reinterpret_cast<void (*)(void)>(lib.resetFunction)();
+    }
+    dlclose(lib.library);
+  }
+}
+
 class BootstrapEngine : public boss::Engine {
 
-  struct LibraryAndFunctions {
-    void *library, *evaluateFunction, *resetFunction;
-  };
+  // Guards `libraries` and `defaultEngine`. Shared for the dispatch snapshot/resolve path;
+  // exclusive for first-time dlopen and for reconfiguration. Never held across an engine call.
+  // Declared first so the GUARDED_BY annotations below can reference it.
+  mutable boss::concurrency::SharedMutex engineStateMutex;
 
   struct LibraryCache : private ::std::unordered_map<::std::string, LibraryAndFunctions> {
-    LibraryAndFunctions const& at(::std::string const& libraryPath) {
+    // Look up an already-loaded library. Caller holds a shared lock on engineStateMutex.
+    ::std::optional<LibraryAndFunctions> tryGet(::std::string const& libraryPath) const {
+      auto const it = find(libraryPath);
+      if(it == end()) {
+        return ::std::nullopt;
+      }
+      return it->second;
+    }
+
+    // dlopen the library if absent, then return it. Caller holds an EXCLUSIVE lock.
+    LibraryAndFunctions const& loadOrGet(::std::string const& libraryPath) {
       if(count(libraryPath) == 0) {
         const auto* n = libraryPath.c_str();
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
@@ -94,26 +134,41 @@ class BootstrapEngine : public boss::Engine {
       return unordered_map::at(libraryPath);
     }
 
-    ~LibraryCache() { clear(); }
-
-    void clear() {
+    // Detach all entries so the caller can unload them OUTSIDE the lock. Map becomes empty.
+    ::std::vector<LibraryAndFunctions> detachAll() {
+      ::std::vector<LibraryAndFunctions> libs;
+      libs.reserve(size());
       for(const auto& [name, library] : *this) {
-        if(library.resetFunction != nullptr) {
-          reinterpret_cast<void (*)(void)>(library.resetFunction)();
-        }
-        dlclose(library.library);
+        libs.push_back(library);
       }
       ::std::unordered_map<::std::string, LibraryAndFunctions>::clear();
+      return libs;
     }
+
+    ~LibraryCache() { unloadLibraries(detachAll()); }
 
     LibraryCache() = default;
     LibraryCache(LibraryCache const&) = delete;
     LibraryCache(LibraryCache&&) = delete;
     LibraryCache& operator=(LibraryCache const&) = delete;
     LibraryCache& operator=(LibraryCache&&) = delete;
-  } libraries;
+  } libraries BOSS_GUARDED_BY(engineStateMutex);
 
-  ::std::vector<::std::string> defaultEngine;
+  ::std::vector<::std::string> defaultEngine BOSS_GUARDED_BY(engineStateMutex);
+
+  // Resolve (loading on first use) an engine's evaluate function. Takes engineStateMutex
+  // shared for the common cache hit, upgrading to exclusive only to dlopen on a miss.
+  // EXCLUDES: acquires the lock itself, so callers must not already hold it.
+  void* resolveEvaluateFunction(::std::string const& libraryPath) BOSS_EXCLUDES(engineStateMutex) {
+    {
+      boss::concurrency::SharedLock const lock(engineStateMutex);
+      if(auto const entry = libraries.tryGet(libraryPath)) {
+        return entry->evaluateFunction;
+      }
+    }
+    boss::concurrency::UniqueLock const lock(engineStateMutex);
+    return libraries.loadOrGet(libraryPath).evaluateFunction;
+  }
 
   ::std::unordered_map<boss::Symbol, ::std::function<boss::Expression(
                                          boss::ComplexExpression&&)>> const registeredOperators {
@@ -121,11 +176,12 @@ class BootstrapEngine : public boss::Engine {
        [this](auto&& e) -> boss::Expression {
          auto symbols = ::std::vector<BOSSExpression* (*)(BOSSExpression*)>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
-         ::std::for_each(args.begin(), args.end(),
-                         [&libraries = this->libraries, &symbols](auto&& enginePath) {
-                           symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                               libraries.at(get<::std::string>(enginePath)).evaluateFunction));
-                         });
+         // Resolve all engine function pointers up front (each call locks engineStateMutex
+         // briefly). The dispatch loops below then run with NO lock held.
+         ::std::for_each(args.begin(), args.end(), [this, &symbols](auto&& enginePath) {
+           symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
+               resolveEvaluateFunction(get<::std::string>(enginePath))));
+         });
          ::std::for_each(::std::make_move_iterator(::std::next(
                              e.getArguments().begin())), // Note: first argument is the engine path
                          ::std::make_move_iterator(::std::prev(e.getArguments().end())),
@@ -152,30 +208,41 @@ class BootstrapEngine : public boss::Engine {
        }},
       {boss::Symbol("SetDefaultEnginePipeline"),
        [this](auto&& expression) -> boss::Expression {
-         defaultEngine.clear();
-         algorithm::visitEach(expression.getArguments(), [&defaultEngine =
-                                                              this->defaultEngine](auto&& engine) {
+         // Build the new pipeline into a local first (no lock needed, and validation throws
+         // before we touch shared state — so a bad argument leaves the pipeline unchanged).
+         ::std::vector<::std::string> newPipeline;
+         algorithm::visitEach(expression.getArguments(), [&newPipeline](auto&& engine) {
            if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
-             defaultEngine.push_back(engine);
+             newPipeline.push_back(engine);
            } else {
              std::stringstream errorMessage;
              errorMessage << "SetDefaultEnginePipeline received non-string argument: " << engine;
              throw std::runtime_error(errorMessage.str());
            }
          });
+         // Reconfiguration: exclusive lock. Only valid while no evaluation is in flight.
+         boss::concurrency::UniqueLock const lock(engineStateMutex);
+         defaultEngine = ::std::move(newPipeline);
          return "okay";
        }},
       {boss::Symbol("GetDefaultEnginePipeline"),
        [this](auto&& /*expression*/) -> boss::Expression {
+         boss::concurrency::SharedLock const lock(engineStateMutex);
          return "List"_(Span<::std::string>(::std::vector<::std::string>(defaultEngine)));
        }},
       {boss::Symbol("GetEngineDescription"),
        [this](auto&& /*expression*/) -> boss::Expression {
          using boss::utilities::operator""_;
+         // Snapshot the pipeline under a shared lock, then resolve + call engines with no lock.
+         ::std::vector<::std::string> pipeline;
+         {
+           boss::concurrency::SharedLock const lock(engineStateMutex);
+           pipeline = defaultEngine;
+         }
          std::string descriptions;
-         for(auto const& enginePath : defaultEngine) {
+         for(auto const& enginePath : pipeline) {
            auto* evalFn = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-               libraries.at(enginePath).evaluateFunction);
+               resolveEvaluateFunction(enginePath));
            auto* queryWrapper = new BOSSExpression {"GetEngineDescription"_()};
            auto* resultWrapper = evalFn(queryWrapper);
            freeBOSSExpression(queryWrapper);
@@ -199,8 +266,15 @@ class BootstrapEngine : public boss::Engine {
          return descriptions;
        }},
       {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {
-         defaultEngine.clear();
-         libraries.clear();
+         // Reconfiguration: only valid while no evaluation is in flight. Clear core state under
+         // the lock, then reset+unload the engines OUTSIDE it (reset() is an engine call).
+         ::std::vector<LibraryAndFunctions> toUnload;
+         {
+           boss::concurrency::UniqueLock const lock(engineStateMutex);
+           defaultEngine.clear();
+           toUnload = libraries.detachAll();
+         }
+         unloadLibraries(toUnload);
          return "okay";
        }}};
 
@@ -240,12 +314,18 @@ public:
   boss::Expression evaluate(boss::Expression&& e, bool isRootExpression = true) {
     using boss::utilities::operator""_;
 
-    auto wrappedE =
-        isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
-            ? "EvaluateInEngines"_(
-                  "List"_(Span<::std::string>(::std::vector<::std::string>(defaultEngine))),
-                  std::move(e))
-            : std::move(e);
+    // Snapshot the engine pipeline under a shared lock (only for root, non-bootstrap
+    // expressions — recursive sub-evaluations and bootstrap commands never wrap). The lock is
+    // released before dispatch, so it is never held across an engine call.
+    ::std::vector<::std::string> pipeline;
+    if(isRootExpression && !isBootstrapCommand(e)) {
+      boss::concurrency::SharedLock const lock(engineStateMutex);
+      pipeline = defaultEngine;
+    }
+    auto wrappedE = !pipeline.empty()
+                        ? "EvaluateInEngines"_("List"_(Span<::std::string>(::std::move(pipeline))),
+                                               std::move(e))
+                        : std::move(e);
     return ::std::visit(boss::utilities::overload(
                             [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
                               if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
