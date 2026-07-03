@@ -55,6 +55,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #endif // _WIN32
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <numeric>
 #include <optional>
@@ -69,11 +70,27 @@ namespace engines {
 namespace {
 using boss::utilities::operator""_;
 
-// ── BOSS core dispatch threading contract ──────────────────────────────────────────────────
+using std::for_each;
+using std::make_move_iterator;
+using std::prev;
+using std::runtime_error;
+using std::string;
+using std::unordered_map;
+using std::vector;
+using std::filesystem::path;
+
+using boss::ComplexExpression;
+using boss::Engine;
+using boss::Expression;
+using boss::Symbol;
+using boss::expressions::generic::visit;
+using boss::utilities::overload;
+
+// -- BOSS core dispatch threading contract ---------------------------------------------------
 // Caller contract:  one chibi context per concurrent caller (a single context is not
-//   thread-safe — see docs/threading-audit.md §3). Multiple contexts MAY call BOSSEvaluate
-//   concurrently; core serves them concurrently.
-// Engine contract:  an engine's `evaluate` (and `reset`) MUST be reentrant — core may call the
+//   thread-safe -- see docs/threading-audit.md section 3). Multiple contexts MAY call
+//   BOSSEvaluate concurrently; core serves them concurrently.
+// Engine contract:  an engine's `evaluate` (and `reset`) MUST be reentrant -- core may call the
 //   same engine from multiple threads at once and never serializes engine calls.
 // Reconfiguration:  SetDefaultEnginePipeline / ResetEngines mutate shared engine state and are
 //   only valid while NO evaluation is in flight (quiesce first). They keep core's own state
@@ -84,29 +101,53 @@ using boss::utilities::operator""_;
 //   serialize the concurrency this design exists to provide, and could deadlock on re-entry).
 
 struct LibraryAndFunctions {
-  void *library, *evaluateFunction, *resetFunction;
+  using EntryPoint = BOSSExpression* (*)(BOSSExpression*);
+  void* library;
+  void (*resetFunction)(void);
+  EntryPoint evaluateFunction;
 };
 
 // Reset + unload libraries. MUST run OUTSIDE engineStateMutex: reset() is an engine call.
-void unloadLibraries(::std::vector<LibraryAndFunctions> const& libs) {
+void unloadLibraries(vector<LibraryAndFunctions> const& libs) {
   for(auto const& lib : libs) {
     if(lib.resetFunction != nullptr) {
-      reinterpret_cast<void (*)(void)>(lib.resetFunction)();
+      lib.resetFunction();
     }
     dlclose(lib.library);
   }
 }
 
-class BootstrapEngine : public boss::Engine {
+class BootstrapEngine : public Engine {
 
-  // Guards `libraries` and `defaultEngine`. Shared for the dispatch snapshot/resolve path;
-  // exclusive for first-time dlopen and for reconfiguration. Never held across an engine call.
-  // Declared first so the GUARDED_BY annotations below can reference it.
+  // Guards `libraries` and `defaultEnginePipeline`. Shared for the dispatch snapshot/resolve
+  // path; exclusive for first-time dlopen and for reconfiguration. Never held across an engine
+  // call. Declared first so the GUARDED_BY annotations below can reference it.
   mutable boss::concurrency::SharedMutex engineStateMutex;
 
-  struct LibraryCache : private ::std::unordered_map<::std::string, LibraryAndFunctions> {
+  static string symbolToLibraryName(Symbol const& engine) {
+#ifdef _WIN32
+    return engine.getName() + "Engine.dll";
+#else
+    return "lib" + engine.getName() + "Engine.so";
+#endif
+  }
+
+  static string libraryNameForEnginePath(Expression const& enginePath) {
+    return visit(
+        overload(
+            [](Symbol const& engine) { return symbolToLibraryName(engine); },
+            [](ComplexExpression const& engine) { return symbolToLibraryName(engine.getHead()); },
+            [](string const& path) { return path; },
+            [](auto const& /*unused*/) -> string {
+              throw std::runtime_error(
+                  "engine pipeline entry must be Symbol, ComplexExpression, or string");
+            }),
+        enginePath);
+  }
+
+  struct LibraryCache : private unordered_map<string, LibraryAndFunctions> {
     // Look up an already-loaded library. Caller holds a shared lock on engineStateMutex.
-    ::std::optional<LibraryAndFunctions> tryGet(::std::string const& libraryPath) const {
+    ::std::optional<LibraryAndFunctions> tryGet(string const& libraryPath) const {
       auto const it = find(libraryPath);
       if(it == end()) {
         return ::std::nullopt;
@@ -115,33 +156,35 @@ class BootstrapEngine : public boss::Engine {
     }
 
     // dlopen the library if absent, then return it. Caller holds an EXCLUSIVE lock.
-    LibraryAndFunctions const& loadOrGet(::std::string const& libraryPath) {
+    LibraryAndFunctions const& loadOrGet(string const& libraryPath) {
       if(count(libraryPath) == 0) {
         const auto* n = libraryPath.c_str();
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
           if(auto* evalSym = dlsym(library, "evaluate")) {
-            auto* resetSym = dlsym(library, "reset");
-            emplace(libraryPath, LibraryAndFunctions {library, evalSym, resetSym});
+            emplace(libraryPath,
+                    LibraryAndFunctions {
+                        library, reinterpret_cast<void (*)(void)>(dlsym(library, "reset")),
+                        reinterpret_cast<LibraryAndFunctions::EntryPoint>(evalSym)});
           } else {
-            throw ::std::runtime_error("library \"" + libraryPath +
-                                       "\" does not provide an evaluate function: " + dlerror());
+            throw runtime_error("library \"" + libraryPath +
+                                "\" does not provide an evaluate function: " + dlerror());
           }
         } else {
-          throw ::std::runtime_error("library \"" + libraryPath +
-                                     "\" could not be loaded: " + dlerror());
+          throw runtime_error("library \"" + libraryPath + "\" could not be loaded: " +
+                              dlerror());
         }
       };
       return unordered_map::at(libraryPath);
     }
 
     // Detach all entries so the caller can unload them OUTSIDE the lock. Map becomes empty.
-    ::std::vector<LibraryAndFunctions> detachAll() {
-      ::std::vector<LibraryAndFunctions> libs;
+    vector<LibraryAndFunctions> detachAll() {
+      vector<LibraryAndFunctions> libs;
       libs.reserve(size());
       for(const auto& [name, library] : *this) {
         libs.push_back(library);
       }
-      ::std::unordered_map<::std::string, LibraryAndFunctions>::clear();
+      unordered_map<string, LibraryAndFunctions>::clear();
       return libs;
     }
 
@@ -154,12 +197,13 @@ class BootstrapEngine : public boss::Engine {
     LibraryCache& operator=(LibraryCache&&) = delete;
   } libraries BOSS_GUARDED_BY(engineStateMutex);
 
-  ::std::vector<::std::string> defaultEngine BOSS_GUARDED_BY(engineStateMutex);
+  vector<Expression> defaultEnginePipeline BOSS_GUARDED_BY(engineStateMutex);
 
   // Resolve (loading on first use) an engine's evaluate function. Takes engineStateMutex
   // shared for the common cache hit, upgrading to exclusive only to dlopen on a miss.
   // EXCLUDES: acquires the lock itself, so callers must not already hold it.
-  void* resolveEvaluateFunction(::std::string const& libraryPath) BOSS_EXCLUDES(engineStateMutex) {
+  LibraryAndFunctions::EntryPoint resolveEvaluateFunction(string const& libraryPath)
+      BOSS_EXCLUDES(engineStateMutex) {
     {
       boss::concurrency::SharedLock const lock(engineStateMutex);
       if(auto const entry = libraries.tryGet(libraryPath)) {
@@ -170,117 +214,174 @@ class BootstrapEngine : public boss::Engine {
     return libraries.loadOrGet(libraryPath).evaluateFunction;
   }
 
-  ::std::unordered_map<boss::Symbol, ::std::function<boss::Expression(
-                                         boss::ComplexExpression&&)>> const registeredOperators {
-      {boss::Symbol("EvaluateInEngines"),
-       [this](auto&& e) -> boss::Expression {
-         auto symbols = ::std::vector<BOSSExpression* (*)(BOSSExpression*)>();
-         auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
-         // Resolve all engine function pointers up front (each call locks engineStateMutex
-         // briefly). The dispatch loops below then run with NO lock held.
-         ::std::for_each(args.begin(), args.end(), [this, &symbols](auto&& enginePath) {
-           symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-               resolveEvaluateFunction(get<::std::string>(enginePath))));
-         });
-         ::std::for_each(::std::make_move_iterator(::std::next(
-                             e.getArguments().begin())), // Note: first argument is the engine path
-                         ::std::make_move_iterator(::std::prev(e.getArguments().end())),
-                         [&symbols](auto&& argument) {
-                           auto* wrapper =
-                               new BOSSExpression {::std::forward<decltype(argument)>(argument)};
-                           for(auto sym : symbols) {
-                             auto* oldWrapper = wrapper;
-                             wrapper = (sym(wrapper));
-                             freeBOSSExpression(oldWrapper);
-                           }
-                           freeBOSSExpression(wrapper);
-                         });
+  unordered_map<Symbol, std::function<Expression(ComplexExpression&&)>> const registeredOperators {
+      {Symbol("EvaluateInEngines"),
+       [this](auto&& e) -> Expression {
+         auto resolveEngineEntryPoint = [this](auto const& enginePath) {
+           auto getEntryPoint = overload(
+               [](Symbol const& engine) -> string { return symbolToLibraryName(engine); },
+               [](ComplexExpression const& engine) -> string {
+                 return symbolToLibraryName(engine.getHead());
+               },
+               [&enginePath](auto const& /*unused*/) -> string { return get<string>(enginePath); });
+           // Resolve the base entry point under the engine-state lock (resolveEvaluateFunction
+           // locks internally and releases before returning), then do any GetEntryPoint engine
+           // call below with NO lock held.
+           auto* entryPoint = resolveEvaluateFunction(visit(getEntryPoint, enginePath));
+           visit(overload(
+                     [&entryPoint](ComplexExpression const& engine) {
+                       auto [_originalHead, statics, dynamics, spans] =
+                           engine
+                               .clone(
+                                   boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)
+                               .decompose();
+                       auto* input = new BOSSExpression {
+                           ComplexExpression(Symbol("GetEntryPoint"), std::move(statics),
+                                             std::move(dynamics), std::move(spans))};
+                       auto* output = entryPoint(input);
+                       freeBOSSExpression(input);
+                       if(output != nullptr) {
+                         visit(overload(
+                                   [&entryPoint](std::int64_t value) {
+                                     // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                                     entryPoint = reinterpret_cast<LibraryAndFunctions::EntryPoint>(
+                                         static_cast<std::intptr_t>(value));
+                                   },
+                                   [](auto const& /*unused*/) {}),
+                               output->delegate);
+                         freeBOSSExpression(output);
+                       }
+                     },
+                     [](auto const& /*unused*/) {}),
+                 enginePath);
+           return entryPoint;
+         };
 
-         auto* r = new BOSSExpression {*::std::prev(e.getArguments().end())};
+         auto symbols = vector<LibraryAndFunctions::EntryPoint>();
+         auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
+         // Resolve all engine entry points up front (each resolveEvaluateFunction call locks
+         // engineStateMutex briefly). The dispatch loops below then run with NO lock held.
+         for_each(args.begin(), args.end(),
+                  [&symbols, &resolveEngineEntryPoint](auto&& enginePath) {
+                    symbols.push_back(
+                        resolveEngineEntryPoint(std::forward<decltype(enginePath)>(enginePath)));
+                  });
+         for_each(make_move_iterator(std::next(
+                      e.getArguments().begin())), // Note: first argument is the engine path
+                  make_move_iterator(prev(e.getArguments().end())), [&symbols](auto&& argument) {
+                    auto* wrapper = new BOSSExpression {std::forward<decltype(argument)>(argument)};
+                    for(auto sym : symbols) {
+                      auto* oldWrapper = wrapper;
+                      wrapper = (sym(wrapper));
+                      freeBOSSExpression(oldWrapper);
+                    }
+                    freeBOSSExpression(wrapper);
+                  });
+
+         auto* r = new BOSSExpression {*prev(e.getArguments().end())};
          for(auto sym : symbols) {
            auto* oldWrapper = r;
            r = sym(r);
            freeBOSSExpression(oldWrapper);
          }
-         auto result = ::std::move(r->delegate);
+         auto result = std::move(r->delegate);
          freeBOSSExpression(r); // NOLINT
-         return ::std::move(result);
+         return std::move(result);
        }},
-      {boss::Symbol("SetDefaultEnginePipeline"),
-       [this](auto&& expression) -> boss::Expression {
+      {Symbol("SetDefaultEnginePipeline"),
+       [this](auto&& expression) -> Expression {
          // Build the new pipeline into a local first (no lock needed, and validation throws
-         // before we touch shared state — so a bad argument leaves the pipeline unchanged).
-         ::std::vector<::std::string> newPipeline;
+         // before we touch shared state -- so a bad argument leaves the pipeline unchanged).
+         vector<Expression> newPipeline;
          algorithm::visitEach(expression.getArguments(), [&newPipeline](auto&& engine) {
-           if constexpr(::std::is_same_v<::std::decay_t<decltype(engine)>, ::std::string>) {
+           using EngineArg = std::decay_t<decltype(engine)>;
+           if constexpr(std::is_same_v<EngineArg, string> || std::is_same_v<EngineArg, Symbol>) {
              newPipeline.push_back(engine);
+           } else if constexpr(std::is_same_v<EngineArg, ComplexExpression>) {
+             newPipeline.push_back(
+                 engine.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
            } else {
              std::stringstream errorMessage;
-             errorMessage << "SetDefaultEnginePipeline received non-string argument: " << engine;
+             errorMessage << "SetDefaultEnginePipeline received unsupported argument: " << engine;
              throw std::runtime_error(errorMessage.str());
            }
          });
-         // Reconfiguration: exclusive lock. Only valid while no evaluation is in flight.
-         boss::concurrency::UniqueLock const lock(engineStateMutex);
-         defaultEngine = ::std::move(newPipeline);
+         // Reconfiguration: exclusive lock. Swap in the new pipeline and detach the loaded
+         // libraries to unload them OUTSIDE the lock (reset() is an engine call). Only valid
+         // while no evaluation is in flight.
+         vector<LibraryAndFunctions> toUnload;
+         {
+           boss::concurrency::UniqueLock const lock(engineStateMutex);
+           defaultEnginePipeline = std::move(newPipeline);
+           toUnload = libraries.detachAll();
+         }
+         unloadLibraries(toUnload);
          return "okay";
        }},
-      {boss::Symbol("GetDefaultEnginePipeline"),
-       [this](auto&& /*expression*/) -> boss::Expression {
+      {Symbol("GetDefaultEnginePipeline"),
+       [this](auto&& /*expression*/) -> Expression {
          boss::concurrency::SharedLock const lock(engineStateMutex);
-         return "List"_(Span<::std::string>(::std::vector<::std::string>(defaultEngine)));
+         ExpressionArguments args;
+         args.reserve(defaultEnginePipeline.size());
+         for(auto const& entry : defaultEnginePipeline) {
+           args.push_back(entry.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
+         }
+         return "List"_(std::move(args));
        }},
-      {boss::Symbol("GetEngineDescription"),
-       [this](auto&& /*expression*/) -> boss::Expression {
+      {Symbol("GetEngineDescription"),
+       [this](auto&& /*expression*/) -> Expression {
          using boss::utilities::operator""_;
          // Snapshot the pipeline under a shared lock, then resolve + call engines with no lock.
-         ::std::vector<::std::string> pipeline;
+         vector<Expression> pipeline;
          {
            boss::concurrency::SharedLock const lock(engineStateMutex);
-           pipeline = defaultEngine;
+           pipeline.reserve(defaultEnginePipeline.size());
+           for(auto const& entry : defaultEnginePipeline) {
+             pipeline.push_back(
+                 entry.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
+           }
          }
-         std::string descriptions;
+         string descriptions;
          for(auto const& enginePath : pipeline) {
-           auto* evalFn = reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-               resolveEvaluateFunction(enginePath));
+           auto* evalFn = resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
            auto* queryWrapper = new BOSSExpression {"GetEngineDescription"_()};
            auto* resultWrapper = evalFn(queryWrapper);
            freeBOSSExpression(queryWrapper);
-           auto resultExpr = ::std::move(resultWrapper->delegate);
+           auto resultExpr = std::move(resultWrapper->delegate);
            freeBOSSExpression(resultWrapper);
-           auto engineName = ::std::filesystem::path(enginePath).stem().string();
+           auto engineName = path(libraryNameForEnginePath(enginePath)).stem().string();
            if(engineName.compare(0, 3, "lib") == 0) {
              engineName.erase(0, 3);
            }
-           ::std::visit(boss::utilities::overload(
-                            [&descriptions, &engineName](::std::string const& description) {
-                              if(!descriptions.empty()) {
-                                descriptions += "\n";
-                              }
-                              descriptions += "## " + engineName + "\n\n";
-                              descriptions += description;
-                            },
-                            [](auto const&) {}),
-                        resultExpr);
+           visit(overload(
+                     [&descriptions, &engineName](string const& description) {
+                       if(!descriptions.empty()) {
+                         descriptions += "\n";
+                       }
+                       descriptions += "## " + engineName + "\n\n";
+                       descriptions += description;
+                     },
+                     [](auto const&) {}),
+                 resultExpr);
          }
          return descriptions;
        }},
-      {boss::Symbol("ResetEngines"), [this](auto&& /*expression*/) -> boss::Expression {
+      {Symbol("ResetEngines"), [this](auto&& /*expression*/) -> Expression {
          // Reconfiguration: only valid while no evaluation is in flight. Clear core state under
          // the lock, then reset+unload the engines OUTSIDE it (reset() is an engine call).
-         ::std::vector<LibraryAndFunctions> toUnload;
+         vector<LibraryAndFunctions> toUnload;
          {
            boss::concurrency::UniqueLock const lock(engineStateMutex);
-           defaultEngine.clear();
+           defaultEnginePipeline.clear();
            toUnload = libraries.detachAll();
          }
          unloadLibraries(toUnload);
          return "okay";
        }}};
 
-  bool isBootstrapCommand(boss::Expression const& expression) {
+  bool isBootstrapCommand(Expression const& expression) {
     return visit(utilities::overload(
-                     [this](boss::ComplexExpression const& expression) {
+                     [this](ComplexExpression const& expression) {
                        return registeredOperators.count(expression.getHead()) > 0;
                      },
                      [](auto const& /* unused */
@@ -292,7 +393,7 @@ public:
   BootstrapEngine() {
 #ifdef BOSS_DEFAULT_ENGINE_LIBS
     for(auto const& lib : std::initializer_list<std::string> {BOSS_DEFAULT_ENGINE_LIBS}) {
-      defaultEngine.push_back(lib);
+      defaultEnginePipeline.push_back(lib);
     }
 #endif
   }
@@ -302,40 +403,42 @@ public:
   BootstrapEngine& operator=(BootstrapEngine const&) = delete;
   BootstrapEngine& operator=(BootstrapEngine&&) = delete;
 
-  auto evaluateArguments(boss::ComplexExpression&& expr) {
-    ::std::transform(::std::make_move_iterator(begin(expr.getArguments())),
-                     ::std::make_move_iterator(end(expr.getArguments())),
-                     begin(expr.getArguments()),
-                     [this](auto&& e) { return evaluate(::std::forward<decltype(e)>(e), false); });
-    return ::std::move(expr);
+  auto evaluateArguments(ComplexExpression&& expr) {
+    std::transform(make_move_iterator(begin(expr.getArguments())),
+                   make_move_iterator(end(expr.getArguments())), begin(expr.getArguments()),
+                   [this](auto&& e) { return evaluate(std::forward<decltype(e)>(e), false); });
+    return std::move(expr);
   }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  boss::Expression evaluate(boss::Expression&& e, bool isRootExpression = true) {
+  Expression evaluate(Expression&& e, bool isRootExpression = true) {
     using boss::utilities::operator""_;
 
     // Snapshot the engine pipeline under a shared lock (only for root, non-bootstrap
-    // expressions — recursive sub-evaluations and bootstrap commands never wrap). The lock is
+    // expressions -- recursive sub-evaluations and bootstrap commands never wrap). The lock is
     // released before dispatch, so it is never held across an engine call.
-    ::std::vector<::std::string> pipeline;
+    ExpressionArguments pipelineArgs;
     if(isRootExpression && !isBootstrapCommand(e)) {
       boss::concurrency::SharedLock const lock(engineStateMutex);
-      pipeline = defaultEngine;
+      pipelineArgs.reserve(defaultEnginePipeline.size());
+      for(auto const& entry : defaultEnginePipeline) {
+        pipelineArgs.push_back(
+            entry.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
+      }
     }
-    auto wrappedE = !pipeline.empty()
-                        ? "EvaluateInEngines"_("List"_(Span<::std::string>(::std::move(pipeline))),
-                                               std::move(e))
+    auto wrappedE = !pipelineArgs.empty()
+                        ? "EvaluateInEngines"_("List"_(std::move(pipelineArgs)), std::move(e))
                         : std::move(e);
-    return ::std::visit(boss::utilities::overload(
-                            [this](boss::ComplexExpression&& unevaluatedE) -> boss::Expression {
-                              if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
-                                return ::std::move(unevaluatedE);
-                              }
-                              auto const& op = registeredOperators.at(unevaluatedE.getHead());
-                              return op(evaluateArguments(::std::move(unevaluatedE)));
-                            },
-                            [](auto&& e) -> boss::Expression { return e; }),
-                        ::std::forward<boss::Expression>(wrappedE));
+    return visit(overload(
+                     [this](ComplexExpression&& unevaluatedE) -> Expression {
+                       if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
+                         return std::move(unevaluatedE);
+                       }
+                       auto const& op = registeredOperators.at(unevaluatedE.getHead());
+                       return op(evaluateArguments(std::move(unevaluatedE)));
+                     },
+                     [](auto&& e) -> Expression { return e; }),
+                 std::forward<Expression>(wrappedE));
   }
 };
 } // namespace

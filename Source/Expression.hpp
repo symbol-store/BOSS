@@ -1335,14 +1335,14 @@ public:
    */
   friend ::std::ostream& operator<<(::std::ostream& out,
                                     ComplexExpressionWithAdditionalCustomAtoms const& e) {
-    out << e.getHead() << "[";
+    out << "(" << e.getHead();
     if(!e.getArguments().empty()) {
       out << e.getArguments().front();
       for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
-        out << "," << *it;
+        out << " " << *it;
       }
     }
-    out << "]";
+    out << ")";
     return out;
   }
 
