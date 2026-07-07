@@ -43,6 +43,26 @@ struct BossContextGuard {
 
 /* ─── Convert BOSS Expression to chibi sexp ─── */
 
+inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr);
+
+inline sexp complex_expr_to_sexp(sexp ctx, boss::ComplexExpression const& expr) {
+  auto const& head = expr.getHead().getName();
+  auto const& args = expr.getDynamicArguments();
+  sexp_gc_var2(lst, item);
+  sexp_gc_preserve2(ctx, lst, item);
+  lst = SEXP_NULL;
+  for(auto it = args.rbegin(); it != args.rend(); ++it) {
+    item = expr_to_sexp(ctx, *it);
+    lst = sexp_cons(ctx, item, lst);
+  }
+  if(!head.empty()) {
+    item = sexp_intern(ctx, head.c_str(), -1);
+    lst = sexp_cons(ctx, item, lst);
+  }
+  sexp_gc_release2(ctx);
+  return lst;
+}
+
 inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr) {
   return std::visit(
       boss::utilities::overload(
@@ -56,23 +76,7 @@ inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr) {
             return sexp_c_string(ctx, v.c_str(), static_cast<sexp_sint_t>(v.size()));
           },
           [&](boss::Symbol const& v) -> sexp { return sexp_intern(ctx, v.getName().c_str(), -1); },
-          [&](boss::ComplexExpression const& v) -> sexp {
-            auto const& head = v.getHead().getName();
-            auto const& args = v.getDynamicArguments();
-            sexp_gc_var2(lst, item);
-            sexp_gc_preserve2(ctx, lst, item);
-            lst = SEXP_NULL;
-            for(auto it = args.rbegin(); it != args.rend(); ++it) {
-              item = expr_to_sexp(ctx, *it);
-              lst = sexp_cons(ctx, item, lst);
-            }
-            if(!head.empty()) {
-              item = sexp_intern(ctx, head.c_str(), -1);
-              lst = sexp_cons(ctx, item, lst);
-            }
-            sexp_gc_release2(ctx);
-            return lst;
-          }),
+          [&](boss::ComplexExpression const& v) -> sexp { return complex_expr_to_sexp(ctx, v); }),
       static_cast<boss::Expression::SuperType const&>(expr));
 }
 
@@ -303,6 +307,35 @@ inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& exp
   }
   sexp_gc_release4(ctx);
   return {is_error, text};
+}
+
+/* ─── Chibi-backed pretty printer (used by Shims/BossPrettyPrint.cpp) ─── */
+
+inline void pretty_print_expression(std::ostream& stream,
+                                    boss::ComplexExpression const& expression) {
+  struct ThreadContext {
+    BossContextGuard guard {initialize_boss_context()};
+    sexp env = guard.ctx == nullptr ? nullptr : sexp_context_env(guard.ctx);
+    sexp print_proc = env == nullptr
+                          ? nullptr
+                          : sexp_env_ref(guard.ctx, env,
+                                         sexp_intern(guard.ctx, "boss-print", -1),
+                                         SEXP_FALSE);
+  };
+  thread_local ThreadContext tls;
+  if(tls.guard.ctx == nullptr || !sexp_procedurep(tls.print_proc)) {
+    return;
+  }
+  sexp const ctx = tls.guard.ctx;
+  sexp_gc_var3(form, arg_list, result_str);
+  sexp_gc_preserve3(ctx, form, arg_list, result_str);
+  form = complex_expr_to_sexp(ctx, expression);
+  arg_list = sexp_list1(ctx, form);
+  result_str = sexp_apply(ctx, tls.print_proc, arg_list);
+  if(!sexp_exceptionp(result_str) && sexp_stringp(result_str)) {
+    stream << sexp_string_data(result_str);
+  }
+  sexp_gc_release3(ctx);
 }
 
 } // namespace boss
