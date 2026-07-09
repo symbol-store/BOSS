@@ -1839,6 +1839,39 @@ TEST_CASE("Chained Pattern Matching") {
   REQUIRE(whichArm == 0);
 }
 
+TEST_CASE("Any_ matches atomic subjects") {
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+
+  // Unit level: matchArg(subject, Any_) is true for every atom kind (not just
+  // ComplexExpression subjects).
+  CHECK(matchArg(Expression(boss::Symbol("howdie")), Expression(Any_)));
+  CHECK(matchArg(Expression(std::string("hello")), Expression(Any_)));
+  CHECK(matchArg(Expression(std::int64_t {42}), Expression(Any_)));
+  CHECK(matchArg(Expression(std::int32_t {7}), Expression(Any_)));
+  CHECK(matchArg(Expression(std::int8_t {3}), Expression(Any_)));
+  CHECK(matchArg(Expression(3.5), Expression(Any_)));
+  CHECK(matchArg(Expression(true), Expression(Any_)));
+  CHECK(matchArg("Table"_("t"), Expression(Any_)));
+
+  // End-to-end: a ComplexExpression pattern never matches an atomic subject, so a
+  // trailing `< Any_` arm is the one that fires. (Handlers are variadic because
+  // operator> instantiates the ComplexExpression-decomposition path unconditionally.)
+  int whichArm = 0;
+  Expression result =
+      Expression(boss::Symbol("howdie"))
+      < "Something"_() >= [&whichArm](auto&&...) -> Expression { // NOLINT(bugprone-chained-comparison)
+          whichArm = 1;
+          return "complex"_();
+        } < Any_ >= [&whichArm](auto&&...) -> Expression {
+          whichArm = 2;
+          return boss::Symbol("fired");
+        };
+  CHECK(whichArm == 2);
+  CHECK(result == Expression(boss::Symbol("fired")));
+}
+
 TEST_CASE("Span Argument Pattern Matching") {
   using namespace boss::utilities;
   using namespace boss::utilities::experimental;
