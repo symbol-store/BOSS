@@ -1870,6 +1870,37 @@ TEST_CASE("Any_ matches atomic subjects") {
         };
   CHECK(whichArm == 2);
   CHECK(result == Expression(boss::Symbol("fired")));
+
+  // The handler can also echo the matched expression back unchanged. For an atomic
+  // subject the Any_ arm invokes the handler with the whole Expression, so an
+  // `overload` with an Expression&& branch returns it verbatim. The decomposition
+  // branch exists only so operator>'s ComplexExpression path compiles.
+  auto echo = boss::utilities::overload(
+      [](Expression&& matched) -> Expression { return std::move(matched); },
+      [](auto&&... /*decomposed*/) -> Expression { return boss::Symbol("unreached"); });
+  Expression echoed = Expression(boss::Symbol("howdie"))
+                      < "Something"_() >= echo < Any_ >= echo; // NOLINT(bugprone-chained-comparison)
+  CHECK(echoed == Expression(boss::Symbol("howdie")));
+
+  // For a ComplexExpression subject, the Any_ arm invokes the handler with the
+  // DECOMPOSED expression (head, static args, dynamic args, span args) rather than the
+  // whole Expression. Reconstructing a ComplexExpression from those four pieces yields
+  // a value equal to the original — same head, same arguments.
+  Expression original = "Table"_("Columns"_("a"), std::int64_t {42});
+  Expression expected = original.clone(CloneReason::FOR_TESTING);
+  auto reconstruct = [](auto&& head, auto&& statics, auto&& dynamics,
+                        auto&& spans) -> Expression {
+    return ComplexExpression(std::forward<decltype(head)>(head),
+                             std::forward<decltype(statics)>(statics),
+                             std::forward<decltype(dynamics)>(dynamics),
+                             std::forward<decltype(spans)>(spans));
+  };
+  Expression rebuilt =
+      std::move(original)
+      < "Nope"_(AnySequence_) >= [](auto&&...) -> Expression { // NOLINT(bugprone-chained-comparison)
+          return "unreached"_();
+        } < Any_ >= reconstruct;
+  CHECK(rebuilt == expected);
 }
 
 TEST_CASE("Span Argument Pattern Matching") {
