@@ -36,3 +36,45 @@ TEST_CASE("Build expression, with strings", "[api]") {
   freeBOSSArguments(result);
   CHECK(str1 == str2);
 }
+
+TEST_CASE("C-API round-trips large strings (200KB)", "[api][largestring]") {
+  auto const largeString = std::string(200UL * 1024, 'a');
+
+  SECTION("large string atom") {
+    auto* expression = stringToNewBOSSExpression(largeString.c_str());
+    char* roundTripped = getNewStringValueFromBOSSExpression(expression);
+    auto const result = std::string(roundTripped);
+    freeBOSSString(roundTripped);
+    freeBOSSExpression(expression);
+    CHECK(result.size() == largeString.size());
+    CHECK(result == largeString);
+  }
+
+  SECTION("large string as a complex-expression argument") {
+    auto input = std::array {stringToNewBOSSExpression(largeString.c_str())};
+    auto* head = symbolNameToNewBOSSSymbol("UnevaluatedAsNoEngineIsSet");
+    auto* complexExpression = newComplexBOSSExpression(head, 1, input.data());
+    auto* evaluated = BOSSEvaluate(complexExpression);
+    auto** arguments = getArgumentsFromBOSSExpression(evaluated);
+    char* roundTripped = getNewStringValueFromBOSSExpression(arguments[0]);
+    auto const result = std::string(roundTripped);
+    freeBOSSSymbol(head);
+    freeBOSSString(roundTripped);
+    freeBOSSExpression(evaluated);
+    freeBOSSExpression(input[0]);
+    freeBOSSArguments(arguments);
+    CHECK(result.size() == largeString.size());
+    CHECK(result == largeString);
+  }
+
+  SECTION("large string as an expression head (symbol)") {
+    auto* symbol = symbolNameToNewBOSSSymbol(largeString.c_str());
+    char const* roundTripped = bossSymbolToNewString(symbol);
+    auto const result = std::string(roundTripped);
+    freeBOSSSymbol(symbol);
+    freeBOSSString(
+        const_cast<char*>(roundTripped)); // NOLINT(cppcoreguidelines-pro-type-const-cast)
+    CHECK(result.size() == largeString.size());
+    CHECK(result == largeString);
+  }
+}
