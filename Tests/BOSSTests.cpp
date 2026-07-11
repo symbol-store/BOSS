@@ -442,6 +442,87 @@ TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
   CHECK(otherExpressions.size() == 3);
 }
 
+// NOLINTBEGIN(readability-magic-numbers)
+namespace {
+constexpr std::size_t largeStringSize = 200UL * 1024;
+std::string makeLargeString(char fillCharacter) {
+  return std::string(largeStringSize, fillCharacter);
+}
+} // namespace
+
+TEST_CASE("Large string as a standalone Expression", "[expressions][largestring]") {
+  auto const payload = makeLargeString('x');
+
+  Expression expression = payload;
+  CHECK(get<std::string>(expression).size() == largeStringSize);
+  CHECK(expression == payload);
+
+  Expression clonedExpression = expression.clone(CloneReason::FOR_TESTING);
+  CHECK(get<std::string>(clonedExpression).size() == largeStringSize);
+  CHECK(clonedExpression == payload);
+
+  Expression movedExpression = std::move(expression);
+  CHECK(get<std::string>(movedExpression).size() == largeStringSize);
+  CHECK(movedExpression == payload);
+}
+
+TEST_CASE("Large string as a ComplexExpression argument", "[expressions][largestring]") {
+  auto const payload = makeLargeString('a');
+
+  boss::ExpressionArguments arguments;
+  arguments.emplace_back(payload);
+  auto expression = boss::ComplexExpression("List"_, std::move(arguments));
+  REQUIRE(expression.getArguments().size() == 1);
+  CHECK(get<std::string>(expression.getArguments().at(0)).size() == largeStringSize);
+  CHECK(get<std::string>(expression.getArguments().at(0)) == payload);
+
+  auto clonedExpression = expression.clone(CloneReason::FOR_TESTING);
+  CHECK(clonedExpression == expression);
+  CHECK(get<std::string>(clonedExpression.getArguments().at(0)) == payload);
+
+  auto movedExpression = std::move(clonedExpression);
+  CHECK(get<std::string>(movedExpression.getArguments().at(0)) == payload);
+
+  auto [head, staticArguments, dynamicArguments, spanArguments] = std::move(expression).decompose();
+  CHECK(head.getName() == "List");
+  REQUIRE(dynamicArguments.size() == 1);
+  CHECK(get<std::string>(dynamicArguments.at(0)).size() == largeStringSize);
+  CHECK(get<std::string>(dynamicArguments.at(0)) == payload);
+
+  auto recomposedExpression =
+      boss::ComplexExpression(std::move(head), std::move(staticArguments),
+                              std::move(dynamicArguments), std::move(spanArguments));
+  CHECK(recomposedExpression == movedExpression);
+  CHECK(get<std::string>(recomposedExpression.getArguments().at(0)) == payload);
+}
+
+TEST_CASE("Large string as a ComplexExpression head", "[expressions][largestring]") {
+  auto const payload = makeLargeString('h');
+
+  auto expression = boss::ComplexExpression(boss::Symbol(payload), boss::ExpressionArguments {});
+  CHECK(expression.getHead().getName().size() == largeStringSize);
+  CHECK(expression.getHead().getName() == payload);
+
+  auto clonedExpression = expression.clone(CloneReason::FOR_TESTING);
+  CHECK(clonedExpression == expression);
+  CHECK(clonedExpression.getHead().getName() == payload);
+
+  auto movedExpression = std::move(clonedExpression);
+  CHECK(movedExpression.getHead().getName() == payload);
+
+  auto [head, staticArguments, dynamicArguments, spanArguments] = std::move(expression).decompose();
+  CHECK(head.getName().size() == largeStringSize);
+  CHECK(head.getName() == payload);
+  CHECK(dynamicArguments.empty());
+
+  auto recomposedExpression =
+      boss::ComplexExpression(std::move(head), std::move(staticArguments),
+                              std::move(dynamicArguments), std::move(spanArguments));
+  CHECK(recomposedExpression.getHead().getName() == payload);
+  CHECK(recomposedExpression == movedExpression);
+}
+// NOLINTEND(readability-magic-numbers)
+
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int32_t, std::int64_t,
                    std::float_t, std::double_t) {
