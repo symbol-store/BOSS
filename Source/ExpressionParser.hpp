@@ -1,39 +1,69 @@
-#include "Expression.hpp"
-#include "ExpressionUtilities.hpp"
-#include "Utilities.hpp"
-#include <cmath>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <exception>
-#include <iostream>
-#include <limits>
-// clang-tidy misc-include-cleaner incorrectly flags <memory> as unused when
-// std::unique_ptr is instantiated with a type from a transitively-included header.
-#include <memory> // NOLINT(misc-include-cleaner)
-#include <string>
-#include <utility>
-#include <variant>
-#include <vector>
+#pragma once
 
 extern "C" {
 #include <chibi/eval.h>
 #include <chibi/sexp.h>
 }
 
-#ifdef HAVE_READLINE
-#include <readline/history.h>
-#include <readline/readline.h>
-#endif
+#include "BOSS.hpp"
+#include "Expression.hpp"
+#include "ExpressionUtilities.hpp"
+#include "ThreadSafety.hpp"
+#include "Utilities.hpp"
 
-using boss::utilities::operator""_;
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <limits>
+#include <string>
+#include <variant>
 
-namespace {
+namespace boss {
 
-/* ─── Convert BOSS Expression directly to chibi sexp ─── */
+using utilities::operator""_;
 
-sexp expr_to_sexp(sexp ctx, boss::Expression const& expr) {
+struct EvalResult {
+  bool is_error;
+  std::string text;
+};
+
+struct BossContextGuard {
+  sexp ctx;
+  BossContextGuard(BossContextGuard const&) = delete;
+  BossContextGuard(BossContextGuard&&) = delete;
+  BossContextGuard& operator=(BossContextGuard const&) = delete;
+  BossContextGuard& operator=(BossContextGuard&&) = delete;
+  ~BossContextGuard() {
+    if(ctx != nullptr) {
+      sexp_destroy_context(ctx);
+    }
+  }
+};
+
+/* ─── Convert BOSS Expression to chibi sexp ─── */
+
+inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr);
+
+inline sexp complex_expr_to_sexp(sexp ctx, boss::ComplexExpression const& expr) {
+  auto const& head = expr.getHead().getName();
+  auto const& args = expr.getDynamicArguments();
+  sexp_gc_var2(lst, item);
+  sexp_gc_preserve2(ctx, lst, item);
+  lst = SEXP_NULL;
+  for(auto it = args.rbegin(); it != args.rend(); ++it) {
+    item = expr_to_sexp(ctx, *it);
+    lst = sexp_cons(ctx, item, lst);
+  }
+  if(!head.empty()) {
+    item = sexp_intern(ctx, head.c_str(), -1);
+    lst = sexp_cons(ctx, item, lst);
+  }
+  sexp_gc_release2(ctx);
+  return lst;
+}
+
+inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr) {
   return std::visit(
       boss::utilities::overload(
           [&](bool v) -> sexp { return v ? SEXP_TRUE : SEXP_FALSE; },
@@ -46,34 +76,18 @@ sexp expr_to_sexp(sexp ctx, boss::Expression const& expr) {
             return sexp_c_string(ctx, v.c_str(), static_cast<sexp_sint_t>(v.size()));
           },
           [&](boss::Symbol const& v) -> sexp { return sexp_intern(ctx, v.getName().c_str(), -1); },
-          [&](boss::ComplexExpression const& v) -> sexp {
-            auto const& head = v.getHead().getName();
-            auto const& args = v.getDynamicArguments();
-            sexp_gc_var2(lst, item);
-            sexp_gc_preserve2(ctx, lst, item);
-            lst = SEXP_NULL;
-            for(auto it = args.rbegin(); it != args.rend(); ++it) {
-              item = expr_to_sexp(ctx, *it);
-              lst = sexp_cons(ctx, item, lst);
-            }
-            if(!head.empty()) {
-              item = sexp_intern(ctx, head.c_str(), -1);
-              lst = sexp_cons(ctx, item, lst);
-            }
-            sexp_gc_release2(ctx);
-            return lst;
-          }),
+          [&](boss::ComplexExpression const& v) -> sexp { return complex_expr_to_sexp(ctx, v); }),
       static_cast<boss::Expression::SuperType const&>(expr));
 }
 
-/* ─── Build the BOSS Scheme initialization code as chibi sexps ─── */
+/* ─── BOSS Scheme setup ─── */
 
 constexpr int kSrfiFormattingLibrary = 166;
 constexpr int kSrfiGeneratorsLibrary = 158;
 constexpr auto kInt32Min = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min());
 constexpr auto kInt32Max = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
 
-void build_and_eval_boss_scheme(sexp ctx, sexp env) {
+inline void setup_boss_scheme(sexp ctx, sexp env) {
   using boss::Expression;
   /* _(...) groups sub-expressions into bare parens — unlike "name"_(...) which
      produces (name ...), _(...) produces just (...). expr_to_sexp strips the empty head. */
@@ -89,7 +103,7 @@ void build_and_eval_boss_scheme(sexp ctx, sexp env) {
   eval("import"_(_("srfi"_, kSrfiFormattingLibrary), _("srfi"_, kSrfiGeneratorsLibrary),
                  _("chibi"_, "match"_)));
 
-  eval("define"_(_("boss-print"_, "x"_), "show"_(true, _("pretty"_, "x"_), "nl"_)));
+  eval("define"_(_("boss-print"_, "x"_), "show"_(false, _("pretty"_, "x"_), "nl"_)));
 
   eval("define"_("bossTypeID"_, "quote"_(_("bool"_, "int8"_, "int32"_, "long"_, "float"_, "double"_,
                                            "string"_, "symbol"_, "complexExpression"_))));
@@ -192,35 +206,52 @@ void build_and_eval_boss_scheme(sexp ctx, sexp env) {
                                "convert-from-boss-expression"_("BOSSEvaluate"_("expr"_)))))));
 }
 
-/* ─── REPL and evaluation ─── */
+/* ─── Unicode escape preprocessing ─── */
 
-void print_result(sexp ctx, sexp boss_print_proc, sexp result) {
-  sexp_gc_var3(rooted_result, arg_list, apply_result);
-  sexp_gc_preserve3(ctx, rooted_result, arg_list, apply_result);
-  rooted_result = result;
-  if(sexp_exceptionp(rooted_result)) {
-    sexp_print_exception(ctx, rooted_result, sexp_current_error_port(ctx));
-  } else if(rooted_result != SEXP_VOID) {
-    bool printed = false;
-    if(sexp_procedurep(boss_print_proc)) {
-      arg_list = sexp_list1(ctx, rooted_result);
-      apply_result = sexp_apply(ctx, boss_print_proc, arg_list);
-      if(!sexp_exceptionp(apply_result)) {
-        printed = true;
-      } else {
-        sexp_print_exception(ctx, apply_result, sexp_current_error_port(ctx));
-      }
-    }
-    if(!printed) {
-      sexp_write(ctx, rooted_result, sexp_current_output_port(ctx));
-      sexp_newline(ctx, sexp_current_output_port(ctx));
+// chibi-scheme's sexp_read is a strict R7RS reader: it accepts \xXXXX; for Unicode
+// escapes but not JSON/JavaScript-style \uXXXX. JSON clients always emit \uXXXX,
+// so we translate here before passing the expression string to sexp_read.
+// This covers the full BMP (U+0000–U+FFFF); the translation is purely syntactic
+// (\uXXXX → \xXXXX;) and chibi handles the actual UTF-8 encoding from there.
+inline std::string preprocessUnicodeEscapes(std::string input) {
+  constexpr size_t kUnicodeEscapeHexDigits = 4;
+  constexpr size_t kUnicodeEscapeLength = 2 + kUnicodeEscapeHexDigits; // "\\uXXXX"
+  constexpr size_t kUnicodeEscapeLastIndex = 1 + kUnicodeEscapeHexDigits;
+  auto isHex = [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; };
+  // Fast path: scan without allocating; return unchanged if no \uXXXX found.
+  size_t escapeStart = std::string::npos;
+  for(size_t i = 0; input.size() - i >= kUnicodeEscapeLength; ++i) {
+    if(input[i] == '\\' && input[i + 1] == 'u' && isHex(input[i + 2]) && isHex(input[i + 3]) &&
+       isHex(input[i + 4]) && isHex(input[i + kUnicodeEscapeLastIndex])) {
+      escapeStart = i;
+      break;
     }
   }
-  sexp_gc_release3(ctx);
+  if(escapeStart == std::string::npos) {
+    return input;
+  }
+  std::string output;
+  output.reserve(input.size());
+  output.append(input, 0, escapeStart);
+  size_t i = escapeStart;
+  while(i < input.size()) {
+    if(input.size() - i >= kUnicodeEscapeLength && input[i] == '\\' && input[i + 1] == 'u' &&
+       isHex(input[i + 2]) && isHex(input[i + 3]) && isHex(input[i + 4]) &&
+       isHex(input[i + kUnicodeEscapeLastIndex])) {
+      output += "\\x";
+      output.append(input, i + 2, kUnicodeEscapeHexDigits);
+      output += ';';
+      i += kUnicodeEscapeLength;
+    } else {
+      output += input[i++];
+    }
+  }
+  return output;
 }
 
-/* Wrap an expression in (boss-eval <expr>) and evaluate it */
-sexp boss_eval_expr(sexp ctx, sexp env, sexp expr) {
+/* ─── Evaluation utilities ─── */
+
+inline sexp eval_expr(sexp ctx, sexp env, sexp expr) {
   sexp_gc_var2(form, wrapped);
   sexp_gc_preserve2(ctx, form, wrapped);
   wrapped = sexp_list2(ctx, sexp_intern(ctx, "boss-eval", -1), expr);
@@ -229,195 +260,30 @@ sexp boss_eval_expr(sexp ctx, sexp env, sexp expr) {
   return form;
 }
 
-/* Evaluate a string as a BOSS expression (parse then wrap in boss-eval) */
-sexp boss_eval_string(sexp ctx, sexp env, const char* str) {
+inline sexp eval_string(sexp ctx, sexp env, const char* str) {
+  auto const preprocessedStr = preprocessUnicodeEscapes(str);
   sexp_gc_var2(expr, port);
   sexp_gc_preserve2(ctx, expr, port);
-  port = sexp_open_input_string(ctx, sexp_c_string(ctx, str, -1));
+  port = sexp_open_input_string(ctx, sexp_c_string(ctx, preprocessedStr.c_str(), -1));
   expr = sexp_read(ctx, port);
   if(sexp_exceptionp(expr)) {
     sexp_gc_release2(ctx);
     return expr;
   }
-  expr = boss_eval_expr(ctx, env, expr);
+  expr = eval_expr(ctx, env, expr);
   sexp_gc_release2(ctx);
   return expr;
 }
 
-bool is_incomplete_input(sexp obj) {
-  return sexp_exceptionp(obj) &&
-         (std::strstr(sexp_string_data(sexp_slot_ref(obj, 1)), "missing trailing") != nullptr);
-}
+/* ─── Initialize a full BOSS chibi context ─── */
 
-void run_repl(sexp ctx, sexp env, bool raw) {
-  sexp_gc_var6(obj, result, in, out, port, boss_print_proc);
-  sexp_gc_preserve6(ctx, obj, result, in, out, port, boss_print_proc);
-  in = sexp_current_input_port(ctx);
-  out = sexp_current_output_port(ctx);
-  boss_print_proc = sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
-
-#ifdef HAVE_READLINE
-  std::string input_buf;
-  int depth = 0;
-
-  while(true) {
-    const char* prompt = (depth == 0) ? "boss> " : "....> ";
-    std::unique_ptr<char, decltype(&std::free)> line_ptr(readline(prompt), std::free);
-
-    if(line_ptr == nullptr) {
-      std::cout << '\n';
-      break;
-    }
-
-    char* line = line_ptr.get();
-
-    if(depth == 0 && line[0] == '\0') {
-      continue;
-    }
-
-    if(line[0] != '\0') {
-      add_history(line);
-    }
-
-    if(!input_buf.empty()) {
-      input_buf += '\n';
-    }
-    input_buf += line;
-
-    port = sexp_open_input_string(ctx, sexp_c_string(ctx, input_buf.c_str(), input_buf.size()));
-    obj = sexp_read(ctx, port);
-
-    if(obj == SEXP_EOF || is_incomplete_input(obj)) {
-      depth = 1;
-      continue;
-    }
-
-    if(sexp_exceptionp(obj)) {
-      sexp_print_exception(ctx, obj, sexp_current_error_port(ctx));
-      input_buf.clear();
-      depth = 0;
-      continue;
-    }
-
-    result = raw ? sexp_eval(ctx, obj, env) : boss_eval_expr(ctx, env, obj);
-    print_result(ctx, boss_print_proc, result);
-    input_buf.clear();
-    depth = 0;
-  }
-#else
-  while(true) {
-    sexp_write_string(ctx, "boss> ", out);
-    sexp_flush(ctx, out);
-    obj = sexp_read(ctx, in);
-
-    if(obj == SEXP_EOF) {
-      break;
-    }
-
-    if(sexp_exceptionp(obj)) {
-      sexp_print_exception(ctx, obj, sexp_current_error_port(ctx));
-      continue;
-    }
-
-    result = raw ? sexp_eval(ctx, obj, env) : boss_eval_expr(ctx, env, obj);
-    print_result(ctx, boss_print_proc, result);
-  }
-#endif
-
-  sexp_gc_release6(ctx);
-}
-
-void print_usage(const char* prog) {
-  std::cerr << "Usage: " << prog << " [options] [file]\n"
-            << "  -p <expr>   Evaluate BOSS expression and exit\n"
-            << "  -e <expr>   Evaluate raw Scheme expression and exit\n"
-            << "  --raw       REPL without boss-eval wrapping\n"
-            << "  --help      Show this help\n"
-            << "  file        Load and evaluate a Scheme file\n";
-}
-
-// Returns -1 to continue, or an exit code (0 or 1) to exit immediately.
-int parse_args(int argc, char** argv, bool& raw_mode, std::string& input_file,
-               std::vector<std::pair<std::string, bool>>& exprs) {
-  for(int i = 1; i < argc; i++) {
-    std::string arg = argv[i];
-    if(arg == "-p" && i + 1 < argc) {
-      exprs.emplace_back(argv[++i], false);
-    } else if(arg == "-e" && i + 1 < argc) {
-      exprs.emplace_back(argv[++i], true);
-    } else if(arg == "--raw") {
-      raw_mode = true;
-    } else if(arg == "--help" || arg == "-h") {
-      print_usage(argv[0]);
-      return 0;
-    } else if(arg[0] != '-' && input_file.empty()) {
-      input_file = arg;
-    } else {
-      std::cerr << "Unknown option: " << arg << "\n";
-      print_usage(argv[0]);
-      return 1;
-    }
-  }
-  return -1;
-}
-
-int run_file(sexp ctx, sexp env, std::string const& input_file) {
-  sexp_gc_var2(filename, result);
-  sexp_gc_preserve2(ctx, filename, result);
-  filename = sexp_c_string(ctx, input_file.c_str(), -1);
-  result = sexp_load(ctx, filename, env);
-  sexp_gc_release2(ctx);
-  if(sexp_exceptionp(result)) {
-    sexp_print_exception(ctx, result, sexp_current_error_port(ctx));
-    return 1;
-  }
-  return 0;
-}
-
-int run_exprs(sexp ctx, sexp env, std::vector<std::pair<std::string, bool>> const& exprs) {
-  int exit_code = 0;
-  sexp_gc_var2(result, boss_print_proc);
-  sexp_gc_preserve2(ctx, result, boss_print_proc);
-  boss_print_proc = sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
-  for(auto const& [text, raw] : exprs) {
-    result = raw ? sexp_eval_string(ctx, text.c_str(), -1, env)
-                 : boss_eval_string(ctx, env, text.c_str());
-    print_result(ctx, boss_print_proc, result);
-    if(sexp_exceptionp(result)) {
-      exit_code = 1;
-    }
-  }
-  sexp_gc_release2(ctx);
-  return exit_code;
-}
-
-} // namespace
-
-int main(int argc, char** argv) try {
-  bool raw_mode = false;
-  std::string input_file;
-  std::vector<std::pair<std::string, bool>> exprs;
-
-  int const parse_result = parse_args(argc, argv, raw_mode, input_file, exprs);
-  if(parse_result >= 0) {
-    return parse_result;
-  }
-
+inline sexp initialize_boss_context() {
   sexp_scheme_init();
-  sexp ctx = sexp_make_eval_context(NULL, NULL, NULL, 0, 0);
+  sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);
   if(ctx == nullptr || sexp_exceptionp(ctx)) {
     std::cerr << "Failed to initialize chibi-scheme context\n";
-    return 1;
+    return nullptr;
   }
-  struct CtxGuard {
-    sexp& ctx;
-    CtxGuard(CtxGuard const&) = delete;
-    CtxGuard(CtxGuard&&) = delete;
-    CtxGuard& operator=(CtxGuard const&) = delete;
-    CtxGuard& operator=(CtxGuard&&) = delete;
-    ~CtxGuard() { sexp_destroy_context(ctx); }
-  } const ctx_guard {ctx};
-
   sexp_gc_var2(env, res);
   sexp_gc_preserve2(ctx, env, res);
   env = sexp_context_env(ctx);
@@ -425,36 +291,88 @@ int main(int argc, char** argv) try {
   if(sexp_exceptionp(res)) {
     std::cerr << "Failed to load standard environment\n";
     sexp_gc_release2(ctx);
-    return 1;
+    sexp_destroy_context(ctx);
+    return nullptr;
   }
-
-  sexp_load_standard_ports(ctx, res, stdin, stdout, stderr, 0);
+  // no_close=1: do NOT take ownership of the process's standard streams. With no_close=0
+  // chibi fcloses stdin/stdout/stderr when this context is destroyed, which corrupts the
+  // host's stdio as soon as more than one context exists (e.g. one per request/thread in a
+  // server) and double-fcloses the shared FILE* when contexts are destroyed concurrently.
+  sexp_load_standard_ports(ctx, res, stdin, stdout, stderr, /*no_close=*/1);
   env = sexp_make_env(ctx);
   sexp_env_parent(env) = res;
   sexp_context_env(ctx) = env;
-
-  res = sexp_init_library(ctx, NULL, 0, env, sexp_version, SEXP_ABI_IDENTIFIER);
+  res = sexp_init_library(ctx, nullptr, 0, env, sexp_version, SEXP_ABI_IDENTIFIER);
   if(sexp_exceptionp(res)) {
     std::cerr << "Failed to initialize BOSS FFI bindings\n";
     sexp_print_exception(ctx, res, sexp_current_error_port(ctx));
     sexp_gc_release2(ctx);
-    return 1;
+    sexp_destroy_context(ctx);
+    return nullptr;
   }
-
-  build_and_eval_boss_scheme(ctx, env);
-
-  int exit_code = 0;
-  if(!input_file.empty()) {
-    exit_code = run_file(ctx, env, input_file);
-  } else if(!exprs.empty()) {
-    exit_code = run_exprs(ctx, env, exprs);
-  } else {
-    run_repl(ctx, env, raw_mode);
-  }
-
+  setup_boss_scheme(ctx, env);
   sexp_gc_release2(ctx);
-  return exit_code;
-} catch(std::exception const& e) {
-  std::cerr << e.what() << '\n';
-  return 1;
+  return ctx;
 }
+
+/* ─── Parse, evaluate, and serialize result to string ─── */
+
+inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& expr_str,
+                                      bool pretty = true) {
+  // Debug-only: abort loudly if a second thread is evaluating on this same context, which
+  // violates the one-context-per-caller contract (docs/threading-audit.md §3). No-op in release.
+  boss::concurrency::ConcurrencyTripwire const tripwire(ctx, "evaluate_expression");
+  sexp_gc_var4(result, out_port, result_str, arg_list);
+  sexp_gc_preserve4(ctx, result, out_port, result_str, arg_list);
+  result = eval_string(ctx, env, expr_str.c_str());
+  bool const is_error = sexp_exceptionp(result);
+  std::string text;
+  if(is_error) {
+    out_port = sexp_open_output_string(ctx);
+    sexp_print_exception(ctx, result, out_port);
+    result_str = sexp_get_output_string(ctx, out_port);
+    text = sexp_string_data(result_str);
+  } else if(result != SEXP_VOID) {
+    if(pretty) {
+      sexp const print_proc =
+          sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
+      arg_list = sexp_list1(ctx, result);
+      result_str = sexp_apply(ctx, print_proc, arg_list);
+    } else {
+      result_str = sexp_write_to_string(ctx, result);
+    }
+    text = sexp_string_data(result_str);
+  }
+  sexp_gc_release4(ctx);
+  return {is_error, text};
+}
+
+/* ─── Chibi-backed pretty printer (used by Shims/BossPrettyPrint.cpp) ─── */
+
+inline void pretty_print_expression(std::ostream& stream,
+                                    boss::ComplexExpression const& expression) {
+  struct ThreadContext {
+    BossContextGuard guard {initialize_boss_context()};
+    sexp env = guard.ctx == nullptr ? nullptr : sexp_context_env(guard.ctx);
+    sexp print_proc =
+        env == nullptr
+            ? nullptr
+            : sexp_env_ref(guard.ctx, env, sexp_intern(guard.ctx, "boss-print", -1), SEXP_FALSE);
+  };
+  thread_local ThreadContext tls;
+  if(tls.guard.ctx == nullptr || !sexp_procedurep(tls.print_proc)) {
+    return;
+  }
+  sexp const ctx = tls.guard.ctx;
+  sexp_gc_var3(form, arg_list, result_str);
+  sexp_gc_preserve3(ctx, form, arg_list, result_str);
+  form = complex_expr_to_sexp(ctx, expression);
+  arg_list = sexp_list1(ctx, form);
+  result_str = sexp_apply(ctx, tls.print_proc, arg_list);
+  if(!sexp_exceptionp(result_str) && sexp_stringp(result_str)) {
+    stream << sexp_string_data(result_str);
+  }
+  sexp_gc_release3(ctx);
+}
+
+} // namespace boss
