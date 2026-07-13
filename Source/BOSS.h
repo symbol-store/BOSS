@@ -26,6 +26,29 @@ struct BOSSExpression* symbolNameToNewBOSSExpression(char const* name);
 struct BOSSExpression* newComplexBOSSExpression(struct BOSSSymbol* head, size_t cardinality,
                                                 struct BOSSExpression* arguments[]);
 
+struct BOSSExpressionSpan;
+struct BOSSExpressionSpan* makeBoolBOSSSpan(bool const* data, size_t size);
+struct BOSSExpressionSpan* makeInt8BOSSSpan(int8_t const* data, size_t size);
+struct BOSSExpressionSpan* makeInt32BOSSSpan(int32_t const* data, size_t size);
+struct BOSSExpressionSpan* makeInt64BOSSSpan(int64_t const* data, size_t size);
+struct BOSSExpressionSpan* makeFloatBOSSSpan(float const* data, size_t size);
+struct BOSSExpressionSpan* makeDoubleBOSSSpan(double const* data, size_t size);
+struct BOSSExpressionSpan* makeStringBOSSSpan(char const* const* data, size_t size);
+struct BOSSExpressionSpan* makeSymbolBOSSSpan(char const* const* data, size_t size);
+size_t getBOSSSpanBeginAddress(struct BOSSExpressionSpan const* span);
+struct BOSSExpression* newComplexBOSSExpressionWithSpans(struct BOSSSymbol* head,
+                                                         size_t cardinality,
+                                                         struct BOSSExpression* arguments[],
+                                                         size_t spanCount,
+                                                         struct BOSSExpressionSpan* spans[]);
+
+size_t getDynamicArgumentCountFromBOSSExpression(struct BOSSExpression const* arg);
+struct BOSSExpression** getDynamicArgumentsFromBOSSExpression(struct BOSSExpression const* arg);
+size_t getSpanArgumentCountFromBOSSExpression(struct BOSSExpression const* arg);
+struct BOSSExpressionSpan** getSpanArgumentsFromBOSSExpression(struct BOSSExpression* arg);
+void freeBOSSSpanArray(struct BOSSExpressionSpan** array);
+void freeBOSSExpressionSpan(struct BOSSExpressionSpan* span);
+
 /**
  *  bool = 0, char = 1, int = 2, long = 3, float = 4, double = 5, std::string = 6, Symbol = 7,
  *  ComplexExpression = 8

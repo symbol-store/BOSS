@@ -109,21 +109,40 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
                                            "string"_, "symbol"_, "complexExpression"_))));
 
   eval("define"_(
+      _("partition-boss-args"_, "args"_),
+      "let"_("loop"_,
+             _(_("rest"_, "args"_), _("dyn"_, "quote"_(_())), _("spans"_, "quote"_(_())),
+               _("forced"_, false)),
+             "cond"_(
+                 _("null?"_("rest"_), "cons"_("reverse"_("dyn"_), "reverse"_("spans"_))),
+                 _("and"_("not"_("forced"_), "eq?"_("car"_("rest"_), "quote"_(":spans"_))),
+                   "loop"_("cdr"_("rest"_), "dyn"_, "spans"_, true)),
+                 _("or"_("forced"_, "BOSSExpressionSpan?"_("car"_("rest"_))),
+                   "loop"_("cdr"_("rest"_), "dyn"_, "cons"_("car"_("rest"_), "spans"_), "forced"_)),
+                 _("else"_, "loop"_("cdr"_("rest"_), "cons"_("car"_("rest"_), "dyn"_), "spans"_,
+                                    "forced"_))))));
+
+  eval("define"_(
       _("convert-to-boss-expression"_, "x"_),
-      "match"_(
-          "x"_, _(_("quote"_("quote"_), "argument"_), "convert-to-boss-expression"_("argument"_)),
-          _(_("head"_, "arguments"_, "..."_),
-            "newComplexBOSSExpression"_("symbolNameToNewBOSSSymbol"_("symbol->string"_("head"_)),
-                                        "length"_("arguments"_),
-                                        "map"_("convert-to-boss-expression"_, "arguments"_))),
-          _(_("?"_, "boolean?"_, "b"_), "boolToNewBOSSExpression"_("b"_)),
-          _(_("?"_, "exact-integer?"_, "i"_),
-            "if"_("and"_(">="_("i"_, kInt32Min), "<="_("i"_, kInt32Max)),
-                  "intToNewBOSSExpression"_("i"_), "longToNewBOSSExpression"_("i"_))),
-          _(_("?"_, "real?"_, "f"_), "doubleToNewBOSSExpression"_("f"_)),
-          _(_("?"_, "string?"_, "s"_), "stringToNewBOSSExpression"_("s"_)),
-          _(_("?"_, "symbol?"_, "s"_),
-            "symbolNameToNewBOSSExpression"_("symbol->string"_("s"_))))));
+      "match"_("x"_,
+               _(_("quote"_("quote"_), "argument"_), "convert-to-boss-expression"_("argument"_)),
+               _(_("head"_, "arguments"_, "..."_),
+                 "let*"_(_(_("partitioned"_, "partition-boss-args"_("arguments"_)),
+                           _("dynamic-args"_, "car"_("partitioned"_)),
+                           _("span-args"_, "cdr"_("partitioned"_))),
+                         "newComplexBOSSExpressionWithSpans"_(
+                             "symbolNameToNewBOSSSymbol"_("symbol->string"_("head"_)),
+                             "length"_("dynamic-args"_),
+                             "map"_("convert-to-boss-expression"_, "dynamic-args"_),
+                             "length"_("span-args"_), "span-args"_))),
+               _(_("?"_, "boolean?"_, "b"_), "boolToNewBOSSExpression"_("b"_)),
+               _(_("?"_, "exact-integer?"_, "i"_),
+                 "if"_("and"_(">="_("i"_, kInt32Min), "<="_("i"_, kInt32Max)),
+                       "intToNewBOSSExpression"_("i"_), "longToNewBOSSExpression"_("i"_))),
+               _(_("?"_, "real?"_, "f"_), "doubleToNewBOSSExpression"_("f"_)),
+               _(_("?"_, "string?"_, "s"_), "stringToNewBOSSExpression"_("s"_)),
+               _(_("?"_, "symbol?"_, "s"_),
+                 "symbolNameToNewBOSSExpression"_("symbol->string"_("s"_))))));
 
   eval("define"_(
       _("convert-from-boss-expression"_, "x"_),
@@ -134,21 +153,40 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
           "case"_(
               "type"_,
               _(_("complexExpression"_),
-                "let"_(_(_("args"_, "getArgumentsFromBOSSExpression"_("x"_))),
-                       "dynamic-wind"_(
-                           "lambda"_(_(), false),
-                           "lambda"_(
-                               _(), "quasiquote"_(
-                                        _("unquote"_("string->symbol"_("bossSymbolToNewString"_(
-                                              "getHeadFromBOSSExpression"_("x"_)))),
-                                          "unquote-splicing"_("generator-map->list"_(
-                                              "lambda"_(_("i"_),
-                                                        "convert-from-boss-expression"_(
-                                                            "getArgumentFromBOSSExpressionArray"_(
-                                                                "args"_, "i"_))),
-                                              "make-iota-generator"_(
-                                                  "getArgumentCountFromBOSSExpression"_("x"_))))))),
-                           "lambda"_(_(), "freeBOSSArguments"_("args"_))))),
+                "let*"_(
+                    _(_("dyn-args"_, "getDynamicArgumentsFromBOSSExpression"_("x"_)),
+                      _("dyn-count"_, "getDynamicArgumentCountFromBOSSExpression"_("x"_)),
+                      _("span-count"_, "getSpanArgumentCountFromBOSSExpression"_("x"_)),
+                      _("span-array"_, "getSpanArgumentsFromBOSSExpression"_("x"_))),
+                    "dynamic-wind"_(
+                        "lambda"_(_(), false),
+                        "lambda"_(
+                            _(),
+                            "let"_(
+                                _(_("head"_,
+                                    "string->symbol"_("bossSymbolToNewString"_(
+                                        "getHeadFromBOSSExpression"_("x"_)))),
+                                  _("dynamic"_,
+                                    "generator-map->list"_(
+                                        "lambda"_(_("i"_),
+                                                  "convert-from-boss-expression"_(
+                                                      "getArgumentFromBOSSExpressionArray"_(
+                                                          "dyn-args"_, "i"_))),
+                                        "make-iota-generator"_("dyn-count"_)))),
+                                "if"_(">"_("span-count"_, 0),
+                                      "cons"_(
+                                          "head"_,
+                                          "append"_(
+                                              "dynamic"_,
+                                              "cons"_("quote"_(":spans"_),
+                                                      "generator-map->list"_(
+                                                          "lambda"_(_("i"_),
+                                                                    "getSpanFromBOSSSpanArray"_(
+                                                                        "span-array"_, "i"_)),
+                                                          "make-iota-generator"_("span-count"_))))),
+                                      "cons"_("head"_, "dynamic"_)))),
+                        "lambda"_(_(), "freeBOSSArguments"_("dyn-args"_),
+                                  "freeBOSSSpanArray"_("span-array"_))))),
               _(_("int32"_), "getIntValueFromBOSSExpression"_("x"_)),
               _(_("int8"_), "getCharValueFromBOSSExpression"_("x"_)),
               _(_("string"_), "getNewStringValueFromBOSSExpression"_("x"_)),
@@ -316,11 +354,10 @@ inline void pretty_print_expression(std::ostream& stream,
   struct ThreadContext {
     BossContextGuard guard {initialize_boss_context()};
     sexp env = guard.ctx == nullptr ? nullptr : sexp_context_env(guard.ctx);
-    sexp print_proc = env == nullptr
-                          ? nullptr
-                          : sexp_env_ref(guard.ctx, env,
-                                         sexp_intern(guard.ctx, "boss-print", -1),
-                                         SEXP_FALSE);
+    sexp print_proc =
+        env == nullptr
+            ? nullptr
+            : sexp_env_ref(guard.ctx, env, sexp_intern(guard.ctx, "boss-print", -1), SEXP_FALSE);
   };
   thread_local ThreadContext tls;
   if(tls.guard.ctx == nullptr || !sexp_procedurep(tls.print_proc)) {

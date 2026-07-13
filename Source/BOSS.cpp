@@ -21,6 +21,34 @@ using std::get; // NOLINT(misc-unused-using-decls)
                 // this is required to prevent clang-warnings for get<...>(Expression).
                 // I (Holger) suspect this is a compiler-bug
 
+namespace {
+template <typename Element> BOSSExpressionSpan* newBOSSSpan(::std::vector<Element>&& values) {
+  return new BOSSExpressionSpan {
+      boss::expressions::ExpressionSpanArgument(boss::Span<Element>(::std::move(values)))};
+}
+template <typename Element> BOSSExpressionSpan* newBOSSSpan(Element const* data, size_t size) {
+  return newBOSSSpan(::std::vector<Element>(data, data + size));
+}
+template <typename Element>
+BOSSExpressionSpan* newBOSSSpanFromCStrings(char const* const* data, size_t size) {
+  auto values = ::std::vector<Element>();
+  values.reserve(size);
+  for(size_t index = 0; index < size; ++index) {
+    values.emplace_back(data[index]);
+  }
+  return newBOSSSpan(::std::move(values));
+}
+template <typename Arguments>
+BOSSExpression** cloneToNewBOSSExpressionArray(Arguments const& arguments) {
+  auto* result = new BOSSExpression*[arguments.size() + 1];
+  ::std::transform(begin(arguments), end(arguments), result, [](auto const& argument) {
+    return new BOSSExpression {argument.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
+  });
+  result[arguments.size()] = nullptr;
+  return result;
+}
+} // namespace
+
 extern "C" {
 /**
  * (destructively) evaluate the expression. The function takes ownership of the expression and is
@@ -78,6 +106,88 @@ BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                      return a->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION);
                    });
   return new BOSSExpression {boss::ComplexExpression(head->delegate, ::std::move(args))};
+}
+
+BOSSExpressionSpan* makeBoolBOSSSpan(bool const* data, size_t size) {
+  return newBOSSSpan(data, size);
+}
+BOSSExpressionSpan* makeInt8BOSSSpan(int8_t const* data, size_t size) {
+  return newBOSSSpan(data, size);
+}
+BOSSExpressionSpan* makeInt32BOSSSpan(int32_t const* data, size_t size) {
+  return newBOSSSpan(data, size);
+}
+BOSSExpressionSpan* makeInt64BOSSSpan(int64_t const* data, size_t size) {
+  return newBOSSSpan(data, size);
+}
+BOSSExpressionSpan* makeFloatBOSSSpan(float const* data, size_t size) {
+  return newBOSSSpan(data, size);
+}
+BOSSExpressionSpan* makeDoubleBOSSSpan(double const* data, size_t size) {
+  return newBOSSSpan(data, size);
+}
+BOSSExpressionSpan* makeStringBOSSSpan(char const* const* data, size_t size) {
+  return newBOSSSpanFromCStrings<::std::string>(data, size);
+}
+BOSSExpressionSpan* makeSymbolBOSSSpan(char const* const* data, size_t size) {
+  return newBOSSSpanFromCStrings<boss::Symbol>(data, size);
+}
+
+size_t getBOSSSpanBeginAddress(BOSSExpressionSpan const* span) {
+  return ::std::visit(
+      [](auto const& typedSpan) -> size_t {
+        using IteratorType = decltype(typedSpan.begin());
+        if constexpr(::std::is_pointer_v<IteratorType>) {
+          return reinterpret_cast<size_t>(typedSpan.begin());
+        } else {
+          return 0;
+        }
+      },
+      span->delegate);
+}
+
+BOSSExpression* newComplexBOSSExpressionWithSpans(BOSSSymbol* head, size_t cardinality,
+                                                  BOSSExpression* arguments[], size_t spanCount,
+                                                  BOSSExpressionSpan* spans[]) {
+  auto args = boss::ExpressionArguments();
+  ::std::transform(arguments, arguments + cardinality, ::std::back_insert_iterator(args),
+                   [](auto const* a) {
+                     return a->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION);
+                   });
+  auto spanArguments = boss::expressions::ExpressionSpanArguments();
+  spanArguments.reserve(spanCount);
+  for(size_t index = 0; index < spanCount; ++index) {
+    spanArguments.emplace_back(::std::move(spans[index]->delegate));
+  }
+  return new BOSSExpression {
+      boss::ComplexExpression(head->delegate, {}, ::std::move(args), ::std::move(spanArguments))};
+}
+
+size_t getDynamicArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
+  return get<boss::ComplexExpression>(arg->delegate).getDynamicArguments().size();
+}
+BOSSExpression** getDynamicArgumentsFromBOSSExpression(BOSSExpression const* arg) {
+  return cloneToNewBOSSExpressionArray(
+      get<boss::ComplexExpression>(arg->delegate).getDynamicArguments());
+}
+
+size_t getSpanArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
+  return get<boss::ComplexExpression>(arg->delegate).getSpanArguments().size();
+}
+BOSSExpressionSpan** getSpanArgumentsFromBOSSExpression(BOSSExpression* arg) {
+  auto spanArguments = ::std::move(get<boss::ComplexExpression>(arg->delegate)).getSpanArguments();
+  auto* result = new BOSSExpressionSpan*[spanArguments.size() + 1];
+  ::std::transform(::std::make_move_iterator(begin(spanArguments)),
+                   ::std::make_move_iterator(end(spanArguments)), result,
+                   [](auto&& span) { return new BOSSExpressionSpan {::std::move(span)}; });
+  result[spanArguments.size()] = nullptr;
+  return result;
+}
+void freeBOSSSpanArray(BOSSExpressionSpan** array) {
+  delete[] array; // NOLINT
+}
+void freeBOSSExpressionSpan(BOSSExpressionSpan* span) {
+  delete span; // NOLINT
 }
 
 char const* bossSymbolToNewString(BOSSSymbol const* arg) {
@@ -152,13 +262,7 @@ size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
   return get<boss::ComplexExpression>(arg->delegate).getArguments().size();
 }
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
-  auto const& args = get<boss::ComplexExpression>(arg->delegate).getArguments();
-  auto* result = new BOSSExpression*[args.size() + 1];
-  ::std::transform(begin(args), end(args), result, [](auto const& arg) {
-    return new BOSSExpression {arg.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)};
-  });
-  result[args.size()] = nullptr;
-  return result;
+  return cloneToNewBOSSExpressionArray(get<boss::ComplexExpression>(arg->delegate).getArguments());
 }
 
 void freeBOSSExpression(BOSSExpression* expression) {
