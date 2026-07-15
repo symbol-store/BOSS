@@ -1,5 +1,6 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -71,37 +72,37 @@ void checkSpanRoundTrip(struct BOSSExpressionSpan* span, size_t expectedElementC
 }
 } // namespace
 
-TEST_CASE("Span arguments round-trip zero-copy across element types", "[api]") {
-  SECTION("int8 with embedded null byte") {
-    auto const values = std::array<int8_t, 5> {97, 98, 0, 99, -1};
-    checkSpanRoundTrip(makeInt8BOSSSpan(values.data(), values.size()), values.size(),
-                       [](BOSSExpression** flattened) {
-                         CHECK(getCharValueFromBOSSExpression(flattened[0]) == 97);
-                         CHECK(getCharValueFromBOSSExpression(flattened[2]) == 0);
-                       });
-  }
-  SECTION("int32") {
-    auto const values = std::array<int32_t, 3> {7, -8, 9};
-    checkSpanRoundTrip(makeInt32BOSSSpan(values.data(), values.size()), values.size(),
-                       [](BOSSExpression** flattened) {
-                         CHECK(getIntValueFromBOSSExpression(flattened[1]) == -8);
-                       });
-  }
-  SECTION("double") {
-    constexpr auto FIRST_VALUE = 1.5;
-    auto const values = std::array<double, 2> {FIRST_VALUE, -2.25};
-    checkSpanRoundTrip(makeDoubleBOSSSpan(values.data(), values.size()), values.size(),
-                       [](BOSSExpression** flattened) {
-                         CHECK(getDoubleValueFromBOSSExpression(flattened[0]) == FIRST_VALUE);
-                       });
-  }
-  SECTION("string") {
-    auto const values = std::array<char const*, 2> {"foo", "barbaz"};
-    checkSpanRoundTrip(makeStringBOSSSpan(values.data(), values.size()), values.size(),
-                       [](BOSSExpression** flattened) {
-                         char* first = getNewStringValueFromBOSSExpression(flattened[1]);
-                         CHECK(std::string(first) == "barbaz");
-                         freeBOSSString(first);
-                       });
-  }
+TEST_CASE("Span arguments round-trip zero-copy: int8 with embedded null byte", "[api]") {
+  auto const values = std::array<int8_t, 5> {97, 98, 0, 99, -1};
+  checkSpanRoundTrip(makeInt8BOSSSpan(values.data(), values.size()), values.size(),
+                     [](BOSSExpression** flattened) {
+                       CHECK(getCharValueFromBOSSExpression(flattened[0]) == 97);
+                       CHECK(getCharValueFromBOSSExpression(flattened[2]) == 0);
+                     });
+}
+
+TEST_CASE("Span arguments round-trip zero-copy: int32", "[api]") {
+  auto const values = std::array<int32_t, 3> {7, -8, 9};
+  checkSpanRoundTrip(
+      makeInt32BOSSSpan(values.data(), values.size()), values.size(),
+      [](BOSSExpression** flattened) { CHECK(getIntValueFromBOSSExpression(flattened[1]) == -8); });
+}
+
+TEST_CASE("Span arguments round-trip zero-copy: double", "[api]") {
+  constexpr auto FIRST_VALUE = 1.5;
+  auto const values = std::array<double, 2> {FIRST_VALUE, -2.25};
+  checkSpanRoundTrip(makeDoubleBOSSSpan(values.data(), values.size()), values.size(),
+                     [](BOSSExpression** flattened) {
+                       CHECK(getDoubleValueFromBOSSExpression(flattened[0]) == FIRST_VALUE);
+                     });
+}
+
+TEST_CASE("Span arguments round-trip zero-copy: string", "[api]") {
+  auto const values = std::array<char const*, 2> {"foo", "barbaz"};
+  checkSpanRoundTrip(makeStringBOSSSpan(values.data(), values.size()), values.size(),
+                     [](BOSSExpression** flattened) {
+                       char* first = getNewStringValueFromBOSSExpression(flattened[1]);
+                       CHECK(std::string(first) == "barbaz");
+                       freeBOSSString(first);
+                     });
 }
