@@ -27,6 +27,10 @@ template <typename Element> BOSSExpressionSpan* newBOSSSpan(::std::vector<Elemen
       boss::expressions::ExpressionSpanArgument(boss::Span<Element>(::std::move(values)))};
 }
 template <typename Element> BOSSExpressionSpan* newBOSSSpan(Element const* data, size_t size) {
+  if(size == 0) {
+    // avoid pointer arithmetic (data + size) on a possibly-null data pointer
+    return newBOSSSpan(::std::vector<Element>());
+  }
   return newBOSSSpan(::std::vector<Element>(data, data + size));
 }
 template <typename Element>
@@ -101,31 +105,29 @@ BOSSSymbol* symbolNameToNewBOSSSymbol(char const* name) {
 BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                                          BOSSExpression* arguments[]) {
   auto args = boss::ExpressionArguments();
-  ::std::transform(arguments, arguments + cardinality, ::std::back_insert_iterator(args),
-                   [](auto const* a) {
-                     return a->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION);
-                   });
+  if(cardinality > 0) {
+    // guard against pointer arithmetic (arguments + cardinality) on a possibly-null pointer
+    ::std::transform(arguments, arguments + cardinality, ::std::back_insert_iterator(args),
+                     [](auto const* a) {
+                       return a->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION);
+                     });
+  }
   return new BOSSExpression {boss::ComplexExpression(head->delegate, ::std::move(args))};
 }
 
-BOSSExpressionSpan* makeBoolBOSSSpan(bool const* data, size_t size) {
-  return newBOSSSpan(data, size);
-}
-BOSSExpressionSpan* makeInt8BOSSSpan(int8_t const* data, size_t size) {
-  return newBOSSSpan(data, size);
-}
-BOSSExpressionSpan* makeInt32BOSSSpan(int32_t const* data, size_t size) {
-  return newBOSSSpan(data, size);
-}
-BOSSExpressionSpan* makeInt64BOSSSpan(int64_t const* data, size_t size) {
-  return newBOSSSpan(data, size);
-}
-BOSSExpressionSpan* makeFloatBOSSSpan(float const* data, size_t size) {
-  return newBOSSSpan(data, size);
-}
-BOSSExpressionSpan* makeDoubleBOSSSpan(double const* data, size_t size) {
-  return newBOSSSpan(data, size);
-}
+// clang-format off
+#define DEFINE_MAKE_BOSS_SPAN(Name, Type)                                                        \
+  BOSSExpressionSpan* make##Name##BOSSSpan(Type const* data, size_t size) {                      \
+    return newBOSSSpan(data, size);                                                              \
+  }
+// clang-format on
+DEFINE_MAKE_BOSS_SPAN(Bool, bool)
+DEFINE_MAKE_BOSS_SPAN(Int8, int8_t)
+DEFINE_MAKE_BOSS_SPAN(Int32, int32_t)
+DEFINE_MAKE_BOSS_SPAN(Int64, int64_t)
+DEFINE_MAKE_BOSS_SPAN(Float, float)
+DEFINE_MAKE_BOSS_SPAN(Double, double)
+#undef DEFINE_MAKE_BOSS_SPAN
 BOSSExpressionSpan* makeStringBOSSSpan(char const* const* data, size_t size) {
   return newBOSSSpanFromCStrings<::std::string>(data, size);
 }
@@ -150,10 +152,13 @@ BOSSExpression* newComplexBOSSExpressionWithSpans(BOSSSymbol* head, size_t cardi
                                                   BOSSExpression* arguments[], size_t spanCount,
                                                   BOSSExpressionSpan* spans[]) {
   auto args = boss::ExpressionArguments();
-  ::std::transform(arguments, arguments + cardinality, ::std::back_insert_iterator(args),
-                   [](auto const* a) {
-                     return a->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION);
-                   });
+  if(cardinality > 0) {
+    // guard against pointer arithmetic (arguments + cardinality) on a possibly-null pointer
+    ::std::transform(arguments, arguments + cardinality, ::std::back_insert_iterator(args),
+                     [](auto const* a) {
+                       return a->delegate.clone(CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION);
+                     });
+  }
   auto spanArguments = boss::expressions::ExpressionSpanArguments();
   spanArguments.reserve(spanCount);
   for(size_t index = 0; index < spanCount; ++index) {
