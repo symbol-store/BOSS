@@ -15,6 +15,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 using namespace boss::utilities;
 using boss::expressions::CloneReason;
 using std::get; // NOLINT(misc-unused-using-decls)
@@ -183,8 +184,9 @@ BOSSExpressionSpan** getSpanArgumentsFromBOSSExpression(BOSSExpression* arg) {
   auto spanArguments = ::std::move(get<boss::ComplexExpression>(arg->delegate)).getSpanArguments();
   auto* result = new BOSSExpressionSpan*[spanArguments.size() + 1];
   ::std::transform(::std::make_move_iterator(begin(spanArguments)),
-                   ::std::make_move_iterator(end(spanArguments)), result,
-                   [](auto&& span) { return new BOSSExpressionSpan {::std::move(span)}; });
+                   ::std::make_move_iterator(end(spanArguments)), result, [](auto&& span) {
+                     return new BOSSExpressionSpan {::std::forward<decltype(span)>(span)};
+                   });
   result[spanArguments.size()] = nullptr;
   return result;
 }

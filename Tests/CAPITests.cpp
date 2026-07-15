@@ -1,5 +1,6 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <cstdint>
 #include <string>
 
 #include "../Source/BOSS.h"
@@ -87,10 +88,11 @@ TEST_CASE("Span arguments round-trip zero-copy across element types", "[api]") {
                        });
   }
   SECTION("double") {
-    auto const values = std::array<double, 2> {1.5, -2.25};
+    constexpr auto FIRST_VALUE = 1.5;
+    auto const values = std::array<double, 2> {FIRST_VALUE, -2.25};
     checkSpanRoundTrip(makeDoubleBOSSSpan(values.data(), values.size()), values.size(),
                        [](BOSSExpression** flattened) {
-                         CHECK(getDoubleValueFromBOSSExpression(flattened[0]) == 1.5);
+                         CHECK(getDoubleValueFromBOSSExpression(flattened[0]) == FIRST_VALUE);
                        });
   }
   SECTION("string") {
