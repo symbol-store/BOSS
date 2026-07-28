@@ -168,7 +168,11 @@ class BootstrapEngine : public Engine {
 
   // Resolves a pipeline entry to the library it names: a Symbol, and a ComplexExpression via
   // its head, map to the platform library name; anything else is required to be a string and
-  // is used verbatim (so a non-string, non-Symbol entry reports a bad-variant access).
+  // is used verbatim (so a non-string, non-Symbol entry reports a bad-variant access, which is
+  // the error message the engine-resolution tests pin).
+  //
+  // A template so it accepts both an Expression (the stored pipeline) and the ArgumentWrapper
+  // handed out by ComplexExpression::getArguments() on the dispatch path.
   template <typename EnginePath> static string libraryNameForEnginePath(EnginePath const& path) {
     auto resolve =
         overload([](Symbol const& engine) -> string { return symbolToLibraryName(engine); },
@@ -380,6 +384,59 @@ class BootstrapEngine : public Engine {
            args.push_back(entry.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
          }
          return "List"_(std::move(args));
+       }},
+      {Symbol("GetEngineDescription"),
+       [this](auto&& /*expression*/) -> Expression {
+         using boss::utilities::operator""_;
+         // This operator calls into engines, so it must count as in flight: otherwise a
+         // concurrent SetDefaultEnginePipeline or ResetEngines would pass
+         // requireNoEvaluationInFlight and unload an engine while it is being queried.
+         InFlightGuard const inFlight(evaluationsInFlight);
+         // Snapshot the pipeline under a shared lock, then resolve + call engines with no lock.
+         vector<Expression> pipeline;
+         {
+           boss::concurrency::SharedLock const lock(engineStateMutex);
+           pipeline.reserve(defaultEnginePipeline.size());
+           for(auto const& entry : defaultEnginePipeline) {
+             pipeline.push_back(
+                 entry.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
+           }
+         }
+         string descriptions;
+         for(auto const& enginePath : pipeline) {
+           auto* evalFn = resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
+           // Owning handles so neither expression leaks if the engine call throws.
+           using ExpressionHandle = std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
+           auto const queryWrapper = ExpressionHandle(
+               new BOSSExpression {"GetEngineDescription"_()}, &freeBOSSExpression);
+           auto const resultWrapper =
+               ExpressionHandle(evalFn(queryWrapper.get()), &freeBOSSExpression);
+           auto engineName = path(libraryNameForEnginePath(enginePath)).stem().string();
+           if(engineName.compare(0, 3, "lib") == 0) {
+             engineName.erase(0, 3);
+           }
+           // One section per engine, whatever the engine answered -- an engine that returns
+           // nothing, or something other than a string, must still be visible in the document
+           // rather than silently vanishing from it.
+           if(!descriptions.empty()) {
+             descriptions += "\n";
+           }
+           descriptions += "## " + engineName + "\n\n";
+           if(resultWrapper == nullptr) {
+             descriptions += "(no description: the engine returned nothing)\n";
+             continue;
+           }
+           visit(
+               overload([&descriptions](string const& description) { descriptions += description; },
+                        [&descriptions](auto const& unexpected) {
+                          std::stringstream rendered;
+                          rendered << unexpected;
+                          descriptions +=
+                              "(no description: the engine returned " + rendered.str() + ")\n";
+                        }),
+               resultWrapper->delegate);
+         }
+         return descriptions;
        }},
       {Symbol("ResetEngines"), [this](auto&& /*expression*/) -> Expression {
          requireNoEvaluationInFlight("ResetEngines");
