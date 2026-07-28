@@ -181,13 +181,20 @@ size_t getSpanArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
   return get<boss::ComplexExpression>(arg->delegate).getSpanArguments().size();
 }
 BOSSExpressionSpan** getSpanArgumentsFromBOSSExpression(BOSSExpression* arg) {
-  auto spanArguments = ::std::move(get<boss::ComplexExpression>(arg->delegate)).getSpanArguments();
+  auto& expression = get<boss::ComplexExpression>(arg->delegate);
+  auto [head, staticArguments, dynamicArguments, spanArguments] =
+      ::std::move(expression).decompose();
   auto* result = new BOSSExpressionSpan*[spanArguments.size() + 1];
   ::std::transform(::std::make_move_iterator(begin(spanArguments)),
                    ::std::make_move_iterator(end(spanArguments)), result, [](auto&& span) {
                      return new BOSSExpressionSpan {::std::forward<decltype(span)>(span)};
                    });
   result[spanArguments.size()] = nullptr;
+  // Put the expression back without its spans. Reading the size of a moved-from vector
+  // would be unspecified, so rebuild with a default-constructed (empty) span container
+  // to make the documented "span-argument count becomes 0" contract hold.
+  expression = boss::ComplexExpression(::std::move(head), ::std::move(staticArguments),
+                                       ::std::move(dynamicArguments));
   return result;
 }
 void freeBOSSSpanArray(BOSSExpressionSpan** array) {

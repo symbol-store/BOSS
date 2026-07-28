@@ -40,8 +40,9 @@ TEST_CASE("Build expression, with strings", "[api]") {
 }
 
 namespace {
-// Wraps a freshly-made span as (Column :spans <span>), runs the shared structural and
-// zero-copy checks, and hands the flattened arguments to a caller-supplied element check.
+// Wraps a freshly-made span in a Column expression carrying no dynamic arguments and a
+// single span argument, runs the shared structural and zero-copy checks, and hands the
+// flattened arguments to a caller-supplied element check.
 // Frees the span wrapper, the expression, and the moved-out span.
 template <typename CheckElements>
 void checkSpanRoundTrip(struct BOSSExpressionSpan* span, size_t expectedElementCount,
