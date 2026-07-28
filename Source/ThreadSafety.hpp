@@ -9,9 +9,8 @@
 // while the lock is held. std::shared_mutex itself is not annotated by libc++/libstdc++, hence
 // this thin wrapper.
 //
-// This header has no consumers yet -- the engine-state locking that uses it lands in a
-// follow-up change. The analysis flags are switched on now so that annotated code is checked
-// from the moment it is written.
+// The first consumer is BootstrapEngine's engineStateMutex, which guards the library cache and
+// the default engine pipeline (see Source/BootstrapEngine.hpp and docs/threading-audit.md).
 //
 // All macros are no-ops outside Clang (GCC/MSVC ignore the attributes), so the analysis is a
 // Clang-only, zero-runtime-cost static check. See
@@ -100,8 +99,9 @@ private:
 
 // ── ConcurrencyTripwire ─────────────────────────────────────────────────────────────────────
 // Debug-build-only guard that detects violations of the "one context per concurrent caller"
-// rule: a context that is not itself thread-safe (such as a chibi-scheme context) must never be
-// entered by two threads at once. Construct it at the top of a per-context evaluation,
+// rule (docs/threading-audit.md §3): a context that is not itself thread-safe (such as a
+// chibi-scheme context) must never be entered by two threads at once. Construct it at the top
+// of a per-context evaluation,
 // scoped to the call, passing the context handle as `key`. If another thread is already inside
 // an evaluation on the same key, it aborts loudly — converting silent memory corruption
 // (concurrent use of a non-thread-safe chibi context) into an immediate, diagnosable crash.
@@ -121,8 +121,8 @@ public:
       if(it->second.thread != std::this_thread::get_id()) {
         std::cerr << "\n*** BOSS ConcurrencyTripwire: context " << key_
                   << " entered concurrently from a second thread in " << site
-                  << ".\n*** This violates the one-context-per-caller contract and would "
-                     "corrupt the context."
+                  << ".\n*** This violates the one-context-per-caller contract "
+                     "(docs/threading-audit.md §3) and would corrupt the context."
                      "\n*** Aborting.\n"
                   << std::flush;
         std::abort();
