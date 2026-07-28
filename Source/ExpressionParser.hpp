@@ -8,6 +8,7 @@ extern "C" {
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "UnicodeEscapes.hpp"
 #include "Utilities.hpp"
 
 #include <cctype>
@@ -169,49 +170,6 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
                         "let"_(_(_("expr"_, "convert-to-boss-expression"_("quote"_("query"_)))),
                                "boss-expression-transfer!"_("expr"_),
                                "convert-from-boss-expression"_("BOSSEvaluate"_("expr"_)))))));
-}
-
-/* ─── Unicode escape preprocessing ─── */
-
-// chibi-scheme's sexp_read is a strict R7RS reader: it accepts \xXXXX; for Unicode
-// escapes but not JSON/JavaScript-style \uXXXX. JSON clients always emit \uXXXX,
-// so we translate here before passing the expression string to sexp_read.
-// This covers the full BMP (U+0000–U+FFFF); the translation is purely syntactic
-// (\uXXXX → \xXXXX;) and chibi handles the actual UTF-8 encoding from there.
-inline std::string preprocessUnicodeEscapes(std::string input) {
-  constexpr size_t kUnicodeEscapeHexDigits = 4;
-  constexpr size_t kUnicodeEscapeLength = 2 + kUnicodeEscapeHexDigits; // "\\uXXXX"
-  constexpr size_t kUnicodeEscapeLastIndex = 1 + kUnicodeEscapeHexDigits;
-  auto isHex = [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; };
-  // Fast path: scan without allocating; return unchanged if no \uXXXX found.
-  size_t escapeStart = std::string::npos;
-  for(size_t i = 0; input.size() - i >= kUnicodeEscapeLength; ++i) {
-    if(input[i] == '\\' && input[i + 1] == 'u' && isHex(input[i + 2]) && isHex(input[i + 3]) &&
-       isHex(input[i + 4]) && isHex(input[i + kUnicodeEscapeLastIndex])) {
-      escapeStart = i;
-      break;
-    }
-  }
-  if(escapeStart == std::string::npos) {
-    return input;
-  }
-  std::string output;
-  output.reserve(input.size());
-  output.append(input, 0, escapeStart);
-  size_t i = escapeStart;
-  while(i < input.size()) {
-    if(input.size() - i >= kUnicodeEscapeLength && input[i] == '\\' && input[i + 1] == 'u' &&
-       isHex(input[i + 2]) && isHex(input[i + 3]) && isHex(input[i + 4]) &&
-       isHex(input[i + kUnicodeEscapeLastIndex])) {
-      output += "\\x";
-      output.append(input, i + 2, kUnicodeEscapeHexDigits);
-      output += ';';
-      i += kUnicodeEscapeLength;
-    } else {
-      output += input[i++];
-    }
-  }
-  return output;
 }
 
 /* ─── Evaluation utilities ─── */

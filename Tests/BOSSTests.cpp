@@ -2,6 +2,7 @@
 #include "../Source/Expression.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include "../Source/Serialization.hpp"
+#include "../Source/UnicodeEscapes.hpp"
 #include "../Source/Utilities.hpp"
 
 #include <algorithm>
@@ -58,6 +59,27 @@ std::vector<string>
 // NOLINTBEGIN(bugprone-exception-escape)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // TODO: @Hubert, can you reduce the complexity of the tests, please?
+TEST_CASE("Unicode escape preprocessing", "[unicode]") {
+  using boss::preprocessUnicodeEscapes;
+  // Nothing to translate.
+  CHECK(preprocessUnicodeEscapes("") == "");
+  CHECK(preprocessUnicodeEscapes("(Plus 1 2)") == "(Plus 1 2)");
+  // \uXXXX becomes chibi's \xXXXX; form.
+  CHECK(preprocessUnicodeEscapes("\"caf\\u00e9\"") == "\"caf\\x00e9;\"");
+  CHECK(preprocessUnicodeEscapes("\\u0041\\u0042") == "\\x0041;\\x0042;");
+  // An escaped backslash does not start an escape, so this stays a literal backslash
+  // followed by u0041 rather than becoming a backslash followed by "A".
+  CHECK(preprocessUnicodeEscapes("\\\\u0041") == "\\\\u0041");
+  // Other escapes are passed through untouched.
+  CHECK(preprocessUnicodeEscapes("\\n\\u0041") == "\\n\\x0041;");
+  CHECK(preprocessUnicodeEscapes("\\\"") == "\\\"");
+  // Malformed or truncated sequences are left alone, and must not read past the end.
+  CHECK(preprocessUnicodeEscapes("\\u12") == "\\u12");
+  CHECK(preprocessUnicodeEscapes("\\uzzzz") == "\\uzzzz");
+  CHECK(preprocessUnicodeEscapes("abc\\") == "abc\\");
+  CHECK(preprocessUnicodeEscapes("\\") == "\\");
+}
+
 TEST_CASE("Subspans work correctly", "[spans]") {
   auto input = boss::Span<int64_t> {std::vector<int64_t> {1, 2, 4, 3}};
   auto subrange = std::move(input).subspan(1, 3);
