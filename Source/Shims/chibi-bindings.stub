@@ -47,9 +47,11 @@
 (define-c (free BOSSExpressionSpan) getSpanFromBOSSSpanArray ((pointer BOSSExpressionSpan) size_t))
 (define-c void freeBOSSSpanArray ((pointer BOSSExpressionSpan)))
 (define-c size_t getBOSSSpanBeginAddress ((const BOSSExpressionSpan)))
-;; Scheme builds int8 spans directly from bytevectors (the binary payload path). Spans of the
-;; other element types are constructed host-side via the make*BOSSSpan C API or arrive from
-;; engine output; they still cross the bridge unmodified through the type-agnostic span accessors.
+;; Scheme builds int8 spans from bytevectors (the binary payload path). Note this constructor
+;; COPIES: makeInt8BOSSSpan copies the bytevector's bytes into the new span's buffer. It is the
+;; span itself that then moves zero-copy across the bridge, not this initial construction.
+;; Spans of the other element types are constructed host-side via the make*BOSSSpan C API or
+;; arrive from engine output; they too cross the bridge unmodified via the span accessors.
 (c-declare "static struct BOSSExpressionSpan* bytevectorToNewInt8BOSSSpan(sexp bv) { return makeInt8BOSSSpan((int8_t const*)sexp_bytes_data(bv), (size_t)sexp_bytes_length(bv)); }")
 (define-c (free BOSSExpressionSpan) bytevectorToNewInt8BOSSSpan (sexp))
 
