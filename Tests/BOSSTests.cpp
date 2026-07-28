@@ -169,6 +169,27 @@ TEST_CASE("Expression Transformation", "[expressions]") {
   CHECK(e.getArguments().at(1) == v2 + 1);
 }
 
+TEST_CASE("Pretty-print manipulator toggles the per-stream flag", "[expressions][pretty]") {
+  std::stringstream stream;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+  stream << boss::pretty;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 1);
+  stream << boss::compact;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+}
+
+TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pretty]") {
+  // The Tests binary does not link Shims/BossPrettyPrint.cpp, so the hook stays null
+  // and pretty mode falls through to the compact renderer.
+  REQUIRE(boss::prettyPrintHook() == nullptr);
+  auto expr = "Filter"_("Load"_("path"), "Greater"_("x"_, 3));
+  std::stringstream compactOut;
+  compactOut << expr;
+  std::stringstream prettyOut;
+  prettyOut << boss::pretty << expr;
+  CHECK(prettyOut.str() == compactOut.str());
+}
+
 TEST_CASE("Expression without arguments", "[expressions]") {
   auto const& e = "UnevaluatedPlus"_();
   CHECK(e.getHead().getName() == "UnevaluatedPlus");
