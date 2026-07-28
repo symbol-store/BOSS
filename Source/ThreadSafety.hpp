@@ -26,6 +26,9 @@
 #include <unordered_map>
 #endif
 
+// These have to be macros: they expand to __attribute__((...)) in declaration position, which no
+// constexpr function can stand in for, and they must vanish entirely on non-Clang compilers.
+// NOLINTBEGIN(cppcoreguidelines-macro-usage)
 #if defined(__clang__)
 #define BOSS_TS_ATTR(x) __attribute__((x))
 #else
@@ -45,6 +48,7 @@
 #define BOSS_RELEASE_GENERIC(...) BOSS_TS_ATTR(release_generic_capability(__VA_ARGS__))
 #define BOSS_EXCLUDES(...) BOSS_TS_ATTR(locks_excluded(__VA_ARGS__))
 #define BOSS_NO_THREAD_SAFETY_ANALYSIS BOSS_TS_ATTR(no_thread_safety_analysis)
+// NOLINTEND(cppcoreguidelines-macro-usage)
 
 namespace boss::concurrency {
 
@@ -64,7 +68,7 @@ public:
   void unlockShared() BOSS_RELEASE_SHARED() { mutex_.unlock_shared(); }
 
 private:
-  std::shared_mutex mutex_ {};
+  std::shared_mutex mutex_;
 };
 
 // RAII exclusive (writer) lock.
