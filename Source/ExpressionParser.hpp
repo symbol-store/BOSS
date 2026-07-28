@@ -240,16 +240,22 @@ inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& exp
     out_port = sexp_open_output_string(ctx);
     sexp_print_exception(ctx, result, out_port);
     result_str = sexp_get_output_string(ctx, out_port);
-    text = sexp_string_data(result_str);
   } else if(result != SEXP_VOID) {
     if(pretty) {
       sexp const print_proc =
           sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
-      arg_list = sexp_list1(ctx, result);
-      result_str = sexp_apply(ctx, print_proc, arg_list);
-    } else {
-      result_str = sexp_write_to_string(ctx, result);
+      // boss-print may be missing from the environment, bound to a non-procedure, or may
+      // raise; its result is only usable if it actually came back as a string.
+      if(sexp_procedurep(print_proc)) {
+        arg_list = sexp_list1(ctx, result);
+        result_str = sexp_apply(ctx, print_proc, arg_list);
+      }
     }
+    if(!sexp_stringp(result_str)) {
+      result_str = sexp_write_to_string(ctx, result); // fall back to chibi's own writer
+    }
+  }
+  if(sexp_stringp(result_str)) {
     text = sexp_string_data(result_str);
   }
   sexp_gc_release4(ctx);
