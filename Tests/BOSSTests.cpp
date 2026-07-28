@@ -17,6 +17,7 @@
 #include <catch2/generators/catch_generators_range.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <iterator>
@@ -467,9 +468,10 @@ TEST_CASE("Large string as a ComplexExpression argument", "[expressions][largest
   CHECK(get<std::string>(dynamicArguments.at(0)).size() == largeStringSize);
   CHECK(get<std::string>(dynamicArguments.at(0)) == payload);
 
-  auto recomposedExpression =
-      boss::ComplexExpression(std::move(head), std::move(staticArguments),
-                              std::move(dynamicArguments), std::move(spanArguments));
+  // `{}` rather than moving staticArguments: it is an empty, trivially copyable std::tuple<>, so
+  // the move has no effect and clang-tidy (run with warnings-as-errors) rejects it.
+  auto recomposedExpression = boss::ComplexExpression(
+      std::move(head), {}, std::move(dynamicArguments), std::move(spanArguments));
   CHECK(recomposedExpression == movedExpression);
   CHECK(get<std::string>(recomposedExpression.getArguments().at(0)) == payload);
 }
@@ -493,9 +495,8 @@ TEST_CASE("Large string as a ComplexExpression head", "[expressions][largestring
   CHECK(head.getName() == payload);
   CHECK(dynamicArguments.empty());
 
-  auto recomposedExpression =
-      boss::ComplexExpression(std::move(head), std::move(staticArguments),
-                              std::move(dynamicArguments), std::move(spanArguments));
+  auto recomposedExpression = boss::ComplexExpression(
+      std::move(head), {}, std::move(dynamicArguments), std::move(spanArguments));
   CHECK(recomposedExpression.getHead().getName() == payload);
   CHECK(recomposedExpression == movedExpression);
 }
