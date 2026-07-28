@@ -27,6 +27,11 @@ struct BOSSExpression* newComplexBOSSExpression(struct BOSSSymbol* head, size_t 
                                                 struct BOSSExpression* arguments[]);
 
 struct BOSSExpressionSpan;
+/**
+ * Span constructors. The elements of `data` are copied into the new span. A null `data`
+ * yields an empty span whatever `size` says, and for the string and symbol constructors a
+ * null element becomes an empty string, so no null pointer is ever read through.
+ */
 struct BOSSExpressionSpan* makeBoolBOSSSpan(bool const* data, size_t size);
 struct BOSSExpressionSpan* makeInt8BOSSSpan(int8_t const* data, size_t size);
 struct BOSSExpressionSpan* makeInt32BOSSSpan(int32_t const* data, size_t size);

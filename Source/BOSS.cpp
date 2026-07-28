@@ -28,8 +28,9 @@ template <typename Element> BOSSExpressionSpan* newBOSSSpan(::std::vector<Elemen
       boss::expressions::ExpressionSpanArgument(boss::Span<Element>(::std::move(values)))};
 }
 template <typename Element> BOSSExpressionSpan* newBOSSSpan(Element const* data, size_t size) {
-  if(size == 0) {
-    // avoid pointer arithmetic (data + size) on a possibly-null data pointer
+  if(size == 0 || data == nullptr) {
+    // an empty span: avoids pointer arithmetic (data + size) on a null pointer, and treats a
+    // null buffer as empty rather than reading through it
     return newBOSSSpan(::std::vector<Element>());
   }
   return newBOSSSpan(::std::vector<Element>(data, data + size));
@@ -37,9 +38,13 @@ template <typename Element> BOSSExpressionSpan* newBOSSSpan(Element const* data,
 template <typename Element>
 BOSSExpressionSpan* newBOSSSpanFromCStrings(char const* const* data, size_t size) {
   auto values = ::std::vector<Element>();
+  if(data == nullptr) {
+    return newBOSSSpan(::std::move(values));
+  }
   values.reserve(size);
   for(size_t index = 0; index < size; ++index) {
-    values.emplace_back(data[index]);
+    // a null entry becomes an empty string rather than being constructed from a null pointer
+    values.emplace_back(data[index] == nullptr ? "" : data[index]);
   }
   return newBOSSSpan(::std::move(values));
 }

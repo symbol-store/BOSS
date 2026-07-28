@@ -98,6 +98,41 @@ TEST_CASE("Span arguments round-trip zero-copy: double", "[api]") {
                      });
 }
 
+TEST_CASE("Span constructors tolerate null buffers and null elements", "[api]") {
+  auto wrapInColumn = [](struct BOSSExpressionSpan* span) {
+    auto* head = symbolNameToNewBOSSSymbol("Column");
+    auto noArguments = std::array<struct BOSSExpression*, 1> {};
+    auto spans = std::array<struct BOSSExpressionSpan*, 1> {span};
+    auto* expr = newComplexBOSSExpressionWithSpans(head, 0, noArguments.data(), 1, spans.data());
+    freeBOSSSymbol(head);
+    freeBOSSExpressionSpan(span);
+    return expr;
+  };
+
+  // A null buffer yields an empty span rather than reading through the pointer.
+  for(auto* span : {makeInt32BOSSSpan(nullptr, 3), makeDoubleBOSSSpan(nullptr, 2),
+                    makeStringBOSSSpan(nullptr, 4)}) {
+    auto* expr = wrapInColumn(span);
+    CHECK(getSpanArgumentCountFromBOSSExpression(expr) == 1);
+    CHECK(getArgumentCountFromBOSSExpression(expr) == 0);
+    freeBOSSExpression(expr);
+  }
+
+  // A null element within a valid array becomes an empty string.
+  auto const values = std::array<char const*, 2> {nullptr, "value"};
+  auto* expr = wrapInColumn(makeStringBOSSSpan(values.data(), values.size()));
+  CHECK(getArgumentCountFromBOSSExpression(expr) == values.size());
+  auto** flattened = getArgumentsFromBOSSExpression(expr);
+  char* first = getNewStringValueFromBOSSExpression(flattened[0]);
+  CHECK(std::string(first).empty());
+  freeBOSSString(first);
+  char* second = getNewStringValueFromBOSSExpression(flattened[1]);
+  CHECK(std::string(second) == "value");
+  freeBOSSString(second);
+  freeBOSSArguments(flattened);
+  freeBOSSExpression(expr);
+}
+
 TEST_CASE("Span arguments round-trip zero-copy: string", "[api]") {
   auto const values = std::array<char const*, 2> {"foo", "barbaz"};
   checkSpanRoundTrip(makeStringBOSSSpan(values.data(), values.size()), values.size(),
