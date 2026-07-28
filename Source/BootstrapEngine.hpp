@@ -177,7 +177,13 @@ class BootstrapEngine : public boss::Engine {
   }
 
 public:
-  BootstrapEngine() = default;
+  BootstrapEngine() {
+#ifdef BOSS_DEFAULT_ENGINE_LIBS
+    for(auto const& lib : std::initializer_list<std::string> {BOSS_DEFAULT_ENGINE_LIBS}) {
+      defaultEngine.push_back(lib);
+    }
+#endif
+  }
   ~BootstrapEngine() = default;
   BootstrapEngine(BootstrapEngine const&) = delete;
   BootstrapEngine(BootstrapEngine&&) = delete;
