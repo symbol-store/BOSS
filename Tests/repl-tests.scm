@@ -66,4 +66,23 @@
       (convert-from-boss-expression
         (convert-to-boss-expression '(Insert "tableName" 42 3.14))))))
 
+;;; Large strings (200KB) crossing the boss<->chibi FFI boundary.
+(test-group "large strings crossing the boss<->chibi boundary (200KB)"
+
+  (let ((big-string (make-string 204800 #\a)))
+
+    (test "large string atom round-trip"
+      big-string
+      (convert-from-boss-expression (convert-to-boss-expression big-string)))
+
+    (test "large string as complex-expression argument round-trip"
+      (list 'Load big-string)
+      (convert-from-boss-expression
+        (convert-to-boss-expression (list 'Load big-string))))
+
+    (test "large string as expression head (symbol) round-trip"
+      (string->symbol big-string)
+      (convert-from-boss-expression
+        (convert-to-boss-expression (string->symbol big-string))))))
+
 (test-exit)
