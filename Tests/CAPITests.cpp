@@ -133,6 +133,29 @@ TEST_CASE("Span constructors tolerate null buffers and null elements", "[api]") 
   freeBOSSExpression(expr);
 }
 
+TEST_CASE("newComplexBOSSExpressionWithSpans tolerates a null span array", "[api]") {
+  auto noArguments = std::array<struct BOSSExpression*, 1> {};
+  // A null span array contributes no spans, whatever spanCount claims.
+  auto* head = symbolNameToNewBOSSSymbol("Column");
+  auto* expr = newComplexBOSSExpressionWithSpans(head, 0, noArguments.data(), 3, nullptr);
+  freeBOSSSymbol(head);
+  CHECK(getSpanArgumentCountFromBOSSExpression(expr) == 0);
+  CHECK(getArgumentCountFromBOSSExpression(expr) == 0);
+  freeBOSSExpression(expr);
+
+  // A null entry inside the array is skipped rather than dereferenced.
+  auto const values = std::array<int32_t, 2> {5, 6};
+  auto spans = std::array<struct BOSSExpressionSpan*, 2> {
+      nullptr, makeInt32BOSSSpan(values.data(), values.size())};
+  auto* head2 = symbolNameToNewBOSSSymbol("Column");
+  auto* expr2 = newComplexBOSSExpressionWithSpans(head2, 0, noArguments.data(), 2, spans.data());
+  freeBOSSSymbol(head2);
+  freeBOSSExpressionSpan(spans[1]);
+  CHECK(getSpanArgumentCountFromBOSSExpression(expr2) == 1);
+  CHECK(getArgumentCountFromBOSSExpression(expr2) == values.size());
+  freeBOSSExpression(expr2);
+}
+
 TEST_CASE("Span arguments round-trip zero-copy: string", "[api]") {
   auto const values = std::array<char const*, 2> {"foo", "barbaz"};
   checkSpanRoundTrip(makeStringBOSSSpan(values.data(), values.size()), values.size(),

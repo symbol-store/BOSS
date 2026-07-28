@@ -49,6 +49,8 @@ size_t getBOSSSpanBeginAddress(struct BOSSExpressionSpan const* span);
  * the new expression, leaving spans[i] valid but empty. The caller must not read from
  * spans[i] afterwards, but is still responsible for freeing the (now-empty) wrapper itself
  * via freeBOSSExpressionSpan, otherwise the wrapper allocation leaks.
+ * A null `spans` array contributes no span arguments whatever `spanCount` says, and a null
+ * entry within the array is skipped, so no null pointer is ever read through.
  */
 struct BOSSExpression* newComplexBOSSExpressionWithSpans(struct BOSSSymbol* head,
                                                          size_t cardinality,

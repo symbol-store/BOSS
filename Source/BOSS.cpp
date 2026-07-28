@@ -166,9 +166,14 @@ BOSSExpression* newComplexBOSSExpressionWithSpans(BOSSSymbol* head, size_t cardi
                      });
   }
   auto spanArguments = boss::expressions::ExpressionSpanArguments();
-  spanArguments.reserve(spanCount);
-  for(size_t index = 0; index < spanCount; ++index) {
-    spanArguments.emplace_back(::std::move(spans[index]->delegate));
+  if(spans != nullptr) {
+    spanArguments.reserve(spanCount);
+    for(size_t index = 0; index < spanCount; ++index) {
+      // a null entry contributes no span rather than being dereferenced
+      if(spans[index] != nullptr) {
+        spanArguments.emplace_back(::std::move(spans[index]->delegate));
+      }
+    }
   }
   return new BOSSExpression {
       boss::ComplexExpression(head->delegate, {}, ::std::move(args), ::std::move(spanArguments))};
@@ -198,8 +203,9 @@ BOSSExpressionSpan** getSpanArgumentsFromBOSSExpression(BOSSExpression* arg) {
   // Put the expression back without its spans. Reading the size of a moved-from vector
   // would be unspecified, so rebuild with a default-constructed (empty) span container
   // to make the documented "span-argument count becomes 0" contract hold.
-  expression = boss::ComplexExpression(::std::move(head), ::std::move(staticArguments),
-                                       ::std::move(dynamicArguments));
+  // `{}` rather than moving staticArguments: for boss::ComplexExpression that tuple is empty
+  // and trivially copyable, so moving it is a no-op that performance-move-const-arg rejects.
+  expression = boss::ComplexExpression(::std::move(head), {}, ::std::move(dynamicArguments));
   return result;
 }
 void freeBOSSSpanArray(BOSSExpressionSpan** array) {
