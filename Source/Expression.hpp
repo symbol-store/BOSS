@@ -249,8 +249,6 @@ inline std::ostream& compact(std::ostream& stream) {
   return stream;
 }
 
-template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
-class ComplexExpressionWithAdditionalCustomAtoms;
 template <typename T>
 inline constexpr bool isComplexExpression =
     boss::utilities::isInstanceOfTemplate<std::decay_t<T>,
@@ -1372,9 +1370,9 @@ public:
         return out;
       }
     }
-    out << "(" << e.getHead() << " ";
+    out << "(" << e.getHead();
     if(!e.getArguments().empty()) {
-      out << e.getArguments().front();
+      out << " " << e.getArguments().front();
       for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
         out << " " << *it;
       }

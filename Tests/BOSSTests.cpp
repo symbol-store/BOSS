@@ -22,6 +22,7 @@
 #include <iterator>
 #include <numeric>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -188,6 +189,19 @@ TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pre
   std::stringstream prettyOut;
   prettyOut << boss::pretty << expr;
   CHECK(prettyOut.str() == compactOut.str());
+}
+
+TEST_CASE("Compact rendering is lisp-style", "[expressions][pretty]") {
+  auto render = [](auto const& expression) {
+    std::stringstream stream;
+    stream << expression;
+    return stream.str();
+  };
+  // A nullary expression renders as "(Head)" -- no trailing space before the paren.
+  CHECK(render("UnevaluatedPlus"_()) == "(UnevaluatedPlus)");
+  // Arguments are separated by a single space, and nested expressions nest as lists.
+  CHECK(render("Greater"_("x"_, "y"_)) == "(Greater x y)");
+  CHECK(render("Filter"_("Load"_(), "Greater"_("x"_, "y"_))) == "(Filter (Load) (Greater x y))");
 }
 
 TEST_CASE("Expression without arguments", "[expressions]") {
