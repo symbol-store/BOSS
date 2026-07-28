@@ -8,6 +8,7 @@ extern "C" {
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "ThreadSafety.hpp"
 #include "Utilities.hpp"
 
 #include <cmath>
@@ -214,7 +215,11 @@ inline sexp initialize_boss_context() {
     sexp_destroy_context(ctx);
     return nullptr;
   }
-  sexp_load_standard_ports(ctx, res, stdin, stdout, stderr, 0);
+  // no_close=1: do NOT take ownership of the process's standard streams. With no_close=0
+  // chibi fcloses stdin/stdout/stderr when this context is destroyed, which corrupts the
+  // host's stdio as soon as more than one context exists (e.g. one per request/thread in a
+  // server) and double-fcloses the shared FILE* when contexts are destroyed concurrently.
+  sexp_load_standard_ports(ctx, res, stdin, stdout, stderr, /*no_close=*/1);
   env = sexp_make_env(ctx);
   sexp_env_parent(env) = res;
   sexp_context_env(ctx) = env;
@@ -235,6 +240,9 @@ inline sexp initialize_boss_context() {
 
 inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& expr_str,
                                       bool pretty = true) {
+  // Debug-only: abort loudly if a second thread is evaluating on this same context, which
+  // violates the one-context-per-caller contract (docs/threading-audit.md §3). No-op in release.
+  boss::concurrency::ConcurrencyTripwire const tripwire(ctx, "evaluate_expression");
   sexp_gc_var4(result, out_port, result_str, arg_list);
   sexp_gc_preserve4(ctx, result, out_port, result_str, arg_list);
   result = eval_string(ctx, env, expr_str.c_str());

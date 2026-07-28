@@ -1,0 +1,21 @@
+# ThreadSanitizer suppressions for boss_concurrency_stress.
+#
+# Use with:  TSAN_OPTIONS="suppressions=Tests/Concurrency/tsan_suppressions.txt" ./boss_concurrency_stress ...
+#
+# RULE: every suppression must reference an ID in known-races.md and say WHY it is
+# suppressed (out-of-scope engine-visible race, or a confirmed-benign race). Do NOT suppress
+# unexplained reports — triage them first. The clean gate (per-thread + pure) intentionally
+# runs WITHOUT suppressions so nothing in-scope can hide.
+#
+# Format (see https://github.com/google/sanitizers/wiki/ThreadSanitizerSuppressions):
+#   race:<function-or-file substring>
+#   called_from_lib:<lib>
+#   deadlock:<function>
+#
+# --- No active suppressions yet. Examples (commented) of what would go here: ---
+#
+# Out-of-scope engine-visible race inside a loaded engine .so (file for engine maintainer):
+#   called_from_lib:libArrowComputeEngine
+#
+# Confirmed-benign race documented as known-races.md R<NN>:
+#   race:SomeProvablyBenignFunction
