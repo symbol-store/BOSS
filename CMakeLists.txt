@@ -314,6 +314,12 @@ endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  # ExpressionParser.hpp is installed as a public header and includes <chibi/eval.h> and
+  # <chibi/sexp.h>, so ship Chibi's headers next to BOSS's own. Without this the installed
+  # header cannot be compiled by a consumer that has not separately installed Chibi.
+  install(DIRECTORY ${_chibi_prefix}/include/chibi DESTINATION include)
+endif()
 
 foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
   string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\1" Namespace ${Engine})

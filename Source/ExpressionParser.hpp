@@ -10,6 +10,8 @@ extern "C" {
 #include "ExpressionUtilities.hpp"
 #include "Utilities.hpp"
 
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <iostream>
@@ -27,7 +29,9 @@ struct EvalResult {
 };
 
 struct BossContextGuard {
-  sexp ctx;
+  // Initialised so a default-constructed guard destroys nothing; the destructor below would
+  // otherwise pass an indeterminate pointer to sexp_destroy_context.
+  sexp ctx = nullptr;
   BossContextGuard(BossContextGuard const&) = delete;
   BossContextGuard(BossContextGuard&&) = delete;
   BossContextGuard& operator=(BossContextGuard const&) = delete;
