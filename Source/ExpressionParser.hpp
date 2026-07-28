@@ -267,4 +267,32 @@ inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& exp
   return {is_error, text};
 }
 
+/* ─── Chibi-backed pretty printer (used by Shims/BossPrettyPrint.cpp) ─── */
+
+inline void pretty_print_expression(std::ostream& stream,
+                                    boss::ComplexExpression const& expression) {
+  struct ThreadContext {
+    BossContextGuard guard {initialize_boss_context()};
+    sexp env = guard.ctx == nullptr ? nullptr : sexp_context_env(guard.ctx);
+    sexp print_proc =
+        env == nullptr
+            ? nullptr
+            : sexp_env_ref(guard.ctx, env, sexp_intern(guard.ctx, "boss-print", -1), SEXP_FALSE);
+  };
+  thread_local ThreadContext tls;
+  if(tls.guard.ctx == nullptr || !sexp_procedurep(tls.print_proc)) {
+    return;
+  }
+  sexp const ctx = tls.guard.ctx;
+  sexp_gc_var3(form, arg_list, result_str);
+  sexp_gc_preserve3(ctx, form, arg_list, result_str);
+  form = complex_expr_to_sexp(ctx, expression);
+  arg_list = sexp_list1(ctx, form);
+  result_str = sexp_apply(ctx, tls.print_proc, arg_list);
+  if(!sexp_exceptionp(result_str) && sexp_stringp(result_str)) {
+    stream << sexp_string_data(result_str);
+  }
+  sexp_gc_release3(ctx);
+}
+
 } // namespace boss
