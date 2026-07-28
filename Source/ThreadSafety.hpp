@@ -5,9 +5,13 @@
 // Provides:
 //   * BOSS_GUARDED_BY / BOSS_REQUIRES / BOSS_EXCLUDES / ... annotation macros, and
 //   * a capability-annotated SharedMutex + SharedLock/UniqueLock RAII guards,
-// so the compiler can statically prove that the fields guarded by an engineStateMutex are only
-// touched while the lock is held (see Source/BootstrapEngine.hpp). std::shared_mutex itself is
-// not annotated by libc++/libstdc++, hence this thin wrapper.
+// so the compiler can statically prove that fields guarded by a SharedMutex are only touched
+// while the lock is held. std::shared_mutex itself is not annotated by libc++/libstdc++, hence
+// this thin wrapper.
+//
+// This header has no consumers yet -- the engine-state locking that uses it lands in a
+// follow-up change. The analysis flags are switched on now so that annotated code is checked
+// from the moment it is written.
 //
 // All macros are no-ops outside Clang (GCC/MSVC ignore the attributes), so the analysis is a
 // Clang-only, zero-runtime-cost static check. See
@@ -96,7 +100,8 @@ private:
 
 // ── ConcurrencyTripwire ─────────────────────────────────────────────────────────────────────
 // Debug-build-only guard that detects violations of the "one context per concurrent caller"
-// rule (docs/threading-audit.md §3). Construct it at the top of a per-context evaluation,
+// rule: a context that is not itself thread-safe (such as a chibi-scheme context) must never be
+// entered by two threads at once. Construct it at the top of a per-context evaluation,
 // scoped to the call, passing the context handle as `key`. If another thread is already inside
 // an evaluation on the same key, it aborts loudly — converting silent memory corruption
 // (concurrent use of a non-thread-safe chibi context) into an immediate, diagnosable crash.
@@ -116,8 +121,8 @@ public:
       if(it->second.thread != std::this_thread::get_id()) {
         std::cerr << "\n*** BOSS ConcurrencyTripwire: context " << key_
                   << " entered concurrently from a second thread in " << site
-                  << ".\n*** This violates the one-context-per-caller contract "
-                     "(docs/threading-audit.md §3) and would corrupt the chibi context."
+                  << ".\n*** This violates the one-context-per-caller contract and would "
+                     "corrupt the context."
                      "\n*** Aborting.\n"
                   << std::flush;
         std::abort();
@@ -162,6 +167,13 @@ private:
 class ConcurrencyTripwire {
 public:
   explicit ConcurrencyTripwire(void const* /*key*/, char const* /*site*/ = "evaluate") {}
+  ~ConcurrencyTripwire() = default;
+  // Kept non-copyable/non-movable to match the debug build, so misuse is caught in both
+  // configurations rather than only where the tripwire is active.
+  ConcurrencyTripwire(ConcurrencyTripwire const&) = delete;
+  ConcurrencyTripwire(ConcurrencyTripwire&&) = delete;
+  ConcurrencyTripwire& operator=(ConcurrencyTripwire const&) = delete;
+  ConcurrencyTripwire& operator=(ConcurrencyTripwire&&) = delete;
 };
 #endif
 

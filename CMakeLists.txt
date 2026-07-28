@@ -271,9 +271,10 @@ foreach(Target IN LISTS AllTargets)
   add_dependencies(${Target} spdlog)
   target_link_libraries(${Target} Threads::Threads)
   set_target_properties(${Target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-  # Clang Thread Safety Analysis: static checking of the engineStateMutex annotations in
-  # Source/ThreadSafety.hpp / BootstrapEngine.hpp (Phase 5). Hard error so unguarded access to
-  # guarded state fails the build. Clang-only; the annotation macros are no-ops elsewhere.
+  # Clang Thread Safety Analysis: enables static checking of the annotations provided by
+  # Source/ThreadSafety.hpp. Turned on ahead of the first annotated code so that unguarded
+  # access to guarded state fails the build from the start. Clang-only; the annotation macros
+  # are no-ops on other compilers.
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(${Target} PRIVATE -Wthread-safety -Werror=thread-safety)
   endif()
