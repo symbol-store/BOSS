@@ -59,6 +59,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <sstream>
@@ -252,16 +253,62 @@ class BootstrapEngine : public Engine {
          // Marks this evaluation as in flight, so a concurrent SetDefaultEnginePipeline or
          // ResetEngines fails fast instead of pulling engines out from under it.
          InFlightGuard const inFlight(evaluationsInFlight);
+         // `self = this` rather than a plain `this` capture: capturing `this` directly in this
+         // nested lambda crashes clang 18 (an assertion in Sema::BuildCaptureInit while
+         // instantiating the enclosing generic lambda).
+         auto resolveEngineEntryPoint = [self = this](auto const& enginePath) {
+           // Resolve the base entry point under the engine-state lock (resolveEvaluateFunction
+           // locks internally and releases before returning), then do any GetEntryPoint engine
+           // call below with NO lock held.
+           auto* entryPoint = self->resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
+           visit(
+               overload(
+                   [&entryPoint](ComplexExpression const& engine) {
+                     auto [_originalHead, statics, dynamics, spans] =
+                         engine
+                             .clone(boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)
+                             .decompose();
+                     // Owning handles so the GetEntryPoint input and result are released even
+                     // if the engine call, or decoding its result, exits by exception.
+                     using ExpressionHandle =
+                         std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
+                     auto const input =
+                         ExpressionHandle(new BOSSExpression {ComplexExpression(
+                                              Symbol("GetEntryPoint"), std::move(statics),
+                                              std::move(dynamics), std::move(spans))},
+                                          &freeBOSSExpression);
+                     auto const output =
+                         ExpressionHandle(entryPoint(input.get()), &freeBOSSExpression);
+                     if(output != nullptr) {
+                       visit(overload(
+                                 [&entryPoint](std::int64_t value) {
+                                   // 0 means "no override": keep the engine's default evaluate
+                                   // entry point rather than dispatching through a null
+                                   // function pointer.
+                                   if(value != 0) {
+                                     // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                                     entryPoint = reinterpret_cast<LibraryAndFunctions::EntryPoint>(
+                                         static_cast<std::intptr_t>(value));
+                                   }
+                                 },
+                                 [](auto const& /*unused*/) {}),
+                             output->delegate);
+                     }
+                   },
+                   [](auto const& /*unused*/) {}),
+               enginePath);
+           return entryPoint;
+         };
+
          auto symbols = vector<LibraryAndFunctions::EntryPoint>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
          // Resolve all engine entry points up front (each resolveEvaluateFunction call locks
          // engineStateMutex briefly). The dispatch loops below then run with NO lock held.
-         // `self = this` rather than a plain `this` capture: capturing `this` directly in this
-         // nested generic lambda crashes clang 18 (an assertion in Sema::BuildCaptureInit while
-         // instantiating the enclosing generic lambda).
-         for_each(args.begin(), args.end(), [self = this, &symbols](auto&& enginePath) {
-           symbols.push_back(self->resolveEvaluateFunction(libraryNameForEnginePath(enginePath)));
-         });
+         for_each(args.begin(), args.end(),
+                  [&symbols, &resolveEngineEntryPoint](auto&& enginePath) {
+                    symbols.push_back(
+                        resolveEngineEntryPoint(std::forward<decltype(enginePath)>(enginePath)));
+                  });
          for_each(make_move_iterator(std::next(
                       e.getArguments().begin())), // Note: first argument is the engine path
                   make_move_iterator(prev(e.getArguments().end())), [&symbols](auto&& argument) {
