@@ -246,8 +246,9 @@ inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& exp
     result_str = sexp_get_output_string(ctx, out_port);
   } else if(result != SEXP_VOID) {
     if(pretty) {
-      sexp const print_proc =
-          sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
+      // Not `sexp const`: sexp is a pointer typedef, so const there binds to the pointer and
+      // misc-misplaced-const rejects it (the build runs clang-tidy with warnings-as-errors).
+      sexp print_proc = sexp_env_ref(ctx, env, sexp_intern(ctx, "boss-print", -1), SEXP_FALSE);
       // boss-print may be missing from the environment, bound to a non-procedure, or may
       // raise; its result is only usable if it actually came back as a string.
       if(sexp_procedurep(print_proc)) {

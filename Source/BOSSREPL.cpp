@@ -27,6 +27,10 @@ namespace {
 
 /* ─── REPL and evaluation ─── */
 
+// The cognitive-complexity score here is dominated by chibi's macros: sexp_write_string,
+// sexp_write_char and friends each expand to nested conditional expressions, so the metric
+// counts branches this function does not itself contain.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 void print_result(sexp ctx, sexp boss_print_proc, sexp result) {
   sexp_gc_var3(rooted_result, arg_list, apply_result);
   sexp_gc_preserve3(ctx, rooted_result, arg_list, apply_result);
