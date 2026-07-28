@@ -1,8 +1,8 @@
 # Implementing a BOSS Loading Engine
 
-This document is for someone building a BOSS engine whose primary job is to bring external data into the BOSS expression world: a file-format reader, a database connector, an API client. It uses FITSDKEngine — a wrapper around the Garmin FIT SDK — as the worked example throughout. Read the general [`EngineImplementationGuide.md`](https://github.com/symbol-store/ArrowComputeEngine/blob/main/EngineImplementationGuide.md) first for the contract a BOSS engine must honour; this guide focuses on what is different when your engine is mostly an ingest path.
+This document is for someone building a BOSS engine whose primary job is to bring external data into the BOSS expression world: a file-format reader, a database connector, an API client. It uses FITSDKEngine — a wrapper around the Garmin FIT SDK — as the worked example throughout. Read the general [`EngineImplementationGuide.md`](EngineImplementationGuide.md) first for the contract a BOSS engine must honour; this guide focuses on what is different when your engine is mostly an ingest path.
 
-For per-operator semantics in compute engines, see [`OperatorCatalog.md`](https://github.com/symbol-store/ArrowComputeEngine/blob/main/OperatorCatalog.md). A loading engine's operator surface is much narrower — typically one `Load` plus `GetEngineDescription` — and is documented inside the engine binary itself (see §9).
+For per-operator semantics in compute engines, see [`OperatorCatalog.md`](OperatorCatalog.md). A loading engine's operator surface is much narrower — typically one `Load` plus `GetEngineDescription` — and is documented inside the engine binary itself (see §9).
 
 ---
 
@@ -325,7 +325,7 @@ FITSDKEngine's description is at the bottom of `Source/FITSDKEngine.cpp`. It inc
 
 ## 10. Testing
 
-Same harness as compute engines: a Chibi Scheme REPL test file invoked via `Build/deps/bin/boss test.scm`.
+Same harness as compute engines: a Chibi Scheme REPL test file invoked via `build/deps/bin/boss test.scm`.
 
 Loading-engine-specific test cases to write:
 
@@ -368,7 +368,7 @@ If your callers want filtering or aggregation on top of a load, let a compute en
 
 ### Identifier spelling.
 
-Per the convention used throughout this repo: no abbreviations. `columnName`, not `colName`; `arguments`, not `args`. Single-file engines are read end-to-end; full words make the read tractable.
+Recommended: avoid abbreviations in identifiers. `columnName`, not `colName`; `arguments`, not `args`. Single-file engines are read end-to-end; full words make the read tractable.
 
 ### One file, one namespace, ~600–700 lines.
 
@@ -381,11 +381,11 @@ FITSDKEngine fits in one `Source/FITSDKEngine.cpp`. The discipline pays off when
 | File | Contents |
 |---|---|
 | `Source/FITSDKEngine.cpp` | Whole engine — read end-to-end (~700 lines) |
-| `Build/Debug/deps/include/BOSS.{h,hpp}` | C ABI and C++ delegate wrapper |
-| `Build/Debug/deps/include/Expression.hpp` | Atoms, spans, ComplexExpression |
-| `Build/Debug/deps/include/ExpressionUtilities.hpp` | Pattern-matching DSL |
-| `EngineImplementationGuide.md` (ArrowComputeEngine) | Pattern dispatch, registries, type bridging — general engine contract |
-| `OperatorCatalog.md` (ArrowComputeEngine) | Per-operator semantics for relational engines |
+| `build/Debug/deps/include/BOSS.{h,hpp}` | C ABI and C++ delegate wrapper |
+| `build/Debug/deps/include/Expression.hpp` | Atoms, spans, ComplexExpression |
+| `build/Debug/deps/include/ExpressionUtilities.hpp` | Pattern-matching DSL |
+| [`EngineImplementationGuide.md`](EngineImplementationGuide.md) | Pattern dispatch, registries, type bridging — general engine contract |
+| [`OperatorCatalog.md`](OperatorCatalog.md) | Per-operator semantics for relational engines |
 
 ---
 

@@ -56,7 +56,7 @@ BOSS loads your shared library via `dlopen` and looks up exactly one symbol:
 extern "C" BOSSExpression* evaluate(BOSSExpression* e);
 ```
 
-This is the only required entry point. Every other interaction with BOSS happens through types defined in `BOSS.h`, `BOSS.hpp`, `Expression.hpp`, `ExpressionUtilities.hpp` (located under `Build/deps/include/` after a successful build).
+This is the only required entry point. Every other interaction with BOSS happens through types defined in `BOSS.h`, `BOSS.hpp`, `Expression.hpp`, `ExpressionUtilities.hpp` (located under `build/deps/include/` after a successful build).
 
 ### What BOSS guarantees you
 
@@ -453,13 +453,13 @@ If you implement this convention, keep the text in sync with `OperatorCatalog.md
 
 ## 11. Testing
 
-ArrowComputeEngine uses BOSS's bundled Chibi Scheme REPL as the test runner. Tests are `.scm` files invoked via `Build/deps/bin/boss <test-file.scm>`.
+ArrowComputeEngine uses BOSS's bundled Chibi Scheme REPL as the test runner. Tests are `.scm` files invoked via `build/deps/bin/boss <test-file.scm>`.
 
 The harness pattern is:
 
 ```scheme
 (import (chibi test))
-(boss-eval (SetDefaultEnginePipeline "Build/libArrowComputeEngine.so"))
+(boss-eval (SetDefaultEnginePipeline "build/libArrowComputeEngine.so"))
 
 (test-group "Filter"
   (test "Filter: greater"
@@ -514,7 +514,7 @@ A C++ exception escaping `extern "C" evaluate` is undefined behaviour and will a
 
 ### Identifier spelling
 
-Per the README convention: no abbreviations in identifiers. `columnName`, not `colName`; `arguments`, not `args`. Full words make grep-driven code review tractable on a single-file codebase.
+Recommended: avoid abbreviations in identifiers. `columnName`, not `colName`; `arguments`, not `args`. Full words make grep-driven code review tractable on a single-file codebase.
 
 ### Build with sanitizers early
 
@@ -531,11 +531,11 @@ ArrowComputeEngine's entire dispatch logic fits in one ~400-line file. Splitting
 | File                                                        | What's in it                                                                  |
 |-------------------------------------------------------------|-------------------------------------------------------------------------------|
 | `Source/ArrowComputeEngine.cpp`                             | The whole engine — read end-to-end (~400 lines)                                |
-| `Build/deps/include/BOSS.h`                                 | The C ABI types and free functions                                            |
-| `Build/deps/include/BOSS.hpp`                               | The C++ delegate wrapper                                                       |
-| `Build/deps/include/Expression.hpp`                         | `boss::Expression`, `ComplexExpression`, atoms, spans                          |
-| `Build/deps/include/ExpressionUtilities.hpp`                | The pattern-matching DSL (`Any_`, `AnySequence_`, `Recurse`, `<`, `>=`, `>`)   |
-| `Build/deps/include/Engine.hpp`                             | The minimal `Engine` interface                                                 |
+| `build/deps/include/BOSS.h`                                 | The C ABI types and free functions                                            |
+| `build/deps/include/BOSS.hpp`                               | The C++ delegate wrapper                                                       |
+| `build/deps/include/Expression.hpp`                         | `boss::Expression`, `ComplexExpression`, atoms, spans                          |
+| `build/deps/include/ExpressionUtilities.hpp`                | The pattern-matching DSL (`Any_`, `AnySequence_`, `Recurse`, `<`, `>=`, `>`)   |
+| `build/deps/include/Engine.hpp`                             | The minimal `Engine` interface                                                 |
 | `Tests/repl-tests.scm`                                      | Operator and composition tests                                                 |
 | `Tests/tpch-queries.scm`                                    | Reusable query-plan macros                                                     |
 | `CMakeLists.txt`                                            | Build template — copy and rename                                               |
