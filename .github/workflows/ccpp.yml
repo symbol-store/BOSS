@@ -99,8 +99,8 @@ jobs:
   # (race-free since Phase 4) — plus the shared-context baseline as informational (it is
   # expected to race). See docs/threading-audit.md and Tests/Concurrency/known-races.md.
   concurrency-stress:
-    needs: [format-check, check-runner]
-    runs-on: ${{ needs.check-runner.outputs.runner }}
+    needs: [format-check]  # restore to: needs: [format-check, check-runner]
+    runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
     steps:
     - uses: actions/checkout@v6
       with:
