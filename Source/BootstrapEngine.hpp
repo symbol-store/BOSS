@@ -179,8 +179,10 @@ class BootstrapEngine : public boss::Engine {
 public:
   BootstrapEngine() {
 #ifdef BOSS_DEFAULT_ENGINE_LIBS
-    for(auto const& lib : std::initializer_list<std::string> {BOSS_DEFAULT_ENGINE_LIBS}) {
-      defaultEngine.push_back(lib);
+    // BOSS_DEFAULT_ENGINE_LIBS expands to comma-separated string literals, so iterate them as
+    // pointers and construct each std::string once, directly in the vector.
+    for(auto const* library : {BOSS_DEFAULT_ENGINE_LIBS}) {
+      defaultEngine.emplace_back(library);
     }
 #endif
   }

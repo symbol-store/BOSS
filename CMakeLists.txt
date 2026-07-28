@@ -346,8 +346,14 @@ foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
     DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/engines $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DBOSS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_REPOSITORY=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_BRANCH=${BOSS_CHECKOUT_BRANCH}
   )
-  ExternalProject_Add_StepTargets(${EngineName} install)
-  add_custom_command(TARGET ${EngineName}-install POST_BUILD
+  # Copy the built engine next to the BOSS binaries so ./boss resolves it by the relative
+  # path baked into BOSS_DEFAULT_ENGINE_LIBS. This is an ExternalProject step chained after
+  # the install step rather than a POST_BUILD command on a step target, so it runs whenever
+  # the engine project is built, on every generator.
+  ExternalProject_Add_Step(${EngineName} copy_to_binary_dir
+    DEPENDEES install
+    ALWAYS TRUE
+    COMMENT "Copying ${EngineName} next to the BOSS binaries"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "${BOSS_BINARY_DIR}/engines/lib/${CMAKE_SHARED_MODULE_PREFIX}${EngineName}${CMAKE_SHARED_MODULE_SUFFIX}"
       "${CMAKE_BINARY_DIR}/"
