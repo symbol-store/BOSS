@@ -191,6 +191,38 @@ TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pre
   CHECK(prettyOut.str() == compactOut.str());
 }
 
+TEST_CASE("Pretty falls back to compact when the hook declines", "[expressions][pretty]") {
+  // Restores the global hook even if an assertion below fails.
+  struct HookGuard {
+    HookGuard() = default;
+    ~HookGuard() { boss::prettyPrintHook() = nullptr; }
+    HookGuard(HookGuard const&) = delete;
+    HookGuard(HookGuard&&) = delete;
+    HookGuard& operator=(HookGuard const&) = delete;
+    HookGuard& operator=(HookGuard&&) = delete;
+  } const guard;
+
+  auto const expr = "Filter"_("Load"_(), "Greater"_("x"_, "y"_));
+  std::stringstream compactOut;
+  compactOut << expr;
+  REQUIRE(boss::prettyPrintHook() == nullptr);
+
+  // A hook that cannot render must not swallow the output.
+  boss::prettyPrintHook() = [](std::ostream&, boss::ComplexExpression const&) { return false; };
+  std::stringstream declinedOut;
+  declinedOut << boss::pretty << expr;
+  CHECK(declinedOut.str() == compactOut.str());
+
+  // A hook that does render owns the output entirely.
+  boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const&) {
+    stream << "RENDERED";
+    return true;
+  };
+  std::stringstream renderedOut;
+  renderedOut << boss::pretty << expr;
+  CHECK(renderedOut.str() == "RENDERED");
+}
+
 TEST_CASE("Compact rendering is lisp-style", "[expressions][pretty]") {
   auto render = [](auto const& expression) {
     std::stringstream stream;

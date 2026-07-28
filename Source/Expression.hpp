@@ -234,8 +234,16 @@ inline int prettyStreamIndex() {
   static int const index = std::ios_base::xalloc();
   return index;
 }
-using PrettyPrintHook = void (*)(std::ostream&,
+// Returns true when it has rendered the expression. A hook that cannot render (for instance
+// because its scheme context or printer is unavailable) returns false, and operator<< falls
+// back to the compact renderer rather than emitting nothing.
+using PrettyPrintHook = bool (*)(std::ostream&,
                                  ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>> const&);
+// The flag index and the hook live in function-local statics. On ELF and Mach-O these have
+// vague linkage and are shared between libBOSS and any executable linked against it, so a
+// hook installed from one module is visible in the other. Where that is not the case (a DLL
+// built without exported data symbols, say), each module needs its own installer, which is
+// why Shims/BossPrettyPrint.cpp is compiled into both the BOSS library and the boss binary.
 inline PrettyPrintHook& prettyPrintHook() {
   static PrettyPrintHook hook = nullptr;
   return hook;
@@ -1366,8 +1374,10 @@ public:
     if constexpr(std::is_same_v<ComplexExpressionWithAdditionalCustomAtoms,
                                 ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>>) {
       if(out.iword(prettyStreamIndex()) != 0 && prettyPrintHook() != nullptr) {
-        prettyPrintHook()(out, e);
-        return out;
+        if(prettyPrintHook()(out, e)) {
+          return out;
+        }
+        // The hook could not render; fall through to the compact form below.
       }
     }
     out << "(" << e.getHead();

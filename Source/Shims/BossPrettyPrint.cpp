@@ -2,7 +2,9 @@
 // for ComplexExpression. Linking this translation unit into a binary enables
 // multi-line pretty output for `stream << boss::pretty << expr`; omitting it
 // leaves prettyPrintHook() returning nullptr, and the manipulator becomes a
-// silent no-op that falls through to the compact renderer.
+// silent no-op that falls through to the compact renderer. The hook also falls
+// back to the compact renderer when it is installed but cannot render, by
+// returning false.
 
 #include "../ExpressionParser.hpp"
 
