@@ -1,5 +1,7 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "../Source/BOSS.h"
@@ -35,4 +37,131 @@ TEST_CASE("Build expression, with strings", "[api]") {
   freeBOSSExpression(input[0]);
   freeBOSSArguments(result);
   CHECK(str1 == str2);
+}
+
+namespace {
+// Wraps a freshly-made span in a Column expression carrying no dynamic arguments and a
+// single span argument, runs the shared structural and zero-copy checks, and hands the
+// flattened arguments to a caller-supplied element check.
+// Frees the span wrapper, the expression, and the moved-out span.
+template <typename CheckElements>
+void checkSpanRoundTrip(struct BOSSExpressionSpan* span, size_t expectedElementCount,
+                        CheckElements checkElements) {
+  auto const addressBefore = getBOSSSpanBeginAddress(span);
+  auto* head = symbolNameToNewBOSSSymbol("Column");
+  auto noArguments = std::array<struct BOSSExpression*, 1> {};
+  auto spans = std::array<struct BOSSExpressionSpan*, 1> {span};
+  auto* expr = newComplexBOSSExpressionWithSpans(head, 0, noArguments.data(), 1, spans.data());
+  freeBOSSSymbol(head);
+  freeBOSSExpressionSpan(span); // payload was moved into expr; free the empty wrapper
+
+  CHECK(getDynamicArgumentCountFromBOSSExpression(expr) == 0);
+  CHECK(getSpanArgumentCountFromBOSSExpression(expr) == 1);
+  // the span elements are reachable as (flattened) arguments of the holding expression
+  CHECK(getArgumentCountFromBOSSExpression(expr) == expectedElementCount);
+  auto** flattened = getArgumentsFromBOSSExpression(expr);
+  checkElements(flattened);
+  freeBOSSArguments(flattened);
+
+  // moving the span out preserves the underlying buffer address: zero-copy end to end
+  auto** movedSpans = getSpanArgumentsFromBOSSExpression(expr);
+  CHECK(getBOSSSpanBeginAddress(movedSpans[0]) == addressBefore);
+  CHECK(getSpanArgumentCountFromBOSSExpression(expr) == 0); // moved out
+  freeBOSSExpressionSpan(movedSpans[0]);
+  freeBOSSSpanArray(movedSpans);
+  freeBOSSExpression(expr);
+}
+} // namespace
+
+TEST_CASE("Span arguments round-trip zero-copy: int8 with embedded null byte", "[api]") {
+  auto const values = std::array<int8_t, 5> {97, 98, 0, 99, -1};
+  checkSpanRoundTrip(makeInt8BOSSSpan(values.data(), values.size()), values.size(),
+                     [](BOSSExpression** flattened) {
+                       CHECK(getCharValueFromBOSSExpression(flattened[0]) == 97);
+                       CHECK(getCharValueFromBOSSExpression(flattened[2]) == 0);
+                     });
+}
+
+TEST_CASE("Span arguments round-trip zero-copy: int32", "[api]") {
+  auto const values = std::array<int32_t, 3> {7, -8, 9};
+  checkSpanRoundTrip(
+      makeInt32BOSSSpan(values.data(), values.size()), values.size(),
+      [](BOSSExpression** flattened) { CHECK(getIntValueFromBOSSExpression(flattened[1]) == -8); });
+}
+
+TEST_CASE("Span arguments round-trip zero-copy: double", "[api]") {
+  constexpr auto FIRST_VALUE = 1.5;
+  auto const values = std::array<double, 2> {FIRST_VALUE, -2.25};
+  checkSpanRoundTrip(makeDoubleBOSSSpan(values.data(), values.size()), values.size(),
+                     [](BOSSExpression** flattened) {
+                       CHECK(getDoubleValueFromBOSSExpression(flattened[0]) == FIRST_VALUE);
+                     });
+}
+
+TEST_CASE("Span constructors tolerate null buffers and null elements", "[api]") {
+  auto wrapInColumn = [](struct BOSSExpressionSpan* span) {
+    auto* head = symbolNameToNewBOSSSymbol("Column");
+    auto noArguments = std::array<struct BOSSExpression*, 1> {};
+    auto spans = std::array<struct BOSSExpressionSpan*, 1> {span};
+    auto* expr = newComplexBOSSExpressionWithSpans(head, 0, noArguments.data(), 1, spans.data());
+    freeBOSSSymbol(head);
+    freeBOSSExpressionSpan(span);
+    return expr;
+  };
+
+  // A null buffer yields an empty span rather than reading through the pointer.
+  for(auto* span : {makeInt32BOSSSpan(nullptr, 3), makeDoubleBOSSSpan(nullptr, 2),
+                    makeStringBOSSSpan(nullptr, 4)}) {
+    auto* expr = wrapInColumn(span);
+    CHECK(getSpanArgumentCountFromBOSSExpression(expr) == 1);
+    CHECK(getArgumentCountFromBOSSExpression(expr) == 0);
+    freeBOSSExpression(expr);
+  }
+
+  // A null element within a valid array becomes an empty string.
+  auto const values = std::array<char const*, 2> {nullptr, "value"};
+  auto* expr = wrapInColumn(makeStringBOSSSpan(values.data(), values.size()));
+  CHECK(getArgumentCountFromBOSSExpression(expr) == values.size());
+  auto** flattened = getArgumentsFromBOSSExpression(expr);
+  char* first = getNewStringValueFromBOSSExpression(flattened[0]);
+  CHECK(std::string(first).empty());
+  freeBOSSString(first);
+  char* second = getNewStringValueFromBOSSExpression(flattened[1]);
+  CHECK(std::string(second) == "value");
+  freeBOSSString(second);
+  freeBOSSArguments(flattened);
+  freeBOSSExpression(expr);
+}
+
+TEST_CASE("newComplexBOSSExpressionWithSpans tolerates a null span array", "[api]") {
+  auto noArguments = std::array<struct BOSSExpression*, 1> {};
+  // A null span array contributes no spans, whatever spanCount claims.
+  auto* head = symbolNameToNewBOSSSymbol("Column");
+  auto* expr = newComplexBOSSExpressionWithSpans(head, 0, noArguments.data(), 3, nullptr);
+  freeBOSSSymbol(head);
+  CHECK(getSpanArgumentCountFromBOSSExpression(expr) == 0);
+  CHECK(getArgumentCountFromBOSSExpression(expr) == 0);
+  freeBOSSExpression(expr);
+
+  // A null entry inside the array is skipped rather than dereferenced.
+  auto const values = std::array<int32_t, 2> {5, 6};
+  auto spans = std::array<struct BOSSExpressionSpan*, 2> {
+      nullptr, makeInt32BOSSSpan(values.data(), values.size())};
+  auto* head2 = symbolNameToNewBOSSSymbol("Column");
+  auto* expr2 = newComplexBOSSExpressionWithSpans(head2, 0, noArguments.data(), 2, spans.data());
+  freeBOSSSymbol(head2);
+  freeBOSSExpressionSpan(spans[1]);
+  CHECK(getSpanArgumentCountFromBOSSExpression(expr2) == 1);
+  CHECK(getArgumentCountFromBOSSExpression(expr2) == values.size());
+  freeBOSSExpression(expr2);
+}
+
+TEST_CASE("Span arguments round-trip zero-copy: string", "[api]") {
+  auto const values = std::array<char const*, 2> {"foo", "barbaz"};
+  checkSpanRoundTrip(makeStringBOSSSpan(values.data(), values.size()), values.size(),
+                     [](BOSSExpression** flattened) {
+                       char* first = getNewStringValueFromBOSSExpression(flattened[1]);
+                       CHECK(std::string(first) == "barbaz");
+                       freeBOSSString(first);
+                     });
 }
