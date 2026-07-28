@@ -85,11 +85,22 @@ using boss::Symbol;
 using boss::expressions::generic::visit;
 using boss::utilities::overload;
 
+struct LibraryAndFunctions {
+  using EntryPoint = BOSSExpression* (*)(BOSSExpression*);
+  void* library;
+  void (*resetFunction)(void);
+  EntryPoint evaluateFunction;
+};
+
 class BootstrapEngine : public Engine {
 
-  struct LibraryAndFunctions {
-    void *library, *evaluateFunction, *resetFunction;
-  };
+  static string symbolToLibraryName(Symbol const& engine) {
+#ifdef _WIN32
+    return engine.getName() + "Engine.dll";
+#else
+    return "lib" + engine.getName() + "Engine.so";
+#endif
+  }
 
   struct LibraryCache : private unordered_map<string, LibraryAndFunctions> {
     LibraryAndFunctions const& at(string const& libraryPath) {
@@ -97,8 +108,10 @@ class BootstrapEngine : public Engine {
         const auto* n = libraryPath.c_str();
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
           if(auto* evalSym = dlsym(library, "evaluate")) {
-            auto* resetSym = dlsym(library, "reset");
-            emplace(libraryPath, LibraryAndFunctions {library, evalSym, resetSym});
+            emplace(libraryPath,
+                    LibraryAndFunctions {
+                        library, reinterpret_cast<void (*)(void)>(dlsym(library, "reset")),
+                        reinterpret_cast<LibraryAndFunctions::EntryPoint>(evalSym)});
           } else {
             throw runtime_error("library \"" + libraryPath +
                                 "\" does not provide an evaluate function: " + dlerror());
@@ -115,7 +128,7 @@ class BootstrapEngine : public Engine {
     void clear() {
       for(const auto& [name, library] : *this) {
         if(library.resetFunction != nullptr) {
-          reinterpret_cast<void (*)(void)>(library.resetFunction)();
+          library.resetFunction();
         }
         dlclose(library.library);
       }
@@ -129,18 +142,25 @@ class BootstrapEngine : public Engine {
     LibraryCache& operator=(LibraryCache&&) = delete;
   } libraries;
 
-  vector<string> defaultEngine;
+  vector<Expression> defaultEnginePipeline;
 
   unordered_map<Symbol, std::function<Expression(ComplexExpression&&)>> const registeredOperators {
       {Symbol("EvaluateInEngines"),
        [this](auto&& e) -> Expression {
-         auto symbols = vector<BOSSExpression* (*)(BOSSExpression*)>();
+         auto symbols = vector<LibraryAndFunctions::EntryPoint>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
-         for_each(args.begin(), args.end(),
-                  [&libraries = this->libraries, &symbols](auto&& enginePath) {
-                    symbols.push_back(reinterpret_cast<BOSSExpression* (*)(BOSSExpression*)>(
-                        libraries.at(get<string>(enginePath)).evaluateFunction));
-                  });
+         for_each(
+             args.begin(), args.end(), [&libraries = this->libraries, &symbols](auto&& enginePath) {
+               auto getEntryPoint = overload(
+                   [](Symbol const& engine) -> string { return symbolToLibraryName(engine); },
+                   [](ComplexExpression const& engine) -> string {
+                     return symbolToLibraryName(engine.getHead());
+                   },
+                   [&enginePath](auto const& /*unused*/) -> string {
+                     return get<string>(enginePath);
+                   });
+               symbols.push_back(libraries.at(visit(getEntryPoint, enginePath)).evaluateFunction);
+             });
          for_each(make_move_iterator(std::next(
                       e.getArguments().begin())), // Note: first argument is the engine path
                   make_move_iterator(prev(e.getArguments().end())), [&symbols](auto&& argument) {
@@ -165,24 +185,41 @@ class BootstrapEngine : public Engine {
        }},
       {Symbol("SetDefaultEnginePipeline"),
        [this](auto&& expression) -> Expression {
-         algorithm::visitEach(expression.getArguments(), [&defaultEngine =
-                                                              this->defaultEngine](auto&& engine) {
-           if constexpr(std::is_same_v<std::decay_t<decltype(engine)>, string>) {
-             defaultEngine.push_back(engine);
+         // Build the new pipeline into a local first; validation throws before we touch shared
+         // state, so a bad argument leaves the pipeline unchanged.
+         vector<Expression> newPipeline;
+         algorithm::visitEach(expression.getArguments(), [&newPipeline](auto&& engine) {
+           using EngineArg = std::decay_t<decltype(engine)>;
+           if constexpr(std::is_same_v<EngineArg, string> || std::is_same_v<EngineArg, Symbol>) {
+             newPipeline.push_back(engine);
+           } else if constexpr(std::is_same_v<EngineArg, ComplexExpression>) {
+             newPipeline.push_back(
+                 engine.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
            } else {
              std::stringstream errorMessage;
-             errorMessage << "SetDefaultEnginePipeline received non-string argument: " << engine;
+             errorMessage << "SetDefaultEnginePipeline received unsupported argument: " << engine;
              throw std::runtime_error(errorMessage.str());
            }
          });
+         defaultEnginePipeline = std::move(newPipeline);
          return "okay";
+       }},
+      {Symbol("GetDefaultEnginePipeline"),
+       [this](auto&& /*expression*/) -> Expression {
+         ExpressionArguments args;
+         args.reserve(defaultEnginePipeline.size());
+         for(auto const& entry : defaultEnginePipeline) {
+           args.push_back(entry.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
+         }
+         return "List"_(std::move(args));
        }},
       {Symbol("ResetEngines"), [this](auto&& /*expression*/) -> Expression {
          libraries.clear();
          return "okay";
        }}};
+
   bool isBootstrapCommand(Expression const& expression) {
-    return visit(overload(
+    return visit(utilities::overload(
                      [this](ComplexExpression const& expression) {
                        return registeredOperators.count(expression.getHead()) > 0;
                      },
@@ -210,9 +247,16 @@ public:
   Expression evaluate(Expression&& e, bool isRootExpression = true) {
     using boss::utilities::operator""_;
 
-    auto wrappedE = isRootExpression && !defaultEngine.empty() && !isBootstrapCommand(e)
-                        ? "EvaluateInEngines"_("List"_(Span<string>(vector<string>(defaultEngine))),
-                                               std::move(e))
+    ExpressionArguments pipelineArgs;
+    if(isRootExpression && !isBootstrapCommand(e)) {
+      pipelineArgs.reserve(defaultEnginePipeline.size());
+      for(auto const& entry : defaultEnginePipeline) {
+        pipelineArgs.push_back(
+            entry.clone(boss::expressions::CloneReason::EVALUATE_CONST_EXPRESSION));
+      }
+    }
+    auto wrappedE = !pipelineArgs.empty()
+                        ? "EvaluateInEngines"_("List"_(std::move(pipelineArgs)), std::move(e))
                         : std::move(e);
     return visit(overload(
                      [this](ComplexExpression&& unevaluatedE) -> Expression {
