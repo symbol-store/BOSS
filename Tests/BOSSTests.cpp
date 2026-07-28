@@ -468,10 +468,13 @@ TEST_CASE("Large string as a ComplexExpression argument", "[expressions][largest
   CHECK(get<std::string>(dynamicArguments.at(0)).size() == largeStringSize);
   CHECK(get<std::string>(dynamicArguments.at(0)) == payload);
 
-  // `{}` rather than moving staticArguments: it is an empty, trivially copyable std::tuple<>, so
-  // the move has no effect and clang-tidy (run with warnings-as-errors) rejects it.
-  auto recomposedExpression = boss::ComplexExpression(
-      std::move(head), {}, std::move(dynamicArguments), std::move(spanArguments));
+  // A fresh, empty static-argument tuple rather than a move of staticArguments: the decomposed
+  // tuple is empty and trivially copyable, so the move has no effect and clang-tidy (run with
+  // warnings-as-errors) rejects it. Spelling the type as decltype(staticArguments) also keeps
+  // the structured binding referenced.
+  auto recomposedExpression =
+      boss::ComplexExpression(std::move(head), decltype(staticArguments) {},
+                              std::move(dynamicArguments), std::move(spanArguments));
   CHECK(recomposedExpression == movedExpression);
   CHECK(get<std::string>(recomposedExpression.getArguments().at(0)) == payload);
 }
@@ -495,8 +498,9 @@ TEST_CASE("Large string as a ComplexExpression head", "[expressions][largestring
   CHECK(head.getName() == payload);
   CHECK(dynamicArguments.empty());
 
-  auto recomposedExpression = boss::ComplexExpression(
-      std::move(head), {}, std::move(dynamicArguments), std::move(spanArguments));
+  auto recomposedExpression =
+      boss::ComplexExpression(std::move(head), decltype(staticArguments) {},
+                              std::move(dynamicArguments), std::move(spanArguments));
   CHECK(recomposedExpression.getHead().getName() == payload);
   CHECK(recomposedExpression == movedExpression);
 }

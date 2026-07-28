@@ -80,9 +80,17 @@
       (convert-from-boss-expression
         (convert-to-boss-expression (list 'Load big-string))))
 
-    (test "large string as expression head (symbol) round-trip"
-      (string->symbol big-string)
-      (convert-from-boss-expression
-        (convert-to-boss-expression (string->symbol big-string))))))
+    ;; Interned once and reused: as a bare atom, and as the head of a complex
+    ;; expression -- two different paths through the bridge.
+    (let ((big-symbol (string->symbol big-string)))
+
+      (test "large symbol atom round-trip"
+        big-symbol
+        (convert-from-boss-expression (convert-to-boss-expression big-symbol)))
+
+      (test "large string as expression head round-trip"
+        (list big-symbol 1 2)
+        (convert-from-boss-expression
+          (convert-to-boss-expression (list big-symbol 1 2)))))))
 
 (test-exit)
