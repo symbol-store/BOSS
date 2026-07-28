@@ -69,11 +69,13 @@ TEST_CASE("C-API round-trips large strings (200KB)", "[api][largestring]") {
 
   SECTION("large string as an expression head (symbol)") {
     auto* symbol = symbolNameToNewBOSSSymbol(largeString.c_str());
-    char const* roundTripped = bossSymbolToNewString(symbol);
+    // bossSymbolToNewString returns an owning buffer (strdup) despite its char const*
+    // signature, so take ownership once here and treat it as the char* we must free.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+    auto* roundTripped = const_cast<char*>(bossSymbolToNewString(symbol));
     auto const result = std::string(roundTripped);
     freeBOSSSymbol(symbol);
-    freeBOSSString(
-        const_cast<char*>(roundTripped)); // NOLINT(cppcoreguidelines-pro-type-const-cast)
+    freeBOSSString(roundTripped);
     CHECK(result.size() == largeString.size());
     CHECK(result == largeString);
   }
