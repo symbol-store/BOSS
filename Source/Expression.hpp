@@ -1372,7 +1372,7 @@ if constexpr(std::is_same_v<ComplexExpressionWithAdditionalCustomAtoms,
         return out;
       }
     }
-    out << "(" << e.getHead();
+    out << "(" << e.getHead() << " ";
     if(!e.getArguments().empty()) {
       out << e.getArguments().front();
       for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
