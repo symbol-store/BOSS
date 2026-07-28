@@ -269,7 +269,7 @@ inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& exp
 
 /* ─── Chibi-backed pretty printer (used by Shims/BossPrettyPrint.cpp) ─── */
 
-// Returns false without writing anything if this thread has no usable chibi context or
+// Returns false without writing to `stream` if this thread has no usable chibi context or
 // boss-print is unavailable, or if the printer raises, so the caller can fall back to the
 // compact renderer instead of producing empty output.
 inline bool pretty_print_expression(std::ostream& stream,
