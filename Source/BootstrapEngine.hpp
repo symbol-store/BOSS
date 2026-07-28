@@ -272,9 +272,13 @@ class BootstrapEngine : public Engine {
                      // if the engine call, or decoding its result, exits by exception.
                      using ExpressionHandle =
                          std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
+                     // A fresh empty static-argument tuple rather than a move of `statics`: it
+                     // is an empty std::tuple<>, so the move has no effect and clang-tidy (run
+                     // with warnings-as-errors) rejects it. Naming its type keeps the
+                     // structured binding referenced.
                      auto const input =
                          ExpressionHandle(new BOSSExpression {ComplexExpression(
-                                              Symbol("GetEntryPoint"), std::move(statics),
+                                              Symbol("GetEntryPoint"), decltype(statics) {},
                                               std::move(dynamics), std::move(spans))},
                                           &freeBOSSExpression);
                      auto const output =
