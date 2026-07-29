@@ -62,10 +62,13 @@ public:
   SharedMutex& operator=(SharedMutex&&) = delete;
   ~SharedMutex() = default;
 
+  // Standard-library spelling on purpose: with these names the wrapper satisfies the
+  // SharedMutex requirements, so it also works with std::shared_lock / std::unique_lock and
+  // any other generic code expecting them, not just the guards below.
   void lock() BOSS_ACQUIRE() { mutex_.lock(); }
   void unlock() BOSS_RELEASE() { mutex_.unlock(); }
-  void lockShared() BOSS_ACQUIRE_SHARED() { mutex_.lock_shared(); }
-  void unlockShared() BOSS_RELEASE_SHARED() { mutex_.unlock_shared(); }
+  void lock_shared() BOSS_ACQUIRE_SHARED() { mutex_.lock_shared(); }
+  void unlock_shared() BOSS_RELEASE_SHARED() { mutex_.unlock_shared(); }
 
 private:
   std::shared_mutex mutex_;
@@ -89,9 +92,9 @@ private:
 class BOSS_SCOPED_CAPABILITY SharedLock {
 public:
   explicit SharedLock(SharedMutex& mutex) BOSS_ACQUIRE_SHARED(mutex) : mutex_(mutex) {
-    mutex_.lockShared();
+    mutex_.lock_shared();
   }
-  ~SharedLock() BOSS_RELEASE() { mutex_.unlockShared(); }
+  ~SharedLock() BOSS_RELEASE() { mutex_.unlock_shared(); }
   SharedLock(SharedLock const&) = delete;
   SharedLock(SharedLock&&) = delete;
   SharedLock& operator=(SharedLock const&) = delete;
@@ -141,7 +144,20 @@ public:
     std::lock_guard<std::mutex> const guard(registryMutex());
     auto& owners = registry();
     auto const it = owners.find(key_);
-    if(it != owners.end() && --it->second.depth == 0) {
+    // The constructor always inserts at depth 1 or increments, so by construction there is an
+    // entry with a non-zero depth here. If there is not, the registry has been corrupted, and
+    // decrementing an unsigned depth would silently wrap to a huge value and strand the entry
+    // forever. This whole class exists to turn quiet corruption into a diagnosable crash, so
+    // hold it to its own standard.
+    if(it == owners.end() || it->second.depth == 0) {
+      std::cerr << "\n*** BOSS ConcurrencyTripwire: on leaving the scope for context " << key_
+                << ", its registry entry is missing or already at depth 0."
+                   "\n*** The tripwire registry is corrupt; the depth count cannot be trusted."
+                   "\n*** Aborting.\n"
+                << std::flush;
+      std::abort();
+    }
+    if(--it->second.depth == 0) {
       owners.erase(it);
     }
   }
