@@ -260,7 +260,6 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     if(APPLE)
       target_link_libraries(boss_concurrency_stress "-Wl,-export_dynamic")
     endif()
-    set(_BUILD_STRESS_TARGET ON)
   elseif(BOSS_CONCURRENCY_STRESS)
     message(STATUS
       "boss_concurrency_stress skipped under the ASan 'Sanitize' build type "

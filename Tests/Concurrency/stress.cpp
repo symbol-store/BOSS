@@ -219,6 +219,26 @@ void runDirectWorker(std::string const& suite, int threadIdx, Config const& cfg,
   std::exit(code);
 }
 
+// Rejects configurations that would otherwise run something other than what was asked for.
+void validateConfig(Config const& cfg, char const* program) {
+  if(cfg.threads < 1 || cfg.iters < 0) {
+    std::cerr << "threads must be >= 1 and iters >= 0\n";
+    usageAndExit(program, 1);
+  }
+  if(cfg.suite != "pure" && cfg.suite != "pipeline" && cfg.suite != "mixed") {
+    // Without this an unknown suite silently ran the pure one, so a typo downgraded a gate to a
+    // weaker test that still reported success.
+    std::cerr << "unknown --suite '" << cfg.suite << "'; expected pure, pipeline or mixed\n";
+    usageAndExit(program, 1);
+  }
+  if(cfg.enginePath.find('"') != std::string::npos) {
+    // The path is spliced into a scheme string literal; a quote in it would quietly change the
+    // expression being evaluated rather than failing.
+    std::cerr << "--engine path must not contain a double quote\n";
+    usageAndExit(program, 1);
+  }
+}
+
 Config parseArgs(int argc, char** argv) {
   Config cfg;
   for(int i = 1; i < argc; ++i) {
@@ -263,10 +283,7 @@ Config parseArgs(int argc, char** argv) {
       usageAndExit(argv[0], 1);
     }
   }
-  if(cfg.threads < 1 || cfg.iters < 0) {
-    std::cerr << "threads must be >= 1 and iters >= 0\n";
-    usageAndExit(argv[0], 1);
-  }
+  validateConfig(cfg, argv[0]);
   return cfg;
 }
 
