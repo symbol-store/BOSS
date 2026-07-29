@@ -181,8 +181,9 @@ class BootstrapEngine : public Engine {
 
   // Resolves a pipeline entry to the library it names: a Symbol, and a ComplexExpression via
   // its head, map to the platform library name; anything else is required to be a string and
-  // is used verbatim (so a non-string, non-Symbol entry reports a bad-variant access, which is
-  // the error message the engine-resolution tests pin).
+  // is used verbatim. A non-string, non-Symbol entry therefore fails in get<string>, which
+  // throws ArgumentTypeMismatch<string> ("expected and actual type mismatch..."); that is the
+  // message the engine-resolution tests pin, not a bad-variant access.
   //
   // A template so it accepts both an Expression (the stored pipeline) and the ArgumentWrapper
   // handed out by ComplexExpression::getArguments() on the dispatch path.
@@ -407,7 +408,7 @@ class BootstrapEngine : public Engine {
          // This operator calls into engines, so it must count as in flight: otherwise a
          // concurrent SetDefaultEnginePipeline or ResetEngines would pass
          // requireNoEvaluationInFlight and unload an engine while it is being queried.
-         InFlightGuard const inFlight(evaluationsInFlight);
+         InFlightGuard const inFlight(evaluationsInFlight, engineStateMutex);
          // Snapshot the pipeline under a shared lock, then resolve + call engines with no lock.
          vector<Expression> pipeline;
          {
@@ -420,14 +421,17 @@ class BootstrapEngine : public Engine {
          }
          string descriptions;
          for(auto const& enginePath : pipeline) {
-           auto* evalFn = resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
+           // Resolved once and reused, so the section heading is guaranteed to name the very
+           // library that was resolved rather than a second, independent derivation of it.
+           auto const libraryName = libraryNameForEnginePath(enginePath);
+           auto* evalFn = resolveEvaluateFunction(libraryName);
            // Owning handles so neither expression leaks if the engine call throws.
            using ExpressionHandle = std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
            auto const queryWrapper = ExpressionHandle(
                new BOSSExpression {"GetEngineDescription"_()}, &freeBOSSExpression);
            auto const resultWrapper =
                ExpressionHandle(evalFn(queryWrapper.get()), &freeBOSSExpression);
-           auto engineName = path(libraryNameForEnginePath(enginePath)).stem().string();
+           auto engineName = path(libraryName).stem().string();
            if(engineName.compare(0, 3, "lib") == 0) {
              engineName.erase(0, 3);
            }
