@@ -11,7 +11,6 @@ extern "C" {
 #include "UnicodeEscapes.hpp"
 #include "Utilities.hpp"
 
-#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
