@@ -319,7 +319,7 @@ Same convention as compute engines: a `GetEngineDescription` operator returning 
 
 Keep the text in sync with this document and with the implementation. An LLM caller will read this string to decide what queries to send — drift between description and behaviour is a real cost.
 
-FITSDKEngine's description is at the bottom of `Source/FITSDKEngine.cpp`. It includes worked-example queries, a hard-won Unicode-in-filenames hazard note (Apple-Watch exports embed U+00A0 where they look like spaces), and a section on mixed-content directory dispatch. Use it as a template.
+FITSDKEngine's description is at the bottom of `Source/FITSDKEngine.cpp` (in the [FITSDKEngine](https://github.com/symbol-store/FITSDKEngine) repository, not this one). It includes worked-example queries, a hard-won Unicode-in-filenames hazard note (Apple-Watch exports embed U+00A0 where they look like spaces), and a section on mixed-content directory dispatch. Use it as a template.
 
 ---
 
@@ -378,12 +378,15 @@ FITSDKEngine fits in one `Source/FITSDKEngine.cpp`. The discipline pays off when
 
 ## 12. References
 
+> The FITSDKEngine sources below live in the [FITSDKEngine](https://github.com/symbol-store/FITSDKEngine) repository, not in
+> this checkout.
+
 | File | Contents |
 |---|---|
 | `Source/FITSDKEngine.cpp` | Whole engine — read end-to-end (~700 lines) |
-| `build/Debug/deps/include/BOSS.{h,hpp}` | C ABI and C++ delegate wrapper |
-| `build/Debug/deps/include/Expression.hpp` | Atoms, spans, ComplexExpression |
-| `build/Debug/deps/include/ExpressionUtilities.hpp` | Pattern-matching DSL |
+| `build/deps/include/BOSS.{h,hpp}` | C ABI and C++ delegate wrapper |
+| `build/deps/include/Expression.hpp` | Atoms, spans, ComplexExpression |
+| `build/deps/include/ExpressionUtilities.hpp` | Pattern-matching DSL |
 | [`EngineImplementationGuide.md`](EngineImplementationGuide.md) | Pattern dispatch, registries, type bridging — general engine contract |
 | [`OperatorCatalog.md`](OperatorCatalog.md) | Per-operator semantics for relational engines |
 

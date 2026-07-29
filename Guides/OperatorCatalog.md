@@ -191,8 +191,8 @@ Inner hash join.
 **Example:**
 
 ```scheme
-(Join orders lineitems (Equal orderkey orderkey))
-(Join lineitems brackets (Equal product product) (Between price low high))
+(Join orders lineitem (Equal orderkey orderkey))
+(Join lineitem brackets (Equal product product) (Between price low high))
 ```
 
 ### `LeftJoin(left right pred …)`
@@ -254,9 +254,9 @@ Retrieves the table previously stored under `sym`. This lets the user express sh
 
 ```scheme
 (Name (Materialize (OrderBy (Project (Load "data.csv") iso_code date) (keys iso_code))) sorted)
-(Name (Pairwise (Cumulate (ByName sorted) (Sum cases)) smoothed sum_cases 7) smoothed)
+(Name (Pairwise (Cumulate (ByName sorted) (Sum cases)) smoothed |sum(cases)| 7) smoothed)
 (Join (GroupBy (ByName smoothed) (Max smoothed) date) (ByName smoothed)
-      (Equal date date) (Equal max_smoothed smoothed))
+      (Equal date date) (Equal |max(smoothed)| smoothed))
 ```
 
 ---

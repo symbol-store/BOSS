@@ -33,7 +33,7 @@ You translate BOSS expressions into your planner's plan-node types (`Declaration
 - Most operator handlers translate one BOSS expression into one planner node and store it in an in-memory registry under a numeric handle.
 - Execution happens lazily — when the user materializes the final result, or hits a `ToStatus` / `Materialize` boundary.
 - Type bridging is done at the boundary (data is converted once on `Load`, the final result is converted back to a BOSS expression at the outermost call).
-- **See:** every `> [](auto, auto dynamics, auto) { ... }` body in `Source/ArrowComputeEngine.cpp` is one of these wrappers.
+- **See:** every `> [](auto, auto dynamics, auto) { ... }` body in `Source/ArrowComputeEngine.cpp` (in the [ArrowComputeEngine](https://github.com/symbol-store/ArrowComputeEngine) repository, not this one) is one of these wrappers.
 
 ### 2b. Purpose-built engines (implement operators yourself)
 
@@ -527,6 +527,9 @@ ArrowComputeEngine's entire dispatch logic fits in one ~400-line file. Splitting
 ---
 
 ## 13. References
+
+> The ArrowComputeEngine sources below live in the [ArrowComputeEngine](https://github.com/symbol-store/ArrowComputeEngine) repository, not in
+> this checkout.
 
 | File                                                        | What's in it                                                                  |
 |-------------------------------------------------------------|-------------------------------------------------------------------------------|
