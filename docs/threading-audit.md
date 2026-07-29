@@ -22,7 +22,7 @@ process-wide object:
    call to `BOSSEvaluate` (`Source/BOSS.cpp:32`). There is **one** of these per process.
    Every C caller (`BOSSEvaluate`, `boss::evaluate`), every REPL session, and every
    per-thread chibi context ultimately routes through it.
-2. `BootstrapEngine::defaultEngine` (a `std::vector<std::string>`) — the active engine
+2. `BootstrapEngine::defaultEnginePipeline` (a `std::vector<Expression>`) — the active engine
    pipeline. Read on every root evaluation, rewritten by `SetDefaultEnginePipeline` /
    `ResetEngines`.
 3. `BootstrapEngine::libraries` (a `LibraryCache`, i.e. an `unordered_map`) — the engine
@@ -179,9 +179,11 @@ context must not take ownership of the process's standard streams). Tracked as
 
 - **Phase 4 (dispatch contract) — implemented.** Decision: engines are assumed reentrant and
   concurrent evaluation is explicitly desired, so the dispatcher must **not** serialize engine
-  calls. `BootstrapEngine` now guards G2 (`defaultEngine`) and G3 (`libraries`) with a single
-  `std::shared_mutex` (`engineStateMutex`), under one invariant: **the lock is never held
-  across an engine call.** The dispatch path snapshots the pipeline and resolves engine
+  calls. `BootstrapEngine` now guards G2 (`defaultEnginePipeline`) and G3 (`libraries`) with a
+  single `boss::concurrency::SharedMutex` (`engineStateMutex`) — the capability-annotated
+  wrapper from `Source/ThreadSafety.hpp`, not a bare `std::shared_mutex`, which is what makes
+  `-Wthread-safety` able to check the `GUARDED_BY` obligations — under one invariant: **the
+  lock is never held across an engine call.** The dispatch path snapshots the pipeline and resolves engine
   function pointers under a *shared* lock, releases it, then calls engines lock-free
   (`RTLD_NODELETE` keeps resolved pointers valid). First-use `dlopen` upgrades to an *exclusive*
   lock (double-checked). Reconfiguration (`SetDefaultEnginePipeline`/`ResetEngines`) takes the
@@ -231,13 +233,14 @@ context must not take ownership of the process's standard streams). Tracked as
 
 | Looking for… | Where |
 |---|---|
-| The singleton engine | `BOSS.cpp:32` |
-| Engine-state mutex (Phase 4) | `BootstrapEngine.hpp:105` (`engineStateMutex`) |
-| Engine pipeline mutation | `BootstrapEngine.hpp:209` (`SetDefaultEnginePipeline`), `:268` (`ResetEngines`) |
-| Lazy dlopen / registry insert | `BootstrapEngine.hpp:162` (`resolveEvaluateFunction`), `:118` (`LibraryCache::loadOrGet`) |
-| Registry teardown | `BootstrapEngine.hpp:138` (`detachAll`) + `:91` (`unloadLibraries`, runs outside the lock) |
+| The singleton engine | `BOSS.cpp`, the `static BootstrapEngine engine` in `BOSSEvaluate` |
+| Engine-state mutex (Phase 4) | `BootstrapEngine.hpp` (`engineStateMutex`) |
+| Engine pipeline mutation | `BootstrapEngine.hpp` (`SetDefaultEnginePipeline`, `ResetEngines`) |
+| Quiesce-first enforcement | `BootstrapEngine.hpp` (`evaluationsInFlight`, `InFlightGuard`, `requireNoEvaluationInFlight`) |
+| Lazy dlopen / registry insert | `BootstrapEngine.hpp` (`resolveEvaluateFunction`, `LibraryCache::loadOrGet`) |
+| Registry teardown | `BootstrapEngine.hpp` (`LibraryCache::detachAll`) + `unloadLibraries`, which runs outside the lock |
 | Threading annotations / guards | `Source/ThreadSafety.hpp` (`SharedMutex`, `SharedLock`, `GUARDED_BY`) |
-| Concurrency tripwire | `Source/ThreadSafety.hpp` (`ConcurrencyTripwire`), used at `ExpressionParser.hpp:282` |
+| Concurrency tripwire | `Source/ThreadSafety.hpp` (`ConcurrencyTripwire`), used in `ExpressionParser.hpp`'s `evaluate_expression` |
 | Thread-safety build gate | `CMakeLists.txt` (`-Wthread-safety -Werror=thread-safety`, Clang-only) |
 | FFI dispatch boundary | `Shims/chibi-bindings.stub:44`, `ExpressionParser.hpp:163` |
 | Context creation / destruction | `ExpressionParser.hpp:237` (`initialize_boss_context`), `:36` (`~BossContextGuard`) |
