@@ -134,9 +134,22 @@ class BootstrapEngine : public Engine {
   std::atomic<std::size_t> evaluationsInFlight {0};
 
   // Raises the in-flight count for the duration of an engine dispatch.
+  //
+  // The increment happens under a SHARED lock, and requireNoEvaluationInFlight() runs under the
+  // EXCLUSIVE one. That pairing is what makes the guard actually hold: without it the counter
+  // could go from 0 to 1 in the window between a reconfiguration operator reading it and
+  // mutating engine state, and the reconfiguration would then reset() and dlclose() engines
+  // underneath a dispatch that had just started. With it, a reconfiguration holding the
+  // exclusive lock and observing 0 knows no dispatch is running and none can start until it
+  // lets go. The lock is released before the engine call itself, so the invariant that the
+  // lock is never held across an engine call still stands.
   class InFlightGuard {
   public:
-    explicit InFlightGuard(std::atomic<std::size_t>& counter) : counter(counter) { ++counter; }
+    InFlightGuard(std::atomic<std::size_t>& counter, boss::concurrency::SharedMutex& mutex)
+        : counter(counter) {
+      boss::concurrency::SharedLock const lock(mutex);
+      ++counter;
+    }
     ~InFlightGuard() { --counter; }
     InFlightGuard(InFlightGuard const&) = delete;
     InFlightGuard(InFlightGuard&&) = delete;
@@ -256,7 +269,7 @@ class BootstrapEngine : public Engine {
        [this](auto&& e) -> Expression {
          // Marks this evaluation as in flight, so a concurrent SetDefaultEnginePipeline or
          // ResetEngines fails fast instead of pulling engines out from under it.
-         InFlightGuard const inFlight(evaluationsInFlight);
+         InFlightGuard const inFlight(evaluationsInFlight, engineStateMutex);
          // `self = this` rather than a plain `this` capture: capturing `this` directly in this
          // nested lambda crashes clang 18 (an assertion in Sema::BuildCaptureInit while
          // instantiating the enclosing generic lambda).
@@ -357,9 +370,11 @@ class BootstrapEngine : public Engine {
              throw std::runtime_error(errorMessage.str());
            }
          });
-         requireNoEvaluationInFlight("SetDefaultEnginePipeline");
          // Reconfiguration: exclusive lock. Swap in the new pipeline and detach the loaded
          // libraries to unload them OUTSIDE the lock (reset() is an engine call).
+         //
+         // The in-flight check runs INSIDE the exclusive section, together with the mutation it
+         // guards. Checking outside would leave a window for a dispatch to start in between.
          //
          // Note this deliberately resets and unloads every loaded engine, not just the ones
          // leaving the pipeline: changing the pipeline starts a fresh configuration, so engines
@@ -369,6 +384,7 @@ class BootstrapEngine : public Engine {
          vector<LibraryAndFunctions> toUnload;
          {
            boss::concurrency::UniqueLock const lock(engineStateMutex);
+           requireNoEvaluationInFlight("SetDefaultEnginePipeline");
            defaultEnginePipeline = std::move(newPipeline);
            toUnload = libraries.detachAll();
          }
@@ -439,12 +455,13 @@ class BootstrapEngine : public Engine {
          return descriptions;
        }},
       {Symbol("ResetEngines"), [this](auto&& /*expression*/) -> Expression {
-         requireNoEvaluationInFlight("ResetEngines");
          // Clear core state under the lock, then reset+unload the engines OUTSIDE it (reset()
-         // is an engine call).
+         // is an engine call). The in-flight check sits inside the exclusive section for the
+         // same reason as in SetDefaultEnginePipeline.
          vector<LibraryAndFunctions> toUnload;
          {
            boss::concurrency::UniqueLock const lock(engineStateMutex);
+           requireNoEvaluationInFlight("ResetEngines");
            defaultEnginePipeline.clear();
            toUnload = libraries.detachAll();
          }
