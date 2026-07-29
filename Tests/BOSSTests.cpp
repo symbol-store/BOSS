@@ -62,7 +62,7 @@ std::vector<string>
 TEST_CASE("Unicode escape preprocessing", "[unicode]") {
   using boss::preprocessUnicodeEscapes;
   // Nothing to translate.
-  CHECK(preprocessUnicodeEscapes("") == "");
+  CHECK(preprocessUnicodeEscapes("").empty());
   CHECK(preprocessUnicodeEscapes("(Plus 1 2)") == "(Plus 1 2)");
   // \uXXXX becomes chibi's \xXXXX; form.
   CHECK(preprocessUnicodeEscapes("\"caf\\u00e9\"") == "\"caf\\x00e9;\"");
