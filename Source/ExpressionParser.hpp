@@ -19,6 +19,7 @@ extern "C" {
 #include <iostream>
 #include <limits>
 #include <string>
+#include <utility>
 #include <variant>
 
 namespace boss {
@@ -34,6 +35,12 @@ struct BossContextGuard {
   // Initialised so a default-constructed guard destroys nothing; the destructor below would
   // otherwise pass an indeterminate pointer to sexp_destroy_context.
   sexp ctx = nullptr;
+  // Spelled out rather than left to aggregate initialisation. Deleting the copy and move
+  // members below makes this a non-aggregate from C++20 on, so `BossContextGuard{someCtx}`
+  // would stop compiling for a consumer building at a newer standard than BOSS itself --
+  // and this header is installed for exactly those consumers.
+  BossContextGuard() = default;
+  explicit BossContextGuard(sexp context) : ctx(context) {}
   BossContextGuard(BossContextGuard const&) = delete;
   BossContextGuard(BossContextGuard&&) = delete;
   BossContextGuard& operator=(BossContextGuard const&) = delete;
