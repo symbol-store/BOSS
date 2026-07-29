@@ -289,11 +289,15 @@ inline bool pretty_print_expression(std::ostream& stream,
             ? nullptr
             : sexp_env_ref(guard.ctx, env, sexp_intern(guard.ctx, "boss-print", -1), SEXP_FALSE);
   };
-  thread_local ThreadContext tls;
+  // const: the per-thread context is built once by its member initialisers and only read
+  // afterwards -- the chibi calls below take the handles by value.
+  thread_local ThreadContext const tls;
   if(tls.guard.ctx == nullptr || !sexp_procedurep(tls.print_proc)) {
     return false;
   }
-  sexp const ctx = tls.guard.ctx;
+  // Not `sexp const`: sexp is a pointer typedef, so const there binds to the pointer rather
+  // than the pointee and misc-misplaced-const rejects it (clang-tidy runs as errors here).
+  sexp ctx = tls.guard.ctx;
   sexp_gc_var3(form, arg_list, result_str);
   sexp_gc_preserve3(ctx, form, arg_list, result_str);
   form = complex_expr_to_sexp(ctx, expression);

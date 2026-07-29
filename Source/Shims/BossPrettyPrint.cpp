@@ -6,6 +6,7 @@
 // back to the compact renderer when it is installed but cannot render, by
 // returning false.
 
+#include "../Expression.hpp" // for boss::prettyPrintHook, which this file installs
 #include "../ExpressionParser.hpp"
 
 namespace {
