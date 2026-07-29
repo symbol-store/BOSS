@@ -31,10 +31,12 @@
 // See docs/threading-audit.md (the inventory this exercises) and
 // Tests/Concurrency/known-races.md (the triage log).
 
+#include "BOSS.hpp"       // boss::evaluate
+#include "Expression.hpp" // boss::Expression
 #include "ExpressionParser.hpp"
+#include "ExpressionUtilities.hpp" // boss::utilities::operator""_
 
 extern "C" {
-#include <chibi/eval.h>
 #include <chibi/sexp.h>
 }
 
@@ -98,6 +100,7 @@ std::vector<std::string> buildMixedSuite() {
 // inside dispatch rarely overlaps across threads and TSan struggles to catch the dispatch
 // races (e.g. the defaultEngine race). Direct mode removes that overhead, so dispatch — the
 // plan's prime suspect — dominates each iteration and the race window is wide.
+// NOLINTBEGIN(readability-magic-numbers) -- literal operands are the point of the fixtures
 boss::Expression directExpr(std::string const& suite, std::uint64_t i) {
   using boss::utilities::operator""_;
   if(suite == "pipeline") {
@@ -124,10 +127,15 @@ boss::Expression directExpr(std::string const& suite, std::uint64_t i) {
     return "List"_(std::string("mixed"), 1, 2.5, true);
   }
 }
+// NOLINTEND(readability-magic-numbers)
+
+// Odd multiplier that spreads each thread across the suite instead of having them all walk
+// it in step, so concurrent iterations hit different expressions.
+constexpr unsigned threadStride = 131U;
 
 /* ─── Configuration ─── */
 
-enum class Mode { Shared, PerThread };
+enum class Mode : std::uint8_t { Shared, PerThread };
 
 struct Config {
   int threads = 8;
@@ -164,9 +172,9 @@ std::vector<std::string> const& suiteFor(std::string const& name) {
 void runWorker(sexp ctx, sexp env, std::vector<std::string> const& suite, int threadIdx,
                Config const& cfg, Counts& out) {
   for(int i = 0; i < cfg.iters; ++i) {
-    auto const& expr =
-        suite[(cfg.seed + static_cast<unsigned>(threadIdx) * 131U + static_cast<unsigned>(i)) %
-              suite.size()];
+    auto const& expr = suite[(cfg.seed + static_cast<unsigned>(threadIdx) * threadStride +
+                              static_cast<unsigned>(i)) %
+                             suite.size()];
     boss::EvalResult const r = boss::evaluate_expression(ctx, env, expr, /*pretty=*/false);
     if(r.is_error) {
       ++out.err;
@@ -179,8 +187,8 @@ void runWorker(sexp ctx, sexp env, std::vector<std::string> const& suite, int th
 // Direct-dispatch worker: calls boss::evaluate() (BOSS.cpp) directly, no chibi context.
 void runDirectWorker(std::string const& suite, int threadIdx, Config const& cfg, Counts& out) {
   for(int i = 0; i < cfg.iters; ++i) {
-    std::uint64_t const idx =
-        cfg.seed + static_cast<std::uint64_t>(threadIdx) * 131U + static_cast<std::uint64_t>(i);
+    std::uint64_t const idx = cfg.seed + static_cast<std::uint64_t>(threadIdx) * threadStride +
+                              static_cast<std::uint64_t>(i);
     try {
       boss::Expression const r = boss::evaluate(directExpr(suite, idx));
       (void)r;
@@ -214,7 +222,7 @@ void runDirectWorker(std::string const& suite, int threadIdx, Config const& cfg,
 Config parseArgs(int argc, char** argv) {
   Config cfg;
   for(int i = 1; i < argc; ++i) {
-    std::string a = argv[i];
+    std::string const a = argv[i];
     auto next = [&](char const* name) -> std::string {
       if(i + 1 >= argc) {
         std::cerr << "Missing value for " << name << "\n";
@@ -227,7 +235,7 @@ Config parseArgs(int argc, char** argv) {
     } else if(a == "--iters") {
       cfg.iters = std::stoi(next("--iters"));
     } else if(a == "--mode") {
-      std::string m = next("--mode");
+      std::string const m = next("--mode");
       if(m == "shared") {
         cfg.mode = Mode::Shared;
       } else if(m == "per-thread") {
@@ -266,6 +274,9 @@ char const* modeName(Mode m) { return m == Mode::Shared ? "shared" : "per-thread
 
 } // namespace
 
+// The score here is almost all the flat if/else chain that parses argv: a long sequence of
+// independent, self-explanatory branches, which the metric counts but a reader does not.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 int main(int argc, char** argv) try {
   Config const cfg = parseArgs(argc, argv);
   std::vector<std::string> const& suite = suiteFor(cfg.suite);
@@ -282,7 +293,7 @@ int main(int argc, char** argv) try {
   // all of it so that what TSan reports during the run is the steady-state hazard, not
   // start-up noise. --no-warmup deliberately leaves it in to demonstrate that race.
   if(cfg.warmup && !cfg.direct) {
-    sexp const warm = boss::initialize_boss_context();
+    sexp warm = boss::initialize_boss_context();
     if(warm != nullptr) {
       sexp_destroy_context(warm);
     }
@@ -317,20 +328,20 @@ int main(int argc, char** argv) try {
         std::cerr << "Failed to initialize setup context for --engine\n";
         return 1;
       }
-      sexp const setupEnv = sexp_context_env(setupCtx);
+      sexp setupEnv = sexp_context_env(setupCtx);
       boss::evaluate_expression(setupCtx, setupEnv,
                                 "SetDefaultEnginePipeline(\"" + cfg.enginePath + "\")", false);
     }
 
     if(cfg.mode == Mode::Shared) {
       // One context, shared by every thread — the known-unsafe baseline.
-      sexp const ctx = boss::initialize_boss_context();
+      sexp ctx = boss::initialize_boss_context();
       if(ctx == nullptr) {
         std::cerr << "Failed to initialize shared context\n";
         return 1;
       }
       boss::BossContextGuard const guard {ctx};
-      sexp const env = sexp_context_env(ctx);
+      sexp env = sexp_context_env(ctx);
 
       std::vector<std::thread> workers;
       workers.reserve(static_cast<size_t>(cfg.threads));
@@ -346,14 +357,14 @@ int main(int argc, char** argv) try {
       workers.reserve(static_cast<size_t>(cfg.threads));
       for(int t = 0; t < cfg.threads; ++t) {
         workers.emplace_back([&, t] {
-          sexp const ctx = boss::initialize_boss_context();
+          sexp ctx = boss::initialize_boss_context();
           if(ctx == nullptr) {
             std::cerr << "thread " << t << ": failed to initialize context\n";
             counts[t].err = static_cast<std::uint64_t>(cfg.iters);
             return;
           }
           boss::BossContextGuard const guard {ctx};
-          sexp const env = sexp_context_env(ctx);
+          sexp env = sexp_context_env(ctx);
           runWorker(ctx, env, suite, t, cfg, counts[t]);
         });
       }
