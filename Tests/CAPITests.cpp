@@ -142,42 +142,28 @@ TEST_CASE("Span arguments round-trip zero-copy: double", "[api]") {
                      });
 }
 
-TEST_CASE("Span constructors tolerate null buffers and null elements", "[api]") {
-  auto wrapInColumn = [](struct BOSSExpressionSpan* span) {
-    auto* head = symbolNameToNewBOSSSymbol("Column");
-    auto noArguments = std::array<struct BOSSExpression*, 1> {};
-    auto spans = std::array<struct BOSSExpressionSpan*, 1> {span};
-    auto* expr = newComplexBOSSExpressionWithSpans(head, 0, noArguments.data(), 1, spans.data());
-    freeBOSSSymbol(head);
-    freeBOSSExpressionSpan(span);
-    return expr;
-  };
-
-  // A null buffer yields an empty span rather than reading through the pointer. Every
-  // exported constructor is covered, so the guarantee holds across the whole surface.
+TEST_CASE("Span constructors return null for null buffers and null elements", "[api]") {
+  // Nulls in, nulls out: a null buffer yields no span at all, across the whole exported surface.
   for(auto* span :
       {makeBoolBOSSSpan(nullptr, 1), makeInt8BOSSSpan(nullptr, 2), makeInt32BOSSSpan(nullptr, 3),
        makeInt64BOSSSpan(nullptr, 4), makeFloatBOSSSpan(nullptr, 5), makeDoubleBOSSSpan(nullptr, 2),
        makeStringBOSSSpan(nullptr, 4), makeSymbolBOSSSpan(nullptr, 6)}) {
-    auto* expr = wrapInColumn(span);
-    CHECK(getSpanArgumentCountFromBOSSExpression(expr) == 1);
-    CHECK(getArgumentCountFromBOSSExpression(expr) == 0);
-    freeBOSSExpression(expr);
+    CHECK(span == nullptr);
   }
 
-  // A null element within a valid array becomes an empty string.
-  auto const values = std::array<char const*, 2> {nullptr, "value"};
-  auto* expr = wrapInColumn(makeStringBOSSSpan(values.data(), values.size()));
-  CHECK(getArgumentCountFromBOSSExpression(expr) == values.size());
-  auto** flattened = getArgumentsFromBOSSExpression(expr);
-  char* first = getNewStringValueFromBOSSExpression(flattened[0]);
-  CHECK(std::string(first).empty());
-  freeBOSSString(first);
-  char* second = getNewStringValueFromBOSSExpression(flattened[1]);
-  CHECK(std::string(second) == "value");
-  freeBOSSString(second);
-  freeBOSSArguments(flattened);
-  freeBOSSExpression(expr);
+  // A null element is not substituted either -- the whole call yields no span.
+  auto const withNullElement = std::array<char const*, 2> {nullptr, "value"};
+  CHECK(makeStringBOSSSpan(withNullElement.data(), withNullElement.size()) == nullptr);
+  CHECK(makeSymbolBOSSSpan(withNullElement.data(), withNullElement.size()) == nullptr);
+
+  // An all-non-null array still builds normally.
+  auto const values = std::array<char const*, 2> {"first", "value"};
+  auto* span = makeStringBOSSSpan(values.data(), values.size());
+  REQUIRE(span != nullptr);
+  freeBOSSExpressionSpan(span);
+
+  // A null span is a legal argument to the address accessor, and reports "no address".
+  CHECK(getBOSSSpanBeginAddress(nullptr) == 0);
 }
 
 TEST_CASE("newComplexBOSSExpressionWithSpans tolerates a null span array", "[api]") {

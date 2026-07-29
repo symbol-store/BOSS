@@ -28,26 +28,40 @@ template <typename Element> BOSSExpressionSpan* newBOSSSpan(::std::vector<Elemen
       boss::expressions::ExpressionSpanArgument(boss::Span<Element>(::std::move(values)))};
 }
 template <typename Element> BOSSExpressionSpan* newBOSSSpan(Element const* data, size_t size) {
-  if(size == 0 || data == nullptr) {
-    // an empty span: avoids pointer arithmetic (data + size) on a null pointer, and treats a
-    // null buffer as empty rather than reading through it
-    return newBOSSSpan(::std::vector<Element>());
-  }
-  return newBOSSSpan(::std::vector<Element>(data, data + size));
+  // Nulls in, nulls out: a null buffer yields no span at all rather than a silently empty one.
+  // Ruling null out here also rules out the only pointer arithmetic that would be undefined --
+  // a non-null `data` with size 0 gives an empty range, which is fine.
+  return data == nullptr ? nullptr : newBOSSSpan(::std::vector<Element>(data, data + size));
 }
 template <typename Element>
 BOSSExpressionSpan* newBOSSSpanFromCStrings(char const* const* data, size_t size) {
-  auto values = ::std::vector<Element>();
   if(data == nullptr) {
-    return newBOSSSpan(::std::move(values));
+    return nullptr;
   }
+  auto values = ::std::vector<Element>();
   values.reserve(size);
   for(size_t index = 0; index < size; ++index) {
-    // a null entry becomes an empty string rather than being constructed from a null pointer
-    values.emplace_back(data[index] == nullptr ? "" : data[index]);
+    // Nulls in, nulls out: a null element is not silently turned into an empty string. There is
+    // no null Element to put in its place, so the whole call yields no span.
+    if(data[index] == nullptr) {
+      return nullptr;
+    }
+    values.emplace_back(data[index]);
   }
   return newBOSSSpan(::std::move(values));
 }
+/**
+ * Clones a range of expressions into a freshly allocated, null-terminated BOSSExpression*
+ * array for handing across the C boundary.
+ *
+ * Shared by getArgumentsFromBOSSExpression and getDynamicArgumentsFromBOSSExpression, which
+ * differ only in which range they pass; without it the null-termination and the CloneReason
+ * would be duplicated in both.
+ *
+ * @param arguments the expressions to clone; left untouched.
+ * @return a new array of `arguments.size()` clones followed by a null terminator, owned by the
+ *         caller and released with freeBOSSArguments.
+ */
 template <typename Arguments>
 BOSSExpression** cloneToNewBOSSExpressionArray(Arguments const& arguments) {
   auto* result = new BOSSExpression*[arguments.size() + 1];
@@ -142,19 +156,14 @@ BOSSExpressionSpan* makeSymbolBOSSSpan(char const* const* data, size_t size) {
 }
 
 size_t getBOSSSpanBeginAddress(BOSSExpressionSpan const* span) {
-  if(span == nullptr) {
-    return 0;
-  }
-  return ::std::visit(
-      [](auto const& typedSpan) -> size_t {
-        using IteratorType = decltype(typedSpan.begin());
-        if constexpr(::std::is_pointer_v<IteratorType>) {
-          return reinterpret_cast<size_t>(typedSpan.begin());
-        } else {
-          return 0;
-        }
-      },
-      span->delegate);
+  auto const beginAddressOf = [](auto const& typedSpan) -> size_t {
+    using IteratorType = decltype(typedSpan.begin());
+    if constexpr(::std::is_pointer_v<IteratorType>) {
+      return reinterpret_cast<size_t>(typedSpan.begin());
+    }
+    return 0; // not contiguously addressable, e.g. Span<bool> over std::vector<bool>
+  };
+  return span == nullptr ? 0 : ::std::visit(beginAddressOf, span->delegate);
 }
 
 BOSSExpression* newComplexBOSSExpressionWithSpans(BOSSSymbol* head, size_t cardinality,
