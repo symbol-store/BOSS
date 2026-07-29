@@ -153,9 +153,12 @@ TEST_CASE("Span constructors tolerate null buffers and null elements", "[api]") 
     return expr;
   };
 
-  // A null buffer yields an empty span rather than reading through the pointer.
-  for(auto* span : {makeInt32BOSSSpan(nullptr, 3), makeDoubleBOSSSpan(nullptr, 2),
-                    makeStringBOSSSpan(nullptr, 4)}) {
+  // A null buffer yields an empty span rather than reading through the pointer. Every
+  // exported constructor is covered, so the guarantee holds across the whole surface.
+  for(auto* span :
+      {makeBoolBOSSSpan(nullptr, 1), makeInt8BOSSSpan(nullptr, 2), makeInt32BOSSSpan(nullptr, 3),
+       makeInt64BOSSSpan(nullptr, 4), makeFloatBOSSSpan(nullptr, 5), makeDoubleBOSSSpan(nullptr, 2),
+       makeStringBOSSSpan(nullptr, 4), makeSymbolBOSSSpan(nullptr, 6)}) {
     auto* expr = wrapInColumn(span);
     CHECK(getSpanArgumentCountFromBOSSExpression(expr) == 1);
     CHECK(getArgumentCountFromBOSSExpression(expr) == 0);

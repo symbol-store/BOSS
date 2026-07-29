@@ -40,6 +40,14 @@ struct BOSSExpressionSpan* makeFloatBOSSSpan(float const* data, size_t size);
 struct BOSSExpressionSpan* makeDoubleBOSSSpan(double const* data, size_t size);
 struct BOSSExpressionSpan* makeStringBOSSSpan(char const* const* data, size_t size);
 struct BOSSExpressionSpan* makeSymbolBOSSSpan(char const* const* data, size_t size);
+/**
+ * The address of the span's first element, as an integer, for verifying that a payload
+ * crossed a boundary without being copied. Returns 0 when there is no such address: for a
+ * null `span`, and for spans whose elements are not contiguously addressable -- notably bool
+ * spans, which are backed by std::vector<bool>. A 0 result therefore means "no address
+ * available", not "empty span". The type is size_t rather than uintptr_t because the chibi
+ * binding generator understands size_t; the two coincide on every platform BOSS targets.
+ */
 size_t getBOSSSpanBeginAddress(struct BOSSExpressionSpan const* span);
 /**
  * Build a new complex expression combining dynamic arguments and span arguments.
@@ -59,6 +67,12 @@ struct BOSSExpression* newComplexBOSSExpressionWithSpans(struct BOSSSymbol* head
                                                          struct BOSSExpressionSpan* spans[]);
 
 size_t getDynamicArgumentCountFromBOSSExpression(struct BOSSExpression const* arg);
+/**
+ * Returns the dynamic arguments of a complex expression as a newly allocated, null-terminated
+ * array of clones; `arg` is left untouched. Ownership passes to the caller, which must free
+ * the array with freeBOSSArguments -- that frees the individual expressions and the array
+ * itself. Same contract as getArgumentsFromBOSSExpression.
+ */
 struct BOSSExpression** getDynamicArgumentsFromBOSSExpression(struct BOSSExpression const* arg);
 size_t getSpanArgumentCountFromBOSSExpression(struct BOSSExpression const* arg);
 /**
