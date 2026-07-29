@@ -142,6 +142,9 @@ BOSSExpressionSpan* makeSymbolBOSSSpan(char const* const* data, size_t size) {
 }
 
 size_t getBOSSSpanBeginAddress(BOSSExpressionSpan const* span) {
+  if(span == nullptr) {
+    return 0;
+  }
   return ::std::visit(
       [](auto const& typedSpan) -> size_t {
         using IteratorType = decltype(typedSpan.begin());
@@ -172,6 +175,12 @@ BOSSExpression* newComplexBOSSExpressionWithSpans(BOSSSymbol* head, size_t cardi
       // a null entry contributes no span rather than being dereferenced
       if(spans[index] != nullptr) {
         spanArguments.emplace_back(::std::move(spans[index]->delegate));
+        // Span's move leaves the source's begin/end pointers intact and only clears its
+        // destructor, so the moved-from wrapper would still report the payload it no longer
+        // owns -- getBOSSSpanBeginAddress would hand back a dangling address. Reset it to an
+        // empty span of the same alternative so the documented post-condition actually holds.
+        ::std::visit([](auto& typedSpan) { typedSpan = ::std::decay_t<decltype(typedSpan)>(); },
+                     spans[index]->delegate);
       }
     }
   }
