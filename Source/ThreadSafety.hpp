@@ -52,7 +52,7 @@
 
 namespace boss::concurrency {
 
-// Capability-annotated wrapper over std::shared_mutex.
+/// Capability-annotated wrapper over std::shared_mutex.
 class BOSS_CAPABILITY("shared_mutex") SharedMutex {
 public:
   SharedMutex() = default;
@@ -62,9 +62,9 @@ public:
   SharedMutex& operator=(SharedMutex&&) = delete;
   ~SharedMutex() = default;
 
-  // Standard-library spelling on purpose: with these names the wrapper satisfies the
-  // SharedMutex requirements, so it also works with std::shared_lock / std::unique_lock and
-  // any other generic code expecting them, not just the guards below.
+  /// Standard-library spelling on purpose: with these names the wrapper satisfies the
+  /// SharedMutex requirements, so it also works with std::shared_lock / std::unique_lock and
+  /// any other generic code expecting them, not just the guards below.
   void lock() BOSS_ACQUIRE() { mutex_.lock(); }
   void unlock() BOSS_RELEASE() { mutex_.unlock(); }
   void lock_shared() BOSS_ACQUIRE_SHARED() { mutex_.lock_shared(); }
@@ -74,7 +74,7 @@ private:
   std::shared_mutex mutex_;
 };
 
-// RAII exclusive (writer) lock.
+/// RAII exclusive (writer) lock.
 class BOSS_SCOPED_CAPABILITY UniqueLock {
 public:
   explicit UniqueLock(SharedMutex& mutex) BOSS_ACQUIRE(mutex) : mutex_(mutex) { mutex_.lock(); }
@@ -88,7 +88,7 @@ private:
   SharedMutex& mutex_;
 };
 
-// RAII shared (reader) lock.
+/// RAII shared (reader) lock.
 class BOSS_SCOPED_CAPABILITY SharedLock {
 public:
   explicit SharedLock(SharedMutex& mutex) BOSS_ACQUIRE_SHARED(mutex) : mutex_(mutex) {
@@ -104,19 +104,20 @@ private:
   SharedMutex& mutex_;
 };
 
-// ── ConcurrencyTripwire ─────────────────────────────────────────────────────────────────────
-// Debug-build-only guard that detects violations of the "one context per concurrent caller"
-// rule (docs/threading-audit.md §3): a context that is not itself thread-safe (such as a
-// chibi-scheme context) must never be entered by two threads at once. Construct it at the top
-// of a per-context evaluation,
-// scoped to the call, passing the context handle as `key`. If another thread is already inside
-// an evaluation on the same key, it aborts loudly — converting silent memory corruption
-// (concurrent use of a non-thread-safe chibi context) into an immediate, diagnosable crash.
-//
-// Re-entry by the SAME thread on the same key is permitted (depth-counted), so ordinary
-// nested/recursive evaluation on one context does not trip it.
-//
-// In release builds (NDEBUG) this is an empty object with a trivial constructor — zero cost.
+/**
+ * Debug-build-only guard that detects violations of the "one context per concurrent caller"
+ * rule (docs/threading-audit.md §3): a context that is not itself thread-safe (such as a
+ * chibi-scheme context) must never be entered by two threads at once. Construct it at the top of
+ * a per-context evaluation, scoped to the call, passing the context handle as `key`. If another
+ * thread is already inside an evaluation on the same key, it aborts loudly — converting silent
+ * memory corruption (concurrent use of a non-thread-safe chibi context) into an immediate,
+ * diagnosable crash.
+ *
+ * Re-entry by the SAME thread on the same key is permitted (depth-counted), so ordinary
+ * nested/recursive evaluation on one context does not trip it.
+ *
+ * In release builds (NDEBUG) this is an empty object with a trivial constructor — zero cost.
+ */
 #if !defined(NDEBUG)
 class ConcurrencyTripwire {
 public:
@@ -144,11 +145,6 @@ public:
     std::lock_guard<std::mutex> const guard(registryMutex());
     auto& owners = registry();
     auto const it = owners.find(key_);
-    // The constructor always inserts at depth 1 or increments, so by construction there is an
-    // entry with a non-zero depth here. If there is not, the registry has been corrupted, and
-    // decrementing an unsigned depth would silently wrap to a huge value and strand the entry
-    // forever. This whole class exists to turn quiet corruption into a diagnosable crash, so
-    // hold it to its own standard.
     if(it == owners.end() || it->second.depth == 0) {
       std::cerr << "\n*** BOSS ConcurrencyTripwire: on leaving the scope for context " << key_
                 << ", its registry entry is missing or already at depth 0."
@@ -183,7 +179,7 @@ private:
   }
   void const* key_;
 };
-#else
+#else // NDEBUG: release builds get the empty, zero-cost tripwire
 class ConcurrencyTripwire {
 public:
   explicit ConcurrencyTripwire(void const* /*key*/, char const* /*site*/ = "evaluate") {}
