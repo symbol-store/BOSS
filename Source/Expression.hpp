@@ -219,8 +219,36 @@ using AtomicExpressionWithAdditionalCustomAtoms =
 
 namespace generic {
 
+// ─── Pretty-print manipulator (stdlib-style, per-stream flag) ───────────────
+//
+// Set with `stream << boss::pretty`; clear with `boss::compact`. When the flag is
+// set and a hook has been installed (by linking Shims/BossPrettyPrint.cpp — built
+// into libBOSS and the REPL but not into Tests), operator<< for ComplexExpression
+// delegates to it. Without the hook the flag is a silent no-op. Note: only the
+// default `ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>` is routed;
+// extensible variants (custom atoms) fall through to the compact renderer.
 template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms;
+
+inline int prettyStreamIndex() {
+  static int const index = std::ios_base::xalloc();
+  return index;
+}
+using PrettyPrintHook = void (*)(std::ostream&,
+                                 ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>> const&);
+inline PrettyPrintHook& prettyPrintHook() {
+  static PrettyPrintHook hook = nullptr;
+  return hook;
+}
+inline std::ostream& pretty(std::ostream& stream) {
+  stream.iword(prettyStreamIndex()) = 1;
+  return stream;
+}
+inline std::ostream& compact(std::ostream& stream) {
+  stream.iword(prettyStreamIndex()) = 0;
+  return stream;
+}
+
 template <typename T>
 inline constexpr bool isComplexExpression =
     boss::utilities::isInstanceOfTemplate<std::decay_t<T>,
@@ -1335,14 +1363,21 @@ public:
    */
   friend ::std::ostream& operator<<(::std::ostream& out,
                                     ComplexExpressionWithAdditionalCustomAtoms const& e) {
-    out << e.getHead() << "[";
-    if(!e.getArguments().empty()) {
-      out << e.getArguments().front();
-      for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
-        out << "," << *it;
+    if constexpr(std::is_same_v<ComplexExpressionWithAdditionalCustomAtoms,
+                                ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>>) {
+      if(out.iword(prettyStreamIndex()) != 0 && prettyPrintHook() != nullptr) {
+        prettyPrintHook()(out, e);
+        return out;
       }
     }
-    out << "]";
+    out << "(" << e.getHead();
+    if(!e.getArguments().empty()) {
+      out << " " << e.getArguments().front();
+      for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
+        out << " " << *it;
+      }
+    }
+    out << ")";
     return out;
   }
 
@@ -1550,10 +1585,15 @@ using expressions::Expression;
 using expressions::ExpressionArguments;
 using expressions::Span; // NOLINT
 using expressions::Symbol;
+using expressions::generic::compact;                    // NOLINT
 using expressions::generic::ExtensibleExpressionSystem; // NOLINT
 using expressions::generic::get;                        // NOLINT
 using expressions::generic::get_if;                     // NOLINT
 using expressions::generic::holds_alternative;          // NOLINT
+using expressions::generic::pretty;                     // NOLINT
+using expressions::generic::prettyPrintHook;            // NOLINT — impl detail, exposed for testing
+using expressions::generic::prettyStreamIndex;          // NOLINT
+
 } // namespace boss
 
 namespace std {
