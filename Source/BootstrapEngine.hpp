@@ -192,7 +192,15 @@ class BootstrapEngine : public Engine {
   }
 
 public:
-  BootstrapEngine() = default;
+  BootstrapEngine() {
+#ifdef BOSS_DEFAULT_ENGINE_LIBS
+    // BOSS_DEFAULT_ENGINE_LIBS expands to comma-separated string literals, so iterate them as
+    // pointers and construct each std::string once, directly in the vector.
+    for(auto const* library : {BOSS_DEFAULT_ENGINE_LIBS}) {
+      defaultEngine.emplace_back(library);
+    }
+#endif
+  }
   ~BootstrapEngine() = default;
   BootstrapEngine(BootstrapEngine const&) = delete;
   BootstrapEngine(BootstrapEngine&&) = delete;

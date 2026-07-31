@@ -23,6 +23,18 @@ cmake -S ReferenceEngine -B build
 cmake --build build
 ```
 
+## Running an existing engine
+
+```bash
+git clone https://github.com/symbol-store/BOSS
+cmake -S BOSS -B build -DBOSS_DEFAULT_ENGINES=ArrowComputeEngine
+cmake --build build
+cd build
+curl -sL 'https://github.com/owid/covid-19-data/blob/master/public/data/owid-covid-data.csv?raw=true' \
+  | cut -d, -f1,4,12 > owid-covid-data.csv
+./boss -p '(ToStatus (Name (Materialize (OrderBy (Project (Load "owid-covid-data.csv") iso_code date (Int date) new_cases_per_million) (keys iso_code |int(date)|))) sorted))' -p '(Join (GroupBy (Name (Pairwise (Cumulate (ByName sorted) (sum new_cases_per_million)) smoothed_new_cases_per_million |sum(new_cases_per_million)| 7) smoothed) (max smoothed_new_cases_per_million) date) (keys date |max(smoothed_new_cases_per_million)|) (ByName smoothed) (keys date smoothed_new_cases_per_million))'
+```
+
 ## Testing your engine
 
 ```bash

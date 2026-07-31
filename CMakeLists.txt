@@ -254,6 +254,34 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   list(APPEND AllTargets boss)
 endif()
 
+########################## Default Engine Libraries ############################
+
+set(BOSS_DEFAULT_ENGINES "" CACHE STRING "Default engine library names (semicolon-separated)")
+if(BOSS_DEFAULT_ENGINES)
+  set(_default_engine_defs "")
+  foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
+    # Each name is interpolated twice: into the BOSS_DEFAULT_ENGINE_LIBS string literal below,
+    # and into a "symbol-store/<name>" repository to fetch. A quote would break out of the
+    # literal, and a slash or whitespace would silently fetch something other than intended, so
+    # reject anything that is not a plain identifier rather than generating either.
+    if(NOT _eng MATCHES "^[A-Za-z0-9_.+-]+$")
+      message(FATAL_ERROR
+        "BOSS_DEFAULT_ENGINES entry '${_eng}' is not a plain engine name. Expected only letters, "
+        "digits and _ . + - (for example ArrowComputeEngine); got characters that would corrupt "
+        "the generated BOSS_DEFAULT_ENGINE_LIBS definition or the engine repository name.")
+    endif()
+    list(APPEND _default_engine_defs "./${CMAKE_SHARED_MODULE_PREFIX}${_eng}${CMAKE_SHARED_MODULE_SUFFIX}")
+  endforeach()
+  string(JOIN "\",\"" _default_engine_init ${_default_engine_defs})
+  set(_default_engine_init "\"${_default_engine_init}\"")
+  foreach(Target IN LISTS AllTargets)
+    target_compile_definitions(${Target} PRIVATE BOSS_DEFAULT_ENGINE_LIBS=${_default_engine_init})
+  endforeach()
+  foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
+    list(APPEND BOSS_BUILD_ENGINES "symbol-store/${_eng}")
+  endforeach()
+endif()
+
 ############################ Targets Common Properties ############################
 
 foreach(Target IN LISTS AllTargets)
@@ -330,5 +358,22 @@ foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
     GIT_TAG ${BranchName}
     DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/engines $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DBOSS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_REPOSITORY=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_BRANCH=${BOSS_CHECKOUT_BRANCH}
+  )
+  # Copy the built engine next to the BOSS binaries so ./boss resolves it by the relative
+  # path baked into BOSS_DEFAULT_ENGINE_LIBS. This is an ExternalProject step chained after
+  # the install step rather than a POST_BUILD command on a step target, so it runs whenever
+  # the engine project is built, on every generator.
+  #
+  # The source path assumes the engine's runtime artifact lands in <prefix>/lib, which holds for
+  # the ELF and Mach-O module builds BOSS targets. On Windows a SHARED library's .dll is a
+  # RUNTIME artifact and would install to <prefix>/bin instead, so this step would need to look
+  # there too; untested here, since nothing in this project builds for Windows today.
+  ExternalProject_Add_Step(${EngineName} copy_to_binary_dir
+    DEPENDEES install
+    ALWAYS TRUE
+    COMMENT "Copying ${EngineName} next to the BOSS binaries"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${BOSS_BINARY_DIR}/engines/lib/${CMAKE_SHARED_MODULE_PREFIX}${EngineName}${CMAKE_SHARED_MODULE_SUFFIX}"
+      "${CMAKE_BINARY_DIR}/"
   )
 endforeach()
