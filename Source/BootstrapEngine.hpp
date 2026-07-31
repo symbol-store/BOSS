@@ -279,46 +279,61 @@ class BootstrapEngine : public Engine {
            // locks internally and releases before returning), then do any GetEntryPoint engine
            // call below with NO lock held.
            auto* entryPoint = self->resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
-           visit(
-               overload(
-                   [&entryPoint](ComplexExpression const& engine) {
-                     auto [_originalHead, statics, dynamics, spans] =
-                         engine
-                             .clone(boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)
-                             .decompose();
-                     // Owning handles so the GetEntryPoint input and result are released even
-                     // if the engine call, or decoding its result, exits by exception.
-                     using ExpressionHandle =
-                         std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
-                     // A fresh empty static-argument tuple rather than a move of `statics`: it
-                     // is an empty std::tuple<>, so the move has no effect and clang-tidy (run
-                     // with warnings-as-errors) rejects it. Naming its type keeps the
-                     // structured binding referenced.
-                     auto const input =
-                         ExpressionHandle(new BOSSExpression {ComplexExpression(
-                                              Symbol("GetEntryPoint"), decltype(statics) {},
-                                              std::move(dynamics), std::move(spans))},
-                                          &freeBOSSExpression);
-                     auto const output =
-                         ExpressionHandle(entryPoint(input.get()), &freeBOSSExpression);
-                     if(output != nullptr) {
-                       visit(overload(
-                                 [&entryPoint](std::int64_t value) {
-                                   // 0 means "no override": keep the engine's default evaluate
-                                   // entry point rather than dispatching through a null
-                                   // function pointer.
-                                   if(value != 0) {
+           visit(overload(
+                     [&entryPoint](ComplexExpression const& engine) {
+                       auto [_originalHead, statics, dynamics, spans] =
+                           engine
+                               .clone(
+                                   boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)
+                               .decompose();
+                       // Owning handles so the GetEntryPoint input and result are released even
+                       // if the engine call, or decoding its result, exits by exception.
+                       using ExpressionHandle =
+                           std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
+                       // A fresh empty static-argument tuple rather than a move of `statics`: it
+                       // is an empty std::tuple<>, so the move has no effect and clang-tidy (run
+                       // with warnings-as-errors) rejects it. Naming its type keeps the
+                       // structured binding referenced.
+                       auto const input =
+                           ExpressionHandle(new BOSSExpression {ComplexExpression(
+                                                Symbol("GetEntryPoint"), decltype(statics) {},
+                                                std::move(dynamics), std::move(spans))},
+                                            &freeBOSSExpression);
+                       auto const output =
+                           ExpressionHandle(entryPoint(input.get()), &freeBOSSExpression);
+                       if(output != nullptr) {
+                         visit(overload(
+                                   [&entryPoint](std::int64_t value) {
+                                     // 0 means "no override": keep the engine's default evaluate
+                                     // entry point rather than dispatching through a null
+                                     // function pointer.
+                                     if(value == 0) {
+                                       return;
+                                     }
+                                     // The cast below narrows on any target where intptr_t is
+                                     // smaller than int64_t (32-bit builds). Silently truncating
+                                     // would hand dispatch a plausible-looking but wrong address,
+                                     // so refuse a value that cannot round-trip instead.
+                                     auto const asPointerInt = static_cast<std::intptr_t>(value);
+                                     if(static_cast<std::int64_t>(asPointerInt) != value) {
+                                       throw std::runtime_error(
+                                           "GetEntryPoint returned " + std::to_string(value) +
+                                           ", which does not fit in a pointer on this platform");
+                                     }
                                      // NOLINTNEXTLINE(performance-no-int-to-ptr)
                                      entryPoint = reinterpret_cast<LibraryAndFunctions::EntryPoint>(
-                                         static_cast<std::intptr_t>(value));
-                                   }
-                                 },
-                                 [](auto const& /*unused*/) {}),
-                             output->delegate);
-                     }
-                   },
-                   [](auto const& /*unused*/) {}),
-               enginePath);
+                                         asPointerInt);
+                                   },
+                                   // Anything other than an int64 means "no override" -- that is
+                                   // the documented contract, so that an engine which does not
+                                   // implement GetEntryPoint keeps its default entry point rather
+                                   // than failing the whole dispatch.
+                                   [](auto const& /*unused*/) {}),
+                               output->delegate);
+                       }
+                     },
+                     [](auto const& /*unused*/) {}),
+                 enginePath);
            return entryPoint;
          };
 
