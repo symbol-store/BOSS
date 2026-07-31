@@ -18,6 +18,7 @@ extern "C" {
 #include <iostream>
 #include <limits>
 #include <string>
+#include <utility>
 #include <variant>
 
 namespace boss {
@@ -33,6 +34,12 @@ struct BossContextGuard {
   // Initialised so a default-constructed guard destroys nothing; the destructor below would
   // otherwise pass an indeterminate pointer to sexp_destroy_context.
   sexp ctx = nullptr;
+  // Spelled out rather than left to aggregate initialisation. Deleting the copy and move
+  // members below makes this a non-aggregate from C++20 on, so `BossContextGuard{someCtx}`
+  // would stop compiling for a consumer building at a newer standard than BOSS itself --
+  // and this header is installed for exactly those consumers.
+  BossContextGuard() = default;
+  explicit BossContextGuard(sexp context) : ctx(context) {}
   BossContextGuard(BossContextGuard const&) = delete;
   BossContextGuard(BossContextGuard&&) = delete;
   BossContextGuard& operator=(BossContextGuard const&) = delete;
@@ -45,6 +52,10 @@ struct BossContextGuard {
 };
 
 /* ─── Convert BOSS Expression to chibi sexp ─── */
+
+/// Implementation helpers. Not part of the public API of this installed header: they exist to
+/// build the scheme environment, and are free to change shape without notice.
+namespace detail {
 
 inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr);
 
@@ -171,6 +182,8 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
                                "convert-from-boss-expression"_("BOSSEvaluate"_("expr"_)))))));
 }
 
+} // namespace detail
+
 /* ─── Evaluation utilities ─── */
 
 inline sexp eval_expr(sexp ctx, sexp env, sexp expr) {
@@ -231,7 +244,7 @@ inline sexp initialize_boss_context() {
     sexp_destroy_context(ctx);
     return nullptr;
   }
-  setup_boss_scheme(ctx, env);
+  detail::setup_boss_scheme(ctx, env);
   sexp_gc_release2(ctx);
   return ctx;
 }
