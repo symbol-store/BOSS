@@ -16,12 +16,15 @@
 #include <catch2/generators/catch_generators_random.hpp>
 #include <catch2/generators/catch_generators_range.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <iterator>
 #include <numeric>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -167,6 +170,40 @@ TEST_CASE("Expression Transformation", "[expressions]") {
 
   CHECK(e.getArguments().at(0) == v1 + 2);
   CHECK(e.getArguments().at(1) == v2 + 1);
+}
+
+TEST_CASE("Pretty-print manipulator toggles the per-stream flag", "[expressions][pretty]") {
+  std::stringstream stream;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+  stream << boss::pretty;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 1);
+  stream << boss::compact;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+}
+
+TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pretty]") {
+  // The Tests binary does not link Shims/BossPrettyPrint.cpp, so the hook stays null
+  // and pretty mode falls through to the compact renderer.
+  REQUIRE(boss::prettyPrintHook() == nullptr);
+  auto expr = "Filter"_("Load"_("path"), "Greater"_("x"_, 3));
+  std::stringstream compactOut;
+  compactOut << expr;
+  std::stringstream prettyOut;
+  prettyOut << boss::pretty << expr;
+  CHECK(prettyOut.str() == compactOut.str());
+}
+
+TEST_CASE("Compact rendering is lisp-style", "[expressions][pretty]") {
+  auto render = [](auto const& expression) {
+    std::stringstream stream;
+    stream << expression;
+    return stream.str();
+  };
+  // A nullary expression renders as "(Head)" -- no trailing space before the paren.
+  CHECK(render("UnevaluatedPlus"_()) == "(UnevaluatedPlus)");
+  // Arguments are separated by a single space, and nested expressions nest as lists.
+  CHECK(render("Greater"_("x"_, "y"_)) == "(Greater x y)");
+  CHECK(render("Filter"_("Load"_(), "Greater"_("x"_, "y"_))) == "(Filter (Load) (Greater x y))");
 }
 
 TEST_CASE("Expression without arguments", "[expressions]") {
@@ -420,6 +457,91 @@ TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
   CHECK(otherExpressions.size() == 3);
 }
 
+// NOLINTBEGIN(readability-magic-numbers)
+namespace {
+constexpr std::size_t largeStringSize = 200UL * 1024;
+std::string makeLargeString(char fillCharacter) {
+  return std::string(largeStringSize, fillCharacter);
+}
+} // namespace
+
+TEST_CASE("Large string as a standalone Expression", "[expressions][largestring]") {
+  auto const payload = makeLargeString('x');
+
+  Expression expression = payload;
+  CHECK(get<std::string>(expression).size() == largeStringSize);
+  CHECK(expression == payload);
+
+  Expression clonedExpression = expression.clone(CloneReason::FOR_TESTING);
+  CHECK(get<std::string>(clonedExpression).size() == largeStringSize);
+  CHECK(clonedExpression == payload);
+
+  Expression movedExpression = std::move(expression);
+  CHECK(get<std::string>(movedExpression).size() == largeStringSize);
+  CHECK(movedExpression == payload);
+}
+
+TEST_CASE("Large string as a ComplexExpression argument", "[expressions][largestring]") {
+  auto const payload = makeLargeString('a');
+
+  boss::ExpressionArguments arguments;
+  arguments.emplace_back(payload);
+  auto expression = boss::ComplexExpression("List"_, std::move(arguments));
+  REQUIRE(expression.getArguments().size() == 1);
+  CHECK(get<std::string>(expression.getArguments().at(0)).size() == largeStringSize);
+  CHECK(get<std::string>(expression.getArguments().at(0)) == payload);
+
+  auto clonedExpression = expression.clone(CloneReason::FOR_TESTING);
+  CHECK(clonedExpression == expression);
+  CHECK(get<std::string>(clonedExpression.getArguments().at(0)) == payload);
+
+  auto movedExpression = std::move(clonedExpression);
+  CHECK(get<std::string>(movedExpression.getArguments().at(0)) == payload);
+
+  auto [head, staticArguments, dynamicArguments, spanArguments] = std::move(expression).decompose();
+  CHECK(head.getName() == "List");
+  REQUIRE(dynamicArguments.size() == 1);
+  CHECK(get<std::string>(dynamicArguments.at(0)).size() == largeStringSize);
+  CHECK(get<std::string>(dynamicArguments.at(0)) == payload);
+
+  // A fresh, empty static-argument tuple rather than a move of staticArguments: the decomposed
+  // tuple is empty and trivially copyable, so the move has no effect and clang-tidy (run with
+  // warnings-as-errors) rejects it. Spelling the type as decltype(staticArguments) also keeps
+  // the structured binding referenced.
+  auto recomposedExpression =
+      boss::ComplexExpression(std::move(head), decltype(staticArguments) {},
+                              std::move(dynamicArguments), std::move(spanArguments));
+  CHECK(recomposedExpression == movedExpression);
+  CHECK(get<std::string>(recomposedExpression.getArguments().at(0)) == payload);
+}
+
+TEST_CASE("Large string as a ComplexExpression head", "[expressions][largestring]") {
+  auto const payload = makeLargeString('h');
+
+  auto expression = boss::ComplexExpression(boss::Symbol(payload), boss::ExpressionArguments {});
+  CHECK(expression.getHead().getName().size() == largeStringSize);
+  CHECK(expression.getHead().getName() == payload);
+
+  auto clonedExpression = expression.clone(CloneReason::FOR_TESTING);
+  CHECK(clonedExpression == expression);
+  CHECK(clonedExpression.getHead().getName() == payload);
+
+  auto movedExpression = std::move(clonedExpression);
+  CHECK(movedExpression.getHead().getName() == payload);
+
+  auto [head, staticArguments, dynamicArguments, spanArguments] = std::move(expression).decompose();
+  CHECK(head.getName().size() == largeStringSize);
+  CHECK(head.getName() == payload);
+  CHECK(dynamicArguments.empty());
+
+  auto recomposedExpression =
+      boss::ComplexExpression(std::move(head), decltype(staticArguments) {},
+                              std::move(dynamicArguments), std::move(spanArguments));
+  CHECK(recomposedExpression.getHead().getName() == payload);
+  CHECK(recomposedExpression == movedExpression);
+}
+// NOLINTEND(readability-magic-numbers)
+
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int32_t, std::int64_t,
                    std::float_t, std::double_t) {
@@ -528,6 +650,14 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
         engine.evaluate("EvaluateInEngines"_("List"_(9), 5)),
         "expected and actual type mismatch in expression \"9\", expected string");
+
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_), 5)),
+        Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));
+
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_(9)), 5)),
+        Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));
   }
 
   SECTION("Atomics") {
@@ -1807,6 +1937,66 @@ TEST_CASE("Chained Pattern Matching") {
     return "matched2"_();
   };
   REQUIRE(whichArm == 0);
+}
+
+TEST_CASE("Any_ matches atomic subjects") {
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+
+  // Unit level: matchArg(subject, Any_) is true for every atom kind (not just
+  // ComplexExpression subjects).
+  CHECK(matchArg(Expression(boss::Symbol("howdie")), Expression(Any_)));
+  CHECK(matchArg(Expression(std::string("hello")), Expression(Any_)));
+  CHECK(matchArg(Expression(std::int64_t {42}), Expression(Any_)));
+  CHECK(matchArg(Expression(std::int32_t {7}), Expression(Any_)));
+  CHECK(matchArg(Expression(std::int8_t {3}), Expression(Any_)));
+  CHECK(matchArg(Expression(3.5), Expression(Any_)));
+  CHECK(matchArg(Expression(true), Expression(Any_)));
+  CHECK(matchArg("Table"_("t"), Expression(Any_)));
+
+  // End-to-end: a ComplexExpression pattern never matches an atomic subject, so a
+  // trailing `< Any_` arm is the one that fires. (Handlers are variadic because
+  // operator> instantiates the ComplexExpression-decomposition path unconditionally.)
+  int whichArm = 0;
+  Expression result = Expression(boss::Symbol("howdie")) < "Something"_() >=
+                      [&whichArm](auto&&...) -> Expression { // NOLINT(bugprone-chained-comparison)
+    whichArm = 1;
+    return "complex"_();
+  } < Any_ >= [&whichArm](auto&&...) -> Expression {
+    whichArm = 2;
+    return boss::Symbol("fired");
+  };
+  CHECK(whichArm == 2);
+  CHECK(result == Expression(boss::Symbol("fired")));
+
+  // The handler can also echo the matched expression back unchanged. For an atomic
+  // subject the Any_ arm invokes the handler with the whole Expression, so an
+  // `overload` with an Expression&& branch returns it verbatim. The decomposition
+  // branch exists only so operator>'s ComplexExpression path compiles.
+  auto echo = boss::utilities::overload(
+      [](Expression&& matched) -> Expression { return std::move(matched); },
+      [](auto&&... /*decomposed*/) -> Expression { return boss::Symbol("unreached"); });
+  Expression echoed = Expression(boss::Symbol("howdie")) < "Something"_() >= echo < Any_ >=
+                      echo; // NOLINT(bugprone-chained-comparison)
+  CHECK(echoed == Expression(boss::Symbol("howdie")));
+
+  // For a ComplexExpression subject, the Any_ arm invokes the handler with the
+  // DECOMPOSED expression (head, static args, dynamic args, span args) rather than the
+  // whole Expression. Reconstructing a ComplexExpression from those four pieces yields
+  // a value equal to the original — same head, same arguments.
+  Expression original = "Table"_("Columns"_("a"), std::int64_t {42});
+  Expression expected = original.clone(CloneReason::FOR_TESTING);
+  auto reconstruct = [](auto&& head, auto&& statics, auto&& dynamics, auto&& spans) -> Expression {
+    return ComplexExpression(
+        std::forward<decltype(head)>(head), std::forward<decltype(statics)>(statics),
+        std::forward<decltype(dynamics)>(dynamics), std::forward<decltype(spans)>(spans));
+  };
+  Expression rebuilt = std::move(original) < "Nope"_(AnySequence_) >=
+                       [](auto&&...) -> Expression { // NOLINT(bugprone-chained-comparison)
+    return "unreached"_();
+  } < Any_ >= reconstruct;
+  CHECK(rebuilt == expected);
 }
 
 TEST_CASE("Span Argument Pattern Matching") {
