@@ -8,6 +8,7 @@ extern "C" {
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "UnicodeEscapes.hpp"
 #include "Utilities.hpp"
 
 #include <cmath>
@@ -195,9 +196,10 @@ inline sexp eval_expr(sexp ctx, sexp env, sexp expr) {
 }
 
 inline sexp eval_string(sexp ctx, sexp env, const char* str) {
+  auto const preprocessedStr = preprocessUnicodeEscapes(str);
   sexp_gc_var2(expr, port);
   sexp_gc_preserve2(ctx, expr, port);
-  port = sexp_open_input_string(ctx, sexp_c_string(ctx, str, -1));
+  port = sexp_open_input_string(ctx, sexp_c_string(ctx, preprocessedStr.c_str(), -1));
   expr = sexp_read(ctx, port);
   if(sexp_exceptionp(expr)) {
     sexp_gc_release2(ctx);
