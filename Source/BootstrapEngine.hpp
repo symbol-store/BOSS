@@ -5,6 +5,7 @@
 #include "Engine.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "ThreadSafety.hpp"
 #include "Utilities.hpp"
 
 #include <filesystem>
@@ -54,6 +55,8 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #endif // _WIN32
 
 #include <algorithm>
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <numeric>
@@ -85,6 +88,20 @@ using boss::Symbol;
 using boss::expressions::generic::visit;
 using boss::utilities::overload;
 
+// -- BOSS core dispatch threading contract ---------------------------------------------------
+// Caller contract:  one chibi context per concurrent caller (a single context is not
+//   thread-safe -- see docs/threading-audit.md section 3). Multiple contexts MAY call
+//   BOSSEvaluate concurrently; core serves them concurrently.
+// Engine contract:  an engine's `evaluate` (and `reset`) MUST be reentrant -- core may call the
+//   same engine from multiple threads at once and never serializes engine calls.
+// Reconfiguration:  SetDefaultEnginePipeline / ResetEngines mutate shared engine state and are
+//   only valid while NO evaluation is in flight (quiesce first). They keep core's own state
+//   consistent under a lock, but ResetEngines resets+unloads engines, which is unsafe under a
+//   concurrent in-flight call regardless of locking.
+// Implementation invariant: core takes `engineStateMutex` only to read/snapshot the pipeline
+//   and resolve engine function pointers, and NEVER holds it across an engine call (that would
+//   serialize the concurrency this design exists to provide, and could deadlock on re-entry).
+
 struct LibraryAndFunctions {
   using EntryPoint = BOSSExpression* (*)(BOSSExpression*);
   void* library;
@@ -92,7 +109,66 @@ struct LibraryAndFunctions {
   EntryPoint evaluateFunction;
 };
 
+// Reset + unload libraries. MUST run OUTSIDE engineStateMutex: reset() is an engine call.
+void unloadLibraries(vector<LibraryAndFunctions> const& libs) {
+  for(auto const& lib : libs) {
+    if(lib.resetFunction != nullptr) {
+      lib.resetFunction();
+    }
+    dlclose(lib.library);
+  }
+}
+
 class BootstrapEngine : public Engine {
+
+  // Guards `libraries` and `defaultEnginePipeline`. Shared for the dispatch snapshot/resolve
+  // path; exclusive for first-time dlopen and for reconfiguration. Never held across an engine
+  // call. Declared first so the GUARDED_BY annotations below can reference it.
+  mutable boss::concurrency::SharedMutex engineStateMutex;
+
+  // Counts evaluations currently dispatching into engines. Deliberately not guarded by
+  // engineStateMutex: it exists precisely because engine calls run with no lock held, so a
+  // reconfiguration that reset or unloaded an engine underneath an in-flight call would corrupt
+  // it whatever the locking did. Reconfiguration refuses to proceed while this is non-zero.
+  std::atomic<std::size_t> evaluationsInFlight {0};
+
+  // Raises the in-flight count for the duration of an engine dispatch.
+  //
+  // The increment happens under a SHARED lock, and requireNoEvaluationInFlight() runs under the
+  // EXCLUSIVE one. That pairing is what makes the guard actually hold: without it the counter
+  // could go from 0 to 1 in the window between a reconfiguration operator reading it and
+  // mutating engine state, and the reconfiguration would then reset() and dlclose() engines
+  // underneath a dispatch that had just started. With it, a reconfiguration holding the
+  // exclusive lock and observing 0 knows no dispatch is running and none can start until it
+  // lets go. The lock is released before the engine call itself, so the invariant that the
+  // lock is never held across an engine call still stands.
+  class InFlightGuard {
+  public:
+    InFlightGuard(std::atomic<std::size_t>& counter, boss::concurrency::SharedMutex& mutex)
+        : counter(counter) {
+      boss::concurrency::SharedLock const lock(mutex);
+      ++counter;
+    }
+    ~InFlightGuard() { --counter; }
+    InFlightGuard(InFlightGuard const&) = delete;
+    InFlightGuard(InFlightGuard&&) = delete;
+    InFlightGuard& operator=(InFlightGuard const&) = delete;
+    InFlightGuard& operator=(InFlightGuard&&) = delete;
+
+  private:
+    std::atomic<std::size_t>& counter;
+  };
+
+  // Enforces the quiesce-first contract rather than leaving it to documentation.
+  void requireNoEvaluationInFlight(char const* operatorName) const {
+    if(evaluationsInFlight.load() > 0) {
+      throw runtime_error(
+          string(operatorName) +
+          " is only valid while no evaluation is in flight. Engine calls run without the "
+          "engine-state lock held, so reconfiguring engines now would reset or unload an engine "
+          "underneath a concurrent call. Quiesce evaluation first.");
+    }
+  }
 
   static string symbolToLibraryName(Symbol const& engine) {
 #ifdef _WIN32
@@ -102,8 +178,31 @@ class BootstrapEngine : public Engine {
 #endif
   }
 
+  // Resolves a pipeline entry to the library it names: a Symbol, and a ComplexExpression via
+  // its head, map to the platform library name; anything else is required to be a string and
+  // is used verbatim (so a non-string, non-Symbol entry reports a bad-variant access).
+  template <typename EnginePath> static string libraryNameForEnginePath(EnginePath const& path) {
+    auto resolve =
+        overload([](Symbol const& engine) -> string { return symbolToLibraryName(engine); },
+                 [](ComplexExpression const& engine) -> string {
+                   return symbolToLibraryName(engine.getHead());
+                 },
+                 [&path](auto const& /*unused*/) -> string { return get<string>(path); });
+    return visit(resolve, path);
+  }
+
   struct LibraryCache : private unordered_map<string, LibraryAndFunctions> {
-    LibraryAndFunctions const& at(string const& libraryPath) {
+    // Look up an already-loaded library. Caller holds a shared lock on engineStateMutex.
+    ::std::optional<LibraryAndFunctions> tryGet(string const& libraryPath) const {
+      auto const it = find(libraryPath);
+      if(it == end()) {
+        return ::std::nullopt;
+      }
+      return it->second;
+    }
+
+    // dlopen the library if absent, then return it. Caller holds an EXCLUSIVE lock.
+    LibraryAndFunctions const& loadOrGet(string const& libraryPath) {
       if(count(libraryPath) == 0) {
         const auto* n = libraryPath.c_str();
         if(auto* library = dlopen(n, RTLD_NOW | RTLD_NODELETE)) { // NOLINT(hicpp-signed-bitwise)
@@ -123,44 +222,59 @@ class BootstrapEngine : public Engine {
       return unordered_map::at(libraryPath);
     }
 
-    ~LibraryCache() { clear(); }
-
-    void clear() {
+    // Detach all entries so the caller can unload them OUTSIDE the lock. Map becomes empty.
+    vector<LibraryAndFunctions> detachAll() {
+      vector<LibraryAndFunctions> libs;
+      libs.reserve(size());
       for(const auto& [name, library] : *this) {
-        if(library.resetFunction != nullptr) {
-          library.resetFunction();
-        }
-        dlclose(library.library);
+        libs.push_back(library);
       }
       unordered_map<string, LibraryAndFunctions>::clear();
+      return libs;
     }
+
+    ~LibraryCache() { unloadLibraries(detachAll()); }
 
     LibraryCache() = default;
     LibraryCache(LibraryCache const&) = delete;
     LibraryCache(LibraryCache&&) = delete;
     LibraryCache& operator=(LibraryCache const&) = delete;
     LibraryCache& operator=(LibraryCache&&) = delete;
-  } libraries;
+  } libraries BOSS_GUARDED_BY(engineStateMutex);
 
-  vector<Expression> defaultEnginePipeline;
+  vector<Expression> defaultEnginePipeline BOSS_GUARDED_BY(engineStateMutex);
+
+  // Resolve (loading on first use) an engine's evaluate function. Takes engineStateMutex
+  // shared for the common cache hit, upgrading to exclusive only to dlopen on a miss.
+  // EXCLUDES: acquires the lock itself, so callers must not already hold it.
+  LibraryAndFunctions::EntryPoint resolveEvaluateFunction(string const& libraryPath)
+      BOSS_EXCLUDES(engineStateMutex) {
+    {
+      boss::concurrency::SharedLock const lock(engineStateMutex);
+      if(auto const entry = libraries.tryGet(libraryPath)) {
+        return entry->evaluateFunction;
+      }
+    }
+    boss::concurrency::UniqueLock const lock(engineStateMutex);
+    return libraries.loadOrGet(libraryPath).evaluateFunction;
+  }
 
   unordered_map<Symbol, std::function<Expression(ComplexExpression&&)>> const registeredOperators {
       {Symbol("EvaluateInEngines"),
        [this](auto&& e) -> Expression {
+         // Marks this evaluation as in flight, so a concurrent SetDefaultEnginePipeline or
+         // ResetEngines fails fast instead of pulling engines out from under it.
+         InFlightGuard const inFlight(evaluationsInFlight, engineStateMutex);
          auto symbols = vector<LibraryAndFunctions::EntryPoint>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
-         for_each(
-             args.begin(), args.end(), [&libraries = this->libraries, &symbols](auto&& enginePath) {
-               auto getEntryPoint = overload(
-                   [](Symbol const& engine) -> string { return symbolToLibraryName(engine); },
-                   [](ComplexExpression const& engine) -> string {
-                     return symbolToLibraryName(engine.getHead());
-                   },
-                   [&enginePath](auto const& /*unused*/) -> string {
-                     return get<string>(enginePath);
-                   });
-               symbols.push_back(libraries.at(visit(getEntryPoint, enginePath)).evaluateFunction);
-             });
+         // Resolve all engine entry points up front (each resolveEvaluateFunction call locks
+         // engineStateMutex briefly). The dispatch loops below then run with NO lock held.
+         // `self = this` rather than a plain `this` capture: capturing `this` directly in this
+         // nested generic lambda crashes clang 18 (an assertion in Sema::BuildCaptureInit while
+         // instantiating the enclosing generic lambda).
+         for_each(args.begin(), args.end(), [self = this, &symbols](auto&& enginePath) {
+           symbols.push_back(self->resolveEvaluateFunction(libraryNameForEnginePath(enginePath)));
+         });
          for_each(make_move_iterator(std::next(
                       e.getArguments().begin())), // Note: first argument is the engine path
                   make_move_iterator(prev(e.getArguments().end())), [&symbols](auto&& argument) {
@@ -185,8 +299,8 @@ class BootstrapEngine : public Engine {
        }},
       {Symbol("SetDefaultEnginePipeline"),
        [this](auto&& expression) -> Expression {
-         // Build the new pipeline into a local first; validation throws before we touch shared
-         // state, so a bad argument leaves the pipeline unchanged.
+         // Build the new pipeline into a local first (no lock needed, and validation throws
+         // before we touch shared state -- so a bad argument leaves the pipeline unchanged).
          vector<Expression> newPipeline;
          algorithm::visitEach(expression.getArguments(), [&newPipeline](auto&& engine) {
            using EngineArg = std::decay_t<decltype(engine)>;
@@ -201,11 +315,30 @@ class BootstrapEngine : public Engine {
              throw std::runtime_error(errorMessage.str());
            }
          });
-         defaultEnginePipeline = std::move(newPipeline);
+         // Reconfiguration: exclusive lock. Swap in the new pipeline and detach the loaded
+         // libraries to unload them OUTSIDE the lock (reset() is an engine call).
+         //
+         // The in-flight check runs INSIDE the exclusive section, together with the mutation it
+         // guards. Checking outside would leave a window for a dispatch to start in between.
+         //
+         // Note this deliberately resets and unloads every loaded engine, not just the ones
+         // leaving the pipeline: changing the pipeline starts a fresh configuration, so engines
+         // are not kept warm across it. Callers that only want to swap the pipeline still pay a
+         // reload on the next evaluation. ResetEngines differs only in also clearing the
+         // pipeline itself.
+         vector<LibraryAndFunctions> toUnload;
+         {
+           boss::concurrency::UniqueLock const lock(engineStateMutex);
+           requireNoEvaluationInFlight("SetDefaultEnginePipeline");
+           defaultEnginePipeline = std::move(newPipeline);
+           toUnload = libraries.detachAll();
+         }
+         unloadLibraries(toUnload);
          return "okay";
        }},
       {Symbol("GetDefaultEnginePipeline"),
        [this](auto&& /*expression*/) -> Expression {
+         boss::concurrency::SharedLock const lock(engineStateMutex);
          ExpressionArguments args;
          args.reserve(defaultEnginePipeline.size());
          for(auto const& entry : defaultEnginePipeline) {
@@ -214,7 +347,17 @@ class BootstrapEngine : public Engine {
          return "List"_(std::move(args));
        }},
       {Symbol("ResetEngines"), [this](auto&& /*expression*/) -> Expression {
-         libraries.clear();
+         // Clear core state under the lock, then reset+unload the engines OUTSIDE it (reset()
+         // is an engine call). The in-flight check sits inside the exclusive section for the
+         // same reason as in SetDefaultEnginePipeline.
+         vector<LibraryAndFunctions> toUnload;
+         {
+           boss::concurrency::UniqueLock const lock(engineStateMutex);
+           requireNoEvaluationInFlight("ResetEngines");
+           defaultEnginePipeline.clear();
+           toUnload = libraries.detachAll();
+         }
+         unloadLibraries(toUnload);
          return "okay";
        }}};
 
@@ -247,8 +390,12 @@ public:
   Expression evaluate(Expression&& e, bool isRootExpression = true) {
     using boss::utilities::operator""_;
 
+    // Snapshot the engine pipeline under a shared lock (only for root, non-bootstrap
+    // expressions -- recursive sub-evaluations and bootstrap commands never wrap). The lock is
+    // released before dispatch, so it is never held across an engine call.
     ExpressionArguments pipelineArgs;
     if(isRootExpression && !isBootstrapCommand(e)) {
+      boss::concurrency::SharedLock const lock(engineStateMutex);
       pipelineArgs.reserve(defaultEnginePipeline.size());
       for(auto const& entry : defaultEnginePipeline) {
         pipelineArgs.push_back(
