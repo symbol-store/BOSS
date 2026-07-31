@@ -130,6 +130,12 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
                  _("null?"_("rest"_), "cons"_("reverse"_("dyn"_), "reverse"_("spans"_))),
                  _("and"_("not"_("forced"_), "eq?"_("car"_("rest"_), "quote"_(":spans"_))),
                    "loop"_("cdr"_("rest"_), "dyn"_, "spans"_, true)),
+                 // Everything after :spans is forwarded to newComplexBOSSExpressionWithSpans as a
+                 // BOSSExpressionSpan, so a non-span here would only fail at the FFI boundary,
+                 // with a confusing error. Reject it in scheme, where the caller's mistake is.
+                 _("and"_("forced"_, "not"_("BOSSExpressionSpan?"_("car"_("rest"_)))),
+                   "error"_(std::string("arguments after :spans must be span objects"),
+                            "car"_("rest"_))),
                  _("or"_("forced"_, "BOSSExpressionSpan?"_("car"_("rest"_))),
                    "loop"_("cdr"_("rest"_), "dyn"_, "cons"_("car"_("rest"_), "spans"_), "forced"_)),
                  _("else"_, "loop"_("cdr"_("rest"_), "cons"_("car"_("rest"_), "dyn"_), "spans"_,
