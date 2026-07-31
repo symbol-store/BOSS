@@ -22,6 +22,7 @@
 #include <iterator>
 #include <numeric>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -167,6 +168,72 @@ TEST_CASE("Expression Transformation", "[expressions]") {
 
   CHECK(e.getArguments().at(0) == v1 + 2);
   CHECK(e.getArguments().at(1) == v2 + 1);
+}
+
+TEST_CASE("Pretty-print manipulator toggles the per-stream flag", "[expressions][pretty]") {
+  std::stringstream stream;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+  stream << boss::pretty;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 1);
+  stream << boss::compact;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+}
+
+TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pretty]") {
+  // The Tests binary does not link Shims/BossPrettyPrint.cpp, so the hook stays null
+  // and pretty mode falls through to the compact renderer.
+  REQUIRE(boss::prettyPrintHook() == nullptr);
+  auto expr = "Filter"_("Load"_("path"), "Greater"_("x"_, 3));
+  std::stringstream compactOut;
+  compactOut << expr;
+  std::stringstream prettyOut;
+  prettyOut << boss::pretty << expr;
+  CHECK(prettyOut.str() == compactOut.str());
+}
+
+TEST_CASE("Pretty falls back to compact when the hook declines", "[expressions][pretty]") {
+  // Restores the global hook even if an assertion below fails.
+  struct HookGuard {
+    HookGuard() = default;
+    ~HookGuard() { boss::prettyPrintHook() = nullptr; }
+    HookGuard(HookGuard const&) = delete;
+    HookGuard(HookGuard&&) = delete;
+    HookGuard& operator=(HookGuard const&) = delete;
+    HookGuard& operator=(HookGuard&&) = delete;
+  } const guard;
+
+  auto const expr = "Filter"_("Load"_(), "Greater"_("x"_, "y"_));
+  std::stringstream compactOut;
+  compactOut << expr;
+  REQUIRE(boss::prettyPrintHook() == nullptr);
+
+  // A hook that cannot render must not swallow the output.
+  boss::prettyPrintHook() = [](std::ostream&, boss::ComplexExpression const&) { return false; };
+  std::stringstream declinedOut;
+  declinedOut << boss::pretty << expr;
+  CHECK(declinedOut.str() == compactOut.str());
+
+  // A hook that does render owns the output entirely.
+  boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const&) {
+    stream << "RENDERED";
+    return true;
+  };
+  std::stringstream renderedOut;
+  renderedOut << boss::pretty << expr;
+  CHECK(renderedOut.str() == "RENDERED");
+}
+
+TEST_CASE("Compact rendering is lisp-style", "[expressions][pretty]") {
+  auto render = [](auto const& expression) {
+    std::stringstream stream;
+    stream << expression;
+    return stream.str();
+  };
+  // A nullary expression renders as "(Head)" -- no trailing space before the paren.
+  CHECK(render("UnevaluatedPlus"_()) == "(UnevaluatedPlus)");
+  // Arguments are separated by a single space, and nested expressions nest as lists.
+  CHECK(render("Greater"_("x"_, "y"_)) == "(Greater x y)");
+  CHECK(render("Filter"_("Load"_(), "Greater"_("x"_, "y"_))) == "(Filter (Load) (Greater x y))");
 }
 
 TEST_CASE("Expression without arguments", "[expressions]") {

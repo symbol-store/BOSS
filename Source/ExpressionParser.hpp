@@ -280,4 +280,44 @@ inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& exp
   return {is_error, text};
 }
 
+/* ─── Chibi-backed pretty printer (used by Shims/BossPrettyPrint.cpp) ─── */
+
+// Returns false without writing to `stream` if this thread has no usable chibi context or
+// boss-print is unavailable, or if the printer raises, so the caller can fall back to the
+// compact renderer instead of producing empty output.
+inline bool pretty_print_expression(std::ostream& stream,
+                                    boss::ComplexExpression const& expression) {
+  struct ThreadContext {
+    BossContextGuard guard {initialize_boss_context()};
+    // SEXP_FALSE, not nullptr, is chibi's "no value" sentinel, and it is what keeps the
+    // sexp_procedurep(print_proc) test below safe: sexp_pointerp(nullptr) is true, so that
+    // check would read a tag through a null pointer if print_proc were ever left null.
+    sexp env = guard.ctx == nullptr ? SEXP_FALSE : sexp_context_env(guard.ctx);
+    sexp print_proc =
+        (env == nullptr || env == SEXP_FALSE)
+            ? SEXP_FALSE
+            : sexp_env_ref(guard.ctx, env, sexp_intern(guard.ctx, "boss-print", -1), SEXP_FALSE);
+  };
+  // const: the per-thread context is built once by its member initialisers and only read
+  // afterwards -- the chibi calls below take the handles by value.
+  thread_local ThreadContext const tls;
+  if(tls.guard.ctx == nullptr || !sexp_procedurep(tls.print_proc)) {
+    return false;
+  }
+  // Not `sexp const`: sexp is a pointer typedef, so const there binds to the pointer rather
+  // than the pointee and misc-misplaced-const rejects it (clang-tidy runs as errors here).
+  sexp ctx = tls.guard.ctx;
+  sexp_gc_var3(form, arg_list, result_str);
+  sexp_gc_preserve3(ctx, form, arg_list, result_str);
+  form = detail::complex_expr_to_sexp(ctx, expression);
+  arg_list = sexp_list1(ctx, form);
+  result_str = sexp_apply(ctx, tls.print_proc, arg_list);
+  bool const rendered = !sexp_exceptionp(result_str) && sexp_stringp(result_str);
+  if(rendered) {
+    stream << sexp_string_data(result_str);
+  }
+  sexp_gc_release3(ctx);
+  return rendered;
+}
+
 } // namespace boss
