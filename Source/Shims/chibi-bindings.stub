@@ -1,6 +1,7 @@
 (c-include "BOSS.h")
 (define-c-struct BOSSExpression finalizer: freeBOSSExpression)
 (define-c-struct BOSSSymbol finalizer: freeBOSSSymbol)
+(define-c-struct BOSSExpressionSpan predicate: BOSSExpressionSpan? finalizer: freeBOSSExpressionSpan)
 (define-c (free BOSSSymbol) symbolNameToNewBOSSSymbol ((const string)))
 (define-c (free (const string)) bossSymbolToNewString ((const BOSSSymbol)))
 
@@ -34,6 +35,25 @@
 (define-c BOSSExpression getArgumentFromBOSSExpressionArray ((pointer BOSSExpression) size_t))
 (define-c (pointer BOSSExpression) getArgumentsFromBOSSExpression ((const BOSSExpression)))
 (define-c void freeBOSSArguments ((pointer BOSSExpression)))
+
+;; span arguments (zero-copy columnar / binary payloads)
+(define-c (free BOSSExpression) newComplexBOSSExpressionWithSpans
+  (BOSSSymbol size_t (array BOSSExpression) size_t (array BOSSExpressionSpan)))
+(define-c size_t getDynamicArgumentCountFromBOSSExpression ((const BOSSExpression)))
+(define-c (pointer BOSSExpression) getDynamicArgumentsFromBOSSExpression ((const BOSSExpression)))
+(define-c size_t getSpanArgumentCountFromBOSSExpression ((const BOSSExpression)))
+(define-c (pointer BOSSExpressionSpan) getSpanArgumentsFromBOSSExpression (BOSSExpression))
+(c-declare "struct BOSSExpressionSpan* getSpanFromBOSSSpanArray(struct BOSSExpressionSpan** array, size_t index) {return array[index];}")
+(define-c (free BOSSExpressionSpan) getSpanFromBOSSSpanArray ((pointer BOSSExpressionSpan) size_t))
+(define-c void freeBOSSSpanArray ((pointer BOSSExpressionSpan)))
+(define-c size_t getBOSSSpanBeginAddress ((const BOSSExpressionSpan)))
+;; Scheme builds int8 spans from bytevectors (the binary payload path). Note this constructor
+;; COPIES: makeInt8BOSSSpan copies the bytevector's bytes into the new span's buffer. It is the
+;; span itself that then moves zero-copy across the bridge, not this initial construction.
+;; Spans of the other element types are constructed host-side via the make*BOSSSpan C API or
+;; arrive from engine output; they too cross the bridge unmodified via the span accessors.
+(c-declare "static struct BOSSExpressionSpan* bytevectorToNewInt8BOSSSpan(sexp bv) { return makeInt8BOSSSpan((int8_t const*)sexp_bytes_data(bv), (size_t)sexp_bytes_length(bv)); }")
+(define-c (free BOSSExpressionSpan) bytevectorToNewInt8BOSSSpan (sexp))
 
 
 ;; BOSSEvaluate takes ownership and frees the input internally.
