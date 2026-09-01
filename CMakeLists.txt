@@ -198,27 +198,28 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 
   # Standalone BOSS REPL binary (statically linked)
-  add_executable(boss Source/boss-repl.cpp ${ImplementationFiles} ${REPLFiles})
-  add_dependencies(boss chibi-scheme)
-  target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
-  target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
-  target_link_libraries(boss
+  add_executable(boss-repl Source/boss-repl.cpp ${ImplementationFiles} ${REPLFiles})
+  add_dependencies(boss-repl chibi-scheme)
+  target_include_directories(boss-repl SYSTEM PRIVATE ${_chibi_prefix}/include)
+  target_include_directories(boss-repl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
+  target_link_libraries(boss-repl
     ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
   if(UNIX AND NOT APPLE)
-    target_link_libraries(boss dl)
+    target_link_libraries(boss-repl dl)
   endif()
 
   # Optional readline support
   find_library(READLINE_LIB readline)
   if(READLINE_LIB)
-    target_compile_definitions(boss PRIVATE HAVE_READLINE)
-    target_link_libraries(boss ${READLINE_LIB})
+    target_compile_definitions(boss-repl PRIVATE HAVE_READLINE)
+    target_link_libraries(boss-repl ${READLINE_LIB})
   endif()
 
-  set_target_properties(boss PROPERTIES
-    INSTALL_RPATH "")
+  set_target_properties(boss-repl PROPERTIES
+    INSTALL_RPATH ""
+    OUTPUT_NAME boss)
 
-  install(TARGETS boss RUNTIME DESTINATION bin)
+  install(TARGETS boss-repl RUNTIME DESTINATION bin)
 endif()
 
 
@@ -251,7 +252,7 @@ target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBR
 
 list(APPEND AllTargets BOSS Tests Benchmarks)
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  list(APPEND AllTargets boss)
+  list(APPEND AllTargets boss-repl)
 endif()
 
 ############################ Targets Common Properties ############################
