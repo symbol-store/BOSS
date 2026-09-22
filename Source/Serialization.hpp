@@ -131,6 +131,42 @@ struct SerializedExpression {
 
   Argument* flattenedArguments() const { return getExpressionArguments(root); }
   ArgumentType* flattenedArgumentTypes() const { return getArgumentTypes(root); }
+
+  /**
+   * True when the argument-type region is stored per NODE (Wisent format v1) rather
+   * than as one physical byte per argument.  An in-memory root always reads as v0
+   * (its originalAddress holds a real pointer, which cannot carry the magic), and the
+   * eager reader rewrites a v1 file into the v0 layout on load -- so this is true only
+   * on the lazy (Gather) path, reading a v1 file in place.
+   */
+  bool usesPerNodeArgumentTypes() const {
+    return portableBOSSFormatVersion(root) == PORTABLEBOSS_FORMAT_VERSION_PER_NODE_TYPES;
+  }
+
+  /**
+   * The RAW type byte -- RLE bit included, exactly as the v0 array holds it -- at a
+   * LOGICAL argument-type index.  EVERY type read must go through this or through
+   * argumentTypesInRange below, because flattenedArgumentTypes()[i] indexes the
+   * PHYSICAL region and is meaningless under v1.
+   */
+  ArgumentType argumentTypeAt(size_t index) const {
+    if(!usesPerNodeArgumentTypes()) {
+      return flattenedArgumentTypes()[index];
+    }
+    return static_cast<ArgumentType>(portableBOSSArgumentTypeAtV1(root, index));
+  }
+
+  /**
+   * argumentTypeAt over a short window, in one pass: under v1 a window costs the same
+   * as a single index, which is what makes the 13-byte RLE look-back affordable.
+   */
+  void argumentTypesInRange(size_t start, size_t count, uint8_t* out) const {
+    if(!usesPerNodeArgumentTypes()) {
+      memcpy(out, (uint8_t const*)flattenedArgumentTypes() + start, count);
+      return;
+    }
+    portableBOSSExpandTypeRangeV1(root, start, start + count, out);
+  }
   Expression* expressionsBuffer() const { return getExpressionSubexpressions(root); }
 
   //////////////////////////////// Count Argument Bytes ///////////////////////////////
@@ -1239,7 +1275,7 @@ public:
     size_t getTypeIndex() const { return typeIndex; }
 
     bool operator==(boss::Expression const& other) const {
-      if(other.index() != buffer.flattenedArgumentTypes()[typeIndex]) {
+      if(other.index() != buffer.argumentTypeAt(typeIndex)) {
         return false;
       }
       auto const& argument = buffer.flattenedArguments()[argumentIndex];
@@ -1330,19 +1366,27 @@ public:
       auto stopTypeIndex = typeIndex < (ArgumentType_RLE_MINIMUM_SIZE - 1)
                                ? 0
                                : typeIndex - (ArgumentType_RLE_MINIMUM_SIZE - 1);
+      // The look-back window is [stopTypeIndex, typeIndex], at most
+      // ArgumentType_RLE_MINIMUM_SIZE bytes.  Read it in ONE call: under format v1 a
+      // window costs a single pass over the (tiny) node table, whereas 13 separate
+      // indexed reads would cost 13 passes.  The loop below is then byte-for-byte the
+      // same search it always was, just over a local copy.
+      uint8_t window[PortableBOSSArgumentType_RLE_MINIMUM_SIZE];
+      size_t const windowCount = typeIndex - stopTypeIndex + 1;
+      buffer.argumentTypesInRange(stopTypeIndex, windowCount, window);
       auto testIndex = typeIndex;
-      bool isRLE = (buffer.flattenedArgumentTypes()[testIndex] & ArgumentType_RLE_BIT) != 0u;
+      bool isRLE = (window[typeIndex - stopTypeIndex] & ArgumentType_RLE_BIT) != 0u;
       while(!isRLE && testIndex >= 0 && testIndex > stopTypeIndex) {
         testIndex--;
-        isRLE |= (buffer.flattenedArgumentTypes()[testIndex] & ArgumentType_RLE_BIT) != 0u;
+        isRLE |= (window[testIndex - stopTypeIndex] & ArgumentType_RLE_BIT) != 0u;
       }
       auto validTypeIndex = isRLE ? testIndex : typeIndex;
-      auto const& type = buffer.flattenedArgumentTypes()[validTypeIndex];
+      auto const& type = window[validTypeIndex - stopTypeIndex];
       return static_cast<ArgumentType>(type & ArgumentType_MASK);
     }
 
     ArgumentType getCurrentExpressionTypeExact() const {
-      auto const& type = buffer.flattenedArgumentTypes()[typeIndex];
+      auto const type = buffer.argumentTypeAt(typeIndex);
       return static_cast<ArgumentType>(type & ArgumentType_MASK);
     }
 
@@ -1370,11 +1414,10 @@ public:
     LazilyDeserializedExpression operator[](std::string const& keyName) const {
       auto const& expr = expression();
       auto const& arguments = buffer.flattenedArguments();
-      auto const& argumentTypes = buffer.flattenedArgumentTypes();
       auto const& expressions = buffer.expressionsBuffer();
       for(auto i = expr.startChildOffset, typeI = expr.startChildTypeOffset;
           i < expr.endChildOffset && typeI < expr.endChildTypeOffset; ++i, ++typeI) {
-        if(argumentTypes[typeI] != ArgumentType::ARGUMENT_TYPE_EXPRESSION) {
+        if(buffer.argumentTypeAt(typeI) != ArgumentType::ARGUMENT_TYPE_EXPRESSION) {
           continue;
         }
         auto const& child = expressions[arguments[i].asExpression];
@@ -1389,16 +1432,14 @@ public:
     // Assumes expressions do not run
     Expression const& expression() const {
       auto const& arguments = buffer.flattenedArguments();
-      auto const& argumentTypes = buffer.flattenedArgumentTypes();
       auto const& expressions = buffer.expressionsBuffer();
-      assert(argumentTypes[typeIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
+      assert(buffer.argumentTypeAt(typeIndex) == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
       return expressions[arguments[argumentIndex].asExpression];
     }
 
     size_t getCurrentExpressionAsExpressionOffset() const {
       auto const& arguments = buffer.flattenedArguments();
-      auto const& argumentTypes = buffer.flattenedArgumentTypes();
-      assert(argumentTypes[typeIndex] == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
+      assert(buffer.argumentTypeAt(typeIndex) == ArgumentType::ARGUMENT_TYPE_EXPRESSION);
       return arguments[argumentIndex].asExpression;
     }
 
@@ -1451,19 +1492,22 @@ public:
     }
 
     bool currentIsExpression() const {
-      auto const& argumentType = (buffer.flattenedArgumentTypes()[typeIndex] & ArgumentType_MASK);
+      auto const argumentType = (buffer.argumentTypeAt(typeIndex) & ArgumentType_MASK);
       return argumentType == ArgumentType::ARGUMENT_TYPE_EXPRESSION;
     }
 
     size_t currentIsRLE() const {
-      auto const& argumentTypes = buffer.flattenedArgumentTypes();
-      auto const& type = argumentTypes[typeIndex];
-      auto const& isRLE = (type & ArgumentType_RLE_BIT) != 0u;
+      // The RLE header is 5 consecutive type bytes; read them in one pass (see
+      // getCurrentExpressionType for why that matters under format v1).
+      auto const type = buffer.argumentTypeAt(typeIndex);
+      auto const isRLE = (type & ArgumentType_RLE_BIT) != 0u;
       if(isRLE) {
-        uint32_t size = (static_cast<uint32_t>(argumentTypes[typeIndex + 4]) << 24) |
-                        (static_cast<uint32_t>(argumentTypes[typeIndex + 3]) << 16) |
-                        (static_cast<uint32_t>(argumentTypes[typeIndex + 2]) << 8) |
-                        (static_cast<uint32_t>(argumentTypes[typeIndex + 1]));
+        uint8_t header[5];
+        buffer.argumentTypesInRange(typeIndex, 5, header);
+        uint32_t size = (static_cast<uint32_t>(header[4]) << 24) |
+                        (static_cast<uint32_t>(header[3]) << 16) |
+                        (static_cast<uint32_t>(header[2]) << 8) |
+                        (static_cast<uint32_t>(header[1]));
         return size;
       }
       return 0;
@@ -2416,10 +2460,21 @@ public:
       }
     };
 
+    // Iterator walks a raw ArgumentType* and so is v0-only.  It has no caller in the
+    // deserialiser engine; refuse loudly rather than let a future one mis-read a v1
+    // region as a flat array.
     template <typename T> Iterator<T> begin() {
+      if(buffer.usesPerNodeArgumentTypes()) {
+        throw std::runtime_error(
+            "SerializedExpression::Iterator does not support argument-type region format v1");
+      }
       return Iterator<T>(buffer, expression().startChildOffset);
     }
     template <typename T> Iterator<T> end() {
+      if(buffer.usesPerNodeArgumentTypes()) {
+        throw std::runtime_error(
+            "SerializedExpression::Iterator does not support argument-type region format v1");
+      }
       return Iterator<T>(buffer, expression().endChildOffset);
     }
 

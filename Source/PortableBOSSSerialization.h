@@ -323,6 +323,93 @@ inline void portableBOSSExpandNodeTypes(uint8_t descriptor, uint8_t const* overf
   }
 }
 
+/////////////////////// Random access into a v1 region ////////////////////////
+//
+// The LAZY (Gather/TableManager) reader must answer "what is the type byte at
+// LOGICAL argument-type index i?" WITHOUT materialising the v0 array: its buffer
+// is exactly the file, and the v0 array for SF1 lineitem is 67 MB.  It does not
+// have to.  The whole v1 descriptor table is ~120 bytes, and the expression table
+// (which the lazy reader already fetches in full at init) carries every node's
+// [startChildTypeOffset, endChildTypeOffset).  So a single pass over the nodes
+// resolves any logical index, or any short window of them, directly.
+//
+// The two functions below are the ONLY random-access readers of a v1 region, and
+// they are required to agree, byte for byte, with portableBOSSExpandToV0 --
+// PortableBOSSFormatTests checks exactly that on every logical index of every
+// test file.
+
+/** The type byte at `offset` within a node of `n` arguments described by `descriptor`. */
+inline uint8_t portableBOSSTypeByteInNode(uint8_t descriptor, uint8_t const* overflow, uint64_t n,
+                                          uint64_t offset) {
+  if(descriptor == PORTABLEBOSS_TYPE_DESCRIPTOR_EXPLICIT) {
+    return overflow[offset];
+  }
+  uint8_t const type = (uint8_t)(descriptor & 0x0F);
+  // The legacy setRLEArgumentFlagOrPropagateTypes artefact: byte 0 carries the RLE bit
+  // and bytes 1..4 the little-endian run length.  Only produced for n >= 13
+  // (PortableBOSSArgumentType_RLE_MINIMUM_SIZE), so offset < 5 is always inside the node.
+  if((descriptor & 0xF0) == PORTABLEBOSS_TYPE_DESCRIPTOR_LEGACY_RLE && offset < 5) {
+    if(offset == 0) {
+      return (uint8_t)(type | PortableBOSSArgumentType_RLE_BIT);
+    }
+    uint32_t const length = (uint32_t)n;
+    return (uint8_t)((length >> (8 * (offset - 1))) & 0xFF);
+  }
+  return type;
+}
+
+/**
+ * Writes the type bytes for logical indices [start, end) of a v1 `root` into `out`,
+ * which must hold `end - start` bytes.  One pass over the expression table, so a whole
+ * window (e.g. the 13-byte RLE look-back) costs the same as a single index.
+ *
+ * `root` must be v1 AND must have both its type region and its whole expression table
+ * resident -- in the lazy reader, TableManager::init guarantees both.
+ *
+ * Logical slots that no node covers (other than the recorded prefix) read as 0, which
+ * is what the zero-initialised v0 region holds for them.
+ */
+inline void portableBOSSExpandTypeRangeV1(struct PortableBOSSRootExpression* root, uint64_t start,
+                                          uint64_t end, uint8_t* out) {
+  if(end <= start) {
+    return;
+  }
+  memset(out, 0, (size_t)(end - start));
+  uint8_t const* region = (uint8_t const*)getArgumentTypes(root);
+  uint64_t const residual = region[0];
+  uint64_t const expressionCount = root->expressionCount;
+  uint8_t const* descriptors = region + 1 + residual;
+  uint8_t const* overflow = descriptors + expressionCount;
+  for(uint64_t i = start; i < end && i < residual; ++i) {
+    out[i - start] = region[1 + i];
+  }
+  struct PortableBOSSExpression const* exprs = getExpressionSubexpressions(root);
+  for(uint64_t k = 0; k < expressionCount; ++k) {
+    uint64_t const nodeStart = exprs[k].startChildTypeOffset;
+    uint64_t const nodeEnd = exprs[k].endChildTypeOffset;
+    uint64_t const n = nodeEnd - nodeStart;
+    uint8_t const descriptor = descriptors[k];
+    uint64_t const lo = nodeStart > start ? nodeStart : start;
+    uint64_t const hi = nodeEnd < end ? nodeEnd : end;
+    for(uint64_t i = lo; i < hi; ++i) {
+      out[i - start] = portableBOSSTypeByteInNode(descriptor, overflow, n, i - nodeStart);
+    }
+    // The encoder writes overflow in NODE order, so this must accumulate in node order
+    // too -- not in index order.  Nodes never overlap (the encoder refuses if they do).
+    if(descriptor == PORTABLEBOSS_TYPE_DESCRIPTOR_EXPLICIT) {
+      overflow += n;
+    }
+  }
+}
+
+/** The type byte at one logical argument-type index of a v1 `root`. */
+inline uint8_t portableBOSSArgumentTypeAtV1(struct PortableBOSSRootExpression* root,
+                                            uint64_t index) {
+  uint8_t byte = 0;
+  portableBOSSExpandTypeRangeV1(root, index, index + 1, &byte);
+  return byte;
+}
+
 /**
  * Builds the v1 physical type region for `root` (which must be v0).  Returns false --
  * and the caller must then keep the v0 layout -- if the expression table does not

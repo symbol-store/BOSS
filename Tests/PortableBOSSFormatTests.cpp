@@ -176,6 +176,9 @@ static void testLogicalIndexInvariant() {
   CHECK(getArgumentTypesBytesCount(r1) < getArgumentTypesBytesCount(r0));
 }
 
+static void checkRandomAccess(char const* path, PortableBOSSRootExpression* r0,
+                              PortableBOSSRootExpression* r1);
+
 static void testRoundTripSynthetic() {
   struct Case {
     char const* name;
@@ -221,7 +224,9 @@ static void testRoundTripSynthetic() {
     add(legacyRleArtefact(ARGUMENT_TYPE_BOOL, 250000));
     add({ARGUMENT_TYPE_INT, ARGUMENT_TYPE_SYMBOL});
     add(legacyRleArtefact(ARGUMENT_TYPE_INT, 77));
+    add({ARGUMENT_TYPE_DOUBLE, ARGUMENT_TYPE_CHAR, ARGUMENT_TYPE_BOOL, ARGUMENT_TYPE_STRING});
     add(std::vector<uint8_t>(1, ARGUMENT_TYPE_FLOAT));
+    add({ARGUMENT_TYPE_SHORT, ARGUMENT_TYPE_LONG, ARGUMENT_TYPE_INT});
     cases.push_back({"mixture", f, n});
   }
 
@@ -261,6 +266,7 @@ static void testRoundTripSynthetic() {
       ++failures;
       std::fprintf(stderr, "FAIL expression table differs for case '%s'\n", c.name);
     }
+    checkRandomAccess(c.name, r0, r1);
     std::printf("  %-14s v0 type region %10llu B -> v1 %6llu B\n", c.name,
                 (unsigned long long)getArgumentTypesBytesCount(r0),
                 (unsigned long long)getArgumentTypesBytesCount(r1));
@@ -281,11 +287,88 @@ static void testResidualAndOverflow() {
   CHECK(portableBOSSExpandToV0(r1, back));
   auto* r2 = reinterpret_cast<PortableBOSSRootExpression*>(back.data());
   CHECK_EQ(std::memcmp(getArgumentTypes(r2), getArgumentTypes(r0), 3), 0);
+  checkRandomAccess("residual-and-overflow", r0, r1);
 }
 
 //////////////////////////////////////////////////////////////////////////////
 // Optional: run the round trip against real .bin files.
 //////////////////////////////////////////////////////////////////////////////
+
+// Asserts that the random-access v1 readers reproduce the v0 type array exactly.
+static void checkRandomAccess(char const* path, PortableBOSSRootExpression* r0,
+                              PortableBOSSRootExpression* r1) {
+  uint64_t const argumentCount = r0->argumentCount;
+  uint8_t const* expected = (uint8_t const*)getArgumentTypes(r0);
+
+  // 1. Whole region through the range API.
+  std::vector<uint8_t> whole(argumentCount, 0xAA);
+  portableBOSSExpandTypeRangeV1(r1, 0, argumentCount, whole.data());
+  ++checks;
+  if(std::memcmp(whole.data(), expected, argumentCount) != 0) {
+    ++failures;
+    uint64_t firstBad = 0;
+    while(firstBad < argumentCount && whole[firstBad] == expected[firstBad])
+      ++firstBad;
+    std::fprintf(stderr,
+                 "FAIL random-access range read differs at logical index %llu "
+                 "(got 0x%02X, want 0x%02X): %s\n",
+                 (unsigned long long)firstBad, whole[firstBad], expected[firstBad], path);
+    return;
+  }
+
+  // 2. Single-index API at every node boundary (+/- a few) and a strided spread, which is
+  //    where an off-by-one in the overflow accounting or the legacy-RLE header would show.
+  auto const* exprs = getExpressionSubexpressions(r0);
+  std::vector<uint64_t> probes;
+  for(uint64_t k = 0; k < r0->expressionCount; ++k) {
+    for(int64_t d = -2; d <= 6; ++d) {
+      int64_t const a = (int64_t)exprs[k].startChildTypeOffset + d;
+      int64_t const b = (int64_t)exprs[k].endChildTypeOffset + d;
+      if(a >= 0 && a < (int64_t)argumentCount)
+        probes.push_back((uint64_t)a);
+      if(b >= 0 && b < (int64_t)argumentCount)
+        probes.push_back((uint64_t)b);
+    }
+  }
+  uint64_t const stride = argumentCount > 4096 ? argumentCount / 4096 : 1;
+  for(uint64_t i = 0; i < argumentCount; i += stride)
+    probes.push_back(i);
+
+  uint64_t bad = 0;
+  uint64_t firstBadIndex = 0;
+  for(auto i : probes) {
+    if(portableBOSSArgumentTypeAtV1(r1, i) != expected[i]) {
+      if(bad == 0)
+        firstBadIndex = i;
+      ++bad;
+    }
+  }
+  ++checks;
+  if(bad != 0) {
+    ++failures;
+    std::fprintf(stderr, "FAIL random-access single-index read differs at %llu of %llu probes "
+                         "(first: logical index %llu): %s\n",
+                 (unsigned long long)bad, (unsigned long long)probes.size(),
+                 (unsigned long long)firstBadIndex, path);
+    return;
+  }
+
+  // 3. Short windows straddling node boundaries, as getCurrentExpressionType's 13-byte
+  //    look-back does.
+  uint64_t badWindows = 0;
+  for(uint64_t k = 0; k < r0->expressionCount; ++k) {
+    uint64_t const s = exprs[k].startChildTypeOffset;
+    uint64_t const start = s >= 13 ? s - 13 : 0;
+    uint64_t const end = s + 13 < argumentCount ? s + 13 : argumentCount;
+    if(end <= start)
+      continue;
+    uint8_t window[32];
+    portableBOSSExpandTypeRangeV1(r1, start, end, window);
+    if(std::memcmp(window, expected + start, (size_t)(end - start)) != 0)
+      ++badWindows;
+  }
+  CHECK_EQ(badWindows, 0);
+}
 
 static void testRealFile(char const* path) {
   std::ifstream in(path, std::ios::binary);
@@ -323,6 +406,13 @@ static void testRealFile(char const* path) {
     ++failures;
     std::fprintf(stderr, "FAIL expression table not identical: %s\n", path);
   }
+  // RANDOM ACCESS: the lazy (Gather) reader never materialises the v0 array, it answers
+  // each type query straight out of the v1 descriptor table. That reader MUST agree with
+  // portableBOSSExpandToV0 on every single logical index, or it silently returns a wrong
+  // answer. Check the whole region through the range API (one pass), then the
+  // single-index API at every node boundary and at a spread of interior indices.
+  checkRandomAccess(path, r0, r1);
+
   auto const oldT = getArgumentTypesBytesCount(r0);
   auto const newT = getArgumentTypesBytesCount(r1);
   std::printf("  %-52s type region %12llu B -> %6llu B  (file %llu B, %.1f%% of it was types)\n",
