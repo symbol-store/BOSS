@@ -2501,11 +2501,28 @@ public:
 
 using SerializationExpression = boss::serialization::Expression;
 
+/**
+ * Opt-in: write the v1 (per-node) argument-type region instead of the flat one-byte-per
+ * -argument array.  OFF by default, so this build keeps producing byte-for-byte the same
+ * files as before unless BOSS_WISENT_TYPE_RLE is set.  Rolling back is "stop setting the
+ * variable"; it needs no rebuild and invalidates no existing .bin.
+ * Measured (SF1, wisent_data/tpch_1000MB_*_compressed_uniform.bin): the type region goes
+ * from 66,969,456 B to 120 B on lineitem (48.9% of the file), 13,886,968 B to 88 B on
+ * orders, 5,421,912 B to 56 B on partsupp.
+ */
+inline bool wisentTypeRLEEnabled() {
+  static bool const on = [] {
+    char const* v = std::getenv("BOSS_WISENT_TYPE_RLE");
+    return v != nullptr && v[0] != '\0' && v[0] != '0';
+  }();
+  return on;
+}
+
 inline bool writeExpressionToWisentFile(boss::Expression&& expr, std::string const& filename) {
   std::vector<int8_t> zeroedInt64_t = {0, 0, 0, 0, 0, 0, 0, 0};
   RootExpression *root = SerializedExpression(std::move(expr)).extractRoot();
   size_t bufferSize = alignTo8Bytes(root->argumentBytesCount) +
-    alignTo8Bytes(sizeof(ArgumentType) * root->argumentCount) +
+    getArgumentTypesBytesCount(root) +
     sizeof(SerializationExpression) * root->expressionCount +
     root->argumentDictionaryBytesCount +
     root->stringArgumentsFillIndex;
@@ -2529,6 +2546,21 @@ inline bool writeExpressionToWisentFile(boss::Expression&& expr, std::string con
     std::free(root);
     std::cerr << "Could not open file at path: " << filename << std::endl;
     return false;  // File couldn't be opened
+  }
+
+  // Opt-in v1 layout: re-encode the whole buffer, then write it in one go.  If the
+  // encoder refuses (a shape v1 cannot describe losslessly) fall through to v0 rather
+  // than write something that cannot be read back.
+  if(wisentTypeRLEEnabled()) {
+    std::vector<char> encoded;
+    if(portableBOSSEncodeToV1(root, encoded)) {
+      fileStream.write(encoded.data(), static_cast<std::streamsize>(encoded.size()));
+      fileStream.close();
+      std::free(root);
+      return true;
+    }
+    std::cerr << "BOSS_WISENT_TYPE_RLE set but the v1 encoder refused this expression; "
+              << "writing the v0 layout instead: " << filename << std::endl;
   }
 
   // Write various fields to file
@@ -2577,6 +2609,32 @@ inline boss::Expression readExpressionFromWisentFile(std::string const& filename
   fileStream.close();
 
   auto* root = reinterpret_cast<RootExpression*>(buffer);
+
+  // Accept BOTH layouts.  A v1 file is normalised back to v0 here, so that every
+  // consumer of getArgumentTypes() downstream sees exactly the bytes it always saw.
+  // v1 is a storage/transport format only; this is the sole place it is expanded.
+  if(portableBOSSFormatVersion(root) == PORTABLEBOSS_FORMAT_VERSION_PER_NODE_TYPES) {
+    std::vector<char> expanded;
+    if(!portableBOSSExpandToV0(root, expanded)) {
+      std::free(buffer);
+      throw std::runtime_error("Malformed v1 argument-type region in file: " + filename);
+    }
+    void* grown = std::malloc(expanded.size());
+    if(!grown) {
+      std::free(buffer);
+      throw std::bad_alloc();
+    }
+    std::memcpy(grown, expanded.data(), expanded.size());
+    std::free(buffer);
+    buffer = static_cast<int8_t*>(grown);
+    root = reinterpret_cast<RootExpression*>(buffer);
+  } else if(portableBOSSFormatVersion(root) != 0) {
+    auto const version = static_cast<unsigned>(portableBOSSFormatVersion(root));
+    std::free(buffer);
+    throw std::runtime_error("Wisent file " + filename + " uses argument-type region format v" +
+                             std::to_string(version) + ", which this build cannot read.");
+  }
+
   *((void**)&root->originalAddress) = buffer;
   auto res = SerializedExpression(root);
 

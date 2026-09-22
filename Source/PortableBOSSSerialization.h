@@ -115,6 +115,94 @@ struct PortableBOSSRootExpression {
   char arguments[];
 };
 
+/////////////////////////// Argument-type region format ////////////////////////
+//
+// The argument-TYPE region used to be, unconditionally, one byte per argument
+// (`alignTo8Bytes(argumentCount)` bytes).  That is 34-49% of a compressed Wisent
+// file and it is almost entirely constant: measured on SF1 lineitem, 126 runs in
+// 66,969,456 bytes.
+//
+// Format v1 replaces it with one descriptor byte per EXPRESSION NODE plus a small
+// overflow area.  It changes PHYSICAL STORAGE ONLY.  `startChildTypeOffset` and
+// `endChildTypeOffset` remain LOGICAL indices, so `endChildTypeOffset -
+// startChildTypeOffset` is still the element count everywhere.
+//
+// Which layout a buffer uses is recorded in the otherwise-dead `originalAddress`
+// slot of the 48-byte header, which the file writers fill with eight zero bytes.
+// The encoding deliberately requires a magic in the TOP 16 BITS, which a
+// user-space heap pointer never has: so a buffer whose `originalAddress` still
+// holds a real pointer (as every in-memory allocation does) reads as v0, which is
+// the correct and conservative answer for an in-memory root.
+//
+//   metadata == 0                 -> v0 (every .bin written so far)
+//   top 16 bits == 0xB055         -> bits[47:40] version, bits[39:0] physical bytes
+//   anything else (e.g. pointer)  -> v0
+//
+// v1 region layout:
+//   [0]                                : uint8 residualCount R
+//   [1, 1+R)                           : the R type bytes of the uncovered logical
+//                                        prefix (arguments owned by no node; in
+//                                        practice exactly one, logical index 0)
+//   [1+R, 1+R+expressionCount)         : one descriptor byte per expression node
+//   [...]                              : overflow bytes for EXPLICIT nodes, in node
+//                                        order
+//
+// Descriptor byte:
+//   0x00..0x0F : the whole node is a constant run of that argument type
+//   0x10..0x1F : the node is a legacy `setRLEArgumentFlagOrPropagateTypes` artefact
+//                for that type -- byte 0 has the RLE bit, bytes 1..4 hold the
+//                length, the rest are the plain type.  Reproduced byte-exactly.
+//   0xFF       : heterogeneous; the node's bytes are stored verbatim in the
+//                overflow area.
+// Measured on the eight SF1 tables, those three cases cover 100% of nodes, and
+// expand(encode(types)) is byte-identical to the original region.
+
+#define PORTABLEBOSS_FORMAT_MAGIC ((uint64_t)0xB055)
+#define PORTABLEBOSS_FORMAT_MAGIC_SHIFT 48
+#define PORTABLEBOSS_FORMAT_VERSION_SHIFT 40
+#define PORTABLEBOSS_FORMAT_SIZE_MASK (((uint64_t)1 << 40) - 1)
+
+/** Highest argument-type region format this build can WRITE. */
+#define PORTABLEBOSS_FORMAT_VERSION_PER_NODE_TYPES 1
+
+#define PORTABLEBOSS_TYPE_DESCRIPTOR_CONST 0x00
+#define PORTABLEBOSS_TYPE_DESCRIPTOR_LEGACY_RLE 0x10
+#define PORTABLEBOSS_TYPE_DESCRIPTOR_EXPLICIT 0xFF
+
+static uint64_t portableBOSSMakeFormatMetadata(uint8_t version, uint64_t typeRegionBytes) {
+  return (PORTABLEBOSS_FORMAT_MAGIC << PORTABLEBOSS_FORMAT_MAGIC_SHIFT) |
+         ((uint64_t)version << PORTABLEBOSS_FORMAT_VERSION_SHIFT) |
+         (typeRegionBytes & PORTABLEBOSS_FORMAT_SIZE_MASK);
+}
+
+static uint64_t portableBOSSRawFormatMetadata(struct PortableBOSSRootExpression const* root) {
+  uint64_t metadata;
+  memcpy(&metadata, &root->originalAddress, sizeof(metadata));
+  return metadata;
+}
+
+/** 0 for the original flat-byte-array layout, 1 for the per-node layout. */
+static uint8_t portableBOSSFormatVersion(struct PortableBOSSRootExpression const* root) {
+  uint64_t const metadata = portableBOSSRawFormatMetadata(root);
+  if((metadata >> PORTABLEBOSS_FORMAT_MAGIC_SHIFT) != PORTABLEBOSS_FORMAT_MAGIC) {
+    return 0;
+  }
+  return (uint8_t)((metadata >> PORTABLEBOSS_FORMAT_VERSION_SHIFT) & 0xFF);
+}
+
+/**
+ * The PHYSICAL, 8-byte-aligned size of the argument-type region.  Every offset
+ * computation that used to spell `alignTo8Bytes(argumentCount * sizeof(enum
+ * PortableBOSSArgumentType))` must go through this instead.
+ */
+static uint64_t getArgumentTypesBytesCount(struct PortableBOSSRootExpression const* root) {
+  if(portableBOSSFormatVersion(root) == 0) {
+    return alignTo8Bytes(root->argumentCount * sizeof(enum PortableBOSSArgumentType));
+  }
+  return alignTo8Bytes(portableBOSSRawFormatMetadata(root) & PORTABLEBOSS_FORMAT_SIZE_MASK);
+}
+
+
 //////////////////////////////// Part Extraction ///////////////////////////////
 
 struct PortableBOSSRootExpression* getDummySerializedExpression();
@@ -132,17 +220,267 @@ static enum PortableBOSSArgumentType* getArgumentTypes(struct PortableBOSSRootEx
 static struct PortableBOSSExpression*
 getExpressionSubexpressions(struct PortableBOSSRootExpression* root) {
   return (struct PortableBOSSExpression*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[alignTo8Bytes(root->argumentBytesCount) +
-                       alignTo8Bytes(root->argumentCount * sizeof(enum PortableBOSSArgumentType))];
+      &root->arguments[alignTo8Bytes(root->argumentBytesCount) + getArgumentTypesBytesCount(root)];
 }
 
 static char* getStringBuffer(struct PortableBOSSRootExpression* root) {
   return (char*) // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
-      &root->arguments[alignTo8Bytes(root->argumentBytesCount) +
-                       alignTo8Bytes(root->argumentCount * sizeof(enum PortableBOSSArgumentType)) +
+      &root->arguments[alignTo8Bytes(root->argumentBytesCount) + getArgumentTypesBytesCount(root) +
                        root->expressionCount * (sizeof(struct PortableBOSSExpression)) +
                        root->argumentDictionaryBytesCount];
 }
+
+///////////////////////// Argument-type region codec //////////////////////////
+//
+// C++ only: these are the encode/expand helpers used by the Wisent file writer
+// and reader.  They are the ONLY places that know the v1 physical layout.
+
+#ifdef __cplusplus
+} // extern "C"
+
+#include <vector>
+
+/** Describes how node `i`'s type bytes are stored, or reports that they cannot be. */
+struct PortableBOSSTypeDescriptor {
+  uint8_t descriptor;
+  uint64_t overflowBytes; // non-zero only for PORTABLEBOSS_TYPE_DESCRIPTOR_EXPLICIT
+};
+
+inline PortableBOSSTypeDescriptor
+portableBOSSDescribeNodeTypes(enum PortableBOSSArgumentType const* types, uint64_t start,
+                              uint64_t end) {
+  uint64_t const n = end - start;
+  PortableBOSSTypeDescriptor out{PORTABLEBOSS_TYPE_DESCRIPTOR_EXPLICIT, n};
+  if(n == 0) {
+    // An empty node carries no bytes; record it as a constant of type 0 so that it
+    // costs one descriptor byte and expands to nothing.
+    out.descriptor = (uint8_t)PORTABLEBOSS_TYPE_DESCRIPTOR_CONST;
+    out.overflowBytes = 0;
+    return out;
+  }
+  uint8_t const* bytes = (uint8_t const*)types + start;
+  uint8_t const first = bytes[0];
+
+  bool constant = true;
+  for(uint64_t i = 1; i < n; ++i) {
+    if(bytes[i] != first) {
+      constant = false;
+      break;
+    }
+  }
+  if(constant && first <= 0x0F) {
+    out.descriptor = (uint8_t)(PORTABLEBOSS_TYPE_DESCRIPTOR_CONST | first);
+    out.overflowBytes = 0;
+    return out;
+  }
+  // Legacy setRLEArgumentFlagOrPropagateTypes artefact: the writer sets the RLE bit on
+  // byte 0 and clobbers bytes 1..4 with the little-endian run length, leaving the rest
+  // as the plain type.  Recognise it so those (very large) nodes still cost one byte.
+  if(n >= PortableBOSSArgumentType_RLE_MINIMUM_SIZE && (first & PortableBOSSArgumentType_RLE_BIT) &&
+     n <= 0xFFFFFFFFull) {
+    uint8_t const type = (uint8_t)(first & (uint8_t)~PortableBOSSArgumentType_RLE_BIT);
+    uint32_t const length = (uint32_t)n;
+    bool matches = type <= 0x0F && bytes[1] == (uint8_t)(length & 0xFF) &&
+                   bytes[2] == (uint8_t)((length >> 8) & 0xFF) &&
+                   bytes[3] == (uint8_t)((length >> 16) & 0xFF) &&
+                   bytes[4] == (uint8_t)((length >> 24) & 0xFF);
+    if(matches) {
+      for(uint64_t i = 5; i < n; ++i) {
+        if(bytes[i] != type) {
+          matches = false;
+          break;
+        }
+      }
+    }
+    if(matches) {
+      out.descriptor = (uint8_t)(PORTABLEBOSS_TYPE_DESCRIPTOR_LEGACY_RLE | type);
+      out.overflowBytes = 0;
+      return out;
+    }
+  }
+  return out; // EXPLICIT, n overflow bytes
+}
+
+/** Writes node `i`'s `n` type bytes back out from its descriptor. */
+inline void portableBOSSExpandNodeTypes(uint8_t descriptor, uint8_t const* overflow, uint64_t n,
+                                        uint8_t* out) {
+  if(n == 0) {
+    return;
+  }
+  if(descriptor == PORTABLEBOSS_TYPE_DESCRIPTOR_EXPLICIT) {
+    memcpy(out, overflow, n);
+    return;
+  }
+  uint8_t const type = (uint8_t)(descriptor & 0x0F);
+  memset(out, type, n);
+  if((descriptor & 0xF0) == PORTABLEBOSS_TYPE_DESCRIPTOR_LEGACY_RLE) {
+    uint32_t const length = (uint32_t)n;
+    out[0] = (uint8_t)(type | PortableBOSSArgumentType_RLE_BIT);
+    out[1] = (uint8_t)(length & 0xFF);
+    out[2] = (uint8_t)((length >> 8) & 0xFF);
+    out[3] = (uint8_t)((length >> 16) & 0xFF);
+    out[4] = (uint8_t)((length >> 24) & 0xFF);
+  }
+}
+
+/**
+ * Builds the v1 physical type region for `root` (which must be v0).  Returns false --
+ * and the caller must then keep the v0 layout -- if the expression table does not
+ * cover the logical type space in the shape v1 can describe.  Never lossy: whatever
+ * this accepts, portableBOSSExpandToV0 reproduces byte for byte.
+ */
+inline bool portableBOSSBuildV1TypeRegion(struct PortableBOSSRootExpression* root,
+                                          std::vector<char>& region) {
+  if(portableBOSSFormatVersion(root) != 0) {
+    return false;
+  }
+  uint64_t const argumentCount = root->argumentCount;
+  uint64_t const expressionCount = root->expressionCount;
+  enum PortableBOSSArgumentType const* types = getArgumentTypes(root);
+  struct PortableBOSSExpression const* exprs = getExpressionSubexpressions(root);
+
+  // Work out which logical type slots no node owns.  In every file produced so far that
+  // is exactly slot 0 (the root's own argument).  v1 stores such a prefix verbatim; if
+  // the uncovered slots are not a short prefix, refuse rather than lose them.
+  std::vector<uint8_t> covered(argumentCount, 0);
+  for(uint64_t i = 0; i < expressionCount; ++i) {
+    uint64_t const start = exprs[i].startChildTypeOffset;
+    uint64_t const end = exprs[i].endChildTypeOffset;
+    if(start > end || end > argumentCount) {
+      return false;
+    }
+    for(uint64_t j = start; j < end; ++j) {
+      if(covered[j] != 0) {
+        return false; // overlapping nodes: v1 cannot describe them
+      }
+      covered[j] = 1;
+    }
+  }
+  uint64_t residual = 0;
+  while(residual < argumentCount && covered[residual] == 0) {
+    ++residual;
+  }
+  if(residual > 0xFF) {
+    return false;
+  }
+  for(uint64_t j = residual; j < argumentCount; ++j) {
+    if(covered[j] == 0) {
+      return false; // a hole in the middle: refuse
+    }
+  }
+
+  std::vector<PortableBOSSTypeDescriptor> descriptors(expressionCount);
+  uint64_t overflowBytes = 0;
+  for(uint64_t i = 0; i < expressionCount; ++i) {
+    descriptors[i] = portableBOSSDescribeNodeTypes(types, exprs[i].startChildTypeOffset,
+                                                   exprs[i].endChildTypeOffset);
+    overflowBytes += descriptors[i].overflowBytes;
+  }
+
+  uint64_t const logicalSize = 1 + residual + expressionCount + overflowBytes;
+  if(logicalSize > PORTABLEBOSS_FORMAT_SIZE_MASK) {
+    return false;
+  }
+  region.assign((size_t)alignTo8Bytes(logicalSize), 0);
+  uint8_t* out = (uint8_t*)region.data();
+  out[0] = (uint8_t)residual;
+  memcpy(out + 1, (uint8_t const*)types, (size_t)residual);
+  uint8_t* descriptorBytes = out + 1 + residual;
+  uint8_t* overflow = descriptorBytes + expressionCount;
+  for(uint64_t i = 0; i < expressionCount; ++i) {
+    descriptorBytes[i] = descriptors[i].descriptor;
+    if(descriptors[i].overflowBytes > 0) {
+      memcpy(overflow, (uint8_t const*)types + exprs[i].startChildTypeOffset,
+             (size_t)descriptors[i].overflowBytes);
+      overflow += descriptors[i].overflowBytes;
+    }
+  }
+  return true;
+}
+
+/** Rebuilds the whole root buffer with the v1 type region.  `root` must be v0. */
+inline bool portableBOSSEncodeToV1(struct PortableBOSSRootExpression* root,
+                                   std::vector<char>& encoded) {
+  std::vector<char> region;
+  if(!portableBOSSBuildV1TypeRegion(root, region)) {
+    return false;
+  }
+  uint64_t const argumentsBytes = alignTo8Bytes(root->argumentBytesCount);
+  uint64_t const oldTypeBytes = getArgumentTypesBytesCount(root);
+  uint64_t const tailBytes = root->expressionCount * sizeof(struct PortableBOSSExpression) +
+                             root->argumentDictionaryBytesCount + root->stringArgumentsFillIndex;
+  // The stored size is the region we actually emit (already 8-byte aligned).
+  encoded.assign((size_t)(sizeof(struct PortableBOSSRootExpression) + argumentsBytes +
+                          region.size() + tailBytes),
+                 0);
+  memcpy(encoded.data(), root, sizeof(struct PortableBOSSRootExpression));
+  auto* out = reinterpret_cast<struct PortableBOSSRootExpression*>(encoded.data());
+  *((uint64_t*)&out->originalAddress) =
+      portableBOSSMakeFormatMetadata(PORTABLEBOSS_FORMAT_VERSION_PER_NODE_TYPES, region.size());
+  memcpy(out->arguments, root->arguments, (size_t)argumentsBytes);
+  memcpy(out->arguments + argumentsBytes, region.data(), region.size());
+  memcpy(out->arguments + argumentsBytes + region.size(),
+         root->arguments + argumentsBytes + oldTypeBytes, (size_t)tailBytes);
+  return true;
+}
+
+/**
+ * Rebuilds the whole root buffer in the v0 layout from a v1 one, so that every existing
+ * consumer of getArgumentTypes() keeps working unchanged.  v1 is a storage/transport
+ * format; this is the one place it is turned back into the flat array.
+ */
+inline bool portableBOSSExpandToV0(struct PortableBOSSRootExpression* root,
+                                   std::vector<char>& expanded) {
+  if(portableBOSSFormatVersion(root) != PORTABLEBOSS_FORMAT_VERSION_PER_NODE_TYPES) {
+    return false;
+  }
+  uint64_t const argumentCount = root->argumentCount;
+  uint64_t const expressionCount = root->expressionCount;
+  uint64_t const argumentsBytes = alignTo8Bytes(root->argumentBytesCount);
+  uint64_t const regionBytes = getArgumentTypesBytesCount(root);
+  uint64_t const newTypeBytes =
+      alignTo8Bytes(argumentCount * sizeof(enum PortableBOSSArgumentType));
+  uint64_t const tailBytes = expressionCount * sizeof(struct PortableBOSSExpression) +
+                             root->argumentDictionaryBytesCount + root->stringArgumentsFillIndex;
+
+  uint8_t const* region = (uint8_t const*)root->arguments + argumentsBytes;
+  uint64_t const residual = region[0];
+  if(1 + residual + expressionCount > regionBytes) {
+    return false;
+  }
+  uint8_t const* descriptorBytes = region + 1 + residual;
+  uint8_t const* overflow = descriptorBytes + expressionCount;
+  struct PortableBOSSExpression const* exprs = getExpressionSubexpressions(root);
+
+  expanded.assign((size_t)(sizeof(struct PortableBOSSRootExpression) + argumentsBytes +
+                           newTypeBytes + tailBytes),
+                  0);
+  memcpy(expanded.data(), root, sizeof(struct PortableBOSSRootExpression));
+  auto* out = reinterpret_cast<struct PortableBOSSRootExpression*>(expanded.data());
+  *((uint64_t*)&out->originalAddress) = 0; // v0
+  memcpy(out->arguments, root->arguments, (size_t)argumentsBytes);
+  memcpy(out->arguments + argumentsBytes + newTypeBytes,
+         root->arguments + argumentsBytes + regionBytes, (size_t)tailBytes);
+
+  uint8_t* types = (uint8_t*)(out->arguments + argumentsBytes);
+  memcpy(types, region + 1, (size_t)residual);
+  for(uint64_t i = 0; i < expressionCount; ++i) {
+    uint64_t const start = exprs[i].startChildTypeOffset;
+    uint64_t const end = exprs[i].endChildTypeOffset;
+    if(start > end || end > argumentCount) {
+      return false;
+    }
+    uint64_t const n = end - start;
+    portableBOSSExpandNodeTypes(descriptorBytes[i], overflow, n, types + start);
+    if(descriptorBytes[i] == PORTABLEBOSS_TYPE_DESCRIPTOR_EXPLICIT) {
+      overflow += n;
+    }
+  }
+  return true;
+}
+
+extern "C" {
+#endif // __cplusplus
 
 //////////////////////////////   Memory Management /////////////////////////////
 
