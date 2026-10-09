@@ -116,7 +116,7 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
   eval("import"_(_("srfi"_, kSrfiFormattingLibrary), _("srfi"_, kSrfiGeneratorsLibrary),
                  _("chibi"_, "match"_)));
 
-  eval("define"_(_("boss-print"_, "x"_), "show"_(false, _("pretty"_, "x"_), "nl"_)));
+  eval("define"_(_("boss-print"_, "x"_), "show"_(false, _("pretty"_, "x"_))));
 
   eval("define"_("bossTypeID"_, "quote"_(_("bool"_, "int8"_, "int32"_, "long"_, "float"_, "double"_,
                                            "string"_, "symbol"_, "complexExpression"_))));
@@ -227,7 +227,9 @@ inline sexp initialize_boss_context() {
     sexp_destroy_context(ctx);
     return nullptr;
   }
-  sexp_load_standard_ports(ctx, res, stdin, stdout, stderr, 0);
+  // no_close = 1: otherwise sexp_destroy_context closes the process's stdin, stdout and
+  // stderr, and a host that outlives the context can no longer write to them.
+  sexp_load_standard_ports(ctx, res, stdin, stdout, stderr, 1);
   env = sexp_make_env(ctx);
   sexp_env_parent(env) = res;
   sexp_context_env(ctx) = env;

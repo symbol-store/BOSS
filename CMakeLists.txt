@@ -160,6 +160,7 @@ set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   set(REPLStubFiles chibi-bindings.stub)
   set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
+  list(APPEND TestFiles Tests/ExpressionParserTests.cpp)
 endif()
 
 # BOSS
@@ -224,6 +225,13 @@ endif()
 
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  target_sources(Tests PRIVATE ${REPLFiles})
+  add_dependencies(Tests chibi-scheme)
+  target_include_directories(Tests SYSTEM PRIVATE ${_chibi_prefix}/include)
+  target_link_libraries(Tests
+    ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
+endif()
 add_dependencies(Tests catch2)
 
 target_link_libraries(Tests ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX})
@@ -295,7 +303,12 @@ set(PUBLIC_HEADER_LIST
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
 )
-if(NOT DISABLE_REPL AND MAKE_FOUND)
+# ExpressionParser.hpp needs chibi's headers, library and Scheme modules at the consumer's end.
+# chibi's own install step puts all of them into the install prefix only when chibi is built
+# with that prefix; a default-prefix build stages chibi in the build tree instead (see
+# _chibi_prefix), so a default-prefix install would contain the header but not chibi's library
+# and modules.
+if(NOT DISABLE_REPL AND MAKE_FOUND AND _chibi_prefix STREQUAL CMAKE_INSTALL_PREFIX)
   list(APPEND PUBLIC_HEADER_LIST ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionParser.hpp)
 endif()
 set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
@@ -314,12 +327,6 @@ endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
-if(NOT DISABLE_REPL AND MAKE_FOUND)
-  # ExpressionParser.hpp is installed as a public header and includes <chibi/eval.h> and
-  # <chibi/sexp.h>, so ship Chibi's headers next to BOSS's own. Without this the installed
-  # header cannot be compiled by a consumer that has not separately installed Chibi.
-  install(DIRECTORY ${_chibi_prefix}/include/chibi DESTINATION include)
-endif()
 
 foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
   string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\1" Namespace ${Engine})
