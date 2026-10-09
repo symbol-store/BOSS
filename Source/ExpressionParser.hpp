@@ -100,16 +100,25 @@ constexpr int kSrfiGeneratorsLibrary = 158;
 constexpr auto kInt32Min = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min());
 constexpr auto kInt32Max = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
 
-inline void setup_boss_scheme(sexp ctx, sexp env) {
+inline sexp setup_boss_scheme(sexp ctx, sexp env) {
   using boss::Expression;
   /* _(...) groups sub-expressions into bare parens — unlike "name"_(...) which
      produces (name ...), _(...) produces just (...). expr_to_sexp strips the empty head. */
   auto _ = ""_;
+  sexp failure = SEXP_VOID;
   auto eval = [&](auto&& expr) {
+    // Later forms rely on the imports and definitions of earlier ones, so evaluating them
+    // after a failure would only add errors that bury the first one.
+    if(sexp_exceptionp(failure)) {
+      return;
+    }
     sexp_gc_var1(sexp_form);
     sexp_gc_preserve1(ctx, sexp_form);
     sexp_form = expr_to_sexp(ctx, Expression(std::forward<decltype(expr)>(expr)));
-    sexp_eval(ctx, sexp_form, env);
+    sexp_form = sexp_eval(ctx, sexp_form, env);
+    if(sexp_exceptionp(sexp_form)) {
+      failure = sexp_form;
+    }
     sexp_gc_release1(ctx);
   };
 
@@ -179,6 +188,8 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
                         "let"_(_(_("expr"_, "convert-to-boss-expression"_("quote"_("query"_)))),
                                "boss-expression-transfer!"_("expr"_),
                                "convert-from-boss-expression"_("BOSSEvaluate"_("expr"_)))))));
+
+  return failure;
 }
 
 } // namespace detail
@@ -241,7 +252,14 @@ inline sexp initialize_boss_context() {
     sexp_destroy_context(ctx);
     return nullptr;
   }
-  detail::setup_boss_scheme(ctx, env);
+  res = detail::setup_boss_scheme(ctx, env);
+  if(sexp_exceptionp(res)) {
+    std::cerr << "Failed to define the BOSS scheme bindings\n";
+    sexp_print_exception(ctx, res, sexp_current_error_port(ctx));
+    sexp_gc_release2(ctx);
+    sexp_destroy_context(ctx);
+    return nullptr;
+  }
   sexp_gc_release2(ctx);
   return ctx;
 }
