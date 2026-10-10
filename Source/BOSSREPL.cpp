@@ -97,7 +97,8 @@ void run_repl(sexp ctx, sexp env, bool raw) {
     }
     input_buf += line;
 
-    port = sexp_open_input_string(ctx, sexp_c_string(ctx, input_buf.c_str(), input_buf.size()));
+    obj = sexp_c_string(ctx, input_buf.c_str(), input_buf.size());
+    port = sexp_open_input_string(ctx, obj);
     obj = sexp_read(ctx, port);
 
     if(obj == SEXP_EOF || is_incomplete_input(obj)) {
