@@ -277,8 +277,19 @@ if(BOSS_DEFAULT_ENGINES)
   foreach(Target IN LISTS AllTargets)
     target_compile_definitions(${Target} PRIVATE BOSS_DEFAULT_ENGINE_LIBS=${_default_engine_init})
   endforeach()
+  # An engine that BOSS_BUILD_ENGINES already lists, possibly pinned to a branch, must not be
+  # added again: a second ExternalProject_Add with the same name fails configuration.
   foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
-    list(APPEND BOSS_BUILD_ENGINES "symbol-store/${_eng}")
+    set(_default_engine_is_listed FALSE)
+    foreach(_listed_engine IN LISTS BOSS_BUILD_ENGINES)
+      string(REGEX REPLACE "([^/]+)/([^:]+):?(.*)" "\\2" _listed_engine_name ${_listed_engine})
+      if(_listed_engine_name STREQUAL _eng)
+        set(_default_engine_is_listed TRUE)
+      endif()
+    endforeach()
+    if(NOT _default_engine_is_listed)
+      list(APPEND BOSS_BUILD_ENGINES "symbol-store/${_eng}")
+    endif()
   endforeach()
 endif()
 
@@ -340,6 +351,14 @@ install(TARGETS Tests RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 
+# Engines build as SHARED under MSVC and as MODULE elsewhere, and install(TARGETS) puts a
+# SHARED library's .dll into bin even when the engine only names a LIBRARY destination.
+if(MSVC)
+  set(_engine_runtime_directory bin)
+else()
+  set(_engine_runtime_directory lib)
+endif()
+
 foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
   string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\1" Namespace ${Engine})
   string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\2" EngineName ${Engine})
@@ -360,17 +379,12 @@ foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
   # path baked into BOSS_DEFAULT_ENGINE_LIBS. This is an ExternalProject step chained after
   # the install step rather than a POST_BUILD command on a step target, so it runs whenever
   # the engine project is built, on every generator.
-  #
-  # The source path assumes the engine's runtime artifact lands in <prefix>/lib, which holds for
-  # the ELF and Mach-O module builds BOSS targets. On Windows a SHARED library's .dll is a
-  # RUNTIME artifact and would install to <prefix>/bin instead, so this step would need to look
-  # there too; untested here, since nothing in this project builds for Windows today.
   ExternalProject_Add_Step(${EngineName} copy_to_binary_dir
     DEPENDEES install
     ALWAYS TRUE
     COMMENT "Copying ${EngineName} next to the BOSS binaries"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${BOSS_BINARY_DIR}/engines/lib/${CMAKE_SHARED_MODULE_PREFIX}${EngineName}${CMAKE_SHARED_MODULE_SUFFIX}"
+      "${BOSS_BINARY_DIR}/engines/${_engine_runtime_directory}/${CMAKE_SHARED_MODULE_PREFIX}${EngineName}${CMAKE_SHARED_MODULE_SUFFIX}"
       "${CMAKE_BINARY_DIR}/"
   )
 endforeach()
