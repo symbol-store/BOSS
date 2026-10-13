@@ -351,7 +351,9 @@ set(PUBLIC_HEADER_LIST
 # _chibi_prefix), so a default-prefix install would contain the header but not chibi's library
 # and modules.
 if(NOT DISABLE_REPL AND MAKE_FOUND AND _chibi_prefix STREQUAL CMAKE_INSTALL_PREFIX)
-  list(APPEND PUBLIC_HEADER_LIST ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionParser.hpp)
+  list(APPEND PUBLIC_HEADER_LIST
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionParser.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/UnicodeEscapes.hpp)
 endif()
 set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
 
