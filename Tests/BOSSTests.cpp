@@ -778,7 +778,8 @@ TEST_CASE("Custom engine entry points", "[engines]") {
   // 0 and a non-int64 result both mean "no override", so evaluate stays the entry point.
   CHECK(evaluateWithStub("StubTest"_("Zero"_)) == boss::Expression(std::int64_t {1}));
   CHECK(evaluateWithStub("StubTest"_("NotAPointer"_)) == boss::Expression(std::int64_t {1}));
-  // A plain engine symbol never asks for a custom entry point.
+  // A plain engine symbol never asks for a custom entry point. The stub answers an
+  // argument-less GetEntryPoint with its custom entry point, so asking would return 4242.
   CHECK(evaluateWithStub("StubTest"_) == boss::Expression(std::int64_t {1}));
 }
 
