@@ -263,6 +263,20 @@ TEST_CASE("Pretty falls back to compact when the hook declines", "[expressions][
   declinedOut << boss::pretty << expr;
   CHECK(declinedOut.str() == compactOut.str());
 
+  // A hook that declines the outer expression but renders a nested one must not mix its
+  // output into the compact fallback.
+  boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const& expression) {
+    if(expression.getHead().getName() != "Greater") {
+      return false;
+    }
+    stream << "RENDERED";
+    return true;
+  };
+  std::stringstream selectiveOut;
+  selectiveOut << boss::pretty << expr;
+  CHECK(selectiveOut.str() == compactOut.str());
+  CHECK(selectiveOut.iword(boss::prettyStreamIndex()) == 1);
+
   // A hook that does render owns the output entirely.
   boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const&) {
     stream << "RENDERED";

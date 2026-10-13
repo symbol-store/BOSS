@@ -259,6 +259,21 @@ inline std::ostream& compact(std::ostream& stream) {
   stream.iword(prettyStreamIndex()) = 0;
   return stream;
 }
+class PrettyModeSuspension {
+public:
+  explicit PrettyModeSuspension(std::ostream& suspendedStream)
+      : stream(&suspendedStream),
+        suspendedFlag(std::exchange(suspendedStream.iword(prettyStreamIndex()), 0)) {}
+  ~PrettyModeSuspension() { stream->iword(prettyStreamIndex()) = suspendedFlag; }
+  PrettyModeSuspension(PrettyModeSuspension const&) = delete;
+  PrettyModeSuspension(PrettyModeSuspension&&) = delete;
+  PrettyModeSuspension& operator=(PrettyModeSuspension const&) = delete;
+  PrettyModeSuspension& operator=(PrettyModeSuspension&&) = delete;
+
+private:
+  std::ostream* stream;
+  long suspendedFlag;
+};
 
 template <typename T>
 inline constexpr bool isComplexExpression =
@@ -1374,6 +1389,17 @@ public:
    */
   friend ::std::ostream& operator<<(::std::ostream& out,
                                     ComplexExpressionWithAdditionalCustomAtoms const& e) {
+    auto const renderCompact = [&out, &e]() -> ::std::ostream& {
+      out << "(" << e.getHead();
+      if(!e.getArguments().empty()) {
+        out << " " << e.getArguments().front();
+        for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
+          out << " " << *it;
+        }
+      }
+      out << ")";
+      return out;
+    };
     if constexpr(std::is_same_v<ComplexExpressionWithAdditionalCustomAtoms,
                                 ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>>) {
       if(out.iword(prettyStreamIndex()) != 0) {
@@ -1384,18 +1410,13 @@ public:
         if(hook != nullptr && hook(out, e)) {
           return out;
         }
-        // No hook, or the hook could not render; fall through to the compact form below.
+        // A hook that declined this expression could still render a nested one. Pretty mode is
+        // off while the arguments print, so the whole fallback is compact.
+        PrettyModeSuspension const suspension(out);
+        return renderCompact();
       }
     }
-    out << "(" << e.getHead();
-    if(!e.getArguments().empty()) {
-      out << " " << e.getArguments().front();
-      for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
-        out << " " << *it;
-      }
-    }
-    out << ")";
-    return out;
+    return renderCompact();
   }
 
   ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
