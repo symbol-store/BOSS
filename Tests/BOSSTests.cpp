@@ -80,6 +80,13 @@ TEST_CASE("Unicode escape preprocessing", "[unicode]") {
   CHECK(preprocessUnicodeEscapes("\\uzzzz") == "\\uzzzz");
   CHECK(preprocessUnicodeEscapes("abc\\") == "abc\\");
   CHECK(preprocessUnicodeEscapes("\\") == "\\");
+  // A UTF-16 surrogate pair becomes one escape for the supplementary-plane character.
+  CHECK(preprocessUnicodeEscapes("\\uD83D\\uDE00") == "\\x1f600;");
+  CHECK(preprocessUnicodeEscapes("\\ud83d\\ude00") == "\\x1f600;");
+  // An unpaired surrogate has no scalar value and becomes U+FFFD REPLACEMENT CHARACTER.
+  CHECK(preprocessUnicodeEscapes("\\uD83D") == "\\xfffd;");
+  CHECK(preprocessUnicodeEscapes("\\uDE00") == "\\xfffd;");
+  CHECK(preprocessUnicodeEscapes("\\uD83D\\u0041") == "\\xfffd;\\x0041;");
 }
 
 TEST_CASE("Subspans work correctly", "[spans]") {

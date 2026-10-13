@@ -46,4 +46,22 @@ TEST_CASE("evaluate_expression", "[ExpressionParser]") {
     CHECK(result.is_error);
     CHECK_THAT(result.text, Catch::Matchers::ContainsSubstring("missing trailing"));
   }
+
+  SECTION("translates \\uXXXX escapes into UTF-8 strings") {
+    auto const result = boss::evaluate_expression(ctx, env, "\"caf\\u00e9\"");
+    CHECK_FALSE(result.is_error);
+    CHECK(result.text == "\"caf\xC3\xA9\"\n");
+  }
+
+  SECTION("translates a surrogate pair into one UTF-8 character") {
+    auto const result = boss::evaluate_expression(ctx, env, "\"\\uD83D\\uDE00\"");
+    CHECK_FALSE(result.is_error);
+    CHECK(result.text == "\"\xF0\x9F\x98\x80\"\n");
+  }
+
+  SECTION("replaces an unpaired surrogate with U+FFFD") {
+    auto const result = boss::evaluate_expression(ctx, env, "\"\\uD83D\"");
+    CHECK_FALSE(result.is_error);
+    CHECK(result.text == "\"\xEF\xBF\xBD\"\n");
+  }
 }
