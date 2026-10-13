@@ -102,21 +102,9 @@ std::vector<std::string> buildMixedSuite() {
 // races (e.g. the defaultEngine race). Direct mode removes that overhead, so dispatch — the
 // plan's prime suspect — dominates each iteration and the race window is wide.
 // NOLINTBEGIN(readability-magic-numbers) -- literal operands are the point of the fixtures
-boss::Expression directExpr(std::string const& suite, std::uint64_t i) {
+// Read-only with respect to the singleton engine.
+boss::Expression pureDirectExpr(std::uint64_t i) {
   using boss::utilities::operator""_;
-  if(suite == "pipeline") {
-    switch(i % 4) {
-    case 0:
-      return "GetDefaultEnginePipeline"_();
-    case 1:
-      return "SetDefaultEnginePipeline"_(std::string("./libNonexistentEngine.so"));
-    case 2:
-      return "GetDefaultEnginePipeline"_();
-    default:
-      return "ResetEngines"_();
-    }
-  }
-  // pure (and fallback): read-only with respect to the singleton engine.
   switch(i % 4) {
   case 0:
     return "Plus"_(1, 2);
@@ -127,6 +115,33 @@ boss::Expression directExpr(std::string const& suite, std::uint64_t i) {
   default:
     return "List"_(std::string("mixed"), 1, 2.5, true);
   }
+}
+
+// Reads and reconfigures the singleton engine's pipeline and library cache.
+boss::Expression pipelineDirectExpr(std::uint64_t i) {
+  using boss::utilities::operator""_;
+  switch(i % 4) {
+  case 0:
+    return "GetDefaultEnginePipeline"_();
+  case 1:
+    return "SetDefaultEnginePipeline"_(std::string("./libNonexistentEngine.so"));
+  case 2:
+    return "GetDefaultEnginePipeline"_();
+  default:
+    return "ResetEngines"_();
+  }
+}
+
+// validateConfig has already rejected any suite other than pure, pipeline and mixed. mixed
+// alternates the two, like the mixed chibi suite, so dispatch and reconfiguration interleave.
+boss::Expression directExpr(std::string const& suite, std::uint64_t i) {
+  if(suite == "pipeline") {
+    return pipelineDirectExpr(i);
+  }
+  if(suite == "mixed") {
+    return i % 2 == 0 ? pureDirectExpr(i / 2) : pipelineDirectExpr(i / 2);
+  }
+  return pureDirectExpr(i);
 }
 // NOLINTEND(readability-magic-numbers)
 
