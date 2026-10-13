@@ -2,6 +2,7 @@
 #include "../Source/Expression.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include "../Source/Serialization.hpp"
+#include "../Source/UnicodeEscapes.hpp"
 #include "../Source/Utilities.hpp"
 
 #include <algorithm>
@@ -61,6 +62,47 @@ std::vector<string>
 // NOLINTBEGIN(bugprone-exception-escape)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // TODO: @Hubert, can you reduce the complexity of the tests, please?
+TEST_CASE("Unicode escape preprocessing", "[unicode]") {
+  using boss::preprocessUnicodeEscapes;
+  // Nothing to translate.
+  CHECK(preprocessUnicodeEscapes("").empty());
+  CHECK(preprocessUnicodeEscapes("(Plus 1 2)") == "(Plus 1 2)");
+  // \uXXXX becomes chibi's \xXXXX; form.
+  CHECK(preprocessUnicodeEscapes("\"caf\\u00e9\"") == "\"caf\\x00e9;\"");
+  CHECK(preprocessUnicodeEscapes("\\u0041\\u0042") == "\\x0041;\\x0042;");
+  // An escaped backslash does not start an escape, so this stays a literal backslash
+  // followed by u0041 rather than becoming a backslash followed by "A".
+  CHECK(preprocessUnicodeEscapes("\\\\u0041") == "\\\\u0041");
+  // Other escapes are passed through untouched.
+  CHECK(preprocessUnicodeEscapes("\\n\\u0041") == "\\n\\x0041;");
+  CHECK(preprocessUnicodeEscapes("\\\"") == "\\\"");
+  // Malformed or truncated sequences are left alone, and must not read past the end.
+  CHECK(preprocessUnicodeEscapes("\\u12") == "\\u12");
+  CHECK(preprocessUnicodeEscapes("\\uzzzz") == "\\uzzzz");
+  CHECK(preprocessUnicodeEscapes("abc\\") == "abc\\");
+  CHECK(preprocessUnicodeEscapes("\\") == "\\");
+  // A UTF-16 surrogate pair becomes one escape for the supplementary-plane character.
+  CHECK(preprocessUnicodeEscapes("\\uD83D\\uDE00") == "\\x1f600;");
+  CHECK(preprocessUnicodeEscapes("\\ud83d\\ude00") == "\\x1f600;");
+  // An unpaired surrogate has no scalar value and becomes U+FFFD REPLACEMENT CHARACTER.
+  CHECK(preprocessUnicodeEscapes("\\uD83D") == "\\xfffd;");
+  CHECK(preprocessUnicodeEscapes("\\uDE00") == "\\xfffd;");
+  CHECK(preprocessUnicodeEscapes("\\uD83D\\u0041") == "\\xfffd;\\x0041;");
+}
+
+TEST_CASE("NUL escape detection", "[unicode]") {
+  using boss::containsNulEscape;
+  CHECK(containsNulEscape("\"a\\x0;b\""));
+  CHECK(containsNulEscape("\"\\x0000;\""));
+  CHECK_FALSE(containsNulEscape("\"\\x00e9;\""));
+  CHECK_FALSE(containsNulEscape("\"\\x;\""));
+  // An escaped backslash followed by x0; is text, not an escape.
+  CHECK_FALSE(containsNulEscape("\"\\\\x0;\""));
+  // A character literal has no terminating semicolon, and convert-to-boss-expression does not
+  // convert characters.
+  CHECK_FALSE(containsNulEscape("#\\x0"));
+}
+
 TEST_CASE("Subspans work correctly", "[spans]") {
   auto input = boss::Span<int64_t> {std::vector<int64_t> {1, 2, 4, 3}};
   auto subrange = std::move(input).subspan(1, 3);
