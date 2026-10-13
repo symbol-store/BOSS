@@ -356,13 +356,23 @@ inline bool pretty_print_expression(std::ostream& stream,
   arg_list = sexp_list1(ctx, form);
   result_str = sexp_apply(ctx, tls.print_proc, arg_list);
   bool const rendered = !sexp_exceptionp(result_str) && sexp_stringp(result_str);
-  if(rendered) {
-    renderedText = sexp_string_data(result_str);
+  try {
+    if(rendered) {
+      renderedText = sexp_string_data(result_str);
+    }
+  } catch(...) {
+    // The copy can throw std::bad_alloc; the roots must still come off this thread's context.
+    sexp_gc_release3(ctx);
+    throw;
   }
   sexp_gc_release3(ctx);
   // Written only after the roots are released: a stream with exceptions enabled may throw
   // here, and an exception must not leave this thread's context holding roots into this frame.
-  stream << renderedText;
+  // Nothing is written when rendering failed, so a pending width() is left for the compact
+  // renderer that operator<< falls back to.
+  if(rendered) {
+    stream << renderedText;
+  }
   return rendered;
 }
 

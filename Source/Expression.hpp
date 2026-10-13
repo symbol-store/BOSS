@@ -1,6 +1,7 @@
 #pragma once
 #include "Utilities.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -223,7 +224,7 @@ namespace generic {
 //
 // Set with `stream << boss::pretty`; clear with `boss::compact`. When the flag is
 // set and a hook has been installed (by linking Shims/BossPrettyPrint.cpp — built
-// into libBOSS and the REPL but not into Tests), operator<< for ComplexExpression
+// into libBOSS, the REPL and Tests), operator<< for ComplexExpression
 // delegates to it. Without the hook the flag is a silent no-op. Note: only the
 // default `ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>` is routed;
 // extensible variants (custom atoms) fall through to the compact renderer.
@@ -244,8 +245,10 @@ using PrettyPrintHook = bool (*)(std::ostream&,
 // hook installed from one module is visible in the other. Where that is not the case (a DLL
 // built without exported data symbols, say), each module needs its own installer, which is
 // why Shims/BossPrettyPrint.cpp is compiled into both the BOSS library and the boss binary.
-inline PrettyPrintHook& prettyPrintHook() {
-  static PrettyPrintHook hook = nullptr;
+// Atomic, so a thread installing or clearing the hook does not race with operator<< reading it
+// on another thread.
+inline std::atomic<PrettyPrintHook>& prettyPrintHook() {
+  static std::atomic<PrettyPrintHook> hook {nullptr};
   return hook;
 }
 inline std::ostream& pretty(std::ostream& stream) {
