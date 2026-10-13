@@ -708,6 +708,9 @@ template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
   try {
     std::forward<LoadStub>(loadStub)();
   } catch(std::exception const& loadFailure) {
+    if(std::string_view(loadFailure.what()).find("could not be loaded") == std::string_view::npos) {
+      throw;
+    }
     SKIP("the stub engine could not be loaded ("
          << loadFailure.what() << "); on macOS, run Tests from its build directory");
   }
@@ -773,6 +776,10 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
   CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  // Every BootstrapEngine gets the same stub image from dlopen, so another instance's
+  // ResetEngines is refused as well.
+  CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   stub.releasePausedCall();
   CHECK(pausedDispatch.get() == boss::Expression(std::int64_t {1}));
