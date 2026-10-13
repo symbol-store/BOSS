@@ -232,9 +232,9 @@ public:
   BootstrapEngine() {
 #ifdef BOSS_DEFAULT_ENGINE_LIBS
     // BOSS_DEFAULT_ENGINE_LIBS expands to comma-separated string literals, so iterate them as
-    // pointers and construct each std::string once, directly in the vector.
+    // pointers and store each as a string entry, the form SetDefaultEnginePipeline uses for a path.
     for(auto const* library : {BOSS_DEFAULT_ENGINE_LIBS}) {
-      defaultEngine.emplace_back(library);
+      defaultEnginePipeline.emplace_back(std::string(library));
     }
 #endif
   }

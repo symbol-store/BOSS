@@ -680,6 +680,19 @@ TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, bos
   }
 }
 
+TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto currentPipeline = [&engine]() { return engine.evaluate("GetDefaultEnginePipeline"_()); };
+  engine.evaluate("SetDefaultEnginePipeline"_(std::string("first.so")));
+  CHECK(currentPipeline() == "List"_(std::string("first.so")));
+  // A second call replaces the pipeline rather than appending to it.
+  engine.evaluate("SetDefaultEnginePipeline"_(std::string("second.so"), "Second"_));
+  CHECK(currentPipeline() == "List"_(std::string("second.so"), "Second"_));
+  // The integer makes the update invalid, so it is rejected before the pipeline changes.
+  CHECK_THROWS(engine.evaluate("SetDefaultEnginePipeline"_(std::string("third.so"), 42)));
+  CHECK(currentPipeline() == "List"_(std::string("second.so"), "Second"_));
+}
+
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
