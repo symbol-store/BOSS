@@ -40,6 +40,7 @@ extern "C" {
 #include <chibi/sexp.h>
 }
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -144,7 +145,7 @@ struct Config {
   std::string suite = "pure";
   std::string enginePath; // optional: exercises the dlopen registry race (audit item G3)
   bool direct = false;    // bypass chibi; hammer boss::evaluate() dispatch directly
-  bool warmup = true;     // pre-init chibi globals to avoid the sexp_initialized_p race
+  bool warmup = true;     // create one context before the workers start
   unsigned seed = 1;
   bool quiet = false;
 };
@@ -202,20 +203,21 @@ void runDirectWorker(std::string const& suite, int threadIdx, Config const& cfg,
 /* ─── Argument parsing ─── */
 
 [[noreturn]] void usageAndExit(char const* prog, int code) {
-  std::cerr << "Usage: " << prog << " [options]\n"
-            << "  --threads N      worker threads (default 8)\n"
-            << "  --iters M        iterations per thread (default 1000)\n"
-            << "  --mode MODE      shared | per-thread (default per-thread)\n"
-            << "  --direct         bypass chibi; hammer boss::evaluate() dispatch directly\n"
-            << "                   (best at surfacing the engine-dispatch races; ignores --mode)\n"
-            << "  --suite SUITE    pure | pipeline | mixed (default pure)\n"
-            << "  --engine PATH    also exercise dispatch through this engine .so\n"
-            << "                   (preloads the pipeline so workers race on the dlopen cache)\n"
-            << "  --no-warmup      skip the chibi one-time-init warm-up (exposes the\n"
-            << "                   sexp_initialized_p init race in per-thread mode)\n"
-            << "  --seed S         RNG seed for per-thread expression ordering (default 1)\n"
-            << "  --quiet          do not print the per-thread error breakdown\n"
-            << "  --help           show this help\n";
+  std::cerr
+      << "Usage: " << prog << " [options]\n"
+      << "  --threads N      worker threads (default 8)\n"
+      << "  --iters M        iterations per thread (default 1000)\n"
+      << "  --mode MODE      shared | per-thread (default per-thread)\n"
+      << "  --direct         bypass chibi; hammer boss::evaluate() dispatch directly\n"
+      << "                   (best at surfacing the engine-dispatch races; ignores --mode)\n"
+      << "  --suite SUITE    pure | pipeline | mixed (default pure)\n"
+      << "  --engine PATH    also exercise dispatch through this engine .so\n"
+      << "                   (preloads the pipeline so workers race on the dlopen cache)\n"
+      << "  --no-warmup      skip creating and destroying one context before the workers start\n"
+      << "                   (first-use setup then happens during the run)\n"
+      << "  --seed S         RNG seed for per-thread expression ordering (default 1)\n"
+      << "  --quiet          do not print the per-thread error breakdown\n"
+      << "  --help           show this help\n";
   std::exit(code);
 }
 
@@ -229,12 +231,6 @@ void validateConfig(Config const& cfg, char const* program) {
     // Without this an unknown suite silently ran the pure one, so a typo downgraded a gate to a
     // weaker test that still reported success.
     std::cerr << "unknown --suite '" << cfg.suite << "'; expected pure, pipeline or mixed\n";
-    usageAndExit(program, 1);
-  }
-  if(cfg.enginePath.find('"') != std::string::npos) {
-    // The path is spliced into a scheme string literal; a quote in it would quietly change the
-    // expression being evaluated rather than failing.
-    std::cerr << "--engine path must not contain a double quote\n";
     usageAndExit(program, 1);
   }
 }
@@ -304,11 +300,10 @@ int main(int argc, char** argv) try {
             << " warmup=" << (cfg.warmup && !cfg.direct ? "on" : "off") << "\n"
             << std::flush;
 
-  // One-time chibi global init (the sexp_initialized_p guard, audit §3, plus any other lazy
-  // process-global setup reachable through context creation) happens on the first context.
-  // Building and destroying one full context here, before any worker thread exists, primes
-  // all of it so that what TSan reports during the run is the steady-state hazard, not
-  // start-up noise. --no-warmup deliberately leaves it in to demonstrate that race.
+  // initialize_boss_context runs chibi's one-time init (sexp_scheme_init) through call_once,
+  // so the first contexts no longer race on it. The warm-up still creates and destroys one
+  // full context before any worker thread exists, so that first-use setup stays out of what
+  // TSan reports during the run. --no-warmup leaves that setup in the run.
   if(cfg.warmup && !cfg.direct) {
     sexp warm = boss::initialize_boss_context();
     if(warm != nullptr) {
@@ -317,16 +312,26 @@ int main(int argc, char** argv) try {
   }
 
   std::vector<Counts> counts(static_cast<size_t>(cfg.threads));
-  sexp setupCtx = nullptr;
   auto const start = std::chrono::steady_clock::now();
   int exitCode = 0;
+  std::atomic<bool> contextCreationFailed {false};
+
+  // Optionally preset an engine pipeline, so that dispatches go through a real engine and race
+  // on the library cache (audit item G3). It is set through the C++ API rather than a scheme
+  // string literal, so the path needs no escaping, and a rejected pipeline stops the run
+  // instead of letting it pass without the engine.
+  if(!cfg.enginePath.empty()) {
+    using boss::utilities::operator""_;
+    auto const answer = boss::evaluate("SetDefaultEnginePipeline"_(cfg.enginePath));
+    if(answer != boss::Expression(std::string("okay"))) {
+      std::cerr << "SetDefaultEnginePipeline(" << cfg.enginePath << ") was rejected: " << answer
+                << "\n";
+      return 1;
+    }
+  }
 
   if(cfg.direct) {
-    // Direct dispatch: no chibi at all. Optionally preset the pipeline (audit item G3).
-    if(!cfg.enginePath.empty()) {
-      using boss::utilities::operator""_;
-      boss::evaluate("SetDefaultEnginePipeline"_(cfg.enginePath));
-    }
+    // Direct dispatch: no chibi at all.
     std::vector<std::thread> workers;
     workers.reserve(static_cast<size_t>(cfg.threads));
     for(int t = 0; t < cfg.threads; ++t) {
@@ -336,19 +341,6 @@ int main(int argc, char** argv) try {
       w.join();
     }
   } else {
-    // Optionally preload an engine pipeline so the `pure`/`mixed` workers dispatch through a
-    // real engine, forcing concurrent LibraryCache::at() (dlopen + map insert, audit item G3).
-    // This is the one path that depends on an external engine and is off by default.
-    if(!cfg.enginePath.empty()) {
-      setupCtx = boss::initialize_boss_context();
-      if(setupCtx == nullptr) {
-        std::cerr << "Failed to initialize setup context for --engine\n";
-        return 1;
-      }
-      sexp setupEnv = sexp_context_env(setupCtx);
-      boss::evaluate_expression(setupCtx, setupEnv,
-                                "SetDefaultEnginePipeline(\"" + cfg.enginePath + "\")", false);
-    }
 
     if(cfg.mode == Mode::Shared) {
       // One context, shared by every thread — the known-unsafe baseline.
@@ -378,6 +370,7 @@ int main(int argc, char** argv) try {
           if(ctx == nullptr) {
             std::cerr << "thread " << t << ": failed to initialize context\n";
             counts[t].err = static_cast<std::uint64_t>(cfg.iters);
+            contextCreationFailed = true;
             return;
           }
           boss::BossContextGuard const guard {ctx};
@@ -391,13 +384,14 @@ int main(int argc, char** argv) try {
     }
   }
 
+  if(contextCreationFailed) {
+    std::cerr << "a worker could not create its chibi context, so this run is not a valid result\n";
+    exitCode = 1;
+  }
+
   auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                            std::chrono::steady_clock::now() - start)
                            .count();
-
-  if(setupCtx != nullptr) {
-    sexp_destroy_context(setupCtx);
-  }
 
   std::uint64_t totalOk = 0;
   std::uint64_t totalErr = 0;

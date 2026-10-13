@@ -134,6 +134,26 @@ jobs:
       run: |
         TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
           ./tsan/boss_concurrency_stress --direct --suite pipeline --threads 8 --iters 5000
+    - name: configure Debug (tripwire)
+      run: |
+        mkdir -p tripwire
+        cd tripwire
+        CXX=clang++ CC=clang cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ..
+        cd ..
+    - name: build harness (Debug)
+      run: cmake --build tripwire --target boss_concurrency_stress -- -j $(nproc)
+    - name: tripwire check (Debug shared context must abort with the tripwire message)
+      # ConcurrencyTripwire compiles away outside Debug, so the RelWithDebInfo runs above cannot
+      # see it. report_bugs=0 stops TSan from reporting the shared-context race, so the run ends
+      # only if the tripwire aborts it; the step fails if the run exits normally or if the log
+      # lacks the tripwire's message.
+      run: |
+        if TSAN_OPTIONS="report_bugs=0" timeout 120 ./tripwire/boss_concurrency_stress --mode shared --suite pure --threads 8 --iters 500 > tripwire.log 2>&1; then
+          echo "expected ConcurrencyTripwire to abort the shared-context run"
+          cat tripwire.log
+          exit 1
+        fi
+        grep -q "BOSS ConcurrencyTripwire" tripwire.log || { cat tripwire.log; exit 1; }
 
   release:
     runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
