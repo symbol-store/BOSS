@@ -237,13 +237,18 @@ add_dependencies(Tests catch2)
 # A minimal engine that Tests loads by name (libStubTestEngine.so next to the Tests binary), so
 # dispatch paths that need a real engine library, such as GetEntryPoint, run in the default
 # test suite without fetching an external engine. MODULE gives the .so suffix on macOS too,
-# which is the name BootstrapEngine derives from a StubTest engine symbol.
-add_library(StubTestEngine MODULE Tests/StubTestEngine.cpp)
-add_dependencies(StubTestEngine spdlog)
-target_include_directories(StubTestEngine SYSTEM PRIVATE ${BOSS_BINARY_DIR}/deps/include)
-set_target_properties(StubTestEngine PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
-  LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
-add_dependencies(Tests StubTestEngine)
+# which is the name BootstrapEngine derives from a StubTest engine symbol. The three builds
+# differ only in how they answer GetEngineDescription.
+foreach(StubEngine IN ITEMS StubTestEngine StubSilentEngine StubNumericEngine)
+  add_library(${StubEngine} MODULE Tests/StubTestEngine.cpp)
+  add_dependencies(${StubEngine} spdlog)
+  target_include_directories(${StubEngine} SYSTEM PRIVATE ${BOSS_BINARY_DIR}/deps/include)
+  set_target_properties(${StubEngine} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
+    LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
+  add_dependencies(Tests ${StubEngine})
+endforeach()
+target_compile_definitions(StubSilentEngine PRIVATE STUB_ENGINE_DESCRIPTION_IS_NOTHING)
+target_compile_definitions(StubNumericEngine PRIVATE STUB_ENGINE_DESCRIPTION_IS_NUMBER)
 # dlopen of a bare library name does not search the executable's directory on Linux.
 if(UNIX AND NOT APPLE)
   set_target_properties(Tests PROPERTIES BUILD_RPATH "$ORIGIN")

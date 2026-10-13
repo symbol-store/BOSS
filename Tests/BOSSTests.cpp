@@ -715,6 +715,23 @@ TEST_CASE("Custom engine entry points", "[engines]") {
   CHECK(evaluateWithStub("StubTest"_) == boss::Expression(std::int64_t {1}));
 }
 
+TEST_CASE("Engine descriptions", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  try {
+    engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5));
+  } catch(std::exception const& loadFailure) {
+    SKIP("libStubTestEngine.so could not be loaded ("
+         << loadFailure.what() << "); on macOS, run Tests from its build directory");
+  }
+  engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_, "StubSilent"_, "StubNumeric"_));
+  // One section per engine, in pipeline order, whether the engine answered with a string, with
+  // nothing or with a non-string.
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
+        "## StubTestEngine\n\nA stub engine for the BOSS tests.\n"
+        "\n## StubSilentEngine\n\n(no description: the engine returned nothing)\n"
+        "\n## StubNumericEngine\n\n(no description: the engine returned 7)\n");
+}
+
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
