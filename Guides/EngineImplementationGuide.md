@@ -87,7 +87,7 @@ A pipeline entry can name your engine by a complex expression instead of a symbo
    BOSS then calls that function instead of `evaluate` for this pipeline entry.
 3. Returning `0`, or anything that is not an `int64`, means "no override": BOSS keeps calling `evaluate`. An engine that does not recognise `GetEntryPoint` therefore keeps working, as long as it returns something other than a non-zero `int64` for it.
 
-BOSS frees both the `GetEntryPoint` request and your answer. The function you return must stay valid while the library is loaded; BOSS opens engines with `RTLD_NODELETE`, so a function in your library qualifies. BOSS asks again on every dispatch through that pipeline entry, so answer quickly and reentrantly. If the address does not fit in a pointer on the platform (a 32-bit build), the dispatch fails with an error instead of calling a truncated address.
+BOSS frees both the `GetEntryPoint` request and your answer. The function you return must stay callable for the dispatch that asked for it, and a function in your library is. On Linux and macOS BOSS opens engines with `RTLD_NODELETE`, so their code stays mapped even after `ResetEngines` or `SetDefaultEnginePipeline` unloads them. On Windows there is no such flag: unloading calls `FreeLibrary`, which can unmap the library. BOSS refuses both operators while a dispatch is in flight, so the address is safe for that dispatch, but neither BOSS nor your engine should keep it across a reconfiguration. BOSS asks again on every dispatch through that pipeline entry, so answer quickly and reentrantly. If the address does not fit in a pointer on the platform (a 32-bit build), the dispatch fails with an error instead of calling a truncated address.
 
 ### The minimal `evaluate`
 
