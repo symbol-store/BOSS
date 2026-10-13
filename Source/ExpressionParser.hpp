@@ -240,7 +240,8 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 // - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
 //   BootstrapEngine locks its own state, so distinct contexts may evaluate concurrently.
 //   Engines must be reentrant, and SetDefaultEnginePipeline and ResetEngines are refused
-//   while any evaluation is in flight.
+//   while any engine dispatch is in flight. Bootstrap commands, and evaluations that reach no
+//   engine, do not count as dispatches.
 inline sexp initialize_boss_context() {
   sexp_scheme_init();
   sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);

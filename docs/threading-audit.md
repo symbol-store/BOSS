@@ -15,8 +15,10 @@
 
 ## TL;DR — the threading model core actually has today
 
-Core has **exactly three** pieces of shared mutable state, and all three hang off a single
-process-wide object:
+The original (pre-Phase-4) inventory found **exactly three** pieces of shared mutable state in
+core, all hanging off a single process-wide object. Phase 4 adds two more, the atomic
+`evaluationsInFlight` counter and `reconfigurationInProgress` flag, described under
+"Implications for later phases" below. The three are:
 
 1. A function-local `static boss::engines::BootstrapEngine engine;` constructed on the first
    call to `BOSSEvaluate` (`Source/BOSS.cpp:32`). There is **one** of these per process.
@@ -162,8 +164,10 @@ contract: **one context per concurrent caller.**
 **Cross-layer hazard (the one that matters):** the `boss-eval` macro
 (`ExpressionParser.hpp:157–163`) expands to a call to the `BOSSEvaluate` FFI binding
 (`Shims/chibi-bindings.stub:44`), which lands in the single `static BootstrapEngine`
-(G1). Fully isolated per-thread chibi contexts therefore still converge on shared,
-unsynchronized core state (§1/§2) the instant a query dispatches. **Context isolation does not
+(G1). Fully isolated per-thread chibi contexts therefore still converge on that shared dispatcher
+the instant a query dispatches. Before Phase 4 its pipeline and library cache were
+unsynchronized (§1/§2); Phase 4 puts them under `engineStateMutex`, so concurrent dispatches
+no longer race on them, but every context still dispatches through the same object. **Context isolation does not
 imply dispatch isolation.**
 
 **Context destruction owned the host's standard streams (found + fixed in Phase 2).**
