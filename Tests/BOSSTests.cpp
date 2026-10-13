@@ -21,7 +21,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
+#include <future>
 #include <iterator>
 #include <numeric>
 #include <ostream>
@@ -33,6 +35,9 @@
 #include <variant>
 #include <vector>
 
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
 using boss::Expression;
 using std::string;
 using std::string_literals::operator""s; // NOLINT(misc-unused-using-decls, misc-include-cleaner)
@@ -692,6 +697,63 @@ TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
   CHECK_THROWS(engine.evaluate("SetDefaultEnginePipeline"_(std::string("third.so"), 42)));
   CHECK(currentPipeline() == "List"_(std::string("second.so"), "Second"_));
 }
+
+#ifndef _WIN32
+TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToStub = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
+  };
+  try {
+    dispatchToStub(5);
+  } catch(std::exception const& loadFailure) {
+    // BootstrapEngine opens the stub by its bare name, which macOS's dlopen looks up in the
+    // working directory rather than next to the Tests binary.
+    SKIP("libStubTestEngine.so could not be loaded ("
+         << loadFailure.what() << "); on macOS, run Tests from its build directory");
+  }
+  // dlopen returns the image BootstrapEngine already loaded, so these functions drive the very
+  // stub instance the engine calls.
+  auto* const stubLibrary = dlopen("libStubTestEngine.so", RTLD_NOW);
+  REQUIRE(stubLibrary != nullptr);
+  auto stubFunction = [stubLibrary](char const* name) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    return reinterpret_cast<void (*)()>(dlsym(stubLibrary, name));
+  };
+  auto* const waitUntilCallPaused = stubFunction("stubWaitUntilCallPaused");
+  auto* const releasePausedCall = stubFunction("stubReleasePausedCall");
+  auto* const pauseNextReset = stubFunction("stubPauseNextReset");
+  REQUIRE((waitUntilCallPaused != nullptr && releasePausedCall != nullptr &&
+           pauseNextReset != nullptr));
+
+  // While an engine call is running, both reconfiguration operators are refused. The checks
+  // are non-fatal so that the paused call is always released.
+  auto pausedDispatch =
+      std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
+  waitUntilCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)),
+                    Catch::Matchers::ContainsSubstring("no evaluation is in flight"));
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no evaluation is in flight"));
+  releasePausedCall();
+  CHECK(pausedDispatch.get() == boss::Expression(std::int64_t {1}));
+
+  // While ResetEngines is still resetting the stub, a dispatch is refused.
+  pauseNextReset();
+  auto pausedReset =
+      std::async(std::launch::async, [&engine] { return engine.evaluate("ResetEngines"_()); });
+  waitUntilCallPaused();
+  CHECK_THROWS_WITH(dispatchToStub(5),
+                    Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
+  releasePausedCall();
+  CHECK(pausedReset.get() == boss::Expression(std::string("okay")));
+
+  // Both work again once nothing is running.
+  CHECK(dispatchToStub(5) == boss::Expression(std::int64_t {1}));
+  CHECK(engine.evaluate("ResetEngines"_()) == boss::Expression(std::string("okay")));
+  dlclose(stubLibrary);
+}
+#endif
 
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::engines::BootstrapEngine();
