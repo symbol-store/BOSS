@@ -698,20 +698,32 @@ TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
   CHECK(currentPipeline() == "List"_(std::string("second.so"), "Second"_));
 }
 
+namespace {
+// Runs loadStub, which makes BootstrapEngine load a stub engine by its bare library name. On
+// macOS, dlopen looks a bare name up in the working directory rather than next to the Tests
+// binary, so there a stub that cannot be loaded skips the test. Elsewhere the Tests build must
+// make the stub loadable, so a load failure fails the test.
+template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
+#ifdef __APPLE__
+  try {
+    std::forward<LoadStub>(loadStub)();
+  } catch(std::exception const& loadFailure) {
+    SKIP("the stub engine could not be loaded ("
+         << loadFailure.what() << "); on macOS, run Tests from its build directory");
+  }
+#else
+  std::forward<LoadStub>(loadStub)();
+#endif
+}
+} // namespace
+
 #ifndef _WIN32
 TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][concurrency]") {
   auto engine = boss::engines::BootstrapEngine();
   auto dispatchToStub = [&engine](boss::Expression&& expression) {
     return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
   };
-  try {
-    dispatchToStub(5);
-  } catch(std::exception const& loadFailure) {
-    // BootstrapEngine opens the stub by its bare name, which macOS's dlopen looks up in the
-    // working directory rather than next to the Tests binary.
-    SKIP("libStubTestEngine.so could not be loaded ("
-         << loadFailure.what() << "); on macOS, run Tests from its build directory");
-  }
+  requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
   // dlopen returns the image BootstrapEngine already loaded, so these functions drive the very
   // stub instance the engine calls.
   auto* const stubLibrary = dlopen("libStubTestEngine.so", RTLD_NOW);
