@@ -13,6 +13,7 @@ extern "C" {
 #include <ostream>
 #include <sstream>
 #include <streambuf>
+#include <vector>
 
 // Catch2 reruns the test case from the top for every SECTION, so each section gets a fresh
 // context and a redefinition of boss-print cannot leak into the next one.
@@ -95,6 +96,14 @@ TEST_CASE("pretty_print_expression", "[ExpressionParser][pretty]") {
     std::stringstream out;
     CHECK(boss::pretty_print_expression(out, expression));
     CHECK(out.str() == "(Plus x y)\n");
+  }
+
+  SECTION("renders the values held in span arguments") {
+    boss::ComplexExpression const spanBacked =
+        "Plus"_(boss::Span<std::int64_t>(std::vector<std::int64_t> {1, 2}));
+    std::stringstream out;
+    CHECK(boss::pretty_print_expression(out, spanBacked));
+    CHECK(out.str() == "(Plus 1 2)\n");
   }
 
   SECTION("is the hook that boss::pretty uses once BossPrettyPrint.cpp is linked") {

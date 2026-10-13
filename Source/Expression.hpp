@@ -1376,14 +1376,15 @@ public:
                                     ComplexExpressionWithAdditionalCustomAtoms const& e) {
     if constexpr(std::is_same_v<ComplexExpressionWithAdditionalCustomAtoms,
                                 ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>>) {
-      // Read the hook once: checking and then calling prettyPrintHook() separately would let
-      // another thread swap or clear it in between, and the call would use the second read.
-      PrettyPrintHook const hook = prettyPrintHook();
-      if(out.iword(prettyStreamIndex()) != 0 && hook != nullptr) {
-        if(hook(out, e)) {
+      if(out.iword(prettyStreamIndex()) != 0) {
+        // Only pretty mode reads the hook, so compact rendering does no atomic load. It is read
+        // once: checking and then calling prettyPrintHook() separately would let another thread
+        // swap or clear it in between, and the call would use the second read.
+        PrettyPrintHook const hook = prettyPrintHook();
+        if(hook != nullptr && hook(out, e)) {
           return out;
         }
-        // The hook could not render; fall through to the compact form below.
+        // No hook, or the hook could not render; fall through to the compact form below.
       }
     }
     out << "(" << e.getHead();

@@ -62,14 +62,29 @@ inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr);
 
 inline sexp complex_expr_to_sexp(sexp ctx, boss::ComplexExpression const& expr) {
   auto const& head = expr.getHead().getName();
-  auto const& args = expr.getDynamicArguments();
   sexp_gc_var2(lst, item);
   sexp_gc_preserve2(ctx, lst, item);
   lst = SEXP_NULL;
-  for(auto it = args.rbegin(); it != args.rend(); ++it) {
-    item = expr_to_sexp(ctx, *it);
+  auto prependArgument = [&](boss::Expression const& argument) {
+    item = expr_to_sexp(ctx, argument);
     lst = sexp_cons(ctx, item, lst);
+  };
+  // Dynamic arguments and then each span argument's elements, the order getArguments() and
+  // the compact renderer use, so a span-backed expression keeps its values. The list is
+  // built reversed and then put in order.
+  for(auto const& argument : expr.getDynamicArguments()) {
+    prependArgument(argument);
   }
+  for(auto const& span : expr.getSpanArguments()) {
+    std::visit(
+        [&prependArgument](auto const& typedSpan) {
+          for(auto const& element : typedSpan) {
+            prependArgument(boss::Expression(element));
+          }
+        },
+        span);
+  }
+  lst = sexp_nreverse(ctx, lst);
   if(!head.empty()) {
     item = sexp_intern(ctx, head.c_str(), -1);
     lst = sexp_cons(ctx, item, lst);
