@@ -8,6 +8,7 @@ extern "C" {
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "UnicodeEscapes.hpp"
 #include "Utilities.hpp"
 
 #include <cmath>
@@ -100,23 +101,32 @@ constexpr int kSrfiGeneratorsLibrary = 158;
 constexpr auto kInt32Min = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min());
 constexpr auto kInt32Max = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
 
-inline void setup_boss_scheme(sexp ctx, sexp env) {
+inline sexp setup_boss_scheme(sexp ctx, sexp env) {
   using boss::Expression;
   /* _(...) groups sub-expressions into bare parens — unlike "name"_(...) which
      produces (name ...), _(...) produces just (...). expr_to_sexp strips the empty head. */
   auto _ = ""_;
+  sexp failure = SEXP_VOID;
   auto eval = [&](auto&& expr) {
+    // Later forms rely on the imports and definitions of earlier ones, so evaluating them
+    // after a failure would only add errors that bury the first one.
+    if(sexp_exceptionp(failure)) {
+      return;
+    }
     sexp_gc_var1(sexp_form);
     sexp_gc_preserve1(ctx, sexp_form);
     sexp_form = expr_to_sexp(ctx, Expression(std::forward<decltype(expr)>(expr)));
-    sexp_eval(ctx, sexp_form, env);
+    sexp_form = sexp_eval(ctx, sexp_form, env);
+    if(sexp_exceptionp(sexp_form)) {
+      failure = sexp_form;
+    }
     sexp_gc_release1(ctx);
   };
 
   eval("import"_(_("srfi"_, kSrfiFormattingLibrary), _("srfi"_, kSrfiGeneratorsLibrary),
                  _("chibi"_, "match"_)));
 
-  eval("define"_(_("boss-print"_, "x"_), "show"_(false, _("pretty"_, "x"_), "nl"_)));
+  eval("define"_(_("boss-print"_, "x"_), "show"_(false, _("pretty"_, "x"_))));
 
   eval("define"_("bossTypeID"_, "quote"_(_("bool"_, "int8"_, "int32"_, "long"_, "float"_, "double"_,
                                            "string"_, "symbol"_, "complexExpression"_))));
@@ -179,6 +189,8 @@ inline void setup_boss_scheme(sexp ctx, sexp env) {
                         "let"_(_(_("expr"_, "convert-to-boss-expression"_("quote"_("query"_)))),
                                "boss-expression-transfer!"_("expr"_),
                                "convert-from-boss-expression"_("BOSSEvaluate"_("expr"_)))))));
+
+  return failure;
 }
 
 } // namespace detail
@@ -195,9 +207,19 @@ inline sexp eval_expr(sexp ctx, sexp env, sexp expr) {
 }
 
 inline sexp eval_string(sexp ctx, sexp env, const char* str) {
+  auto const preprocessedStr = preprocessUnicodeEscapes(str);
+  if(containsNulEscape(preprocessedStr)) {
+    // convert-to-boss-expression passes strings to BOSS as char const*, which would silently
+    // cut the string off at the NUL.
+    return sexp_user_exception(ctx, SEXP_FALSE,
+                               "strings containing U+0000 are rejected because BOSS's C string API "
+                               "would truncate them at the NUL",
+                               SEXP_NULL);
+  }
   sexp_gc_var2(expr, port);
   sexp_gc_preserve2(ctx, expr, port);
-  port = sexp_open_input_string(ctx, sexp_c_string(ctx, str, -1));
+  expr = sexp_c_string(ctx, preprocessedStr.c_str(), -1);
+  port = sexp_open_input_string(ctx, expr);
   expr = sexp_read(ctx, port);
   if(sexp_exceptionp(expr)) {
     sexp_gc_release2(ctx);
@@ -210,6 +232,15 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 
 /* ─── Initialize a full BOSS chibi context ─── */
 
+// Threading contract for hosts that embed BOSS evaluation:
+// - chibi's sexp_scheme_init tests and sets a process-wide flag without synchronization, so
+//   the first call of initialize_boss_context must return before any other thread calls
+//   initialize_boss_context.
+// - A chibi context is not thread-safe. Each thread creates and uses its own context.
+// - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
+//   BootstrapEngine does not lock its state, so hosts must serialize calls to
+//   evaluate_expression, eval_string and eval_expr across all threads, even when each
+//   thread uses its own context.
 inline sexp initialize_boss_context() {
   sexp_scheme_init();
   sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);
@@ -227,7 +258,9 @@ inline sexp initialize_boss_context() {
     sexp_destroy_context(ctx);
     return nullptr;
   }
-  sexp_load_standard_ports(ctx, res, stdin, stdout, stderr, 0);
+  // no_close = 1: otherwise sexp_destroy_context closes the process's stdin, stdout and
+  // stderr, and a host that outlives the context can no longer write to them.
+  sexp_load_standard_ports(ctx, res, stdin, stdout, stderr, 1);
   env = sexp_make_env(ctx);
   sexp_env_parent(env) = res;
   sexp_context_env(ctx) = env;
@@ -239,7 +272,14 @@ inline sexp initialize_boss_context() {
     sexp_destroy_context(ctx);
     return nullptr;
   }
-  detail::setup_boss_scheme(ctx, env);
+  res = detail::setup_boss_scheme(ctx, env);
+  if(sexp_exceptionp(res)) {
+    std::cerr << "Failed to define the BOSS scheme bindings\n";
+    sexp_print_exception(ctx, res, sexp_current_error_port(ctx));
+    sexp_gc_release2(ctx);
+    sexp_destroy_context(ctx);
+    return nullptr;
+  }
   sexp_gc_release2(ctx);
   return ctx;
 }
