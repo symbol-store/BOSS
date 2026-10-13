@@ -718,25 +718,30 @@ template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
 } // namespace
 
 #ifndef _WIN32
+namespace {
+using StubControl = void (*)();
+// Looks up one of the stub engine's control functions. dlopen returns the image
+// BootstrapEngine already loaded, so the function drives the very stub instance the engine
+// calls. The handle is never closed, which keeps that image loaded for the rest of the run.
+StubControl stubControl(char const* name) {
+  auto* const stubLibrary = dlopen("libStubTestEngine.so", RTLD_NOW);
+  REQUIRE(stubLibrary != nullptr);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto const control = reinterpret_cast<StubControl>(dlsym(stubLibrary, name));
+  REQUIRE(control != nullptr);
+  return control;
+}
+} // namespace
+
 TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][concurrency]") {
   auto engine = boss::engines::BootstrapEngine();
   auto dispatchToStub = [&engine](boss::Expression&& expression) {
     return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
   };
   requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
-  // dlopen returns the image BootstrapEngine already loaded, so these functions drive the very
-  // stub instance the engine calls.
-  auto* const stubLibrary = dlopen("libStubTestEngine.so", RTLD_NOW);
-  REQUIRE(stubLibrary != nullptr);
-  auto stubFunction = [stubLibrary](char const* name) {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    return reinterpret_cast<void (*)()>(dlsym(stubLibrary, name));
-  };
-  auto* const waitUntilCallPaused = stubFunction("stubWaitUntilCallPaused");
-  auto* const releasePausedCall = stubFunction("stubReleasePausedCall");
-  auto* const pauseNextReset = stubFunction("stubPauseNextReset");
-  REQUIRE((waitUntilCallPaused != nullptr && releasePausedCall != nullptr &&
-           pauseNextReset != nullptr));
+  auto const waitUntilCallPaused = stubControl("stubWaitUntilCallPaused");
+  auto const releasePausedCall = stubControl("stubReleasePausedCall");
+  auto const pauseNextReset = stubControl("stubPauseNextReset");
 
   // While an engine call is running, both reconfiguration operators are refused. The checks
   // are non-fatal so that the paused call is always released.
@@ -744,9 +749,9 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
       std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
   waitUntilCallPaused();
   CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)),
-                    Catch::Matchers::ContainsSubstring("no evaluation is in flight"));
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
-                    Catch::Matchers::ContainsSubstring("no evaluation is in flight"));
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   releasePausedCall();
   CHECK(pausedDispatch.get() == boss::Expression(std::int64_t {1}));
 
@@ -763,7 +768,30 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
   // Both work again once nothing is running.
   CHECK(dispatchToStub(5) == boss::Expression(std::int64_t {1}));
   CHECK(engine.evaluate("ResetEngines"_()) == boss::Expression(std::string("okay")));
-  dlclose(stubLibrary);
+}
+
+TEST_CASE("Reconfiguration is refused during a dispatch through the default pipeline",
+          "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireStubEngine([&engine] { engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
+  auto const waitUntilCallPaused = stubControl("stubWaitUntilCallPaused");
+  auto const releasePausedCall = stubControl("stubReleasePausedCall");
+  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) ==
+          boss::Expression(std::string("okay")));
+
+  // A root evaluation goes through the default pipeline, so this pauses inside the stub and
+  // is counted as in flight from the moment evaluate() takes its pipeline snapshot. The
+  // checks are non-fatal so that the paused call is always released.
+  auto pausedEvaluation =
+      std::async(std::launch::async, [&engine] { return engine.evaluate("Pause"_()); });
+  waitUntilCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  releasePausedCall();
+  CHECK(pausedEvaluation.get() == boss::Expression(std::int64_t {1}));
+  CHECK(engine.evaluate("ResetEngines"_()) == boss::Expression(std::string("okay")));
 }
 #endif
 

@@ -95,7 +95,8 @@ using boss::utilities::overload;
 // Engine contract:  an engine's `evaluate` (and `reset`) MUST be reentrant -- core may call the
 //   same engine from multiple threads at once and never serializes engine calls.
 // Reconfiguration:  SetDefaultEnginePipeline / ResetEngines mutate shared engine state and are
-//   only valid while NO evaluation is in flight (quiesce first). They keep core's own state
+//   only valid while NO engine dispatch is in flight (quiesce first; bootstrap commands and
+//   evaluations that reach no engine do not count). They keep core's own state
 //   consistent under a lock, but ResetEngines resets+unloads engines, which is unsafe under a
 //   concurrent in-flight call regardless of locking. A dispatch that starts while a
 //   reconfiguration is still resetting and unloading engines is refused.
@@ -192,9 +193,9 @@ class BootstrapEngine : public Engine {
     if(evaluationsInFlight.load() > 0) {
       throw runtime_error(
           string(operatorName) +
-          " is only valid while no evaluation is in flight. Engine calls run without the "
+          " is only valid while no engine dispatch is in flight. Engine calls run without the "
           "engine-state lock held, so reconfiguring engines now would reset or unload an engine "
-          "underneath a concurrent call. Quiesce evaluation first.");
+          "underneath a concurrent call. Quiesce engine dispatches first.");
     }
     if(reconfigurationInProgress.load()) {
       throw runtime_error(
