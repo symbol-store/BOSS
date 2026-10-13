@@ -270,7 +270,7 @@ if(BOSS_DEFAULT_ENGINES)
         "digits and _ . + - (for example ArrowComputeEngine); got characters that would corrupt "
         "the generated BOSS_DEFAULT_ENGINE_LIBS definition or the engine repository name.")
     endif()
-    list(APPEND _default_engine_defs "./${CMAKE_SHARED_MODULE_PREFIX}${_eng}${CMAKE_SHARED_MODULE_SUFFIX}")
+    list(APPEND _default_engine_defs "${CMAKE_BINARY_DIR}/${CMAKE_SHARED_MODULE_PREFIX}${_eng}${CMAKE_SHARED_MODULE_SUFFIX}")
   endforeach()
   string(JOIN "\",\"" _default_engine_init ${_default_engine_defs})
   set(_default_engine_init "\"${_default_engine_init}\"")
@@ -375,8 +375,8 @@ foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
     DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/engines $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DBOSS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_REPOSITORY=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_BRANCH=${BOSS_CHECKOUT_BRANCH}
   )
-  # Copy the built engine next to the BOSS binaries so ./boss resolves it by the relative
-  # path baked into BOSS_DEFAULT_ENGINE_LIBS. This is an ExternalProject step chained after
+  # Copy the built engine next to the BOSS binaries, to the absolute path that
+  # BOSS_DEFAULT_ENGINE_LIBS names. This is an ExternalProject step chained after
   # the install step rather than a POST_BUILD command on a step target, so it runs whenever
   # the engine project is built, on every generator.
   ExternalProject_Add_Step(${EngineName} copy_to_binary_dir

@@ -25,6 +25,8 @@ cmake --build build
 
 ## Running an existing engine
 
+This example needs CMake 3.28 or newer, because ArrowComputeEngine requires it.
+
 ```bash
 git clone https://github.com/symbol-store/BOSS
 cmake -S BOSS -B build -DBOSS_DEFAULT_ENGINES=ArrowComputeEngine
