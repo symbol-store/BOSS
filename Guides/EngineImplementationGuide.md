@@ -62,13 +62,32 @@ This is the only required entry point. Every other interaction with BOSS happens
 
 - `e->delegate` is a fully-parsed `boss::Expression`, almost always rooted at a `ComplexExpression`.
 - BOSS will `freeBOSSExpression` your return value when it is done with it.
-- BOSS will not call `evaluate` concurrently on the same engine instance (single-threaded entry).
+- No serialization of engine calls: BOSS may call `evaluate` (and `reset`) on the same engine from several threads at once, so both must be reentrant. See the threading contract at the top of `Source/BootstrapEngine.hpp`.
 
 ### What you must guarantee BOSS
 
 - Return a `BOSSExpression*` allocated with `new BOSSExpression{…}`.
 - Do not let C++ exceptions escape the `extern "C"` boundary. Catch them and convert to a string-valued result if they reach the top of `evaluate`.
 - Do not assume your library state outlives a single call sequence. (In practice BOSS does not unload engines mid-session, but you should not rely on it.)
+
+### Optional: a custom entry point via `GetEntryPoint`
+
+A pipeline entry can name your engine by a complex expression instead of a symbol or a path, for example `"MyEngine"_("Fast"_)` in place of `"MyEngine"_`. BOSS then loads `libMyEngineEngine.so` as usual and, before dispatching to it, asks your `evaluate` which entry point to use:
+
+1. BOSS calls your `evaluate` with `GetEntryPoint(…)`, whose arguments are the dynamic and span arguments of the pipeline entry (`GetEntryPoint("Fast"_)` in the example). Static arguments are not forwarded.
+2. To override the entry point, return an `int64` holding the address of a function with the same signature as `evaluate`:
+
+   ```cpp
+   BOSSExpression* fastEvaluate(BOSSExpression* e);
+   // inside evaluate, when the head is GetEntryPoint:
+   return new BOSSExpression{boss::Expression(
+       static_cast<std::int64_t>(reinterpret_cast<std::intptr_t>(&fastEvaluate)))};
+   ```
+
+   BOSS then calls that function instead of `evaluate` for this pipeline entry.
+3. Returning `0`, or anything that is not an `int64`, means "no override": BOSS keeps calling `evaluate`. An engine that does not recognise `GetEntryPoint` therefore keeps working, as long as it returns something other than a non-zero `int64` for it.
+
+BOSS frees both the `GetEntryPoint` request and your answer. The function you return must stay valid while the library is loaded; BOSS opens engines with `RTLD_NODELETE`, so a function in your library qualifies. BOSS asks again on every dispatch through that pipeline entry, so answer quickly and reentrantly. If the address does not fit in a pointer on the platform (a 32-bit build), the dispatch fails with an error instead of calling a truncated address.
 
 ### The minimal `evaluate`
 

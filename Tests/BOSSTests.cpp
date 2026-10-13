@@ -693,6 +693,28 @@ TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
   CHECK(currentPipeline() == "List"_(std::string("second.so"), "Second"_));
 }
 
+TEST_CASE("Custom engine entry points", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto evaluateWithStub = [&engine](boss::Expression&& stubSpec) {
+    return engine.evaluate("EvaluateInEngines"_("List"_(std::move(stubSpec)), 5));
+  };
+  try {
+    evaluateWithStub("StubTest"_);
+  } catch(std::exception const& loadFailure) {
+    // BootstrapEngine opens the stub by its bare name, which macOS's dlopen looks up in the
+    // working directory rather than next to the Tests binary.
+    SKIP("libStubTestEngine.so could not be loaded ("
+         << loadFailure.what() << "); on macOS, run Tests from its build directory");
+  }
+  // libStubTestEngine.so answers GetEntryPoint from the engine spec's argument.
+  CHECK(evaluateWithStub("StubTest"_("Override"_)) == boss::Expression(std::int64_t {4242}));
+  // 0 and a non-int64 result both mean "no override", so evaluate stays the entry point.
+  CHECK(evaluateWithStub("StubTest"_("Zero"_)) == boss::Expression(std::int64_t {1}));
+  CHECK(evaluateWithStub("StubTest"_("NotAPointer"_)) == boss::Expression(std::int64_t {1}));
+  // A plain engine symbol never asks for a custom entry point.
+  CHECK(evaluateWithStub("StubTest"_) == boss::Expression(std::int64_t {1}));
+}
+
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
