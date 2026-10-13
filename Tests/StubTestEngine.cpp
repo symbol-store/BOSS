@@ -1,6 +1,7 @@
 #include "../Source/BOSS.hpp"
 #include "../Source/Expression.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -27,6 +28,35 @@ void pauseUntilReleased() {
   pauseChanged.wait(lock, [] { return pauseReleased; });
   callPaused = false;
   pauseReleased = false;
+}
+
+// Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
+// Rendezvous waits until concurrentCallsToMeet of them are inside the engine at the same time,
+// and gives up after rendezvousTimeout, so a dispatcher that serialized engine calls fails the
+// test instead of hanging it.
+constexpr int concurrentCallsToMeet = 4;
+constexpr auto rendezvousTimeout = std::chrono::seconds(10);
+std::mutex rendezvousMutex;
+std::condition_variable rendezvousChanged;
+int rendezvousArrivals = 0;
+std::uint64_t rendezvousGeneration = 0;
+
+bool meetConcurrentCalls() {
+  std::unique_lock<std::mutex> lock(rendezvousMutex);
+  auto const generation = rendezvousGeneration;
+  if(++rendezvousArrivals == concurrentCallsToMeet) {
+    rendezvousArrivals = 0;
+    ++rendezvousGeneration;
+    rendezvousChanged.notify_all();
+    return true;
+  }
+  if(rendezvousChanged.wait_for(lock, rendezvousTimeout,
+                                [generation] { return rendezvousGeneration != generation; })) {
+    return true;
+  }
+  // Leave the rendezvous so that a later test starts with no arrivals.
+  --rendezvousArrivals;
+  return false;
 }
 } // namespace
 
@@ -59,11 +89,15 @@ extern "C" void reset() {
 }
 
 // Evaluates every expression to defaultEntryPointResult, after pausing first when the
-// expression's head is Pause.
+// expression's head is Pause. Rendezvous evaluates to 1 if concurrentCallsToMeet calls met
+// inside the engine, and to 0 if they did not.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "Pause") {
     pauseUntilReleased();
+  }
+  if(request != nullptr && request->getHead().getName() == "Rendezvous") {
+    return new BOSSExpression {boss::Expression(std::int64_t {meetConcurrentCalls() ? 1 : 0})};
   }
   return new BOSSExpression {boss::Expression(defaultEntryPointResult)};
 }
