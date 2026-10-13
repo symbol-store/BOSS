@@ -42,7 +42,7 @@ chibi-per-context races appear that are *not* fixable in core.
 ```sh
 # clean gate — must be race-free:
 TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
-  ./boss_concurrency_stress --mode per-thread --suite pure --threads 8 --iters 2000
+  ./boss_concurrency_stress --mode per-thread --suite pure --threads 8 --iters 2000 --no-warmup
 
 # baseline — expected to report a race (and may crash):
 TSAN_OPTIONS="halt_on_error=0" \

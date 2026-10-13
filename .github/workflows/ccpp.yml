@@ -115,10 +115,10 @@ jobs:
         cd ..
     - name: build harness
       run: cmake --build tsan --target boss_concurrency_stress -- -j $(nproc)
-    - name: clean gate (per-thread + pure must be race-free)
+    - name: clean gate (per-thread + pure, no warm-up, must be race-free)
       run: |
         TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
-          ./tsan/boss_concurrency_stress --mode per-thread --suite pure --threads 8 --iters 2000
+          ./tsan/boss_concurrency_stress --mode per-thread --suite pure --threads 8 --iters 2000 --no-warmup
     - name: baseline (shared ctx — expected to report a race; informational)
       # halt_on_error=1 makes TSan abort on the first race rather than running on into the
       # corruption it just reported (which is nondeterministic and can hang). `timeout` is a

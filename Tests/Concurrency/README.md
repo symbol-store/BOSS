@@ -30,7 +30,7 @@ disables it entirely.
 ```sh
 # clean gate — the configuration we require to be race-free:
 TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
-  ./boss_concurrency_stress --mode per-thread --suite pure --threads 8 --iters 2000
+  ./boss_concurrency_stress --mode per-thread --suite pure --threads 8 --iters 2000 --no-warmup
 
 # known-unsafe baseline — should report a race (confirms TSan catches a shared ctx):
 TSAN_OPTIONS="halt_on_error=0" \
