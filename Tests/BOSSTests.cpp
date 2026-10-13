@@ -782,6 +782,34 @@ TEST_CASE("Custom engine entry points", "[engines]") {
   CHECK(evaluateWithStub("StubTest"_) == boss::Expression(std::int64_t {1}));
 }
 
+TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
+  {
+    // A separate engine loads the stub once to find out whether it can be loaded at all, so the
+    // engine under test still starts with a cold library cache.
+    auto probeEngine = boss::engines::BootstrapEngine();
+    requireStubEngine(
+        [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
+  }
+  auto engine = boss::engines::BootstrapEngine();
+  constexpr int concurrentDispatches = 4; // concurrentCallsToMeet in Tests/StubTestEngine.cpp
+  std::promise<void> start;
+  std::shared_future<void> const startSignal = start.get_future().share();
+  std::vector<std::future<boss::Expression>> dispatches;
+  dispatches.reserve(concurrentDispatches);
+  for(int dispatch = 0; dispatch < concurrentDispatches; ++dispatch) {
+    dispatches.push_back(std::async(std::launch::async, [&engine, startSignal] {
+      startSignal.wait();
+      return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), "Rendezvous"_()));
+    }));
+  }
+  // The dispatches start together, so their first uses of the stub also race on the cold
+  // library cache. Each returns 1 only if all four calls were inside the stub at once.
+  start.set_value();
+  for(auto& dispatch : dispatches) {
+    CHECK(dispatch.get() == boss::Expression(std::int64_t {1}));
+  }
+}
+
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
