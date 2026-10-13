@@ -58,11 +58,30 @@ struct BossContextGuard {
 /// build the scheme environment, and are free to change shape without notice.
 namespace detail {
 
+// Restores ctx's list of GC roots when it goes out of scope, the same assignment
+// sexp_gc_release makes. Roots preserved after it is created therefore come off the context
+// even when a C++ exception (std::bad_alloc from building an Expression or a std::string)
+// unwinds the frame that preserved them, instead of staying linked to a dead stack frame.
+class GcRootScope {
+public:
+  explicit GcRootScope(sexp ctx) : ctx(ctx), savedRoots(sexp_context_saves(ctx)) {}
+  ~GcRootScope() { sexp_context_saves(ctx) = savedRoots; }
+  GcRootScope(GcRootScope const&) = delete;
+  GcRootScope(GcRootScope&&) = delete;
+  GcRootScope& operator=(GcRootScope const&) = delete;
+  GcRootScope& operator=(GcRootScope&&) = delete;
+
+private:
+  sexp ctx;
+  sexp_gc_var_t* savedRoots;
+};
+
 inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr);
 
 inline sexp complex_expr_to_sexp(sexp ctx, boss::ComplexExpression const& expr) {
   auto const& head = expr.getHead().getName();
   sexp_gc_var2(lst, item);
+  GcRootScope const rootScope(ctx);
   sexp_gc_preserve2(ctx, lst, item);
   lst = SEXP_NULL;
   auto prependArgument = [&](boss::Expression const& argument) {
@@ -366,19 +385,14 @@ inline bool pretty_print_expression(std::ostream& stream,
   // than the pointee and misc-misplaced-const rejects it (clang-tidy runs as errors here).
   sexp ctx = tls.guard.ctx;
   sexp_gc_var3(form, arg_list, result_str);
+  detail::GcRootScope const rootScope(ctx);
   sexp_gc_preserve3(ctx, form, arg_list, result_str);
   form = detail::complex_expr_to_sexp(ctx, expression);
   arg_list = sexp_list1(ctx, form);
   result_str = sexp_apply(ctx, tls.print_proc, arg_list);
   bool const rendered = !sexp_exceptionp(result_str) && sexp_stringp(result_str);
-  try {
-    if(rendered) {
-      renderedText = sexp_string_data(result_str);
-    }
-  } catch(...) {
-    // The copy can throw std::bad_alloc; the roots must still come off this thread's context.
-    sexp_gc_release3(ctx);
-    throw;
+  if(rendered) {
+    renderedText = sexp_string_data(result_str);
   }
   sexp_gc_release3(ctx);
   // Written only after the roots are released: a stream with exceptions enabled may throw
