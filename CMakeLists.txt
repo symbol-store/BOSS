@@ -235,12 +235,13 @@ endif()
 add_dependencies(Tests catch2)
 
 # A minimal engine that Tests loads by name (libStubTestEngine.so next to the Tests binary), so
-# dispatch paths that need a real engine library, such as GetEntryPoint, run in the default
-# test suite without fetching an external engine. MODULE gives the .so suffix on macOS too,
-# which is the name BootstrapEngine derives from a StubTest engine symbol.
+# dispatch paths that need a real engine library, such as GetEntryPoint and the reconfiguration
+# refusals, run in the default test suite without fetching an external engine. MODULE gives the
+# .so suffix on macOS too, which is the name BootstrapEngine derives from a StubTest engine symbol.
 add_library(StubTestEngine MODULE Tests/StubTestEngine.cpp)
 add_dependencies(StubTestEngine spdlog)
 target_include_directories(StubTestEngine SYSTEM PRIVATE ${BOSS_BINARY_DIR}/deps/include)
+target_link_libraries(StubTestEngine Threads::Threads)
 set_target_properties(StubTestEngine PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
   LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
 add_dependencies(Tests StubTestEngine)

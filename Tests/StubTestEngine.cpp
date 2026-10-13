@@ -1,7 +1,9 @@
 #include "../Source/BOSS.hpp"
 #include "../Source/Expression.hpp"
 
+#include <condition_variable>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <variant>
 
@@ -11,6 +13,24 @@ using boss::Symbol;
 
 constexpr std::int64_t defaultEntryPointResult = 1;
 constexpr std::int64_t customEntryPointResult = 4242;
+
+// Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
+// stubPauseNextReset) until the test calls stubReleasePausedCall, so it can check what
+// BootstrapEngine refuses while that call is running.
+std::mutex pauseMutex;
+std::condition_variable pauseChanged;
+bool callPaused = false;
+bool pauseReleased = false;
+bool pauseNextReset = false;
+
+void pauseUntilReleased() {
+  std::unique_lock<std::mutex> lock(pauseMutex);
+  callPaused = true;
+  pauseChanged.notify_all();
+  pauseChanged.wait(lock, [] { return pauseReleased; });
+  callPaused = false;
+  pauseReleased = false;
+}
 
 BOSSExpression* customEntryPoint(BOSSExpression* /*unused*/) {
   return new BOSSExpression {boss::Expression(customEntryPointResult)};
@@ -31,13 +51,45 @@ BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
 }
 } // namespace
 
+extern "C" void stubPauseNextReset() {
+  std::scoped_lock const lock(pauseMutex);
+  pauseNextReset = true;
+}
+
+extern "C" void stubWaitUntilCallPaused() {
+  std::unique_lock<std::mutex> lock(pauseMutex);
+  pauseChanged.wait(lock, [] { return callPaused; });
+}
+
+extern "C" void stubReleasePausedCall() {
+  std::scoped_lock const lock(pauseMutex);
+  pauseReleased = true;
+  pauseChanged.notify_all();
+}
+
+extern "C" void reset() {
+  bool pauseThisReset = false;
+  {
+    std::scoped_lock const lock(pauseMutex);
+    pauseThisReset = pauseNextReset;
+    pauseNextReset = false;
+  }
+  if(pauseThisReset) {
+    pauseUntilReleased();
+  }
+}
+
 // Answers GetEntryPoint(Override) with a custom entry point, GetEntryPoint(Zero) with 0 and any
 // other GetEntryPoint request with a string, so the Tests binary can check how BootstrapEngine
-// handles each result. Every other expression evaluates to defaultEntryPointResult.
+// handles each result. An expression whose head is Pause pauses first. Every other expression
+// evaluates to defaultEntryPointResult.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "GetEntryPoint") {
     return answerGetEntryPoint(*request);
+  }
+  if(request != nullptr && request->getHead().getName() == "Pause") {
+    pauseUntilReleased();
   }
   return new BOSSExpression {boss::Expression(defaultEntryPointResult)};
 }

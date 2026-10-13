@@ -152,17 +152,20 @@ class BootstrapEngine : public Engine {
   // lock is never held across an engine call still stands.
   class InFlightGuard {
   public:
+    // Selects the constructor for a caller that already holds the shared lock.
+    struct SharedLockHeld {};
+
     InFlightGuard(std::atomic<std::size_t>& counter,
                   std::atomic<bool> const& reconfigurationInProgress,
                   boss::concurrency::SharedMutex& mutex)
         : counter(counter) {
       boss::concurrency::SharedLock const lock(mutex);
-      if(reconfigurationInProgress.load()) {
-        throw runtime_error(
-            "Evaluation cannot start while SetDefaultEnginePipeline or ResetEngines is "
-            "still resetting and unloading engines. Retry once the reconfiguration has returned.");
-      }
-      ++counter;
+      enter(reconfigurationInProgress);
+    }
+    InFlightGuard(std::atomic<std::size_t>& counter,
+                  std::atomic<bool> const& reconfigurationInProgress, SharedLockHeld /*unused*/)
+        : counter(counter) {
+      enter(reconfigurationInProgress);
     }
     ~InFlightGuard() { --counter; }
     InFlightGuard(InFlightGuard const&) = delete;
@@ -172,6 +175,15 @@ class BootstrapEngine : public Engine {
 
   private:
     std::atomic<std::size_t>& counter;
+
+    void enter(std::atomic<bool> const& reconfigurationInProgress) {
+      if(reconfigurationInProgress.load()) {
+        throw runtime_error(
+            "Evaluation cannot start while SetDefaultEnginePipeline or ResetEngines is "
+            "still resetting and unloading engines. Retry once the reconfiguration has returned.");
+      }
+      ++counter;
+    }
   };
 
   // Enforces the quiesce-first contract rather than leaving it to documentation, and marks a
@@ -434,13 +446,16 @@ class BootstrapEngine : public Engine {
          // reload on the next evaluation. ResetEngines differs only in also clearing the
          // pipeline itself.
          vector<LibraryAndFunctions> toUnload;
+         // Emplaced right after beginReconfiguration but declared out here, so the flag is cleared
+         // on every exit (a throwing detachAll included), after the lock below has been released.
+         std::optional<ReconfigurationEnd> endReconfiguration;
          {
            boss::concurrency::UniqueLock const lock(engineStateMutex);
            beginReconfiguration("SetDefaultEnginePipeline");
+           endReconfiguration.emplace(*this);
            defaultEnginePipeline = std::move(newPipeline);
            toUnload = libraries.detachAll();
          }
-         ReconfigurationEnd const endReconfiguration(*this);
          unloadLibraries(toUnload);
          return "okay";
        }},
@@ -459,13 +474,16 @@ class BootstrapEngine : public Engine {
          // is an engine call). The in-flight check sits inside the exclusive section for the
          // same reason as in SetDefaultEnginePipeline.
          vector<LibraryAndFunctions> toUnload;
+         // Emplaced right after beginReconfiguration but declared out here, so the flag is cleared
+         // on every exit (a throwing detachAll included), after the lock below has been released.
+         std::optional<ReconfigurationEnd> endReconfiguration;
          {
            boss::concurrency::UniqueLock const lock(engineStateMutex);
            beginReconfiguration("ResetEngines");
+           endReconfiguration.emplace(*this);
            defaultEnginePipeline.clear();
            toUnload = libraries.detachAll();
          }
-         ReconfigurationEnd const endReconfiguration(*this);
          unloadLibraries(toUnload);
          return "okay";
        }}};
@@ -510,9 +528,16 @@ public:
     // Snapshot the engine pipeline under a shared lock (only for root, non-bootstrap
     // expressions -- recursive sub-evaluations and bootstrap commands never wrap). The lock is
     // released before dispatch, so it is never held across an engine call.
+    std::optional<InFlightGuard> rootDispatch;
     ExpressionArguments pipelineArgs;
     if(isRootExpression && !isBootstrapCommand(e)) {
       boss::concurrency::SharedLock const lock(engineStateMutex);
+      if(!defaultEnginePipeline.empty()) {
+        // Counted as in flight before this lock is released, so a reconfiguration cannot complete
+        // between taking the snapshot and dispatching through it.
+        rootDispatch.emplace(evaluationsInFlight, reconfigurationInProgress,
+                             InFlightGuard::SharedLockHeld {});
+      }
       pipelineArgs.reserve(defaultEnginePipeline.size());
       for(auto const& entry : defaultEnginePipeline) {
         pipelineArgs.push_back(
