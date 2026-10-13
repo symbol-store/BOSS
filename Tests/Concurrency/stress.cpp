@@ -248,6 +248,12 @@ void validateConfig(Config const& cfg, char const* program) {
     std::cerr << "unknown --suite '" << cfg.suite << "'; expected pure, pipeline or mixed\n";
     usageAndExit(program, 1);
   }
+  if(!cfg.enginePath.empty() && cfg.suite == "pipeline") {
+    // Every pipeline expression is a bootstrap command, which BootstrapEngine never wraps in
+    // the engine pipeline, so this combination would never load the engine.
+    std::cerr << "--engine needs the pure or mixed suite; pipeline never reaches an engine\n";
+    usageAndExit(program, 1);
+  }
 }
 
 Config parseArgs(int argc, char** argv) {
@@ -333,14 +339,32 @@ int main(int argc, char** argv) try {
 
   // Optionally preset an engine pipeline, so that dispatches go through a real engine and race
   // on the library cache (audit item G3). It is set through the C++ API rather than a scheme
-  // string literal, so the path needs no escaping, and a rejected pipeline stops the run
-  // instead of letting it pass without the engine.
+  // string literal, so the path needs no escaping.
   if(!cfg.enginePath.empty()) {
     using boss::utilities::operator""_;
-    auto const answer = boss::evaluate("SetDefaultEnginePipeline"_(cfg.enginePath));
-    if(answer != boss::Expression(std::string("okay"))) {
-      std::cerr << "SetDefaultEnginePipeline(" << cfg.enginePath << ") was rejected: " << answer
+    auto const setEnginePipeline = [&cfg] {
+      return boss::evaluate("SetDefaultEnginePipeline"_(cfg.enginePath)) ==
+             boss::Expression(std::string("okay"));
+    };
+    if(!setEnginePipeline()) {
+      std::cerr << "SetDefaultEnginePipeline(" << cfg.enginePath << ") was rejected\n";
+      return 1;
+    }
+    // SetDefaultEnginePipeline only records the path, so one dispatch through it checks that the
+    // engine loads and evaluates. ResetEngines then unloads it again, so the workers still race
+    // on a cold library cache.
+    auto const probe = boss::evaluate("Plus"_(1, 2));
+    auto const* probeFailure = std::get_if<boss::ComplexExpression>(&probe);
+    if(probeFailure != nullptr &&
+       probeFailure->getHead() == boss::Symbol("ErrorWhenEvaluatingExpression")) {
+      std::cerr << "--engine " << cfg.enginePath << " could not evaluate an expression: " << probe
                 << "\n";
+      return 1;
+    }
+    boss::evaluate("ResetEngines"_());
+    if(!setEnginePipeline()) {
+      std::cerr << "SetDefaultEnginePipeline(" << cfg.enginePath
+                << ") was rejected after the check\n";
       return 1;
     }
   }

@@ -127,13 +127,16 @@ jobs:
       run: |
         TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
           timeout 120 ./tsan/boss_concurrency_stress --mode shared --suite pure --threads 8 --iters 500 || true
-    - name: dispatch + reconfig gate (--direct pipeline — race-free since Phase 4)
-      # --direct hammers boss::evaluate() dispatch and concurrent reconfiguration. The Phase 4
+    - name: dispatch + reconfiguration check (--direct mixed — race-free since Phase 4)
+      # --direct hammers boss::evaluate() dispatch and concurrent reconfiguration. The mixed suite
+      # interleaves ordinary evaluations, which go through the pipeline snapshot and dispatch path,
+      # with SetDefaultEnginePipeline / ResetEngines; the pipeline suite alone is all bootstrap
+      # commands, which skip that path. The Phase 4
       # engineStateMutex makes this race-free; this gate guards against regressions. (The chibi
       # path buries the dispatch race under parse/GC work, so --direct is the reliable probe.)
       run: |
         TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
-          ./tsan/boss_concurrency_stress --direct --suite pipeline --threads 8 --iters 5000
+          ./tsan/boss_concurrency_stress --direct --suite mixed --threads 8 --iters 5000
     - name: configure Debug (tripwire)
       run: |
         mkdir -p tripwire
