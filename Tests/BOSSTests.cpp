@@ -2,6 +2,7 @@
 #include "../Source/Expression.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include "../Source/Serialization.hpp"
+#include "../Source/UnicodeEscapes.hpp"
 #include "../Source/Utilities.hpp"
 
 #include <algorithm>
@@ -23,6 +24,7 @@
 #include <iterator>
 #include <numeric>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -59,6 +61,47 @@ std::vector<string>
 // NOLINTBEGIN(bugprone-exception-escape)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // TODO: @Hubert, can you reduce the complexity of the tests, please?
+TEST_CASE("Unicode escape preprocessing", "[unicode]") {
+  using boss::preprocessUnicodeEscapes;
+  // Nothing to translate.
+  CHECK(preprocessUnicodeEscapes("").empty());
+  CHECK(preprocessUnicodeEscapes("(Plus 1 2)") == "(Plus 1 2)");
+  // \uXXXX becomes chibi's \xXXXX; form.
+  CHECK(preprocessUnicodeEscapes("\"caf\\u00e9\"") == "\"caf\\x00e9;\"");
+  CHECK(preprocessUnicodeEscapes("\\u0041\\u0042") == "\\x0041;\\x0042;");
+  // An escaped backslash does not start an escape, so this stays a literal backslash
+  // followed by u0041 rather than becoming a backslash followed by "A".
+  CHECK(preprocessUnicodeEscapes("\\\\u0041") == "\\\\u0041");
+  // Other escapes are passed through untouched.
+  CHECK(preprocessUnicodeEscapes("\\n\\u0041") == "\\n\\x0041;");
+  CHECK(preprocessUnicodeEscapes("\\\"") == "\\\"");
+  // Malformed or truncated sequences are left alone, and must not read past the end.
+  CHECK(preprocessUnicodeEscapes("\\u12") == "\\u12");
+  CHECK(preprocessUnicodeEscapes("\\uzzzz") == "\\uzzzz");
+  CHECK(preprocessUnicodeEscapes("abc\\") == "abc\\");
+  CHECK(preprocessUnicodeEscapes("\\") == "\\");
+  // A UTF-16 surrogate pair becomes one escape for the supplementary-plane character.
+  CHECK(preprocessUnicodeEscapes("\\uD83D\\uDE00") == "\\x1f600;");
+  CHECK(preprocessUnicodeEscapes("\\ud83d\\ude00") == "\\x1f600;");
+  // An unpaired surrogate has no scalar value and becomes U+FFFD REPLACEMENT CHARACTER.
+  CHECK(preprocessUnicodeEscapes("\\uD83D") == "\\xfffd;");
+  CHECK(preprocessUnicodeEscapes("\\uDE00") == "\\xfffd;");
+  CHECK(preprocessUnicodeEscapes("\\uD83D\\u0041") == "\\xfffd;\\x0041;");
+}
+
+TEST_CASE("NUL escape detection", "[unicode]") {
+  using boss::containsNulEscape;
+  CHECK(containsNulEscape("\"a\\x0;b\""));
+  CHECK(containsNulEscape("\"\\x0000;\""));
+  CHECK_FALSE(containsNulEscape("\"\\x00e9;\""));
+  CHECK_FALSE(containsNulEscape("\"\\x;\""));
+  // An escaped backslash followed by x0; is text, not an escape.
+  CHECK_FALSE(containsNulEscape("\"\\\\x0;\""));
+  // A character literal has no terminating semicolon, and convert-to-boss-expression does not
+  // convert characters.
+  CHECK_FALSE(containsNulEscape("#\\x0"));
+}
+
 TEST_CASE("Subspans work correctly", "[spans]") {
   auto input = boss::Span<int64_t> {std::vector<int64_t> {1, 2, 4, 3}};
   auto subrange = std::move(input).subspan(1, 3);
@@ -168,6 +211,40 @@ TEST_CASE("Expression Transformation", "[expressions]") {
 
   CHECK(e.getArguments().at(0) == v1 + 2);
   CHECK(e.getArguments().at(1) == v2 + 1);
+}
+
+TEST_CASE("Pretty-print manipulator toggles the per-stream flag", "[expressions][pretty]") {
+  std::stringstream stream;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+  stream << boss::pretty;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 1);
+  stream << boss::compact;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+}
+
+TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pretty]") {
+  // The Tests binary does not link Shims/BossPrettyPrint.cpp, so the hook stays null
+  // and pretty mode falls through to the compact renderer.
+  REQUIRE(boss::prettyPrintHook() == nullptr);
+  auto expr = "Filter"_("Load"_("path"), "Greater"_("x"_, 3));
+  std::stringstream compactOut;
+  compactOut << expr;
+  std::stringstream prettyOut;
+  prettyOut << boss::pretty << expr;
+  CHECK(prettyOut.str() == compactOut.str());
+}
+
+TEST_CASE("Compact rendering is lisp-style", "[expressions][pretty]") {
+  auto render = [](auto const& expression) {
+    std::stringstream stream;
+    stream << expression;
+    return stream.str();
+  };
+  // A nullary expression renders as "(Head)" -- no trailing space before the paren.
+  CHECK(render("UnevaluatedPlus"_()) == "(UnevaluatedPlus)");
+  // Arguments are separated by a single space, and nested expressions nest as lists.
+  CHECK(render("Greater"_("x"_, "y"_)) == "(Greater x y)");
+  CHECK(render("Filter"_("Load"_(), "Greater"_("x"_, "y"_))) == "(Filter (Load) (Greater x y))");
 }
 
 TEST_CASE("Expression without arguments", "[expressions]") {
