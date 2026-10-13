@@ -98,7 +98,8 @@ using boss::utilities::overload;
 // Reconfiguration:  SetDefaultEnginePipeline / ResetEngines mutate shared engine state and are
 //   only valid while NO evaluation is in flight (quiesce first). They keep core's own state
 //   consistent under a lock, but ResetEngines resets+unloads engines, which is unsafe under a
-//   concurrent in-flight call regardless of locking.
+//   concurrent in-flight call regardless of locking. A dispatch that starts while a
+//   reconfiguration is still resetting and unloading engines is refused.
 // Implementation invariant: core takes `engineStateMutex` only to read/snapshot the pipeline
 //   and resolve engine function pointers, and NEVER holds it across an engine call (that would
 //   serialize the concurrency this design exists to provide, and could deadlock on re-entry).
@@ -133,9 +134,15 @@ class BootstrapEngine : public Engine {
   // it whatever the locking did. Reconfiguration refuses to proceed while this is non-zero.
   std::atomic<std::size_t> evaluationsInFlight {0};
 
+  // Set from the moment a reconfiguration takes the exclusive lock until its engines have been
+  // reset and unloaded. The lock alone is not enough: it is released before unloadLibraries
+  // runs, and a dispatch starting in that window would load the engine again and run it
+  // concurrently with the old instance's reset().
+  std::atomic<bool> reconfigurationInProgress {false};
+
   // Raises the in-flight count for the duration of an engine dispatch.
   //
-  // The increment happens under a SHARED lock, and requireNoEvaluationInFlight() runs under the
+  // The increment happens under a SHARED lock, and beginReconfiguration() runs under the
   // EXCLUSIVE one. That pairing is what makes the guard actually hold: without it the counter
   // could go from 0 to 1 in the window between a reconfiguration operator reading it and
   // mutating engine state, and the reconfiguration would then reset() and dlclose() engines
@@ -145,9 +152,16 @@ class BootstrapEngine : public Engine {
   // lock is never held across an engine call still stands.
   class InFlightGuard {
   public:
-    InFlightGuard(std::atomic<std::size_t>& counter, boss::concurrency::SharedMutex& mutex)
+    InFlightGuard(std::atomic<std::size_t>& counter,
+                  std::atomic<bool> const& reconfigurationInProgress,
+                  boss::concurrency::SharedMutex& mutex)
         : counter(counter) {
       boss::concurrency::SharedLock const lock(mutex);
+      if(reconfigurationInProgress.load()) {
+        throw runtime_error(
+            "Evaluation cannot start while SetDefaultEnginePipeline or ResetEngines is "
+            "still resetting and unloading engines. Retry once the reconfiguration has returned.");
+      }
       ++counter;
     }
     ~InFlightGuard() { --counter; }
@@ -160,8 +174,10 @@ class BootstrapEngine : public Engine {
     std::atomic<std::size_t>& counter;
   };
 
-  // Enforces the quiesce-first contract rather than leaving it to documentation.
-  void requireNoEvaluationInFlight(char const* operatorName) const {
+  // Enforces the quiesce-first contract rather than leaving it to documentation, and marks a
+  // reconfiguration as running until its ReconfigurationEnd releases it. Caller holds the
+  // exclusive lock, so no dispatch can start between these checks and the flag being set.
+  void beginReconfiguration(char const* operatorName) {
     if(evaluationsInFlight.load() > 0) {
       throw runtime_error(
           string(operatorName) +
@@ -169,7 +185,31 @@ class BootstrapEngine : public Engine {
           "engine-state lock held, so reconfiguring engines now would reset or unload an engine "
           "underneath a concurrent call. Quiesce evaluation first.");
     }
+    if(reconfigurationInProgress.load()) {
+      throw runtime_error(
+          string(operatorName) +
+          " cannot run while another reconfiguration is still resetting and unloading engines.");
+    }
+    reconfigurationInProgress = true;
   }
+
+  // Clears reconfigurationInProgress when it goes out of scope, which the reconfiguration
+  // operators arrange to be after unloadLibraries has returned or thrown.
+  class ReconfigurationEnd {
+  public:
+    explicit ReconfigurationEnd(BootstrapEngine& engine) : engine(engine) {}
+    ~ReconfigurationEnd() {
+      boss::concurrency::UniqueLock const lock(engine.engineStateMutex);
+      engine.reconfigurationInProgress = false;
+    }
+    ReconfigurationEnd(ReconfigurationEnd const&) = delete;
+    ReconfigurationEnd(ReconfigurationEnd&&) = delete;
+    ReconfigurationEnd& operator=(ReconfigurationEnd const&) = delete;
+    ReconfigurationEnd& operator=(ReconfigurationEnd&&) = delete;
+
+  private:
+    BootstrapEngine& engine;
+  };
 
   static string symbolToLibraryName(Symbol const& engine) {
 #ifdef _WIN32
@@ -265,7 +305,8 @@ class BootstrapEngine : public Engine {
        [this](auto&& e) -> Expression {
          // Marks this evaluation as in flight, so a concurrent SetDefaultEnginePipeline or
          // ResetEngines fails fast instead of pulling engines out from under it.
-         InFlightGuard const inFlight(evaluationsInFlight, engineStateMutex);
+         InFlightGuard const inFlight(evaluationsInFlight, reconfigurationInProgress,
+                                      engineStateMutex);
          // `self = this` rather than a plain `this` capture: capturing `this` directly in this
          // nested lambda crashes clang 18 (an assertion in Sema::BuildCaptureInit while
          // instantiating the enclosing generic lambda).
@@ -395,10 +436,11 @@ class BootstrapEngine : public Engine {
          vector<LibraryAndFunctions> toUnload;
          {
            boss::concurrency::UniqueLock const lock(engineStateMutex);
-           requireNoEvaluationInFlight("SetDefaultEnginePipeline");
+           beginReconfiguration("SetDefaultEnginePipeline");
            defaultEnginePipeline = std::move(newPipeline);
            toUnload = libraries.detachAll();
          }
+         ReconfigurationEnd const endReconfiguration(*this);
          unloadLibraries(toUnload);
          return "okay";
        }},
@@ -419,10 +461,11 @@ class BootstrapEngine : public Engine {
          vector<LibraryAndFunctions> toUnload;
          {
            boss::concurrency::UniqueLock const lock(engineStateMutex);
-           requireNoEvaluationInFlight("ResetEngines");
+           beginReconfiguration("ResetEngines");
            defaultEnginePipeline.clear();
            toUnload = libraries.detachAll();
          }
+         ReconfigurationEnd const endReconfiguration(*this);
          unloadLibraries(toUnload);
          return "okay";
        }}};
@@ -441,9 +484,9 @@ public:
   BootstrapEngine() {
 #ifdef BOSS_DEFAULT_ENGINE_LIBS
     // BOSS_DEFAULT_ENGINE_LIBS expands to comma-separated string literals, so iterate them as
-    // pointers and construct each std::string once, directly in the vector.
+    // pointers and store each as a string entry, the form SetDefaultEnginePipeline uses for a path.
     for(auto const* library : {BOSS_DEFAULT_ENGINE_LIBS}) {
-      defaultEngine.emplace_back(library);
+      defaultEnginePipeline.emplace_back(std::string(library));
     }
 #endif
   }
