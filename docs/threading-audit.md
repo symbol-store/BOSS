@@ -47,6 +47,11 @@ closed by synchronizing the singleton's shared state without serializing engine 
 
 ## 1. Globals & file-scope statics (`Source/*`, excluding engine impls)
 
+> **Historical snapshot.** Sections 1 and 2 record the inventory as taken before Phase 4,
+> with the symbols and line numbers of that time (`defaultEngine` as a
+> `std::vector<std::string>`, `LibraryCache::at()`, `LibraryCache::clear()`). The "Now"
+> notes at the end of each section give the current symbols and synchronization.
+
 | # | Location | Symbol | What it is | Lifetime / owner | Synchronization | Risk |
 |---|----------|--------|------------|------------------|-----------------|------|
 | G1 | `BOSS.cpp:32` | `engine` | function-local `static BootstrapEngine` — the singleton dispatcher | process lifetime; constructed on first `BOSSEvaluate` | none (C++11 guarantees thread-safe *construction* only) | **HIGH** — central shared object; holds G2 + G3. Every thread/context dispatches through this one instance. |
@@ -65,6 +70,11 @@ Notes:
   enforces (the buffer is returned to / supplied by the caller).
 - No file-scope namespace-level mutable variables exist in core. The Windows `dlopen`/`dlsym`
   shims (`BootstrapEngine.hpp:19–53`) are `static` functions, not state.
+- **Now:** G2 is `BootstrapEngine::defaultEnginePipeline`, a `std::vector<Expression>`. G2 and
+  G3 are both `GUARDED_BY(engineStateMutex)`: dispatch reads the pipeline and looks up
+  libraries under the shared lock, and `SetDefaultEnginePipeline` / `ResetEngines` change
+  them under the exclusive lock. G1 itself is still unsynchronized beyond its thread-safe
+  construction, which is all it needs now that G2 and G3 carry their own locking.
 
 ## 2. Engine registry (`LibraryCache`)
 
@@ -92,7 +102,15 @@ process-global).
   in-flight call is a use-after-reset hazard. (Engine-internal effects are out of scope, but
   *core* hands the engine a `reset` while another core thread is calling `evaluate` — that
   sequencing is core's responsibility.)
-- **Synchronization: none.**
+- **Synchronization at inventory time: none.**
+- **Now:** `LibraryCache::at()` is replaced by `tryGet()` (under the shared lock) and
+  `loadOrGet()` (under the exclusive lock, double-checked), both reached through
+  `resolveEvaluateFunction`. `LibraryCache::clear()` is replaced by `detachAll()`, which
+  empties the map under the exclusive lock; `unloadLibraries` then calls `reset` and
+  `dlclose` outside the lock. Teardown no longer races dispatch: a reconfiguration is
+  refused while `evaluationsInFlight` is non-zero (a root evaluation counts from the moment
+  it takes its pipeline snapshot), and while `reconfigurationInProgress` is set, from
+  `beginReconfiguration` until `unloadLibraries` has returned, any new dispatch is refused.
 - The dynamic loader (`dlopen`/`dlclose`) is itself thread-safe on glibc/macOS; the
   **unsynchronized map mutation around it is not**. Loading an engine also runs its static
   initializers on whichever thread first touches it — noted for engine maintainers, not
