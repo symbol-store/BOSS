@@ -47,6 +47,11 @@ closed by synchronizing the singleton's shared state without serializing engine 
 
 ## 1. Globals & file-scope statics (`Source/*`, excluding engine impls)
 
+> **Historical snapshot.** Sections 1 and 2 record the inventory as taken before Phase 4,
+> with the symbols and line numbers of that time (`defaultEngine` as a
+> `std::vector<std::string>`, `LibraryCache::at()`, `LibraryCache::clear()`). The "Now"
+> notes at the end of each section give the current symbols and synchronization.
+
 | # | Location | Symbol | What it is | Lifetime / owner | Synchronization | Risk |
 |---|----------|--------|------------|------------------|-----------------|------|
 | G1 | `BOSS.cpp:32` | `engine` | function-local `static BootstrapEngine` — the singleton dispatcher | process lifetime; constructed on first `BOSSEvaluate` | none (C++11 guarantees thread-safe *construction* only) | **HIGH** — central shared object; holds G2 + G3. Every thread/context dispatches through this one instance. |
@@ -65,6 +70,11 @@ Notes:
   enforces (the buffer is returned to / supplied by the caller).
 - No file-scope namespace-level mutable variables exist in core. The Windows `dlopen`/`dlsym`
   shims (`BootstrapEngine.hpp:19–53`) are `static` functions, not state.
+- **Now:** G2 is `BootstrapEngine::defaultEnginePipeline`, a `std::vector<Expression>`. G2 and
+  G3 are both `GUARDED_BY(engineStateMutex)`: dispatch reads the pipeline and looks up
+  libraries under the shared lock, and `SetDefaultEnginePipeline` / `ResetEngines` change
+  them under the exclusive lock. G1 itself is still unsynchronized beyond its thread-safe
+  construction, which is all it needs now that G2 and G3 carry their own locking.
 
 ## 2. Engine registry (`LibraryCache`)
 
@@ -77,8 +87,7 @@ process-global).
   cache miss it `dlopen(path, RTLD_NOW | RTLD_NODELETE)`, `dlsym`s `evaluate` (required) and
   `reset` (optional), then `emplace`s into the map. Hit → returns cached entry.
 - **Mutated *during* evaluation: YES.** `at()` is called from inside the `EvaluateInEngines`
-  (`:126`) and `GetEngineDescription` (`:177`) operators, which run as part of
-  `evaluate()`. So evaluation is **not** a read-only operation against the registry — the
+  operator, which runs as part of `evaluate()`. So evaluation is **not** a read-only operation against the registry — the
   first query that names a not-yet-loaded engine inserts into the map while other threads may
   be reading or inserting.
   - Concurrent inserts → data race on the `unordered_map` (possible rehash) and a possible
@@ -93,7 +102,15 @@ process-global).
   in-flight call is a use-after-reset hazard. (Engine-internal effects are out of scope, but
   *core* hands the engine a `reset` while another core thread is calling `evaluate` — that
   sequencing is core's responsibility.)
-- **Synchronization: none.**
+- **Synchronization at inventory time: none.**
+- **Now:** `LibraryCache::at()` is replaced by `tryGet()` (under the shared lock) and
+  `loadOrGet()` (under the exclusive lock, double-checked), both reached through
+  `resolveEvaluateFunction`. `LibraryCache::clear()` is replaced by `detachAll()`, which
+  empties the map under the exclusive lock; `unloadLibraries` then calls `reset` and
+  `dlclose` outside the lock. Teardown no longer races dispatch: a reconfiguration is
+  refused while `evaluationsInFlight` is non-zero (a root evaluation counts from the moment
+  it takes its pipeline snapshot), and while `reconfigurationInProgress` is set, from
+  `beginReconfiguration` until `unloadLibraries` has returned, any new dispatch is refused.
 - The dynamic loader (`dlopen`/`dlclose`) is itself thread-safe on glibc/macOS; the
   **unsynchronized map mutation around it is not**. Loading an engine also runs its static
   initializers on whichever thread first touches it — noted for engine maintainers, not
@@ -187,16 +204,17 @@ context must not take ownership of the process's standard streams). Tracked as
   function pointers under a *shared* lock, releases it, then calls engines lock-free
   (`RTLD_NODELETE` keeps resolved pointers valid). First-use `dlopen` upgrades to an *exclusive*
   lock (double-checked). Reconfiguration (`SetDefaultEnginePipeline`/`ResetEngines`) takes the
-  exclusive lock and is valid only under a **quiesce** contract (no eval in flight) — core keeps
+  exclusive lock and is valid only under a **quiesce** contract (no eval in flight, and a dispatch
+  that starts while a reconfiguration is still resetting and unloading engines is refused) — core keeps
   its own state consistent, but `ResetEngines` resets+unloads engines, which is unsafe under a
   concurrent in-flight call regardless of locking; `ResetEngines` does the reset/unload outside
   the lock. The per-engine `EngineThreadingPolicy` enum was **dropped** (all engines assumed
   reentrant; re-add if a non-thread-safe engine appears). The full contract lives at the top of
-  `Source/BootstrapEngine.hpp`. Verified by the `--direct --suite pipeline` gate (R1 reproducer,
-  now TSan-clean). The discipline collapses to one mutex with no lock ordering, so **Phase 6
+  `Source/BootstrapEngine.hpp`. The `--direct --suite pipeline` run of the stress harness added
+  in #198 reproduces R1 against the unlocked code and runs TSan-clean against this one. The discipline collapses to one mutex with no lock ordering, so **Phase 6
   (formal modeling) is not warranted.**
-- **Phase 2 (stress harness) — built; results below.** `Tests/Concurrency/stress.cpp` +
-  the `boss_concurrency_stress` ThreadSanitizer target. Empirically (Apple clang 21 / arm64,
+- **Phase 2 (stress harness) — added in #198; results below.** `Tests/Concurrency/stress.cpp` +
+  the `boss_concurrency_stress` ThreadSanitizer target are not part of this branch. Empirically (Apple clang 21 / arm64,
   see `Tests/Concurrency/known-races.md`):
   - **per-thread-context + pure: CLEAN** (8000+ evals, 0 races) — confirms chibi is
     per-context isolated in this build, validating §3.
@@ -211,17 +229,17 @@ context must not take ownership of the process's standard streams). Tracked as
   - The §3 init-time race is avoided by a one-context warm-up before the worker threads start.
 - **Phase 5 (defensive instrumentation) — implemented.** Two mechanisms in
   `Source/ThreadSafety.hpp`:
-  - **`ConcurrencyTripwire`** — a debug-build-only (`!NDEBUG`) RAII guard at the top of
-    `evaluate_expression` (`ExpressionParser.hpp`). It maintains a process-global
+  - **`ConcurrencyTripwire`** — a debug-build-only (`!NDEBUG`) RAII object defined here; #198
+    adds the call at the top of `evaluate_expression` (`ExpressionParser.hpp`). It maintains a process-global
     `ctx → {owning thread, depth}` registry; if a second thread enters an evaluation on a `ctx`
     already owned by another thread, it prints a diagnostic and `std::abort()`s — converting the
     silent corruption of a shared chibi context into an immediate, loud crash. Same-thread
     re-entry is depth-counted and allowed, so ordinary nested evaluation never trips it. In
-    release builds it compiles to an empty no-op object. Verified: the harness's `--mode shared`
+    release builds it compiles to an empty no-op object. With #198 applied, the harness's `--mode shared`
     aborts with the tripwire message in a Debug build; `--mode per-thread` does not. (The engine
     singleton — the other candidate site — is now lock-protected by Phase 4, so the per-`ctx`
     tripwire is the remaining silent-corruption hazard worth guarding.)
-  - **Clang Thread Safety Analysis** — `defaultEngine` and `libraries` are `GUARDED_BY` an
+  - **Clang Thread Safety Analysis** — `defaultEnginePipeline` and `libraries` are `GUARDED_BY` an
     annotated `SharedMutex` (`engineStateMutex`); `SharedLock`/`UniqueLock` guards carry the
     acquire/release capability attributes. The build enables `-Wthread-safety
     -Werror=thread-safety` (Clang-only; macros are no-ops elsewhere), so any unguarded access to
@@ -236,11 +254,11 @@ context must not take ownership of the process's standard streams). Tracked as
 | The singleton engine | `BOSS.cpp`, the `static BootstrapEngine engine` in `BOSSEvaluate` |
 | Engine-state mutex (Phase 4) | `BootstrapEngine.hpp` (`engineStateMutex`) |
 | Engine pipeline mutation | `BootstrapEngine.hpp` (`SetDefaultEnginePipeline`, `ResetEngines`) |
-| Quiesce-first enforcement | `BootstrapEngine.hpp` (`evaluationsInFlight`, `InFlightGuard`, `requireNoEvaluationInFlight`) |
+| Quiesce-first enforcement | `BootstrapEngine.hpp` (`evaluationsInFlight`, `reconfigurationInProgress`, `InFlightGuard`, `beginReconfiguration`, `ReconfigurationEnd`) |
 | Lazy dlopen / registry insert | `BootstrapEngine.hpp` (`resolveEvaluateFunction`, `LibraryCache::loadOrGet`) |
 | Registry teardown | `BootstrapEngine.hpp` (`LibraryCache::detachAll`) + `unloadLibraries`, which runs outside the lock |
 | Threading annotations / guards | `Source/ThreadSafety.hpp` (`SharedMutex`, `SharedLock`, `GUARDED_BY`) |
-| Concurrency tripwire | `Source/ThreadSafety.hpp` (`ConcurrencyTripwire`), used in `ExpressionParser.hpp`'s `evaluate_expression` |
+| Concurrency tripwire | `Source/ThreadSafety.hpp` (`ConcurrencyTripwire`); #198 adds its call in `ExpressionParser.hpp`'s `evaluate_expression` |
 | Thread-safety build gate | `CMakeLists.txt` (`-Wthread-safety -Werror=thread-safety`, Clang-only) |
 | FFI dispatch boundary | `Shims/chibi-bindings.stub:44`, `ExpressionParser.hpp:163` |
 | Context creation / destruction | `ExpressionParser.hpp:237` (`initialize_boss_context`), `:36` (`~BossContextGuard`) |
