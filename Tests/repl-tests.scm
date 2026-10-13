@@ -118,6 +118,20 @@
       (list (car without-keyword) (BOSSExpressionSpan? (list-ref without-keyword 2))))
     (test "explicit :spans keyword yields the same shape"
       (list 'Column #t)
-      (list (car with-keyword) (BOSSExpressionSpan? (list-ref with-keyword 2))))))
+      (list (car with-keyword) (BOSSExpressionSpan? (list-ref with-keyword 2)))))
+
+  ;; A quoted :spans is a literal symbol, not the marker, and convert-from-boss-expression
+  ;; quotes it again so the expression round-trips.
+  (let ((literal (convert-to-boss-expression '(Head ':spans))))
+    (test "a quoted :spans is one dynamic argument, not the span marker"
+      '(1 0)
+      (list (getDynamicArgumentCountFromBOSSExpression literal)
+            (getSpanArgumentCountFromBOSSExpression literal)))
+    (test "a literal :spans symbol round-trips"
+      '(Head ':spans)
+      (convert-from-boss-expression literal)))
+
+  (test-error "bytevectorToNewInt8BOSSSpan rejects a non-bytevector"
+    (bytevectorToNewInt8BOSSSpan "not a bytevector")))
 
 (test-exit)

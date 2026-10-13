@@ -151,6 +151,11 @@ inline sexp setup_boss_scheme(sexp ctx, sexp env) {
                  _("else"_, "loop"_("cdr"_("rest"_), "cons"_("car"_("rest"_), "dyn"_), "spans"_,
                                     "forced"_))))));
 
+  // A dynamic argument that is the symbol :spans comes back quoted, so convert-to-boss-expression
+  // reads it as a literal symbol instead of the marker that starts the span arguments.
+  eval("define"_(_("quote-spans-symbol"_, "x"_), "if"_("eq?"_("x"_, "quote"_(":spans"_)),
+                                                       "list"_("quote"_("quote"_), "x"_), "x"_)));
+
   eval("define"_(
       _("convert-to-boss-expression"_, "x"_),
       "match"_("x"_,
@@ -197,10 +202,11 @@ inline sexp setup_boss_scheme(sexp ctx, sexp env) {
                                         "getHeadFromBOSSExpression"_("x"_)))),
                                   _("dynamic"_,
                                     "generator-map->list"_(
-                                        "lambda"_(_("i"_),
-                                                  "convert-from-boss-expression"_(
-                                                      "getArgumentFromBOSSExpressionArray"_(
-                                                          "dyn-args"_, "i"_))),
+                                        "lambda"_(
+                                            _("i"_),
+                                            "quote-spans-symbol"_("convert-from-boss-expression"_(
+                                                "getArgumentFromBOSSExpressionArray"_("dyn-args"_,
+                                                                                      "i"_)))),
                                         "make-iota-generator"_("dyn-count"_)))),
                                 "if"_(">"_("span-count"_, 0),
                                       "cons"_(
@@ -214,8 +220,9 @@ inline sexp setup_boss_scheme(sexp ctx, sexp env) {
                                                                         "span-array"_, "i"_)),
                                                           "make-iota-generator"_("span-count"_))))),
                                       "cons"_("head"_, "dynamic"_)))),
-                        "lambda"_(_(), "freeBOSSArguments"_("dyn-args"_),
-                                  "freeBOSSSpanArray"_("span-array"_))))),
+                        "lambda"_(
+                            _(), "freeBOSSArguments"_("dyn-args"_),
+                            "freeBOSSSpansNotTakenAndArray"_("span-array"_, "span-count"_))))),
               _(_("int32"_), "getIntValueFromBOSSExpression"_("x"_)),
               _(_("int8"_), "getCharValueFromBOSSExpression"_("x"_)),
               _(_("string"_), "getNewStringValueFromBOSSExpression"_("x"_)),
