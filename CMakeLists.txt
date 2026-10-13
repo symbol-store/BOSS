@@ -257,7 +257,7 @@ endif()
 ########################## Default Engine Libraries ############################
 
 set(BOSS_DEFAULT_ENGINES "" CACHE STRING "Default engine library names (semicolon-separated)")
-if(BOSS_DEFAULT_ENGINES)
+if(NOT BOSS_DEFAULT_ENGINES STREQUAL "")
   set(_default_engine_defs "")
   foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
     # Each name is interpolated twice: into the BOSS_DEFAULT_ENGINE_LIBS string literal below,
