@@ -48,11 +48,12 @@ TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
 TSAN_OPTIONS="halt_on_error=0" \
   ./boss_concurrency_stress --mode shared --suite pure --threads 8 --iters 500
 
-# dispatch + reconfiguration race check — CLEAN since Phase 4 (was the R1 reproducer). Use
-# --direct: the chibi path buries the dispatch race under parse/GC work; direct dispatch is
-# what reliably surfaced it before the fix.
+# dispatch + reconfiguration race check — CLEAN since Phase 4. The mixed suite interleaves
+# ordinary evaluations with SetDefaultEnginePipeline / ResetEngines; the pipeline suite alone
+# was the R1 reproducer. Use --direct: the chibi path buries the dispatch race under parse/GC
+# work; direct dispatch is what reliably surfaced it before the fix.
 TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
-  ./boss_concurrency_stress --direct --suite pipeline --threads 8 --iters 5000
+  ./boss_concurrency_stress --direct --suite mixed --threads 8 --iters 5000
 ```
 
 ---
