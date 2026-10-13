@@ -17,6 +17,7 @@ extern "C" {
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <variant>
@@ -233,16 +234,17 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 /* ─── Initialize a full BOSS chibi context ─── */
 
 // Threading contract for hosts that embed BOSS evaluation:
-// - chibi's sexp_scheme_init tests and sets a process-wide flag without synchronization, so
-//   the first call of initialize_boss_context must return before any other thread calls
-//   initialize_boss_context.
 // - A chibi context is not thread-safe. Each thread creates and uses its own context.
 // - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
 //   BootstrapEngine does not lock its state, so hosts must serialize calls to
 //   evaluate_expression, eval_string and eval_expr across all threads, even when each
 //   thread uses its own context.
 inline sexp initialize_boss_context() {
-  sexp_scheme_init();
+  // sexp_scheme_init tests and sets a process-wide flag without synchronization, and
+  // pretty_print_expression creates a context on any thread's first use, so the host cannot
+  // order the first calls itself. call_once runs it exactly once.
+  static std::once_flag schemeInitialized;
+  std::call_once(schemeInitialized, sexp_scheme_init);
   sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);
   if(ctx == nullptr || sexp_exceptionp(ctx)) {
     std::cerr << "Failed to initialize chibi-scheme context\n";
@@ -344,6 +346,7 @@ inline bool pretty_print_expression(std::ostream& stream,
   if(tls.guard.ctx == nullptr || !sexp_procedurep(tls.print_proc)) {
     return false;
   }
+  std::string renderedText;
   // Not `sexp const`: sexp is a pointer typedef, so const there binds to the pointer rather
   // than the pointee and misc-misplaced-const rejects it (clang-tidy runs as errors here).
   sexp ctx = tls.guard.ctx;
@@ -354,9 +357,12 @@ inline bool pretty_print_expression(std::ostream& stream,
   result_str = sexp_apply(ctx, tls.print_proc, arg_list);
   bool const rendered = !sexp_exceptionp(result_str) && sexp_stringp(result_str);
   if(rendered) {
-    stream << sexp_string_data(result_str);
+    renderedText = sexp_string_data(result_str);
   }
   sexp_gc_release3(ctx);
+  // Written only after the roots are released: a stream with exceptions enabled may throw
+  // here, and an exception must not leave this thread's context holding roots into this frame.
+  stream << renderedText;
   return rendered;
 }
 

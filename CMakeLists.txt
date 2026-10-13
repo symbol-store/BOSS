@@ -227,7 +227,7 @@ endif()
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  target_sources(Tests PRIVATE ${REPLFiles})
+  target_sources(Tests PRIVATE ${REPLFiles} ${PrettyPrintFiles})
   add_dependencies(Tests chibi-scheme)
   target_include_directories(Tests SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(Tests

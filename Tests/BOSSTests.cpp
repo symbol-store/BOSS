@@ -222,10 +222,26 @@ TEST_CASE("Pretty-print manipulator toggles the per-stream flag", "[expressions]
   CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
 }
 
+namespace {
+// Puts back whatever hook was installed when it was created. The Tests binary links
+// Shims/BossPrettyPrint.cpp, so that is normally the chibi-backed hook.
+class InstalledHookRestorer {
+public:
+  InstalledHookRestorer() : installedHook(boss::prettyPrintHook()) {}
+  ~InstalledHookRestorer() { boss::prettyPrintHook() = installedHook; }
+  InstalledHookRestorer(InstalledHookRestorer const&) = delete;
+  InstalledHookRestorer(InstalledHookRestorer&&) = delete;
+  InstalledHookRestorer& operator=(InstalledHookRestorer const&) = delete;
+  InstalledHookRestorer& operator=(InstalledHookRestorer&&) = delete;
+
+private:
+  boss::expressions::generic::PrettyPrintHook installedHook;
+};
+} // namespace
+
 TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pretty]") {
-  // The Tests binary does not link Shims/BossPrettyPrint.cpp, so the hook stays null
-  // and pretty mode falls through to the compact renderer.
-  REQUIRE(boss::prettyPrintHook() == nullptr);
+  InstalledHookRestorer const restorer;
+  boss::prettyPrintHook() = nullptr;
   auto expr = "Filter"_("Load"_("path"), "Greater"_("x"_, 3));
   std::stringstream compactOut;
   compactOut << expr;
@@ -235,20 +251,11 @@ TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pre
 }
 
 TEST_CASE("Pretty falls back to compact when the hook declines", "[expressions][pretty]") {
-  // Restores the global hook even if an assertion below fails.
-  struct HookGuard {
-    HookGuard() = default;
-    ~HookGuard() { boss::prettyPrintHook() = nullptr; }
-    HookGuard(HookGuard const&) = delete;
-    HookGuard(HookGuard&&) = delete;
-    HookGuard& operator=(HookGuard const&) = delete;
-    HookGuard& operator=(HookGuard&&) = delete;
-  } const guard;
+  InstalledHookRestorer const restorer;
 
   auto const expr = "Filter"_("Load"_(), "Greater"_("x"_, "y"_));
   std::stringstream compactOut;
   compactOut << expr;
-  REQUIRE(boss::prettyPrintHook() == nullptr);
 
   // A hook that cannot render must not swallow the output.
   boss::prettyPrintHook() = [](std::ostream&, boss::ComplexExpression const&) { return false; };
