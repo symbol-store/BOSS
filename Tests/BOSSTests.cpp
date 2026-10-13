@@ -89,6 +89,19 @@ TEST_CASE("Unicode escape preprocessing", "[unicode]") {
   CHECK(preprocessUnicodeEscapes("\\uD83D\\u0041") == "\\xfffd;\\x0041;");
 }
 
+TEST_CASE("NUL escape detection", "[unicode]") {
+  using boss::containsNulEscape;
+  CHECK(containsNulEscape("\"a\\x0;b\""));
+  CHECK(containsNulEscape("\"\\x0000;\""));
+  CHECK_FALSE(containsNulEscape("\"\\x00e9;\""));
+  CHECK_FALSE(containsNulEscape("\"\\x;\""));
+  // An escaped backslash followed by x0; is text, not an escape.
+  CHECK_FALSE(containsNulEscape("\"\\\\x0;\""));
+  // A character literal has no terminating semicolon, and convert-to-boss-expression does not
+  // convert characters.
+  CHECK_FALSE(containsNulEscape("#\\x0"));
+}
+
 TEST_CASE("Subspans work correctly", "[spans]") {
   auto input = boss::Span<int64_t> {std::vector<int64_t> {1, 2, 4, 3}};
   auto subrange = std::move(input).subspan(1, 3);

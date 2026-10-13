@@ -64,4 +64,10 @@ TEST_CASE("evaluate_expression", "[ExpressionParser]") {
     CHECK_FALSE(result.is_error);
     CHECK(result.text == "\"\xEF\xBF\xBD\"\n");
   }
+
+  SECTION("rejects U+0000 instead of truncating the string") {
+    auto const result = boss::evaluate_expression(ctx, env, "\"a\\u0000b\"");
+    CHECK(result.is_error);
+    CHECK_THAT(result.text, Catch::Matchers::ContainsSubstring("U+0000"));
+  }
 }

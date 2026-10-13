@@ -97,4 +97,25 @@ inline std::string preprocessUnicodeEscapes(std::string input) {
   return output;
 }
 
+// sexp_read reads \x0; (with any number of zeros) as a NUL character.
+inline bool containsNulEscape(std::string const& schemeSource) {
+  for(std::size_t index = 0; index + 1 < schemeSource.size();) {
+    if(schemeSource[index] != '\\') {
+      ++index;
+    } else if(schemeSource[index + 1] != 'x') {
+      index += 2;
+    } else {
+      auto const digitsStart = index + 2;
+      auto const digitsEnd = schemeSource.find_first_not_of("0123456789abcdefABCDEF", digitsStart);
+      if(digitsEnd != std::string::npos && digitsEnd > digitsStart &&
+         schemeSource[digitsEnd] == ';' &&
+         schemeSource.find_first_not_of('0', digitsStart) == digitsEnd) {
+        return true;
+      }
+      index = digitsStart;
+    }
+  }
+  return false;
+}
+
 } // namespace boss

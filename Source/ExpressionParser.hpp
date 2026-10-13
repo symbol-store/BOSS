@@ -208,6 +208,14 @@ inline sexp eval_expr(sexp ctx, sexp env, sexp expr) {
 
 inline sexp eval_string(sexp ctx, sexp env, const char* str) {
   auto const preprocessedStr = preprocessUnicodeEscapes(str);
+  if(containsNulEscape(preprocessedStr)) {
+    // convert-to-boss-expression passes strings to BOSS as char const*, which would silently
+    // cut the string off at the NUL.
+    return sexp_user_exception(ctx, SEXP_FALSE,
+                               "strings containing U+0000 are rejected because BOSS's C string API "
+                               "would truncate them at the NUL",
+                               SEXP_NULL);
+  }
   sexp_gc_var2(expr, port);
   sexp_gc_preserve2(ctx, expr, port);
   expr = sexp_c_string(ctx, preprocessedStr.c_str(), -1);
