@@ -527,7 +527,7 @@ public:
     // BOSS_DEFAULT_ENGINE_LIBS expands to comma-separated string literals, so iterate them as
     // pointers and store each as a string entry, the form SetDefaultEnginePipeline uses for a path.
     for(auto const* library : {BOSS_DEFAULT_ENGINE_LIBS}) {
-      defaultEnginePipeline.emplace_back(std::string(library));
+      defaultEnginePipeline.emplace_back(library);
     }
 #endif
   }
