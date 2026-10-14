@@ -39,14 +39,14 @@ void pauseUntilReleased() {
 }
 
 BOSSExpression* customEntryPoint(BOSSExpression* /*unused*/) {
-  return new BOSSExpression {boss::Expression(customEntryPointResult)};
+  return new BOSSExpression {customEntryPointResult};
 }
 
 BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
   auto const answerWithCustomEntryPoint = [] {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto const address = reinterpret_cast<std::intptr_t>(&customEntryPoint);
-    return new BOSSExpression {boss::Expression(static_cast<std::int64_t>(address))};
+    return new BOSSExpression {static_cast<std::int64_t>(address)};
   };
   // A span argument asks for the custom entry point whatever the dynamic arguments say, so a
   // test fails if BootstrapEngine drops the engine spec's span arguments from the request.
@@ -61,9 +61,9 @@ BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
     return answerWithCustomEntryPoint();
   }
   if(mode != nullptr && mode->getName() == "Zero") {
-    return new BOSSExpression {boss::Expression(std::int64_t {0})};
+    return new BOSSExpression {std::int64_t {0}};
   }
-  return new BOSSExpression {boss::Expression(std::string("not an entry point"))};
+  return new BOSSExpression {"not an entry point"};
 }
 
 // Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
