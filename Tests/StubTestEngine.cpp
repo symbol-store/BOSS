@@ -17,18 +17,21 @@ constexpr std::int64_t customEntryPointResult = 4242;
 
 // Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
 // stubPauseNextReset) until the test calls stubReleasePausedCall, so it can check what
-// BootstrapEngine refuses while that call is running.
+// BootstrapEngine refuses while that call is running. Every wait gives up after pauseTimeout, so a
+// test that fails part-way cannot hang its run.
+constexpr auto pauseTimeout = std::chrono::seconds(30);
 std::mutex pauseMutex;
 std::condition_variable pauseChanged;
 bool callPaused = false;
 bool pauseReleased = false;
 bool pauseNextReset = false;
+int resetCount = 0;
 
 void pauseUntilReleased() {
   std::unique_lock<std::mutex> lock(pauseMutex);
   callPaused = true;
   pauseChanged.notify_all();
-  pauseChanged.wait(lock, [] { return pauseReleased; });
+  pauseChanged.wait_for(lock, pauseTimeout, [] { return pauseReleased; });
   callPaused = false;
   pauseReleased = false;
 }
@@ -88,9 +91,9 @@ extern "C" void stubPauseNextReset() {
   pauseNextReset = true;
 }
 
-extern "C" void stubWaitUntilCallPaused() {
+extern "C" int stubWaitUntilCallPaused() {
   std::unique_lock<std::mutex> lock(pauseMutex);
-  pauseChanged.wait(lock, [] { return callPaused; });
+  return pauseChanged.wait_for(lock, pauseTimeout, [] { return callPaused; }) ? 1 : 0;
 }
 
 extern "C" void stubReleasePausedCall() {
@@ -99,12 +102,18 @@ extern "C" void stubReleasePausedCall() {
   pauseChanged.notify_all();
 }
 
+extern "C" int stubResetCount() {
+  std::scoped_lock const lock(pauseMutex);
+  return resetCount;
+}
+
 extern "C" void reset() {
   bool pauseThisReset = false;
   {
     std::scoped_lock const lock(pauseMutex);
     pauseThisReset = pauseNextReset;
     pauseNextReset = false;
+    ++resetCount;
   }
   if(pauseThisReset) {
     pauseUntilReleased();
