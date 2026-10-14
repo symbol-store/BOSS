@@ -321,10 +321,10 @@ int main(int argc, char** argv) try {
             << " warmup=" << (cfg.warmup && !cfg.direct ? "on" : "off") << "\n"
             << std::flush;
 
-  // initialize_boss_context runs chibi's one-time init (sexp_scheme_init) through call_once,
-  // so the first contexts no longer race on it. The warm-up still creates and destroys one
-  // full context before any worker thread exists, so that first-use setup stays out of what
-  // TSan reports during the run. --no-warmup leaves that setup in the run.
+  // initialize_boss_context runs chibi's one-time init (sexp_scheme_init) through
+  // initializeSchemeOnce, so the first contexts no longer race on it. The warm-up still creates and
+  // destroys one full context before any worker thread exists, so that first-use setup stays out of
+  // what TSan reports during the run. --no-warmup leaves that setup in the run.
   if(cfg.warmup && !cfg.direct) {
     sexp warm = boss::initialize_boss_context();
     if(warm != nullptr) {

@@ -781,6 +781,11 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
   // ResetEngines is refused as well.
   CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  // So is the ResetEngines of the BootstrapEngine behind boss::evaluate, which libBOSS creates.
+  std::stringstream singletonResetOutput;
+  singletonResetOutput << boss::evaluate("ResetEngines"_());
+  CHECK_THAT(singletonResetOutput.str(),
+             Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   stub.releasePausedCall();
   CHECK(pausedDispatch.get() == boss::Expression(std::int64_t {1}));
 

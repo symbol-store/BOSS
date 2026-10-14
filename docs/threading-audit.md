@@ -145,13 +145,19 @@ contract: **one context per concurrent caller.**
 - The **only** process-global chibi state in this configuration is the one-time init guard
   `static int sexp_initialized_p` (chibi `sexp.c:22`), set inside `sexp_init()`
   (`sexp.c:4025`, reached via `sexp_scheme_init()`, which `initialize_boss_context()` calls
-  once per process through `std::call_once`). It guards `sexp_gc_init()` and —
+  once per process through `boss::initializeSchemeOnce()`). It guards `sexp_gc_init()` and —
   only under `GLOBAL_SYMBOLS`, which is off here — the symbol-table zeroing.
   - **Init-time race: fixed.** Two threads making their *first* `initialize_boss_context()`
     call concurrently used to race on `sexp_initialized_p` (an unsynchronized
     read-modify-write) and on the one-time initialization that `sexp_init()` performs while
-    the flag is clear. `initialize_boss_context()` now calls `sexp_scheme_init()` through
-    `std::call_once`, so concurrent first calls do not race and callers need no warm-up.
+    the flag is clear. `initialize_boss_context()` now calls `boss::initializeSchemeOnce()`,
+    which runs `sexp_scheme_init()` through a `std::call_once`, so concurrent first calls do
+    not race and callers need no warm-up. `Source/SchemeInitialization.cpp` defines that
+    function, and its `once_flag`, inside libBOSS; a `once_flag` in `ExpressionParser.hpp`
+    would exist once per binary. `boss`, `Tests` and other hosts link libBOSS and libBOSS's
+    shared chibi library, so a process has one `once_flag` and one `sexp_initialized_p`.
+    The stress harness compiles the BOSS sources itself, for ThreadSanitizer, and never
+    loads libBOSS, so its process also has one of each.
     CI runs the per-thread `pure` suite with `--no-warmup`, so that run creates its first
     contexts concurrently. No per-call locking is needed.
 
@@ -231,7 +237,7 @@ context must not take ownership of the process's standard streams). Tracked as
     chibi-path pipeline run is *not* evidence the race is gone.
   - **G3 (`libraries`) still needs a loadable engine fixture** (`--engine`) to exercise the
     `dlopen` insert; predicted, not yet reproduced.
-  - The §3 init-time race is fixed by the `std::call_once` in `initialize_boss_context()`;
+  - The §3 init-time race is fixed by `boss::initializeSchemeOnce()` in libBOSS;
     the harness's `--no-warmup` run creates the first contexts concurrently.
 - **Phase 5 (defensive instrumentation) — implemented.** Two mechanisms in
   `Source/ThreadSafety.hpp`:

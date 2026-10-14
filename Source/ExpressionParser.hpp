@@ -18,7 +18,6 @@ extern "C" {
 #include <cstring>
 #include <iostream>
 #include <limits>
-#include <mutex>
 #include <string>
 #include <utility>
 #include <variant>
@@ -234,6 +233,12 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 
 /* ─── Initialize a full BOSS chibi context ─── */
 
+// Runs sexp_scheme_init exactly once per process; chibi's init flag is not synchronized and
+// hosts create contexts from several threads. SchemeInitialization.cpp defines it inside
+// libBOSS, because a once_flag defined in this header would exist once per binary. Hosts
+// link the shared chibi library that libBOSS links, so the process has one chibi init flag.
+void initializeSchemeOnce();
+
 // Threading contract for hosts that embed BOSS evaluation:
 // - A chibi context is not thread-safe. Each thread creates and uses its own context.
 // - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
@@ -242,10 +247,7 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 //   while any engine dispatch is in flight. Bootstrap commands, and evaluations that reach no
 //   engine, do not count as dispatches.
 inline sexp initialize_boss_context() {
-  // sexp_scheme_init tests and sets a process-wide flag without synchronization, and hosts
-  // create contexts from several threads, so call_once runs it exactly once.
-  static std::once_flag schemeInitialized;
-  std::call_once(schemeInitialized, sexp_scheme_init);
+  initializeSchemeOnce();
   sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);
   if(ctx == nullptr || sexp_exceptionp(ctx)) {
     std::cerr << "Failed to initialize chibi-scheme context\n";

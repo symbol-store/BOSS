@@ -161,11 +161,20 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   set(REPLStubFiles chibi-bindings.stub)
   set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
   list(APPEND TestFiles Tests/ExpressionParserTests.cpp)
+  set(SchemeInitializationFiles Source/SchemeInitialization.cpp)
 endif()
 
 # BOSS
 
-add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles})
+add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles})
+
+# boss and Tests find libBOSS through this rpath once installed (libBOSS goes to lib, they go
+# to bin).
+if(APPLE)
+  set(_boss_library_install_rpath "@loader_path/../lib")
+else()
+  set(_boss_library_install_rpath "$ORIGIN/../lib")
+endif()
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   add_dependencies(BOSS chibi-scheme)
@@ -198,13 +207,15 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   target_link_libraries(BOSS
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 
-  # Standalone BOSS REPL binary (statically linked)
-  add_executable(boss Source/BOSSREPL.cpp ${ImplementationFiles} ${REPLFiles})
+  # The REPL links libBOSS and the shared chibi library instead of compiling its own copies,
+  # so its process has one BootstrapEngine coordination state and one chibi, also when it
+  # loads engines that link libBOSS.
+  add_executable(boss Source/BOSSREPL.cpp)
   add_dependencies(boss chibi-scheme)
   target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
-  target_link_libraries(boss
-    ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
+  target_link_libraries(boss BOSS
+    ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
   if(UNIX AND NOT APPLE)
     target_link_libraries(boss dl)
   endif()
@@ -217,13 +228,15 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   endif()
 
   set_target_properties(boss PROPERTIES
-    INSTALL_RPATH "")
+    INSTALL_RPATH "${_boss_library_install_rpath}")
 
   install(TARGETS boss RUNTIME DESTINATION bin)
 
   # ── Concurrency stress harness (Phase 2 of the thread-safety hardening plan) ──
-  # Mirrors the `boss` REPL target (same chibi bridge + generated FFI bindings) but builds a
-  # multi-threaded driver instrumented with ThreadSanitizer. EXCLUDE_FROM_ALL: this is a
+  # Uses the same chibi bridge and generated FFI bindings as the `boss` REPL target, but builds a
+  # multi-threaded driver instrumented with ThreadSanitizer. Unlike `boss`, it compiles the BOSS
+  # sources itself so that ThreadSanitizer instruments them; it never loads libBOSS, so its
+  # process still has one copy of BOSS's process-wide state. EXCLUDE_FROM_ALL: this is a
   # diagnostic tool, not part of the default build. See docs/threading-audit.md and
   # Tests/Concurrency/known-races.md.
   #
@@ -233,7 +246,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   option(BOSS_CONCURRENCY_STRESS "Build the ThreadSanitizer concurrency stress harness" ON)
   if(BOSS_CONCURRENCY_STRESS AND NOT CMAKE_BUILD_TYPE STREQUAL "Sanitize")
     add_executable(boss_concurrency_stress EXCLUDE_FROM_ALL
-      Tests/Concurrency/stress.cpp ${ImplementationFiles} ${REPLFiles})
+      Tests/Concurrency/stress.cpp ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles})
     add_dependencies(boss_concurrency_stress chibi-scheme)
     target_include_directories(boss_concurrency_stress SYSTEM PRIVATE ${_chibi_prefix}/include)
     target_include_directories(boss_concurrency_stress PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
@@ -270,13 +283,13 @@ endif()
 
 
 # Tests
-add_executable(Tests ${ImplementationFiles} ${TestFiles})
+add_executable(Tests ${TestFiles})
+target_link_libraries(Tests BOSS)
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  target_sources(Tests PRIVATE ${REPLFiles})
   add_dependencies(Tests chibi-scheme)
   target_include_directories(Tests SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(Tests
-    ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
+    ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 endif()
 add_dependencies(Tests catch2)
 
@@ -294,7 +307,10 @@ add_dependencies(Tests StubTestEngine)
 # dlopen of a bare library name does not search the executable's directory on Linux, so Tests
 # carries $ORIGIN as its rpath, both in the build tree and once installed.
 if(UNIX AND NOT APPLE)
-  set_target_properties(Tests PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+  set_target_properties(Tests PROPERTIES BUILD_RPATH "$ORIGIN"
+    INSTALL_RPATH "$ORIGIN;${_boss_library_install_rpath}")
+else()
+  set_target_properties(Tests PROPERTIES INSTALL_RPATH "${_boss_library_install_rpath}")
 endif()
 
 target_link_libraries(Tests ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX})

@@ -69,6 +69,17 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 
 namespace boss {
 namespace engines {
+// dlopen gives every BootstrapEngine in the process the same engine image, so all of them
+// have to see each other's dispatches and reconfigurations. BOSS.cpp defines this state,
+// because a static member of BootstrapEngine, which is declared in the anonymous namespace
+// below, would exist once per translation unit.
+struct EngineDispatchCoordination {
+  boss::concurrency::SharedMutex engineStateMutex;
+  std::atomic<std::size_t> evaluationsInFlight {0};
+  std::atomic<bool> reconfigurationInProgress {false};
+};
+EngineDispatchCoordination& engineDispatchCoordination();
+
 namespace {
 using boss::utilities::operator""_;
 
@@ -126,22 +137,22 @@ class BootstrapEngine : public Engine {
   // Guards `libraries` and `defaultEnginePipeline`. Shared for the dispatch snapshot/resolve
   // path; exclusive for first-time dlopen and for reconfiguration. Never held across an engine
   // call. Declared first so the GUARDED_BY annotations below can reference it.
-  // The mutex and the two atomics below are static, shared by every BootstrapEngine in the
-  // process: dlopen hands every instance the same engine image, so one instance's
-  // ResetEngines would otherwise reset an engine underneath another instance's dispatch.
-  static inline boss::concurrency::SharedMutex engineStateMutex;
+  // The mutex and the two atomics below refer to the process-wide engineDispatchCoordination(),
+  // so every BootstrapEngine in the process uses the same three objects.
+  boss::concurrency::SharedMutex& engineStateMutex = engineDispatchCoordination().engineStateMutex;
 
   // Counts evaluations currently dispatching into engines. Deliberately not guarded by
   // engineStateMutex: it exists precisely because engine calls run with no lock held, so a
   // reconfiguration that reset or unloaded an engine underneath an in-flight call would corrupt
   // it whatever the locking did. Reconfiguration refuses to proceed while this is non-zero.
-  static inline std::atomic<std::size_t> evaluationsInFlight {0};
+  std::atomic<std::size_t>& evaluationsInFlight = engineDispatchCoordination().evaluationsInFlight;
 
   // Set from the moment a reconfiguration takes the exclusive lock until its engines have been
   // reset and unloaded. The lock alone is not enough: it is released before unloadLibraries
   // runs, and a dispatch starting in that window would load the engine again and run it
   // concurrently with the old instance's reset().
-  static inline std::atomic<bool> reconfigurationInProgress {false};
+  std::atomic<bool>& reconfigurationInProgress =
+      engineDispatchCoordination().reconfigurationInProgress;
 
   // Raises the in-flight count for the duration of an engine dispatch.
   //
