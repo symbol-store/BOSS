@@ -721,7 +721,7 @@ template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
 } // namespace
 
 namespace {
-// The stub engine's pause controls and reset counter. dlopen (BootstrapEngine.hpp's LoadLibrary
+// The stub engine's pause and reset controls. dlopen (BootstrapEngine.hpp's LoadLibrary
 // shim on Windows) returns the image BootstrapEngine already loaded, so these functions drive the
 // very stub instance the engine calls. The handle is never closed, which keeps that image loaded
 // for the rest of the run.
@@ -730,6 +730,7 @@ struct StubPauseControls {
   void (*releasePausedCall)();
   void (*pauseNextReset)();
   int (*resetCount)();
+  void (*throwFromNextReset)();
 
   // Fails the test instead of blocking when no stub call pauses within the stub's timeout. It
   // first releases a call that pauses late, so that the dispatch that made the call can finish.
@@ -757,7 +758,8 @@ StubPauseControls stubPauseControls() {
   return {reinterpret_cast<int (*)()>(lookUp("stubWaitUntilCallPaused")),
           reinterpret_cast<void (*)()>(lookUp("stubReleasePausedCall")),
           reinterpret_cast<void (*)()>(lookUp("stubPauseNextReset")),
-          reinterpret_cast<int (*)()>(lookUp("stubResetCount"))};
+          reinterpret_cast<int (*)()>(lookUp("stubResetCount")),
+          reinterpret_cast<void (*)()>(lookUp("stubThrowFromNextReset"))};
   // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 }
 } // namespace
@@ -866,6 +868,38 @@ TEST_CASE("Custom engine entry points", "[engines]") {
   // A plain engine symbol never asks for a custom entry point. The stub answers an
   // argument-less GetEntryPoint with its custom entry point, so asking would return 4242.
   CHECK(evaluateWithStub("StubTest"_) == boss::Expression(std::int64_t {1}));
+}
+
+TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToStub = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
+  };
+  requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
+  auto const stub = stubPauseControls();
+
+  // ResetEngines reports the failure to its caller.
+  stub.throwFromNextReset();
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("stub reset failure"));
+  CHECK(dispatchToStub(5) == boss::Expression(std::int64_t {1}));
+
+  // A queued teardown has no caller to report to, so the dispatch that runs it returns its own
+  // result. The checks are non-fatal so that the paused call is always released.
+  auto pausedDispatch =
+      std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
+  stub.requireCallPaused();
+  {
+    auto destroyedEngine = boss::engines::BootstrapEngine();
+    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)) ==
+          boss::Expression(std::int64_t {1}));
+  }
+  auto const resetsBeforeRelease = stub.resetCount();
+  stub.throwFromNextReset();
+  stub.releasePausedCall();
+  CHECK(pausedDispatch.get() == boss::Expression(std::int64_t {1}));
+  CHECK(stub.resetCount() == resetsBeforeRelease + 1);
+  CHECK(dispatchToStub(5) == boss::Expression(std::int64_t {1}));
 }
 
 TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {

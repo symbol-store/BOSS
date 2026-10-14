@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <variant>
 
@@ -26,6 +27,7 @@ bool callPaused = false;
 bool pauseReleased = false;
 bool pauseNextReset = false;
 int resetCount = 0;
+bool throwFromNextReset = false;
 
 void pauseUntilReleased() {
   std::unique_lock<std::mutex> lock(pauseMutex);
@@ -107,16 +109,27 @@ extern "C" int stubResetCount() {
   return resetCount;
 }
 
+extern "C" void stubThrowFromNextReset() {
+  std::scoped_lock const lock(pauseMutex);
+  throwFromNextReset = true;
+}
+
 extern "C" void reset() {
   bool pauseThisReset = false;
+  bool throwThisReset = false;
   {
     std::scoped_lock const lock(pauseMutex);
     pauseThisReset = pauseNextReset;
     pauseNextReset = false;
     ++resetCount;
+    throwThisReset = throwFromNextReset;
+    throwFromNextReset = false;
   }
   if(pauseThisReset) {
     pauseUntilReleased();
+  }
+  if(throwThisReset) {
+    throw std::runtime_error("stub reset failure");
   }
 }
 
