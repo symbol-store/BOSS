@@ -108,10 +108,13 @@ jobs:
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
     - name: configure
+      # The C flags instrument chibi too, so that TSan sees chibi's own globals (R4 in
+      # known-races.md). chibi's install step links the chibi-scheme executable against the
+      # instrumented library, which needs the TSan runtime and therefore the linker flag.
       run: |
         mkdir -p tsan
         cd tsan
-        CXX=clang++ CC=clang cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ..
+        CXX=clang++ CC=clang cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_C_FLAGS_RELWITHDEBINFO="-O2 -g -DNDEBUG -fsanitize=thread" -DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO="-fsanitize=thread" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ..
         cd ..
     - name: build harness
       run: cmake --build tsan --target boss_concurrency_stress -- -j $(nproc)

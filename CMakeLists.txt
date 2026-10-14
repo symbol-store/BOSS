@@ -266,9 +266,11 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
       target_link_libraries(boss_concurrency_stress dl)
     endif()
     # ThreadSanitizer for *this target only*. BOSS core (compiled into this TU set) is fully
-    # instrumented; the chibi static lib is not, but the GC-root-stack macros
-    # (sexp_gc_preserve/release) execute in instrumented header code, so shared-context races
-    # are still observed. See Tests/Concurrency/known-races.md for the instrumentation note.
+    # instrumented. The chibi static lib is instrumented only when CMAKE_C_FLAGS_<CONFIG> and
+    # CMAKE_EXE_LINKER_FLAGS_<CONFIG> include -fsanitize=thread; without them, the GC-root-stack
+    # macros (sexp_gc_preserve/release) still execute in instrumented header code, so
+    # shared-context races are still observed. See Tests/Concurrency/known-races.md for the
+    # instrumentation note.
     target_compile_options(boss_concurrency_stress PRIVATE
       -fsanitize=thread -fno-omit-frame-pointer -g)
     target_link_options(boss_concurrency_stress PRIVATE -fsanitize=thread)
