@@ -58,6 +58,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <iterator>
 #include <numeric>
 #include <optional>
@@ -129,13 +130,25 @@ using boss::utilities::overload;
 //   and resolve engine function pointers, and NEVER holds it across an engine call (that would
 //   serialize the concurrency this design exists to provide, and could deadlock on re-entry).
 
-// Reset + unload libraries. MUST run OUTSIDE engineStateMutex: reset() is an engine call.
+// Reset + unload libraries. MUST run OUTSIDE engineStateMutex: reset() is an engine call. A
+// reset() that throws does not stop the remaining libraries from being reset and unloaded; the
+// first exception is rethrown once every library has been unloaded.
 void unloadLibraries(vector<LibraryAndFunctions> const& libs) {
+  std::exception_ptr firstResetFailure;
   for(auto const& lib : libs) {
     if(lib.resetFunction != nullptr) {
-      lib.resetFunction();
+      try {
+        lib.resetFunction();
+      } catch(...) {
+        if(!firstResetFailure) {
+          firstResetFailure = std::current_exception();
+        }
+      }
     }
     dlclose(lib.library);
+  }
+  if(firstResetFailure) {
+    std::rethrow_exception(firstResetFailure);
   }
 }
 
@@ -250,6 +263,9 @@ class BootstrapEngine : public Engine {
   // destructor that set reconfigurationInProgress, or the last dispatch that a queued teardown
   // waited for. The loop also tears down libraries that another destroyed instance queued while
   // this thread was unloading.
+  // It does not throw, so that a destructor can call it. A queued library's reset() that throws
+  // has no caller to report to, and unloadLibraries has unloaded every library before it rethrows,
+  // so the loop discards that exception.
   static void finishReconfiguration(EngineDispatchCoordination& coordination)
       BOSS_EXCLUDES(coordination.engineStateMutex) {
     while(true) {
@@ -262,7 +278,10 @@ class BootstrapEngine : public Engine {
         }
         librariesToUnload.swap(coordination.librariesAwaitingTeardown);
       }
-      unloadLibraries(librariesToUnload);
+      try {
+        unloadLibraries(librariesToUnload);
+      } catch(...) { // NOLINT(bugprone-empty-catch)
+      }
     }
   }
 

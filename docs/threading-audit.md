@@ -16,9 +16,10 @@
 ## TL;DR — the threading model core actually has today
 
 The original (pre-Phase-4) inventory found **exactly three** pieces of shared mutable state in
-core, all hanging off a single process-wide object. Phase 4 adds two more, the atomic
-`evaluationsInFlight` counter and `reconfigurationInProgress` flag, described under
-"Implications for later phases" below. The three are:
+core, all hanging off a single process-wide object. Phase 4 adds three more, the atomic
+`evaluationsInFlight` counter, the `reconfigurationInProgress` flag and the
+`librariesAwaitingTeardown` queue of destroyed instances' libraries, described under
+"Implications for later phases" below. The original three are:
 
 1. A function-local `static boss::engines::BootstrapEngine engine;` constructed on the first
    call to `BOSSEvaluate` (`Source/BOSS.cpp:32`). There is **one** of these per process.
