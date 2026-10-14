@@ -144,8 +144,7 @@ inline sexp setup_boss_scheme(sexp ctx, sexp env) {
                  // BOSSExpressionSpan, so a non-span here would only fail at the FFI boundary,
                  // with a confusing error. Reject it in scheme, where the caller's mistake is.
                  _("and"_("forced"_, "not"_("BOSSExpressionSpan?"_("car"_("rest"_)))),
-                   "error"_(std::string("arguments after :spans must be span objects"),
-                            "car"_("rest"_))),
+                   "error"_("arguments after :spans must be span objects", "car"_("rest"_))),
                  _("or"_("forced"_, "BOSSExpressionSpan?"_("car"_("rest"_))),
                    "loop"_("cdr"_("rest"_), "dyn"_, "cons"_("car"_("rest"_), "spans"_), "forced"_)),
                  _("else"_, "loop"_("cdr"_("rest"_), "cons"_("car"_("rest"_), "dyn"_), "spans"_,
