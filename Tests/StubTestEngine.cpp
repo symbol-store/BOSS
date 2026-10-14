@@ -14,7 +14,9 @@ constexpr std::int64_t defaultEntryPointResult = 1;
 
 // Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
 // stubPauseNextReset) until the test calls stubReleasePausedCall, so it can check what
-// BootstrapEngine refuses while that call is running.
+// BootstrapEngine refuses while that call is running. Every wait gives up after pauseTimeout, so a
+// test that fails part-way cannot hang its run.
+constexpr auto pauseTimeout = std::chrono::seconds(30);
 std::mutex pauseMutex;
 std::condition_variable pauseChanged;
 bool callPaused = false;
@@ -25,7 +27,7 @@ void pauseUntilReleased() {
   std::unique_lock<std::mutex> lock(pauseMutex);
   callPaused = true;
   pauseChanged.notify_all();
-  pauseChanged.wait(lock, [] { return pauseReleased; });
+  pauseChanged.wait_for(lock, pauseTimeout, [] { return pauseReleased; });
   callPaused = false;
   pauseReleased = false;
 }
@@ -65,9 +67,9 @@ extern "C" void stubPauseNextReset() {
   pauseNextReset = true;
 }
 
-extern "C" void stubWaitUntilCallPaused() {
+extern "C" int stubWaitUntilCallPaused() {
   std::unique_lock<std::mutex> lock(pauseMutex);
-  pauseChanged.wait(lock, [] { return callPaused; });
+  return pauseChanged.wait_for(lock, pauseTimeout, [] { return callPaused; }) ? 1 : 0;
 }
 
 extern "C" void stubReleasePausedCall() {

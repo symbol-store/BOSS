@@ -95,7 +95,8 @@ using boss::utilities::overload;
 // Engine contract:  an engine's `evaluate` (and `reset`) MUST be reentrant -- core may call the
 //   same engine from multiple threads at once and never serializes engine calls.
 // Reconfiguration:  SetDefaultEnginePipeline / ResetEngines mutate shared engine state and are
-//   only valid while NO evaluation is in flight (quiesce first). They keep core's own state
+//   only valid while NO engine dispatch is in flight (quiesce first; bootstrap commands and
+//   evaluations that reach no engine do not count). They keep core's own state
 //   consistent under a lock, but ResetEngines resets+unloads engines, which is unsafe under a
 //   concurrent in-flight call regardless of locking. A dispatch that starts while a
 //   reconfiguration is still resetting and unloading engines is refused.
@@ -125,19 +126,22 @@ class BootstrapEngine : public Engine {
   // Guards `libraries` and `defaultEnginePipeline`. Shared for the dispatch snapshot/resolve
   // path; exclusive for first-time dlopen and for reconfiguration. Never held across an engine
   // call. Declared first so the GUARDED_BY annotations below can reference it.
-  mutable boss::concurrency::SharedMutex engineStateMutex;
+  // The mutex and the two atomics below are static, shared by every BootstrapEngine in the
+  // process: dlopen hands every instance the same engine image, so one instance's
+  // ResetEngines would otherwise reset an engine underneath another instance's dispatch.
+  static inline boss::concurrency::SharedMutex engineStateMutex;
 
   // Counts evaluations currently dispatching into engines. Deliberately not guarded by
   // engineStateMutex: it exists precisely because engine calls run with no lock held, so a
   // reconfiguration that reset or unloaded an engine underneath an in-flight call would corrupt
   // it whatever the locking did. Reconfiguration refuses to proceed while this is non-zero.
-  std::atomic<std::size_t> evaluationsInFlight {0};
+  static inline std::atomic<std::size_t> evaluationsInFlight {0};
 
   // Set from the moment a reconfiguration takes the exclusive lock until its engines have been
   // reset and unloaded. The lock alone is not enough: it is released before unloadLibraries
   // runs, and a dispatch starting in that window would load the engine again and run it
   // concurrently with the old instance's reset().
-  std::atomic<bool> reconfigurationInProgress {false};
+  static inline std::atomic<bool> reconfigurationInProgress {false};
 
   // Raises the in-flight count for the duration of an engine dispatch.
   //
@@ -192,9 +196,9 @@ class BootstrapEngine : public Engine {
     if(evaluationsInFlight.load() > 0) {
       throw runtime_error(
           string(operatorName) +
-          " is only valid while no evaluation is in flight. Engine calls run without the "
+          " is only valid while no engine dispatch is in flight. Engine calls run without the "
           "engine-state lock held, so reconfiguring engines now would reset or unload an engine "
-          "underneath a concurrent call. Quiesce evaluation first.");
+          "underneath a concurrent call. Quiesce engine dispatches first.");
     }
     if(reconfigurationInProgress.load()) {
       throw runtime_error(
