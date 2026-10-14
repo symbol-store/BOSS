@@ -113,7 +113,7 @@ boss::Expression pureDirectExpr(std::uint64_t i) {
   case 2:
     return "Times"_("Plus"_(1, 2), "Minus"_(10, 4));
   default:
-    return "List"_(std::string("mixed"), 1, 2.5, true);
+    return "List"_("mixed", 1, 2.5, true);
   }
 }
 
@@ -124,7 +124,7 @@ boss::Expression pipelineDirectExpr(std::uint64_t i) {
   case 0:
     return "GetDefaultEnginePipeline"_();
   case 1:
-    return "SetDefaultEnginePipeline"_(std::string("./libNonexistentEngine.so"));
+    return "SetDefaultEnginePipeline"_("./libNonexistentEngine.so");
   case 2:
     return "GetDefaultEnginePipeline"_();
   default:
@@ -345,8 +345,7 @@ int main(int argc, char** argv) try {
   if(!cfg.enginePath.empty()) {
     using boss::utilities::operator""_;
     auto const setEnginePipeline = [&cfg] {
-      return boss::evaluate("SetDefaultEnginePipeline"_(cfg.enginePath)) ==
-             boss::Expression(std::string("okay"));
+      return boss::evaluate("SetDefaultEnginePipeline"_(cfg.enginePath)) == std::string("okay");
     };
     if(!setEnginePipeline()) {
       std::cerr << "SetDefaultEnginePipeline(" << cfg.enginePath << ") was rejected\n";
