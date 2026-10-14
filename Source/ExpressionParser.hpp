@@ -98,7 +98,7 @@ inline sexp complex_expr_to_sexp(sexp ctx, boss::ComplexExpression const& expr) 
     std::visit(
         [&prependArgument](auto const& typedSpan) {
           for(auto const& element : typedSpan) {
-            prependArgument(boss::Expression(element));
+            prependArgument(element);
           }
         },
         span);
