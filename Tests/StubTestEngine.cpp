@@ -22,6 +22,7 @@ std::condition_variable pauseChanged;
 bool callPaused = false;
 bool pauseReleased = false;
 bool pauseNextReset = false;
+int resetCount = 0;
 
 void pauseUntilReleased() {
   std::unique_lock<std::mutex> lock(pauseMutex);
@@ -78,12 +79,18 @@ extern "C" void stubReleasePausedCall() {
   pauseChanged.notify_all();
 }
 
+extern "C" int stubResetCount() {
+  std::scoped_lock const lock(pauseMutex);
+  return resetCount;
+}
+
 extern "C" void reset() {
   bool pauseThisReset = false;
   {
     std::scoped_lock const lock(pauseMutex);
     pauseThisReset = pauseNextReset;
     pauseNextReset = false;
+    ++resetCount;
   }
   if(pauseThisReset) {
     pauseUntilReleased();

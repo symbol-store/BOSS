@@ -113,6 +113,11 @@ process-global).
   refused while `evaluationsInFlight` is non-zero (a root evaluation counts from the moment
   it takes its pipeline snapshot), and while `reconfigurationInProgress` is set, from
   `beginReconfiguration` until `unloadLibraries` has returned, any new dispatch is refused.
+  A destructor cannot be refused, so `~LibraryCache` passes its detached libraries to
+  `tearDownOnceNoDispatchIsInFlight`. While a dispatch is in flight, that function queues
+  the libraries and sets `reconfigurationInProgress`; the dispatch that brings
+  `evaluationsInFlight` to zero then resets and unloads them through
+  `finishReconfiguration`.
 - The dynamic loader (`dlopen`/`dlclose`) is itself thread-safe on glibc/macOS; the
   **unsynchronized map mutation around it is not**. Loading an engine also runs its static
   initializers on whichever thread first touches it — noted for engine maintainers, not

@@ -721,14 +721,15 @@ template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
 } // namespace
 
 namespace {
-// The stub engine's pause controls. dlopen (BootstrapEngine.hpp's LoadLibrary shim on
-// Windows) returns the image BootstrapEngine already loaded, so these functions drive the very
-// stub instance the engine calls. The handle is never closed, which keeps that image loaded
+// The stub engine's pause controls and reset counter. dlopen (BootstrapEngine.hpp's LoadLibrary
+// shim on Windows) returns the image BootstrapEngine already loaded, so these functions drive the
+// very stub instance the engine calls. The handle is never closed, which keeps that image loaded
 // for the rest of the run.
 struct StubPauseControls {
   int (*waitUntilCallPaused)();
   void (*releasePausedCall)();
   void (*pauseNextReset)();
+  int (*resetCount)();
 
   // Fails the test instead of blocking when no stub call pauses within the stub's timeout. It
   // first releases a call that pauses late, so that the dispatch that made the call can finish.
@@ -755,7 +756,8 @@ StubPauseControls stubPauseControls() {
   // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
   return {reinterpret_cast<int (*)()>(lookUp("stubWaitUntilCallPaused")),
           reinterpret_cast<void (*)()>(lookUp("stubReleasePausedCall")),
-          reinterpret_cast<void (*)()>(lookUp("stubPauseNextReset"))};
+          reinterpret_cast<void (*)()>(lookUp("stubPauseNextReset")),
+          reinterpret_cast<int (*)()>(lookUp("stubResetCount"))};
   // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 }
 } // namespace
@@ -825,6 +827,34 @@ TEST_CASE("Reconfiguration is refused during a dispatch through the default pipe
   stub.releasePausedCall();
   CHECK(pausedEvaluation.get() == boss::Expression(std::int64_t {1}));
   CHECK(engine.evaluate("ResetEngines"_()) == boss::Expression(std::string("okay")));
+}
+
+TEST_CASE("A BootstrapEngine destroyed during a dispatch resets its engines afterwards",
+          "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToStub = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
+  };
+  requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
+  auto const stub = stubPauseControls();
+
+  // The checks are non-fatal so that the paused call is always released.
+  auto pausedDispatch =
+      std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
+  stub.requireCallPaused();
+  auto const resetsBeforeDestruction = stub.resetCount();
+  {
+    auto destroyedEngine = boss::engines::BootstrapEngine();
+    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)) ==
+          boss::Expression(std::int64_t {1}));
+  }
+  CHECK(stub.resetCount() == resetsBeforeDestruction);
+  CHECK_THROWS_WITH(dispatchToStub(5),
+                    Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
+  stub.releasePausedCall();
+  CHECK(pausedDispatch.get() == boss::Expression(std::int64_t {1}));
+  CHECK(stub.resetCount() == resetsBeforeDestruction + 1);
+  CHECK(dispatchToStub(5) == boss::Expression(std::int64_t {1}));
 }
 
 TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
