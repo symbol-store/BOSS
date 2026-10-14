@@ -464,6 +464,11 @@ int main(int argc, char** argv) try {
                "Tests/Concurrency/known-races.md)\n"
             << std::flush;
 
+  if(cfg.suite == "pure" && totalErr != 0) {
+    std::cerr << "the pure suite expects no evaluation errors, so this run is not a valid result\n";
+    exitCode = 1;
+  }
+
   return exitCode;
 } catch(std::exception const& e) {
   std::cerr << "fatal: " << e.what() << "\n";
