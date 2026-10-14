@@ -250,9 +250,10 @@ foreach(StubEngine IN ITEMS StubTestEngine StubSilentEngine StubNumericEngine)
 endforeach()
 target_compile_definitions(StubSilentEngine PRIVATE STUB_ENGINE_DESCRIPTION_IS_NOTHING)
 target_compile_definitions(StubNumericEngine PRIVATE STUB_ENGINE_DESCRIPTION_IS_NUMBER)
-# dlopen of a bare library name does not search the executable's directory on Linux.
+# dlopen of a bare library name does not search the executable's directory on Linux, so Tests
+# carries $ORIGIN as its rpath, both in the build tree and once installed.
 if(UNIX AND NOT APPLE)
-  set_target_properties(Tests PROPERTIES BUILD_RPATH "$ORIGIN")
+  set_target_properties(Tests PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
 endif()
 
 target_link_libraries(Tests ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX})
@@ -390,6 +391,10 @@ else()
   install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
+# Tests loads StubTestEngine by its bare library name, so the installed Tests needs it in the
+# same directory (found there through the $ORIGIN rpath on Linux, and by LoadLibrary on
+# Windows).
+install(TARGETS StubTestEngine LIBRARY DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 

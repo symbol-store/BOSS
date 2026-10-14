@@ -17,18 +17,21 @@ constexpr std::int64_t customEntryPointResult = 4242;
 
 // Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
 // stubPauseNextReset) until the test calls stubReleasePausedCall, so it can check what
-// BootstrapEngine refuses while that call is running.
+// BootstrapEngine refuses while that call is running. Every wait gives up after pauseTimeout, so a
+// test that fails part-way cannot hang its run.
+constexpr auto pauseTimeout = std::chrono::seconds(30);
 std::mutex pauseMutex;
 std::condition_variable pauseChanged;
 bool callPaused = false;
 bool pauseReleased = false;
 bool pauseNextReset = false;
+int resetCount = 0;
 
 void pauseUntilReleased() {
   std::unique_lock<std::mutex> lock(pauseMutex);
   callPaused = true;
   pauseChanged.notify_all();
-  pauseChanged.wait(lock, [] { return pauseReleased; });
+  pauseChanged.wait_for(lock, pauseTimeout, [] { return pauseReleased; });
   callPaused = false;
   pauseReleased = false;
 }
@@ -40,7 +43,9 @@ BOSSExpression* customEntryPoint(BOSSExpression* /*unused*/) {
 BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
   auto const& arguments = request.getDynamicArguments();
   auto const* mode = arguments.empty() ? nullptr : std::get_if<Symbol>(&arguments.front());
-  if(mode != nullptr && mode->getName() == "Override") {
+  // A request with no arguments gets the custom entry point too, so a test dispatching through
+  // a plain StubTest symbol fails if BootstrapEngine asks that symbol for an entry point.
+  if(arguments.empty() || (mode != nullptr && mode->getName() == "Override")) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto const address = reinterpret_cast<std::intptr_t>(&customEntryPoint);
     return new BOSSExpression {boss::Expression(static_cast<std::int64_t>(address))};
@@ -99,9 +104,9 @@ extern "C" void stubPauseNextReset() {
   pauseNextReset = true;
 }
 
-extern "C" void stubWaitUntilCallPaused() {
+extern "C" int stubWaitUntilCallPaused() {
   std::unique_lock<std::mutex> lock(pauseMutex);
-  pauseChanged.wait(lock, [] { return callPaused; });
+  return pauseChanged.wait_for(lock, pauseTimeout, [] { return callPaused; }) ? 1 : 0;
 }
 
 extern "C" void stubReleasePausedCall() {
@@ -110,24 +115,30 @@ extern "C" void stubReleasePausedCall() {
   pauseChanged.notify_all();
 }
 
+extern "C" int stubResetCount() {
+  std::scoped_lock const lock(pauseMutex);
+  return resetCount;
+}
+
 extern "C" void reset() {
   bool pauseThisReset = false;
   {
     std::scoped_lock const lock(pauseMutex);
     pauseThisReset = pauseNextReset;
     pauseNextReset = false;
+    ++resetCount;
   }
   if(pauseThisReset) {
     pauseUntilReleased();
   }
 }
 
-// Answers GetEntryPoint(Override) with a custom entry point, GetEntryPoint(Zero) with 0 and any
-// other GetEntryPoint request with a string, so the Tests binary can check how BootstrapEngine
-// handles each result. GetEngineDescription is answered according to the build variant (see
-// describeEngine). An expression whose head is Pause pauses first. Rendezvous evaluates to 1
-// if concurrentCallsToMeet calls met inside the engine, and to 0 if they did not. Every other
-// expression evaluates to defaultEntryPointResult.
+// Answers GetEntryPoint(Override) and GetEntryPoint() with a custom entry point,
+// GetEntryPoint(Zero) with 0 and any other GetEntryPoint request with a string, so the Tests binary
+// can check how BootstrapEngine handles each result. GetEngineDescription is answered according to
+// the build variant (see describeEngine). An expression whose head is Pause pauses first.
+// Rendezvous evaluates to 1 if concurrentCallsToMeet calls met inside the engine, and to 0 if they
+// did not. Every other expression evaluates to defaultEntryPointResult.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "GetEntryPoint") {
