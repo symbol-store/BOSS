@@ -268,7 +268,14 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   # type, so the target is skipped there; configure a separate build dir without
   # -DCMAKE_BUILD_TYPE=Sanitize to build it.
   option(BOSS_CONCURRENCY_STRESS "Build the ThreadSanitizer concurrency stress harness" ON)
-  if(BOSS_CONCURRENCY_STRESS AND NOT CMAKE_BUILD_TYPE STREQUAL "Sanitize")
+  if(BOSS_CONCURRENCY_STRESS)
+    include(CheckCXXCompilerFlag)
+    set(CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=thread)
+    check_cxx_compiler_flag(-fsanitize=thread BOSS_COMPILER_SUPPORTS_THREAD_SANITIZER)
+    unset(CMAKE_REQUIRED_LINK_OPTIONS)
+  endif()
+  if(BOSS_CONCURRENCY_STRESS AND NOT CMAKE_BUILD_TYPE STREQUAL "Sanitize"
+     AND BOSS_COMPILER_SUPPORTS_THREAD_SANITIZER)
     add_executable(boss_concurrency_stress EXCLUDE_FROM_ALL
       Tests/Concurrency/stress.cpp ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles})
     add_dependencies(boss_concurrency_stress chibi-scheme)
@@ -300,10 +307,13 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     if(APPLE)
       target_link_libraries(boss_concurrency_stress "-Wl,-export_dynamic")
     endif()
-  elseif(BOSS_CONCURRENCY_STRESS)
+  elseif(BOSS_CONCURRENCY_STRESS AND CMAKE_BUILD_TYPE STREQUAL "Sanitize")
     message(STATUS
       "boss_concurrency_stress skipped under the ASan 'Sanitize' build type "
       "(ThreadSanitizer conflict). Configure a non-Sanitize build dir to build it.")
+  elseif(BOSS_CONCURRENCY_STRESS)
+    message(STATUS
+      "boss_concurrency_stress skipped: the compiler or linker does not accept -fsanitize=thread.")
   endif()
 endif()
 
