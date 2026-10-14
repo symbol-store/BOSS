@@ -172,8 +172,17 @@ add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles} ${SchemeInitializati
 # to bin).
 if(APPLE)
   set(_boss_library_install_rpath "@loader_path/../lib")
+  set(_libboss_install_rpath "@loader_path")
 else()
   set(_boss_library_install_rpath "$ORIGIN/../lib")
+  set(_libboss_install_rpath "$ORIGIN")
+endif()
+# chibi's install step copies chibi's library next to libBOSS only when chibi is built with the
+# install prefix. A default-prefix build stages chibi in the build tree, so the installed
+# binaries load chibi's library from there, as they already load chibi's Scheme modules.
+if(NOT _chibi_prefix STREQUAL CMAKE_INSTALL_PREFIX)
+  list(APPEND _boss_library_install_rpath "${_chibi_prefix}/lib")
+  list(APPEND _libboss_install_rpath "${_chibi_prefix}/lib")
 endif()
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
@@ -206,6 +215,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   target_include_directories(BOSS SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(BOSS
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+  set_target_properties(BOSS PROPERTIES INSTALL_RPATH "${_libboss_install_rpath}")
 
   # The REPL links libBOSS and the shared chibi library instead of compiling its own copies,
   # so its process has one BootstrapEngine coordination state and one chibi, also when it

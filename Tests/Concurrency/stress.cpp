@@ -226,7 +226,7 @@ void runDirectWorker(std::string const& suite, int threadIdx, Config const& cfg,
       << "  --direct         bypass chibi; hammer boss::evaluate() dispatch directly\n"
       << "                   (best at surfacing the engine-dispatch races; ignores --mode)\n"
       << "  --suite SUITE    pure | pipeline | mixed (default pure)\n"
-      << "  --engine PATH    also exercise dispatch through this engine .so\n"
+      << "  --engine PATH    with --suite pure, also exercise dispatch through this engine .so\n"
       << "                   (preloads the pipeline so workers race on the dlopen cache)\n"
       << "  --no-warmup      skip creating and destroying one context before the workers start\n"
       << "                   (first-use setup then happens during the run)\n"
@@ -248,10 +248,12 @@ void validateConfig(Config const& cfg, char const* program) {
     std::cerr << "unknown --suite '" << cfg.suite << "'; expected pure, pipeline or mixed\n";
     usageAndExit(program, 1);
   }
-  if(!cfg.enginePath.empty() && cfg.suite == "pipeline") {
+  if(!cfg.enginePath.empty() && cfg.suite != "pure") {
     // Every pipeline expression is a bootstrap command, which BootstrapEngine never wraps in
-    // the engine pipeline, so this combination would never load the engine.
-    std::cerr << "--engine needs the pure or mixed suite; pipeline never reaches an engine\n";
+    // the engine pipeline, and the mixed workers replace and clear the preset pipeline, so only
+    // the pure suite keeps dispatching through the engine.
+    std::cerr << "--engine needs the pure suite; pipeline never reaches an engine and mixed "
+                 "replaces the engine pipeline\n";
     usageAndExit(program, 1);
   }
 }
@@ -401,10 +403,21 @@ int main(int argc, char** argv) try {
       }
     } else {
       // One context per thread — the target configuration.
+      // Workers start running as soon as they are created, so without this barrier the first
+      // worker could finish chibi's one-time initialization before the last worker exists, and
+      // --no-warmup would not make the first initialize_boss_context calls overlap.
+      std::atomic<int> workersAtStartingLine {0};
+      auto const waitForAllWorkers = [&workersAtStartingLine, &cfg] {
+        ++workersAtStartingLine;
+        while(workersAtStartingLine.load() < cfg.threads) {
+          std::this_thread::yield();
+        }
+      };
       std::vector<std::thread> workers;
       workers.reserve(static_cast<size_t>(cfg.threads));
       for(int t = 0; t < cfg.threads; ++t) {
         workers.emplace_back([&, t] {
+          waitForAllWorkers();
           sexp ctx = boss::initialize_boss_context();
           if(ctx == nullptr) {
             std::cerr << "thread " << t << ": failed to initialize context\n";

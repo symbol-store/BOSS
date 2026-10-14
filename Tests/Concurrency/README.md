@@ -47,8 +47,8 @@ TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
 
 Options: `--threads N`, `--iters M`, `--mode shared|per-thread`, `--direct` (bypass chibi and
 hammer `boss::evaluate()` dispatch — best at surfacing dispatch races), `--suite
-pure|pipeline|mixed`, `--engine PATH` (exercise the dlopen registry race through a real
-engine), `--no-warmup` (skip the warm-up context, so first-use setup happens during the run), `--seed S`, `--quiet`. `--help` lists
+pure|pipeline|mixed`, `--engine PATH` (pure suite only; exercise the dlopen registry race through a
+real engine), `--no-warmup` (skip the warm-up context, so first-use setup happens during the run), `--seed S`, `--quiet`. `--help` lists
 them all.
 
 ## Debug tripwire (Phase 5)

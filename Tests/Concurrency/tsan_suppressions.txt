@@ -1,6 +1,7 @@
 # ThreadSanitizer suppressions for boss_concurrency_stress.
 #
-# Use with:  TSAN_OPTIONS="suppressions=Tests/Concurrency/tsan_suppressions.txt" ./boss_concurrency_stress ...
+# Use from the repository root, with the harness built in build-tsan as in README.md:
+#   TSAN_OPTIONS="suppressions=Tests/Concurrency/tsan_suppressions.txt" build-tsan/boss_concurrency_stress ...
 #
 # RULE: every suppression must reference an ID in known-races.md and say WHY it is
 # suppressed (out-of-scope engine-visible race, or a confirmed-benign race). Do NOT suppress
