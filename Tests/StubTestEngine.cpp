@@ -119,7 +119,7 @@ extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
     pauseUntilReleased();
   }
   if(request != nullptr && request->getHead().getName() == "Rendezvous") {
-    return new BOSSExpression {boss::Expression(std::int64_t {meetConcurrentCalls() ? 1 : 0})};
+    return new BOSSExpression {std::int64_t {meetConcurrentCalls() ? 1 : 0}};
   }
-  return new BOSSExpression {boss::Expression(defaultEntryPointResult)};
+  return new BOSSExpression {defaultEntryPointResult};
 }
