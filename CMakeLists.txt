@@ -238,14 +238,22 @@ add_dependencies(Tests catch2)
 # dispatch paths that need a real engine library, such as GetEntryPoint and the reconfiguration
 # refusals, run in the default test suite without fetching an external engine. MODULE gives the
 # .so suffix on macOS too, which is the name BootstrapEngine derives from a StubTest engine symbol.
+# MSVC builds the stubs as SHARED, like the engines, because CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS
+# exports nothing from a MODULE library.
+if(MSVC)
+  set(_stub_engine_library_type SHARED)
+else()
+  set(_stub_engine_library_type MODULE)
+endif()
 # The three builds differ only in how they answer GetEngineDescription.
 foreach(StubEngine IN ITEMS StubTestEngine StubSilentEngine StubNumericEngine)
-  add_library(${StubEngine} MODULE Tests/StubTestEngine.cpp)
+  add_library(${StubEngine} ${_stub_engine_library_type} Tests/StubTestEngine.cpp)
   add_dependencies(${StubEngine} spdlog)
   target_include_directories(${StubEngine} SYSTEM PRIVATE ${BOSS_BINARY_DIR}/deps/include)
   target_link_libraries(${StubEngine} Threads::Threads)
   set_target_properties(${StubEngine} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
-    LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
+    LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>
+    RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
   add_dependencies(Tests ${StubEngine})
 endforeach()
 target_compile_definitions(StubSilentEngine PRIVATE STUB_ENGINE_DESCRIPTION_IS_NOTHING)
@@ -391,10 +399,11 @@ else()
   install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
-# Tests loads StubTestEngine by its bare library name, so the installed Tests needs it in the
-# same directory (found there through the $ORIGIN rpath on Linux, and by LoadLibrary on
+# Tests loads the stub engines by their bare library names, so the installed Tests needs them in
+# the same directory (found there through the $ORIGIN rpath on Linux, and by LoadLibrary on
 # Windows).
-install(TARGETS StubTestEngine LIBRARY DESTINATION bin)
+install(TARGETS StubTestEngine StubSilentEngine StubNumericEngine
+  LIBRARY DESTINATION bin RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 
