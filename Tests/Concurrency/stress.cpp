@@ -383,6 +383,17 @@ int main(int argc, char** argv) try {
     }
   } else {
 
+    // Workers start running as soon as they are created, so without this barrier the first
+    // worker could finish before the last worker exists. --no-warmup would then not make the
+    // first initialize_boss_context calls overlap, and the Debug tripwire would see no
+    // concurrent evaluate_expression calls on the shared context.
+    std::atomic<int> workersAtStartingLine {0};
+    auto const waitForAllWorkers = [&workersAtStartingLine, &cfg] {
+      ++workersAtStartingLine;
+      while(workersAtStartingLine.load() < cfg.threads) {
+        std::this_thread::yield();
+      }
+    };
     if(cfg.mode == Mode::Shared) {
       // One context, shared by every thread — the known-unsafe baseline.
       sexp ctx = boss::initialize_boss_context();
@@ -396,23 +407,16 @@ int main(int argc, char** argv) try {
       std::vector<std::thread> workers;
       workers.reserve(static_cast<size_t>(cfg.threads));
       for(int t = 0; t < cfg.threads; ++t) {
-        workers.emplace_back([&, t] { runWorker(ctx, env, suite, t, cfg, counts[t]); });
+        workers.emplace_back([&, t] {
+          waitForAllWorkers();
+          runWorker(ctx, env, suite, t, cfg, counts[t]);
+        });
       }
       for(auto& w : workers) {
         w.join();
       }
     } else {
       // One context per thread — the target configuration.
-      // Workers start running as soon as they are created, so without this barrier the first
-      // worker could finish chibi's one-time initialization before the last worker exists, and
-      // --no-warmup would not make the first initialize_boss_context calls overlap.
-      std::atomic<int> workersAtStartingLine {0};
-      auto const waitForAllWorkers = [&workersAtStartingLine, &cfg] {
-        ++workersAtStartingLine;
-        while(workersAtStartingLine.load() < cfg.threads) {
-          std::this_thread::yield();
-        }
-      };
       std::vector<std::thread> workers;
       workers.reserve(static_cast<size_t>(cfg.threads));
       for(int t = 0; t < cfg.threads; ++t) {
