@@ -688,14 +688,14 @@ TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, bos
 TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
   auto engine = boss::engines::BootstrapEngine();
   auto currentPipeline = [&engine]() { return engine.evaluate("GetDefaultEnginePipeline"_()); };
-  engine.evaluate("SetDefaultEnginePipeline"_(std::string("first.so")));
-  CHECK(currentPipeline() == "List"_(std::string("first.so")));
+  engine.evaluate("SetDefaultEnginePipeline"_("first.so"));
+  CHECK(currentPipeline() == "List"_("first.so"));
   // A second call replaces the pipeline rather than appending to it.
-  engine.evaluate("SetDefaultEnginePipeline"_(std::string("second.so"), "Second"_));
-  CHECK(currentPipeline() == "List"_(std::string("second.so"), "Second"_));
+  engine.evaluate("SetDefaultEnginePipeline"_("second.so", "Second"_));
+  CHECK(currentPipeline() == "List"_("second.so", "Second"_));
   // The integer makes the update invalid, so it is rejected before the pipeline changes.
-  CHECK_THROWS(engine.evaluate("SetDefaultEnginePipeline"_(std::string("third.so"), 42)));
-  CHECK(currentPipeline() == "List"_(std::string("second.so"), "Second"_));
+  CHECK_THROWS(engine.evaluate("SetDefaultEnginePipeline"_("third.so", 42)));
+  CHECK(currentPipeline() == "List"_("second.so", "Second"_));
 }
 
 namespace {
@@ -786,7 +786,7 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
   CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   stub.releasePausedCall();
-  CHECK(pausedDispatch.get() == boss::Expression(std::int64_t {1}));
+  CHECK(pausedDispatch.get() == std::int64_t {1});
 
   // While ResetEngines is still resetting the stub, a dispatch is refused.
   stub.pauseNextReset();
@@ -796,11 +796,11 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
   CHECK_THROWS_WITH(dispatchToStub(5),
                     Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
   stub.releasePausedCall();
-  CHECK(pausedReset.get() == boss::Expression(std::string("okay")));
+  CHECK(pausedReset.get() == std::string("okay"));
 
   // Both work again once nothing is running.
-  CHECK(dispatchToStub(5) == boss::Expression(std::int64_t {1}));
-  CHECK(engine.evaluate("ResetEngines"_()) == boss::Expression(std::string("okay")));
+  CHECK(dispatchToStub(5) == std::int64_t {1});
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
 }
 
 TEST_CASE("Reconfiguration is refused during a dispatch through the default pipeline",
@@ -808,8 +808,7 @@ TEST_CASE("Reconfiguration is refused during a dispatch through the default pipe
   auto engine = boss::engines::BootstrapEngine();
   requireStubEngine([&engine] { engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
   auto const stub = stubPauseControls();
-  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) ==
-          boss::Expression(std::string("okay")));
+  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) == std::string("okay"));
 
   // A root evaluation goes through the default pipeline, so this pauses inside the stub and
   // is counted as in flight from the moment evaluate() takes its pipeline snapshot. The
@@ -822,8 +821,8 @@ TEST_CASE("Reconfiguration is refused during a dispatch through the default pipe
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   stub.releasePausedCall();
-  CHECK(pausedEvaluation.get() == boss::Expression(std::int64_t {1}));
-  CHECK(engine.evaluate("ResetEngines"_()) == boss::Expression(std::string("okay")));
+  CHECK(pausedEvaluation.get() == std::int64_t {1});
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
 }
 
 TEST_CASE("A BootstrapEngine destroyed during a dispatch resets its engines afterwards",
@@ -843,15 +842,15 @@ TEST_CASE("A BootstrapEngine destroyed during a dispatch resets its engines afte
   {
     auto destroyedEngine = boss::engines::BootstrapEngine();
     CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)) ==
-          boss::Expression(std::int64_t {1}));
+          std::int64_t {1});
   }
   CHECK(stub.resetCount() == resetsBeforeDestruction);
   CHECK_THROWS_WITH(dispatchToStub(5),
                     Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
   stub.releasePausedCall();
-  CHECK(pausedDispatch.get() == boss::Expression(std::int64_t {1}));
+  CHECK(pausedDispatch.get() == std::int64_t {1});
   CHECK(stub.resetCount() == resetsBeforeDestruction + 1);
-  CHECK(dispatchToStub(5) == boss::Expression(std::int64_t {1}));
+  CHECK(dispatchToStub(5) == std::int64_t {1});
 }
 
 TEST_CASE("Custom engine entry points", "[engines]") {
@@ -889,7 +888,7 @@ TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][co
   stub.throwFromNextReset();
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("stub reset failure"));
-  CHECK(dispatchToStub(5) == boss::Expression(std::int64_t {1}));
+  CHECK(dispatchToStub(5) == std::int64_t {1});
 
   // A queued teardown has no caller to report to, so the dispatch that runs it returns its own
   // result. The checks are non-fatal so that the paused call is always released.
@@ -899,14 +898,14 @@ TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][co
   {
     auto destroyedEngine = boss::engines::BootstrapEngine();
     CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)) ==
-          boss::Expression(std::int64_t {1}));
+          std::int64_t {1});
   }
   auto const resetsBeforeRelease = stub.resetCount();
   stub.throwFromNextReset();
   stub.releasePausedCall();
-  CHECK(pausedDispatch.get() == boss::Expression(std::int64_t {1}));
+  CHECK(pausedDispatch.get() == std::int64_t {1});
   CHECK(stub.resetCount() == resetsBeforeRelease + 1);
-  CHECK(dispatchToStub(5) == boss::Expression(std::int64_t {1}));
+  CHECK(dispatchToStub(5) == std::int64_t {1});
 }
 
 TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
@@ -933,7 +932,7 @@ TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
   // library cache. Each returns 1 only if all four calls were inside the stub at once.
   start.set_value();
   for(auto& dispatch : dispatches) {
-    CHECK(dispatch.get() == boss::Expression(std::int64_t {1}));
+    CHECK(dispatch.get() == std::int64_t {1});
   }
 }
 
