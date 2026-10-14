@@ -43,14 +43,22 @@ BOSSExpression* customEntryPoint(BOSSExpression* /*unused*/) {
 }
 
 BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
+  auto const answerWithCustomEntryPoint = [] {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    auto const address = reinterpret_cast<std::intptr_t>(&customEntryPoint);
+    return new BOSSExpression {boss::Expression(static_cast<std::int64_t>(address))};
+  };
+  // A span argument asks for the custom entry point whatever the dynamic arguments say, so a
+  // test fails if BootstrapEngine drops the engine spec's span arguments from the request.
+  if(!request.getSpanArguments().empty()) {
+    return answerWithCustomEntryPoint();
+  }
   auto const& arguments = request.getDynamicArguments();
   auto const* mode = arguments.empty() ? nullptr : std::get_if<Symbol>(&arguments.front());
   // A request with no arguments gets the custom entry point too, so a test dispatching through
   // a plain StubTest symbol fails if BootstrapEngine asks that symbol for an entry point.
   if(arguments.empty() || (mode != nullptr && mode->getName() == "Override")) {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    auto const address = reinterpret_cast<std::intptr_t>(&customEntryPoint);
-    return new BOSSExpression {boss::Expression(static_cast<std::int64_t>(address))};
+    return answerWithCustomEntryPoint();
   }
   if(mode != nullptr && mode->getName() == "Zero") {
     return new BOSSExpression {boss::Expression(std::int64_t {0})};
@@ -133,11 +141,12 @@ extern "C" void reset() {
   }
 }
 
-// Answers GetEntryPoint(Override) and GetEntryPoint() with a custom entry point,
-// GetEntryPoint(Zero) with 0 and any other GetEntryPoint request with a string, so the Tests binary
-// can check how BootstrapEngine handles each result. An expression whose head is Pause pauses
-// first. Rendezvous evaluates to 1 if concurrentCallsToMeet calls met inside the engine, and to 0
-// if they did not. Every other expression evaluates to defaultEntryPointResult.
+// Answers GetEntryPoint(Override), GetEntryPoint() and any GetEntryPoint request with a span
+// argument with a custom entry point, GetEntryPoint(Zero) with 0 and any other GetEntryPoint
+// request with a string, so the Tests binary can check how BootstrapEngine handles each result.
+// An expression whose head is Pause pauses first. Rendezvous evaluates to 1 if
+// concurrentCallsToMeet calls met inside the engine, and to 0 if they did not. Every other
+// expression evaluates to defaultEntryPointResult.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "GetEntryPoint") {

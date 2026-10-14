@@ -868,6 +868,13 @@ TEST_CASE("Custom engine entry points", "[engines]") {
   // A plain engine symbol never asks for a custom entry point. The stub answers an
   // argument-less GetEntryPoint with its custom entry point, so asking would return 4242.
   CHECK(evaluateWithStub("StubTest"_) == boss::Expression(std::int64_t {1}));
+  // The spec's span argument reaches GetEntryPoint as a span. The spec's dynamic argument alone
+  // asks for Zero, so a request without the span would fall back to evaluate.
+  auto specWithSpan = boss::expressions::ComplexExpression(
+      "StubTest"_, {}, boss::expressions::ExpressionArguments("Zero"_),
+      boss::expressions::ExpressionSpanArguments(
+          boss::Span<std::int64_t>(std::vector<std::int64_t> {1})));
+  CHECK(evaluateWithStub(std::move(specWithSpan)) == boss::Expression(std::int64_t {4242}));
 }
 
 TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
