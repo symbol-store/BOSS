@@ -185,6 +185,23 @@ if(NOT _chibi_prefix STREQUAL CMAKE_INSTALL_PREFIX)
   list(APPEND _libboss_install_rpath "${_chibi_prefix}/lib")
 endif()
 
+# On Windows, an engine links against the import library of the executable that loads it, and
+# an executable does not re-export what it imports from BOSS.dll. There, boss and Tests compile
+# BOSS and link chibi statically. Elsewhere they link libBOSS and the shared chibi library, so
+# that a process that also loads engines linking libBOSS has one BootstrapEngine coordination
+# state and one chibi.
+if(WIN32)
+  set(_host_boss_sources ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles})
+  set(_host_boss_library "")
+  set(_host_chibi_library
+    ${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
+else()
+  set(_host_boss_sources "")
+  set(_host_boss_library BOSS)
+  set(_host_chibi_library
+    ${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+endif()
+
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   add_dependencies(BOSS chibi-scheme)
   set_source_files_properties(${REPLFiles} PROPERTIES
@@ -217,15 +234,12 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
   set_target_properties(BOSS PROPERTIES INSTALL_RPATH "${_libboss_install_rpath}")
 
-  # The REPL links libBOSS and the shared chibi library instead of compiling its own copies,
-  # so its process has one BootstrapEngine coordination state and one chibi, also when it
-  # loads engines that link libBOSS.
-  add_executable(boss Source/BOSSREPL.cpp)
+  add_executable(boss Source/BOSSREPL.cpp ${_host_boss_sources})
   add_dependencies(boss chibi-scheme)
   target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
-  target_link_libraries(boss BOSS
-    ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+  target_link_libraries(boss ${_host_boss_library}
+    ${_chibi_prefix}/lib/${_host_chibi_library})
   if(UNIX AND NOT APPLE)
     target_link_libraries(boss dl)
   endif()
@@ -295,13 +309,13 @@ endif()
 
 
 # Tests
-add_executable(Tests ${TestFiles})
-target_link_libraries(Tests BOSS)
+add_executable(Tests ${TestFiles} ${_host_boss_sources})
+target_link_libraries(Tests ${_host_boss_library})
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   add_dependencies(Tests chibi-scheme)
   target_include_directories(Tests SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(Tests
-    ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
+    ${_chibi_prefix}/lib/${_host_chibi_library})
 endif()
 add_dependencies(Tests catch2)
 
