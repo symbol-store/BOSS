@@ -75,9 +75,9 @@ BOSSExpression* describeEngine() {
   return nullptr;
 #elif defined(STUB_ENGINE_DESCRIPTION_IS_NUMBER)
   constexpr std::int64_t numericDescription = 7;
-  return new BOSSExpression {boss::Expression(numericDescription)};
+  return new BOSSExpression {numericDescription};
 #else
-  return new BOSSExpression {boss::Expression(std::string("A stub engine for the BOSS tests.\n"))};
+  return new BOSSExpression {"A stub engine for the BOSS tests.\n"};
 #endif
 }
 

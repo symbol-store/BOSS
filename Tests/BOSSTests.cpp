@@ -895,8 +895,7 @@ TEST_CASE("Reconfiguration is refused while engines are being described",
   auto engine = boss::engines::BootstrapEngine();
   requireStubEngine([&engine] { engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
   auto const stub = stubPauseControls();
-  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) ==
-          boss::Expression(std::string("okay")));
+  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) == std::string("okay"));
 
   // GetEngineDescription calls into the stub, so while that call is paused both reconfiguration
   // operators are refused. The checks are non-fatal so that the paused call is always released.
@@ -911,7 +910,7 @@ TEST_CASE("Reconfiguration is refused while engines are being described",
   stub.releasePausedCall();
   CHECK(get<std::string>(pausedDescription.get()) ==
         "## StubTestEngine\n\nA stub engine for the BOSS tests.\n");
-  CHECK(engine.evaluate("ResetEngines"_()) == boss::Expression(std::string("okay")));
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
 }
 
 TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
