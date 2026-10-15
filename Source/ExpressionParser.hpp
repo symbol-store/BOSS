@@ -17,6 +17,7 @@ extern "C" {
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <variant>
@@ -57,18 +58,52 @@ struct BossContextGuard {
 /// build the scheme environment, and are free to change shape without notice.
 namespace detail {
 
+// Restores ctx's list of GC roots when it goes out of scope, the same assignment
+// sexp_gc_release makes. Roots preserved after it is created therefore come off the context
+// even when a C++ exception (std::bad_alloc from building an Expression or a std::string)
+// unwinds the frame that preserved them, instead of staying linked to a dead stack frame.
+class GcRootScope {
+public:
+  explicit GcRootScope(sexp ctx) : ctx(ctx), savedRoots(sexp_context_saves(ctx)) {}
+  ~GcRootScope() { sexp_context_saves(ctx) = savedRoots; }
+  GcRootScope(GcRootScope const&) = delete;
+  GcRootScope(GcRootScope&&) = delete;
+  GcRootScope& operator=(GcRootScope const&) = delete;
+  GcRootScope& operator=(GcRootScope&&) = delete;
+
+private:
+  sexp ctx;
+  sexp_gc_var_t* savedRoots;
+};
+
 inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr);
 
 inline sexp complex_expr_to_sexp(sexp ctx, boss::ComplexExpression const& expr) {
   auto const& head = expr.getHead().getName();
-  auto const& args = expr.getDynamicArguments();
   sexp_gc_var2(lst, item);
+  GcRootScope const rootScope(ctx);
   sexp_gc_preserve2(ctx, lst, item);
   lst = SEXP_NULL;
-  for(auto it = args.rbegin(); it != args.rend(); ++it) {
-    item = expr_to_sexp(ctx, *it);
+  auto prependArgument = [&](boss::Expression const& argument) {
+    item = expr_to_sexp(ctx, argument);
     lst = sexp_cons(ctx, item, lst);
+  };
+  // Dynamic arguments and then each span argument's elements, the order getArguments() and
+  // the compact renderer use, so a span-backed expression keeps its values. The list is
+  // built reversed and then put in order.
+  for(auto const& argument : expr.getDynamicArguments()) {
+    prependArgument(argument);
   }
+  for(auto const& span : expr.getSpanArguments()) {
+    std::visit(
+        [&prependArgument](auto const& typedSpan) {
+          for(auto const& element : typedSpan) {
+            prependArgument(element);
+          }
+        },
+        span);
+  }
+  lst = sexp_nreverse(ctx, lst);
   if(!head.empty()) {
     item = sexp_intern(ctx, head.c_str(), -1);
     lst = sexp_cons(ctx, item, lst);
@@ -233,16 +268,17 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 /* ─── Initialize a full BOSS chibi context ─── */
 
 // Threading contract for hosts that embed BOSS evaluation:
-// - chibi's sexp_scheme_init tests and sets a process-wide flag without synchronization, so
-//   the first call of initialize_boss_context must return before any other thread calls
-//   initialize_boss_context.
 // - A chibi context is not thread-safe. Each thread creates and uses its own context.
 // - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
 //   BootstrapEngine does not lock its state, so hosts must serialize calls to
 //   evaluate_expression, eval_string and eval_expr across all threads, even when each
 //   thread uses its own context.
 inline sexp initialize_boss_context() {
-  sexp_scheme_init();
+  // sexp_scheme_init tests and sets a process-wide flag without synchronization, and
+  // pretty_print_expression creates a context on any thread's first use, so the host cannot
+  // order the first calls itself. call_once runs it exactly once.
+  static std::once_flag schemeInitialized;
+  std::call_once(schemeInitialized, sexp_scheme_init);
   sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);
   if(ctx == nullptr || sexp_exceptionp(ctx)) {
     std::cerr << "Failed to initialize chibi-scheme context\n";
@@ -318,6 +354,55 @@ inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& exp
   }
   sexp_gc_release4(ctx);
   return {is_error, text};
+}
+
+/* ─── Chibi-backed pretty printer (used by Shims/BossPrettyPrint.cpp) ─── */
+
+// Returns false without writing to `stream` if this thread has no usable chibi context or
+// boss-print is unavailable, or if the printer raises, so the caller can fall back to the
+// compact renderer instead of producing empty output.
+inline bool pretty_print_expression(std::ostream& stream,
+                                    boss::ComplexExpression const& expression) {
+  struct ThreadContext {
+    BossContextGuard guard {initialize_boss_context()};
+    // SEXP_FALSE, not nullptr, is chibi's "no value" sentinel, and it is what keeps the
+    // sexp_procedurep(print_proc) test below safe: sexp_pointerp(nullptr) is true, so that
+    // check would read a tag through a null pointer if print_proc were ever left null.
+    sexp env = guard.ctx == nullptr ? SEXP_FALSE : sexp_context_env(guard.ctx);
+    sexp print_proc =
+        (env == nullptr || env == SEXP_FALSE)
+            ? SEXP_FALSE
+            : sexp_env_ref(guard.ctx, env, sexp_intern(guard.ctx, "boss-print", -1), SEXP_FALSE);
+  };
+  // const: the per-thread context is built once by its member initialisers and only read
+  // afterwards -- the chibi calls below take the handles by value.
+  thread_local ThreadContext const tls;
+  if(tls.guard.ctx == nullptr || !sexp_procedurep(tls.print_proc)) {
+    return false;
+  }
+  std::string renderedText;
+  // Not `sexp const`: sexp is a pointer typedef, so const there binds to the pointer rather
+  // than the pointee and misc-misplaced-const rejects it (clang-tidy runs as errors here).
+  sexp ctx = tls.guard.ctx;
+  sexp_gc_var3(form, arg_list, result_str);
+  detail::GcRootScope const rootScope(ctx);
+  sexp_gc_preserve3(ctx, form, arg_list, result_str);
+  form = detail::complex_expr_to_sexp(ctx, expression);
+  arg_list = sexp_list1(ctx, form);
+  result_str = sexp_apply(ctx, tls.print_proc, arg_list);
+  bool const rendered = !sexp_exceptionp(result_str) && sexp_stringp(result_str);
+  if(rendered) {
+    renderedText = sexp_string_data(result_str);
+  }
+  sexp_gc_release3(ctx);
+  // Written only after the roots are released: a stream with exceptions enabled may throw
+  // here, and an exception must not leave this thread's context holding roots into this frame.
+  // Nothing is written when rendering failed, so a pending width() is left for the compact
+  // renderer that operator<< falls back to.
+  if(rendered) {
+    stream << renderedText;
+  }
+  return rendered;
 }
 
 } // namespace boss
