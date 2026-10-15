@@ -94,6 +94,73 @@ jobs:
         path: |
           install
 
+  # Thread-safety hardening (Phases 2/4): build the ThreadSanitizer concurrency stress harness
+  # and run it. Two hard gates — per-thread+pure and the --direct dispatch+reconfig gate
+  # (race-free since Phase 4) — plus the shared-context baseline as informational (it is
+  # expected to race). See docs/threading-audit.md and Tests/Concurrency/known-races.md.
+  concurrency-stress:
+    needs: [format-check]  # restore to: needs: [format-check, check-runner]
+    runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: true
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+    - name: configure
+      # The C flags instrument chibi too, so that TSan sees chibi's own globals (R4 in
+      # known-races.md). chibi's install step links the chibi-scheme executable against the
+      # instrumented library, which needs the TSan runtime and therefore the linker flag.
+      run: |
+        mkdir -p tsan
+        cd tsan
+        CXX=clang++ CC=clang cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_C_FLAGS_RELWITHDEBINFO="-O2 -g -DNDEBUG -fsanitize=thread" -DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO="-fsanitize=thread" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ..
+        cd ..
+    - name: build harness
+      run: cmake --build tsan --target boss_concurrency_stress -- -j $(nproc)
+    - name: clean gate (per-thread + pure, no warm-up, must be race-free)
+      run: |
+        TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
+          ./tsan/boss_concurrency_stress --mode per-thread --suite pure --threads 8 --iters 2000 --no-warmup
+    - name: baseline (shared ctx — expected to report a race; informational)
+      # halt_on_error=1 makes TSan abort on the first race rather than running on into the
+      # corruption it just reported (which is nondeterministic and can hang). `timeout` is a
+      # belt-and-suspenders guard so a hang can never stall the job. Informational (|| true):
+      # this config is the known-unsafe baseline, present only to confirm TSan still catches it.
+      run: |
+        TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
+          timeout 120 ./tsan/boss_concurrency_stress --mode shared --suite pure --threads 8 --iters 500 || true
+    - name: dispatch + reconfiguration check (--direct mixed — race-free since Phase 4)
+      # --direct hammers boss::evaluate() dispatch and concurrent reconfiguration. The mixed suite
+      # interleaves ordinary evaluations, which go through the pipeline snapshot and dispatch path,
+      # with SetDefaultEnginePipeline / ResetEngines; the pipeline suite alone is all bootstrap
+      # commands, which skip that path. The Phase 4
+      # engineStateMutex makes this race-free; this gate guards against regressions. (The chibi
+      # path buries the dispatch race under parse/GC work, so --direct is the reliable probe.)
+      run: |
+        TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
+          ./tsan/boss_concurrency_stress --direct --suite mixed --threads 8 --iters 5000
+    - name: configure Debug (tripwire)
+      run: |
+        mkdir -p tripwire
+        cd tripwire
+        CXX=clang++ CC=clang cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS:STRING="-std=c++17" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ..
+        cd ..
+    - name: build harness (Debug)
+      run: cmake --build tripwire --target boss_concurrency_stress -- -j $(nproc)
+    - name: tripwire check (Debug shared context must abort with the tripwire message)
+      # ConcurrencyTripwire compiles away outside Debug, so the RelWithDebInfo runs above cannot
+      # see it. report_bugs=0 stops TSan from reporting the shared-context race, so the run ends
+      # only if the tripwire aborts it; the step fails if the run exits normally or if the log
+      # lacks the tripwire's message.
+      run: |
+        if TSAN_OPTIONS="report_bugs=0" timeout 120 ./tripwire/boss_concurrency_stress --mode shared --suite pure --threads 8 --iters 500 > tripwire.log 2>&1; then
+          echo "expected ConcurrencyTripwire to abort the shared-context run"
+          cat tripwire.log
+          exit 1
+        fi
+        grep -q "BOSS ConcurrencyTripwire" tripwire.log || { cat tripwire.log; exit 1; }
+
   release:
     runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
     strategy:

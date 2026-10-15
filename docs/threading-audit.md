@@ -150,15 +150,22 @@ contract: **one context per concurrent caller.**
     So `sexp_intern` (`ExpressionParser.hpp:57,69,214,…`) on *distinct* contexts does not race.
 - The **only** process-global chibi state in this configuration is the one-time init guard
   `static int sexp_initialized_p` (chibi `sexp.c:22`), set inside `sexp_init()`
-  (`sexp.c:4025`, reached via `sexp_scheme_init()` which BOSS calls at the top of **every**
-  `initialize_boss_context()`, `ExpressionParser.hpp:238`). It guards `sexp_gc_init()` and —
+  (`sexp.c:4025`, reached via `sexp_scheme_init()`, which `initialize_boss_context()` calls
+  once per process through `boss::initializeSchemeOnce()`). It guards `sexp_gc_init()` and —
   only under `GLOBAL_SYMBOLS`, which is off here — the symbol-table zeroing.
-  - **Risk: init-time race only.** Two threads making their *first* `initialize_boss_context()`
-    call concurrently race on `sexp_initialized_p` (an unsynchronized read-modify-write) and
-    on the one-time init it guards. After the first init it is a benign read.
-  - **Mitigation (cheap):** warm up once — call `initialize_boss_context()` (or bare
-    `sexp_scheme_init()`) on the main thread *before* spawning workers, or wrap the first init
-    in `std::call_once`. No per-call locking needed.
+  - **Init-time race: fixed.** Two threads making their *first* `initialize_boss_context()`
+    call concurrently used to race on `sexp_initialized_p` (an unsynchronized
+    read-modify-write) and on the one-time initialization that `sexp_init()` performs while
+    the flag is clear. `initialize_boss_context()` now calls `boss::initializeSchemeOnce()`,
+    which runs `sexp_scheme_init()` through a `std::call_once`, so concurrent first calls do
+    not race and callers need no warm-up. `Source/SchemeInitialization.cpp` defines that
+    function, and its `once_flag`, inside libBOSS; a `once_flag` in `ExpressionParser.hpp`
+    would exist once per binary. `boss`, `Tests` and other hosts link libBOSS and libBOSS's
+    shared chibi library, so a process has one `once_flag` and one `sexp_initialized_p`.
+    The stress harness compiles the BOSS sources itself, for ThreadSanitizer, and never
+    loads libBOSS, so its process also has one of each.
+    CI runs the per-thread `pure` suite with `--no-warmup`, so that run creates its first
+    contexts concurrently. No per-call locking is needed.
 
 > ⚠️ **Build-flag assumption to pin.** If chibi is ever rebuilt with `SEXP_USE_BOEHM` or
 > `SEXP_USE_MALLOC` (e.g. to debug the native GC — see `features.h:75–97`), both
@@ -236,7 +243,8 @@ context must not take ownership of the process's standard streams). Tracked as
     chibi-path pipeline run is *not* evidence the race is gone.
   - **G3 (`libraries`) still needs a loadable engine fixture** (`--engine`) to exercise the
     `dlopen` insert; predicted, not yet reproduced.
-  - The §3 init-time race is avoided by a one-context warm-up before the worker threads start.
+  - The §3 init-time race is fixed by `boss::initializeSchemeOnce()` in libBOSS;
+    the harness's `--no-warmup` run creates the first contexts concurrently.
 - **Phase 5 (defensive instrumentation) — implemented.** Two mechanisms in
   `Source/ThreadSafety.hpp`:
   - **`ConcurrencyTripwire`** — a debug-build-only (`!NDEBUG`) RAII object defined here; #198
