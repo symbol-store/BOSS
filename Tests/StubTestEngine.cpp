@@ -16,16 +16,18 @@ using boss::Symbol;
 constexpr std::int64_t defaultEntryPointResult = 1;
 constexpr std::int64_t customEntryPointResult = 4242;
 
-// Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
-// stubPauseNextReset) until the test calls stubReleasePausedCall, so it can check what
-// BootstrapEngine refuses while that call is running. Every wait gives up after pauseTimeout, so a
-// test that fails part-way cannot hang its run.
+// Lets a test hold one engine call (an evaluation of Pause, a reset armed with
+// stubPauseNextReset, or a GetEngineDescription armed with stubPauseNextDescription) until
+// the test calls stubReleasePausedCall, so it can check what BootstrapEngine refuses while that
+// call is running. Every wait gives up after pauseTimeout, so a test that fails part-way cannot
+// hang its run.
 constexpr auto pauseTimeout = std::chrono::seconds(30);
 std::mutex pauseMutex;
 std::condition_variable pauseChanged;
 bool callPaused = false;
 bool pauseReleased = false;
 bool pauseNextReset = false;
+bool pauseNextDescription = false;
 int resetCount = 0;
 bool throwFromNextReset = false;
 
@@ -66,6 +68,19 @@ BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
   return new BOSSExpression {"not an entry point"};
 }
 
+// CMakeLists.txt builds this file three times, so GetEngineDescription can be tested with a
+// string answer, no answer and a non-string answer in one pipeline.
+BOSSExpression* describeEngine() {
+#if defined(STUB_ENGINE_DESCRIPTION_IS_NOTHING)
+  return nullptr;
+#elif defined(STUB_ENGINE_DESCRIPTION_IS_NUMBER)
+  constexpr std::int64_t numericDescription = 7;
+  return new BOSSExpression {numericDescription};
+#else
+  return new BOSSExpression {"A stub engine for the BOSS tests.\n"};
+#endif
+}
+
 // Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
 // Rendezvous waits until concurrentCallsToMeet of them are inside the engine at the same time,
 // and gives up after rendezvousTimeout, so a dispatcher that serialized engine calls fails the
@@ -99,6 +114,11 @@ bool meetConcurrentCalls() {
 extern "C" void stubPauseNextReset() {
   std::scoped_lock const lock(pauseMutex);
   pauseNextReset = true;
+}
+
+extern "C" void stubPauseNextDescription() {
+  std::scoped_lock const lock(pauseMutex);
+  pauseNextDescription = true;
 }
 
 extern "C" int stubWaitUntilCallPaused() {
@@ -144,13 +164,26 @@ extern "C" void reset() {
 // Answers GetEntryPoint(Override), GetEntryPoint() and any GetEntryPoint request with a span
 // argument with a custom entry point, GetEntryPoint(Zero) with 0 and any other GetEntryPoint
 // request with a string, so the Tests binary can check how BootstrapEngine handles each result.
-// An expression whose head is Pause pauses first. Rendezvous evaluates to 1 if
-// concurrentCallsToMeet calls met inside the engine, and to 0 if they did not. Every other
-// expression evaluates to defaultEntryPointResult.
+// GetEngineDescription is answered according to the build variant (see describeEngine), after
+// pausing first when stubPauseNextDescription armed it. An expression whose head is Pause pauses
+// first. Rendezvous evaluates to 1 if concurrentCallsToMeet calls met inside the engine, and to 0
+// if they did not. Every other expression evaluates to defaultEntryPointResult.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "GetEntryPoint") {
     return answerGetEntryPoint(*request);
+  }
+  if(request != nullptr && request->getHead().getName() == "GetEngineDescription") {
+    bool pauseThisDescription = false;
+    {
+      std::scoped_lock const lock(pauseMutex);
+      pauseThisDescription = pauseNextDescription;
+      pauseNextDescription = false;
+    }
+    if(pauseThisDescription) {
+      pauseUntilReleased();
+    }
+    return describeEngine();
   }
   if(request != nullptr && request->getHead().getName() == "Pause") {
     pauseUntilReleased();

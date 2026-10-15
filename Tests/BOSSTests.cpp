@@ -731,6 +731,7 @@ struct StubPauseControls {
   void (*pauseNextReset)();
   int (*resetCount)();
   void (*throwFromNextReset)();
+  void (*pauseNextDescription)();
 
   // Fails the test instead of blocking when no stub call pauses within the stub's timeout. It
   // first releases a call that pauses late, so that the dispatch that made the call can finish.
@@ -759,7 +760,8 @@ StubPauseControls stubPauseControls() {
           reinterpret_cast<void (*)()>(lookUp("stubReleasePausedCall")),
           reinterpret_cast<void (*)()>(lookUp("stubPauseNextReset")),
           reinterpret_cast<int (*)()>(lookUp("stubResetCount")),
-          reinterpret_cast<void (*)()>(lookUp("stubThrowFromNextReset"))};
+          reinterpret_cast<void (*)()>(lookUp("stubThrowFromNextReset")),
+          reinterpret_cast<void (*)()>(lookUp("stubPauseNextDescription"))};
   // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 }
 } // namespace
@@ -874,6 +876,41 @@ TEST_CASE("Custom engine entry points", "[engines]") {
       boss::expressions::ExpressionSpanArguments(
           boss::Span<std::int64_t>(std::vector<std::int64_t> {1})));
   CHECK(evaluateWithStub(std::move(specWithSpan)) == std::int64_t {4242});
+}
+
+TEST_CASE("Engine descriptions", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireStubEngine([&engine] { engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
+  engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_, "StubSilent"_, "StubNumeric"_));
+  // One section per engine, in pipeline order, whether the engine answered with a string, with
+  // nothing or with a non-string.
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
+        "## StubTestEngine\n\nA stub engine for the BOSS tests.\n"
+        "\n## StubSilentEngine\n\n(no description: the engine returned nothing)\n"
+        "\n## StubNumericEngine\n\n(no description: the engine returned 7)\n");
+}
+
+TEST_CASE("Reconfiguration is refused while engines are being described",
+          "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireStubEngine([&engine] { engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
+  auto const stub = stubPauseControls();
+  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) == std::string("okay"));
+
+  // GetEngineDescription calls into the stub, so while that call is paused both reconfiguration
+  // operators are refused. The checks are non-fatal so that the paused call is always released.
+  stub.pauseNextDescription();
+  auto pausedDescription = std::async(
+      std::launch::async, [&engine] { return engine.evaluate("GetEngineDescription"_()); });
+  stub.requireCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  stub.releasePausedCall();
+  CHECK(get<std::string>(pausedDescription.get()) ==
+        "## StubTestEngine\n\nA stub engine for the BOSS tests.\n");
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
 }
 
 TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
