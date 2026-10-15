@@ -9,10 +9,6 @@
 // while the lock is held. std::shared_mutex itself is not annotated by libc++/libstdc++, hence
 // this thin wrapper.
 //
-// This header has no consumers yet -- the engine-state locking that uses it lands in a
-// follow-up change. The analysis flags are switched on now so that annotated code is checked
-// from the moment it is written.
-//
 // All macros are no-ops outside Clang (GCC/MSVC ignore the attributes), so the analysis is a
 // Clang-only, zero-runtime-cost static check. See
 // https://clang.llvm.org/docs/ThreadSafetyAnalysis.html

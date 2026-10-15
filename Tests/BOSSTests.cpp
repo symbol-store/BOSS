@@ -21,7 +21,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
+#include <future>
 #include <iterator>
 #include <numeric>
 #include <ostream>
@@ -33,6 +35,9 @@
 #include <variant>
 #include <vector>
 
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
 using boss::Expression;
 using std::string;
 using std::string_literals::operator""s; // NOLINT(misc-unused-using-decls, misc-include-cleaner)
@@ -744,6 +749,223 @@ TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
   // The integer makes the update invalid, so it is rejected before the pipeline changes.
   CHECK_THROWS(engine.evaluate("SetDefaultEnginePipeline"_("third.so", 42)));
   CHECK(currentPipeline() == "List"_("second.so", "Second"_));
+}
+
+namespace {
+/// Runs loadStub, which makes BootstrapEngine load a stub engine by its bare library name. On
+/// macOS, dlopen looks a bare name up in the working directory rather than next to the Tests
+/// binary, so there a stub that cannot be loaded skips the test. Elsewhere the Tests build must
+/// make the stub loadable, so a load failure fails the test.
+template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
+#ifdef __APPLE__
+  try {
+    std::forward<LoadStub>(loadStub)();
+  } catch(std::exception const& loadFailure) {
+    if(std::string_view(loadFailure.what()).find("could not be loaded") == std::string_view::npos) {
+      throw;
+    }
+    SKIP("the stub engine could not be loaded ("
+         << loadFailure.what() << "); on macOS, run Tests from its build directory");
+  }
+#else
+  std::forward<LoadStub>(loadStub)();
+#endif
+}
+} // namespace
+
+namespace {
+/// The stub engine's pause and reset controls. dlopen (BootstrapEngine.hpp's LoadLibrary
+/// shim on Windows) returns the image that BootstrapEngine already loaded, so these functions
+/// control the same stub instance that BootstrapEngine calls. The test never closes the
+/// handle, so the image remains loaded until the process exits.
+struct StubPauseControls {
+  int (*waitUntilCallPaused)();
+  void (*releasePausedCall)();
+  void (*pauseNextReset)();
+  int (*resetCount)();
+  void (*throwFromNextReset)();
+
+  /// Fails the test instead of blocking when no stub call pauses within the stub's timeout. It
+  /// first releases a call that pauses late, so that the dispatch that made the call can finish.
+  void requireCallPaused() const {
+    if(waitUntilCallPaused() == 0) {
+      releasePausedCall();
+      FAIL("no stub engine call paused within the stub's timeout");
+    }
+  }
+};
+
+StubPauseControls stubPauseControls() {
+#ifdef _WIN32
+  auto* const stubLibrary = dlopen("StubTestEngine.dll", RTLD_NOW);
+#else
+  auto* const stubLibrary = dlopen("libStubTestEngine.so", RTLD_NOW);
+#endif
+  REQUIRE(stubLibrary != nullptr);
+  auto const lookUp = [stubLibrary](char const* name) {
+    auto* const function = dlsym(stubLibrary, name);
+    REQUIRE(function != nullptr);
+    return function;
+  };
+  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+  return {reinterpret_cast<int (*)()>(lookUp("stubWaitUntilCallPaused")),
+          reinterpret_cast<void (*)()>(lookUp("stubReleasePausedCall")),
+          reinterpret_cast<void (*)()>(lookUp("stubPauseNextReset")),
+          reinterpret_cast<int (*)()>(lookUp("stubResetCount")),
+          reinterpret_cast<void (*)()>(lookUp("stubThrowFromNextReset"))};
+  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+} // namespace
+
+TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToStub = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
+  };
+  requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
+  auto const stub = stubPauseControls();
+
+  // While an engine call is running, both reconfiguration operators are refused. The checks
+  // are non-fatal so that the paused call is always released.
+  auto pausedDispatch =
+      std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
+  stub.requireCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  // Every BootstrapEngine gets the same stub image from dlopen, so a second BootstrapEngine
+  // refuses ResetEngines as well.
+  CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  stub.releasePausedCall();
+  CHECK(pausedDispatch.get() == std::int64_t {1});
+
+  // BootstrapEngine refuses a dispatch while ResetEngines is still resetting the stub.
+  stub.pauseNextReset();
+  auto pausedReset =
+      std::async(std::launch::async, [&engine] { return engine.evaluate("ResetEngines"_()); });
+  stub.requireCallPaused();
+  CHECK_THROWS_WITH(dispatchToStub(5),
+                    Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
+  stub.releasePausedCall();
+  CHECK(pausedReset.get() == std::string("okay"));
+
+  // Both operators succeed again once no engine call is running.
+  CHECK(dispatchToStub(5) == std::int64_t {1});
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
+}
+
+TEST_CASE("Reconfiguration is refused during a dispatch through the default pipeline",
+          "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireStubEngine([&engine] { engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
+  auto const stub = stubPauseControls();
+  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) == std::string("okay"));
+
+  // A root evaluation goes through the default pipeline, so this evaluation pauses inside the
+  // stub, and BootstrapEngine counts it as in flight from the moment evaluate() copies the
+  // pipeline. The checks are non-fatal so that the paused call is always released.
+  auto pausedEvaluation =
+      std::async(std::launch::async, [&engine] { return engine.evaluate("Pause"_()); });
+  stub.requireCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  stub.releasePausedCall();
+  CHECK(pausedEvaluation.get() == std::int64_t {1});
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
+}
+
+TEST_CASE("A BootstrapEngine destroyed during a dispatch resets its engines afterwards",
+          "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToStub = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
+  };
+  requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
+  auto const stub = stubPauseControls();
+
+  // The checks are non-fatal so that the paused call is always released.
+  auto pausedDispatch =
+      std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
+  stub.requireCallPaused();
+  auto const resetsBeforeDestruction = stub.resetCount();
+  {
+    auto destroyedEngine = boss::engines::BootstrapEngine();
+    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)) ==
+          std::int64_t {1});
+  }
+  CHECK(stub.resetCount() == resetsBeforeDestruction);
+  CHECK_THROWS_WITH(dispatchToStub(5),
+                    Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
+  stub.releasePausedCall();
+  CHECK(pausedDispatch.get() == std::int64_t {1});
+  CHECK(stub.resetCount() == resetsBeforeDestruction + 1);
+  CHECK(dispatchToStub(5) == std::int64_t {1});
+}
+
+TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToStub = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
+  };
+  requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
+  auto const stub = stubPauseControls();
+
+  // ResetEngines reports the failure to its caller.
+  stub.throwFromNextReset();
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("stub reset failure"));
+  CHECK(dispatchToStub(5) == std::int64_t {1});
+
+  // Queued libraries have no caller to report a reset failure to, so the dispatch that resets
+  // and unloads them returns the dispatch's result. The checks are non-fatal so that the
+  // paused call is always released.
+  auto pausedDispatch =
+      std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
+  stub.requireCallPaused();
+  {
+    auto destroyedEngine = boss::engines::BootstrapEngine();
+    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)) ==
+          std::int64_t {1});
+  }
+  auto const resetsBeforeRelease = stub.resetCount();
+  stub.throwFromNextReset();
+  stub.releasePausedCall();
+  CHECK(pausedDispatch.get() == std::int64_t {1});
+  CHECK(stub.resetCount() == resetsBeforeRelease + 1);
+  CHECK(dispatchToStub(5) == std::int64_t {1});
+}
+
+TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
+  {
+    // A separate BootstrapEngine loads the stub once to find out whether the stub can be loaded
+    // at all, so the BootstrapEngine under test still starts with an empty library cache.
+    auto probeEngine = boss::engines::BootstrapEngine();
+    requireStubEngine(
+        [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
+  }
+  auto engine = boss::engines::BootstrapEngine();
+  constexpr int concurrentDispatches = 4; // concurrentCallsToMeet in Tests/StubTestEngine.cpp
+  std::promise<void> start;
+  std::shared_future<void> const startSignal = start.get_future().share();
+  std::vector<std::future<boss::Expression>> dispatches;
+  dispatches.reserve(concurrentDispatches);
+  for(int dispatch = 0; dispatch < concurrentDispatches; ++dispatch) {
+    dispatches.push_back(std::async(std::launch::async, [&engine, startSignal] {
+      startSignal.wait();
+      return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), "Rendezvous"_()));
+    }));
+  }
+  // The dispatches start together, so the four threads also make BootstrapEngine load the stub
+  // into the empty library cache concurrently. Each dispatch returns 1 only if all four calls
+  // were inside the stub at once.
+  start.set_value();
+  for(auto& dispatch : dispatches) {
+    CHECK(dispatch.get() == std::int64_t {1});
+  }
 }
 
 TEST_CASE("Basics", "[basics]") { // NOLINT

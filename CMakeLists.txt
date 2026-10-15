@@ -129,6 +129,10 @@ else()
 endif()
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
+  # BOSS evaluates concurrently in separate chibi contexts, which is safe only because chibi
+  # gives each context a separate heap and symbol table. Defining SEXP_USE_BOEHM or
+  # SEXP_USE_MALLOC for this build would make chibi share one heap and one symbol table
+  # between all contexts.
   ExternalProject_Add(chibi-scheme
     URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
     URL_HASH SHA256=b70a1147bc70a0f90df3fb6081bc99808237fd17a9accf9ee7a2cc20d95a4df0
@@ -234,6 +238,32 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
 endif()
 add_dependencies(Tests catch2)
+
+# Tests loads this stub engine by its library name (libStubTestEngine.so next to the Tests
+# binary), so that the default test suite can test dispatch into a real engine library
+# without downloading an external engine. A MODULE library has the .so suffix on macOS as
+# well, and BootstrapEngine derives the name libStubTestEngine.so from a StubTest engine
+# symbol.
+# With MSVC, CMake builds the stub as SHARED, like the engines, because
+# CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS exports nothing from a MODULE library.
+if(MSVC)
+  set(_stub_engine_library_type SHARED)
+else()
+  set(_stub_engine_library_type MODULE)
+endif()
+add_library(StubTestEngine ${_stub_engine_library_type} Tests/StubTestEngine.cpp)
+add_dependencies(StubTestEngine spdlog)
+target_include_directories(StubTestEngine SYSTEM PRIVATE ${BOSS_BINARY_DIR}/deps/include)
+target_link_libraries(StubTestEngine Threads::Threads)
+set_target_properties(StubTestEngine PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
+  LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>
+  RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
+add_dependencies(Tests StubTestEngine)
+# On Linux, dlopen does not search the executable's directory for a bare library name, so
+# the rpath of Tests is $ORIGIN, in the build tree and in the installation.
+if(UNIX AND NOT APPLE)
+  set_target_properties(Tests PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+endif()
 
 target_link_libraries(Tests ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX})
 if(WIN32)
@@ -370,6 +400,11 @@ else()
   install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
+# Tests loads StubTestEngine by its bare library name, so the installation copies
+# StubTestEngine into the directory of Tests. There, the dynamic loader finds
+# StubTestEngine through the $ORIGIN rpath on Linux, and LoadLibrary finds StubTestEngine
+# on Windows.
+install(TARGETS StubTestEngine LIBRARY DESTINATION bin RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
 

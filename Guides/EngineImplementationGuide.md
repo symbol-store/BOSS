@@ -62,13 +62,14 @@ This is the only required entry point. Every other interaction with BOSS happens
 
 - `e->delegate` is a fully-parsed `boss::Expression`, almost always rooted at a `ComplexExpression`.
 - BOSS will `freeBOSSExpression` your return value when it is done with it.
-- BOSS will not call `evaluate` concurrently on the same engine instance (single-threaded entry).
+- BOSS calls your `reset`, if your engine exports one, before it unloads your engine. `SetDefaultEnginePipeline` and `ResetEngines` reset and unload every loaded engine, and BOSS refuses both while any engine call is running, so `reset` never runs during a call to `evaluate`.
 
 ### What you must guarantee BOSS
 
 - Return a `BOSSExpression*` allocated with `new BOSSExpression{…}`.
 - Do not let C++ exceptions escape the `extern "C"` boundary. Catch them and convert to a string-valued result if they reach the top of `evaluate`.
-- Do not assume your library state outlives a single call sequence. (In practice BOSS does not unload engines mid-session, but you should not rely on it.)
+- Make `evaluate` and `reset` reentrant. BOSS may call `evaluate` from several threads at once, and never makes one call wait for another.
+- Clear your engine's state in `reset`. On Linux and macOS, BOSS loads engines with `RTLD_NODELETE`, so unloading an engine leaves its library mapped, and loading the engine again does not run its static initializers again.
 
 ### The minimal `evaluate`
 
@@ -277,7 +278,7 @@ The dispatch chain runs every call. To initialize once per process, use a static
 static auto _ = arrow::compute::Initialize();
 ```
 
-This is the idiom ArrowComputeEngine uses to ensure Arrow's compute registry is populated before the first kernel call. Use the same pattern to register your own kernels, open long-lived connections, or build static lookup tables.
+This is the idiom ArrowComputeEngine uses to ensure Arrow's compute registry is populated before the first kernel call. C++ initializes a function-local static exactly once, even when several threads call `evaluate` at the same time, and on the thread that calls first. Use the same pattern to register your own kernels, open long-lived connections, or build static lookup tables.
 
 ---
 

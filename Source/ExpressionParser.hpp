@@ -322,12 +322,13 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 
 /* ─── Initialize a full BOSS chibi context ─── */
 
-// Threading contract for hosts that embed BOSS evaluation:
-// - A chibi context is not thread-safe. Each thread creates and uses its own context.
-// - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
-//   BootstrapEngine does not lock its state, so hosts must serialize calls to
-//   evaluate_expression, eval_string and eval_expr across all threads, even when each
-//   thread uses its own context.
+/// Threading contract for hosts that embed BOSS evaluation:
+/// - A chibi context is not thread-safe. Each thread creates and uses a separate context.
+/// - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
+///   BootstrapEngine locks its engine pipeline and library cache, so distinct contexts may
+///   evaluate concurrently. Engines must be reentrant, and BootstrapEngine refuses
+///   SetDefaultEnginePipeline and ResetEngines while any engine dispatch is in flight.
+///   Bootstrap commands, and evaluations that reach no engine, do not count as dispatches.
 inline sexp initialize_boss_context() {
   // sexp_scheme_init tests and sets a process-wide flag without synchronization, and
   // pretty_print_expression creates a context on any thread's first use, so the host cannot
