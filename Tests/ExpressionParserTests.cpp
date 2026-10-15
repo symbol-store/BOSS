@@ -1,4 +1,6 @@
+#include "../Source/Expression.hpp"
 #include "../Source/ExpressionParser.hpp"
+#include "../Source/ExpressionUtilities.hpp"
 
 extern "C" {
 #include <chibi/eval.h>
@@ -9,6 +11,7 @@ extern "C" {
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <cstdint>
 #include <ios>
 #include <ostream>
 #include <sstream>
