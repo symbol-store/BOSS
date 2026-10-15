@@ -228,16 +228,69 @@ TEST_CASE("Pretty-print manipulator toggles the per-stream flag", "[expressions]
   CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
 }
 
+namespace {
+// prettyPrintHook() is process-wide, so a test that replaces the hook would otherwise leave
+// its replacement installed for every test that runs after it.
+class InstalledHookRestorer {
+public:
+  InstalledHookRestorer() : installedHook(boss::prettyPrintHook()) {}
+  ~InstalledHookRestorer() { boss::prettyPrintHook() = installedHook; }
+  InstalledHookRestorer(InstalledHookRestorer const&) = delete;
+  InstalledHookRestorer(InstalledHookRestorer&&) = delete;
+  InstalledHookRestorer& operator=(InstalledHookRestorer const&) = delete;
+  InstalledHookRestorer& operator=(InstalledHookRestorer&&) = delete;
+
+private:
+  boss::expressions::generic::PrettyPrintHook installedHook;
+};
+} // namespace
+
 TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pretty]") {
-  // The Tests binary does not link Shims/BossPrettyPrint.cpp, so the hook stays null
-  // and pretty mode falls through to the compact renderer.
-  REQUIRE(boss::prettyPrintHook() == nullptr);
+  InstalledHookRestorer const restorer;
+  boss::prettyPrintHook() = nullptr;
   auto expr = "Filter"_("Load"_("path"), "Greater"_("x"_, 3));
   std::stringstream compactOut;
   compactOut << expr;
   std::stringstream prettyOut;
   prettyOut << boss::pretty << expr;
   CHECK(prettyOut.str() == compactOut.str());
+}
+
+TEST_CASE("Pretty falls back to compact when the hook declines", "[expressions][pretty]") {
+  InstalledHookRestorer const restorer;
+
+  auto const expr = "Filter"_("Load"_(), "Greater"_("x"_, "y"_));
+  std::stringstream compactOut;
+  compactOut << expr;
+
+  // A hook that cannot render must not swallow the output.
+  boss::prettyPrintHook() = [](std::ostream&, boss::ComplexExpression const&) { return false; };
+  std::stringstream declinedOut;
+  declinedOut << boss::pretty << expr;
+  CHECK(declinedOut.str() == compactOut.str());
+
+  // A hook that declines the outer expression but renders a nested one must not mix its
+  // output into the compact fallback.
+  boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const& expression) {
+    if(expression.getHead().getName() != "Greater") {
+      return false;
+    }
+    stream << "RENDERED";
+    return true;
+  };
+  std::stringstream selectiveOut;
+  selectiveOut << boss::pretty << expr;
+  CHECK(selectiveOut.str() == compactOut.str());
+  CHECK(selectiveOut.iword(boss::prettyStreamIndex()) == 1);
+
+  // A hook that does render owns the output entirely.
+  boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const&) {
+    stream << "RENDERED";
+    return true;
+  };
+  std::stringstream renderedOut;
+  renderedOut << boss::pretty << expr;
+  CHECK(renderedOut.str() == "RENDERED");
 }
 
 TEST_CASE("Compact rendering is lisp-style", "[expressions][pretty]") {

@@ -93,4 +93,45 @@
         (convert-from-boss-expression
           (convert-to-boss-expression (list big-symbol 1 2)))))))
 
+(test-group "span arguments crossing the boss<->chibi boundary (zero-copy)"
+
+  (let* ((span (bytevectorToNewInt8BOSSSpan #u8(97 98 0 99 255)))
+         (address (getBOSSSpanBeginAddress span))
+         (back (convert-from-boss-expression
+                 (convert-to-boss-expression (list 'Column ':spans span)))))
+    (test "round-trips to a Column expression holding a span object"
+      #t
+      (and (pair? back) (eq? (car back) 'Column) (BOSSExpressionSpan? (list-ref back 2))))
+    (test "zero-copy: buffer address preserved through the round-trip"
+      address
+      (getBOSSSpanBeginAddress (list-ref back 2))))
+
+  ;; :spans is optional -- a bare span object self-routes to the span argument list
+  (let* ((span1 (bytevectorToNewInt8BOSSSpan #u8(1 2 3)))
+         (span2 (bytevectorToNewInt8BOSSSpan #u8(1 2 3)))
+         (with-keyword (convert-from-boss-expression
+                         (convert-to-boss-expression (list 'Column ':spans span1))))
+         (without-keyword (convert-from-boss-expression
+                            (convert-to-boss-expression (list 'Column span2)))))
+    (test "bare span self-routes like an explicit :spans span"
+      (list 'Column #t)
+      (list (car without-keyword) (BOSSExpressionSpan? (list-ref without-keyword 2))))
+    (test "explicit :spans keyword yields the same shape"
+      (list 'Column #t)
+      (list (car with-keyword) (BOSSExpressionSpan? (list-ref with-keyword 2)))))
+
+  ;; A quoted :spans is a literal symbol, not the marker, and convert-from-boss-expression
+  ;; quotes it again so the expression round-trips.
+  (let ((literal (convert-to-boss-expression '(Head ':spans))))
+    (test "a quoted :spans is one dynamic argument, not the span marker"
+      '(1 0)
+      (list (getDynamicArgumentCountFromBOSSExpression literal)
+            (getSpanArgumentCountFromBOSSExpression literal)))
+    (test "a literal :spans symbol round-trips"
+      '(Head ':spans)
+      (convert-from-boss-expression literal)))
+
+  (test-error "bytevectorToNewInt8BOSSSpan rejects a non-bytevector"
+    (bytevectorToNewInt8BOSSSpan "not a bytevector")))
+
 (test-exit)

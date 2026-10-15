@@ -161,11 +161,12 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   set(REPLStubFiles chibi-bindings.stub)
   set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
   list(APPEND TestFiles Tests/ExpressionParserTests.cpp)
+  set(PrettyPrintFiles Source/Shims/BossPrettyPrint.cpp)
 endif()
 
 # BOSS
 
-add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles})
+add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles} ${PrettyPrintFiles})
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   add_dependencies(BOSS chibi-scheme)
@@ -199,7 +200,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 
   # Standalone BOSS REPL binary (statically linked)
-  add_executable(boss Source/BOSSREPL.cpp ${ImplementationFiles} ${REPLFiles})
+  add_executable(boss Source/BOSSREPL.cpp ${ImplementationFiles} ${REPLFiles} ${PrettyPrintFiles})
   add_dependencies(boss chibi-scheme)
   target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
@@ -226,7 +227,7 @@ endif()
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  target_sources(Tests PRIVATE ${REPLFiles})
+  target_sources(Tests PRIVATE ${REPLFiles} ${PrettyPrintFiles})
   add_dependencies(Tests chibi-scheme)
   target_include_directories(Tests SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(Tests
