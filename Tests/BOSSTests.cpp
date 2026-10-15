@@ -17,6 +17,7 @@
 #include <catch2/generators/catch_generators_random.hpp>
 #include <catch2/generators/catch_generators_range.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -679,6 +680,19 @@ TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, bos
   }
 }
 
+TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto currentPipeline = [&engine]() { return engine.evaluate("GetDefaultEnginePipeline"_()); };
+  engine.evaluate("SetDefaultEnginePipeline"_("first.so"));
+  CHECK(currentPipeline() == "List"_("first.so"));
+  // A second call replaces the pipeline rather than appending to it.
+  engine.evaluate("SetDefaultEnginePipeline"_("second.so", "Second"_));
+  CHECK(currentPipeline() == "List"_("second.so", "Second"_));
+  // The integer makes the update invalid, so it is rejected before the pipeline changes.
+  CHECK_THROWS(engine.evaluate("SetDefaultEnginePipeline"_("third.so", 42)));
+  CHECK(currentPipeline() == "List"_("second.so", "Second"_));
+}
+
 TEST_CASE("Basics", "[basics]") { // NOLINT
   auto engine = boss::engines::BootstrapEngine();
   REQUIRE(!librariesToTest.empty());
@@ -691,6 +705,14 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
     CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
         engine.evaluate("EvaluateInEngines"_("List"_(9), 5)),
         "expected and actual type mismatch in expression \"9\", expected string");
+
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_), 5)),
+        Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));
+
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_(9)), 5)),
+        Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));
   }
 
   SECTION("Atomics") {
