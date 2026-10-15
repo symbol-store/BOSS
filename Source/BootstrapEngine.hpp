@@ -91,12 +91,15 @@ using boss::utilities::overload;
 
 // Threading contract of BootstrapEngine
 // Callers: a chibi context is not thread-safe, so no two threads may evaluate in the same
-//   context at the same time (docs/threading-audit.md, section 3). Threads with separate
-//   contexts can call BOSSEvaluate concurrently, and BootstrapEngine runs their evaluations
-//   concurrently.
+//   context at the same time. Threads with separate contexts can call BOSSEvaluate
+//   concurrently, and BootstrapEngine runs their evaluations concurrently.
 // Engines: an engine's evaluate and reset functions must be reentrant. BootstrapEngine can
 //   call one engine from several threads at once and never makes one engine call wait for
-//   another.
+//   another. BootstrapEngine loads an engine on the first dispatch to it, so the engine's
+//   static initializers run on the thread of that dispatch. On Linux and macOS, dlopen
+//   uses RTLD_NODELETE, so dlclose leaves the library mapped and a later load does not run
+//   the static initializers again: reset is the only call in which an engine can clear its
+//   state.
 // Reconfiguration: SetDefaultEnginePipeline and ResetEngines replace the engine pipeline and
 //   reset and unload every loaded engine. Both throw while an engine dispatch is in flight;
 //   bootstrap commands and evaluations that reach no engine do not count as dispatches. No

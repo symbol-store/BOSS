@@ -103,12 +103,11 @@ private:
 
 /**
  * Debug-build-only guard that detects violations of the "one context per concurrent caller"
- * rule (docs/threading-audit.md §3): a context that is not itself thread-safe (such as a
- * chibi-scheme context) must never be entered by two threads at once. Construct it at the top of
- * a per-context evaluation, scoped to the call, passing the context handle as `key`. If another
- * thread is already inside an evaluation on the same key, it aborts loudly — converting silent
- * memory corruption (concurrent use of a non-thread-safe chibi context) into an immediate,
- * diagnosable crash.
+ * rule: a context that is not itself thread-safe (such as a chibi-scheme context) must never be
+ * entered by two threads at once. Construct it at the top of a per-context evaluation, scoped to
+ * the call, passing the context handle as `key`. If another thread is already inside an
+ * evaluation on the same key, it aborts loudly — converting silent memory corruption
+ * (concurrent use of a non-thread-safe chibi context) into an immediate, diagnosable crash.
  *
  * Re-entry by the SAME thread on the same key is permitted (depth-counted), so ordinary
  * nested/recursive evaluation on one context does not trip it.
@@ -126,8 +125,8 @@ public:
       if(it->second.thread != std::this_thread::get_id()) {
         std::cerr << "\n*** BOSS ConcurrencyTripwire: context " << key_
                   << " entered concurrently from a second thread in " << site
-                  << ".\n*** This violates the one-context-per-caller contract "
-                     "(docs/threading-audit.md §3) and would corrupt the context."
+                  << ".\n*** This violates the one-context-per-caller contract and would "
+                     "corrupt the context."
                      "\n*** Aborting.\n"
                   << std::flush;
         std::abort();

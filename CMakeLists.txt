@@ -129,6 +129,10 @@ else()
 endif()
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
+  # BOSS evaluates concurrently in separate chibi contexts, which is safe only because chibi
+  # gives each context a separate heap and symbol table. Defining SEXP_USE_BOEHM or
+  # SEXP_USE_MALLOC for this build would make chibi share one heap and one symbol table
+  # between all contexts.
   ExternalProject_Add(chibi-scheme
     URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
     URL_HASH SHA256=b70a1147bc70a0f90df3fb6081bc99808237fd17a9accf9ee7a2cc20d95a4df0
