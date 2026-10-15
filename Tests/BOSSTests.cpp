@@ -752,10 +752,10 @@ TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
 }
 
 namespace {
-// Runs loadStub, which makes BootstrapEngine load a stub engine by its bare library name. On
-// macOS, dlopen looks a bare name up in the working directory rather than next to the Tests
-// binary, so there a stub that cannot be loaded skips the test. Elsewhere the Tests build must
-// make the stub loadable, so a load failure fails the test.
+/// Runs loadStub, which makes BootstrapEngine load a stub engine by its bare library name. On
+/// macOS, dlopen looks a bare name up in the working directory rather than next to the Tests
+/// binary, so there a stub that cannot be loaded skips the test. Elsewhere the Tests build must
+/// make the stub loadable, so a load failure fails the test.
 template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
 #ifdef __APPLE__
   try {
@@ -774,10 +774,10 @@ template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
 } // namespace
 
 namespace {
-// The stub engine's pause and reset controls. dlopen (BootstrapEngine.hpp's LoadLibrary
-// shim on Windows) returns the image that BootstrapEngine already loaded, so these functions
-// control the same stub instance that BootstrapEngine calls. The test never closes the
-// handle, so the image remains loaded until the process exits.
+/// The stub engine's pause and reset controls. dlopen (BootstrapEngine.hpp's LoadLibrary
+/// shim on Windows) returns the image that BootstrapEngine already loaded, so these functions
+/// control the same stub instance that BootstrapEngine calls. The test never closes the
+/// handle, so the image remains loaded until the process exits.
 struct StubPauseControls {
   int (*waitUntilCallPaused)();
   void (*releasePausedCall)();
@@ -785,8 +785,8 @@ struct StubPauseControls {
   int (*resetCount)();
   void (*throwFromNextReset)();
 
-  // Fails the test instead of blocking when no stub call pauses within the stub's timeout. It
-  // first releases a call that pauses late, so that the dispatch that made the call can finish.
+  /// Fails the test instead of blocking when no stub call pauses within the stub's timeout. It
+  /// first releases a call that pauses late, so that the dispatch that made the call can finish.
   void requireCallPaused() const {
     if(waitUntilCallPaused() == 0) {
       releasePausedCall();

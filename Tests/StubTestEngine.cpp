@@ -13,10 +13,10 @@ using boss::ComplexExpression;
 
 constexpr std::int64_t defaultEntryPointResult = 1;
 
-// Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
-// stubPauseNextReset) until the test calls stubReleasePausedCall, so that the test can check
-// what BootstrapEngine refuses while that call is running. Every wait ends after
-// pauseTimeout, so a test that fails part-way cannot block the test run indefinitely.
+/// Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
+/// stubPauseNextReset) until the test calls stubReleasePausedCall, so that the test can check
+/// what BootstrapEngine refuses while that call is running. Every wait ends after
+/// pauseTimeout, so a test that fails part-way cannot block the test run indefinitely.
 constexpr auto pauseTimeout = std::chrono::seconds(30);
 std::mutex pauseMutex;
 std::condition_variable pauseChanged;
@@ -35,10 +35,10 @@ void pauseUntilReleased() {
   pauseReleased = false;
 }
 
-// Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
-// Rendezvous waits until concurrentCallsToMeet evaluations are inside the engine at the same
-// time, and stops waiting after rendezvousTimeout, so that the test fails instead of
-// blocking if BootstrapEngine makes engine calls wait for each other.
+/// Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
+/// Rendezvous waits until concurrentCallsToMeet evaluations are inside the engine at the same
+/// time, and stops waiting after rendezvousTimeout, so that the test fails instead of
+/// blocking if BootstrapEngine makes engine calls wait for each other.
 constexpr int concurrentCallsToMeet = 4;
 constexpr auto rendezvousTimeout = std::chrono::seconds(10);
 std::mutex rendezvousMutex;
@@ -110,9 +110,9 @@ extern "C" void reset() {
   }
 }
 
-// Evaluates every expression to defaultEntryPointResult, after pausing first when the
-// expression's head is Pause. Rendezvous evaluates to 1 if concurrentCallsToMeet calls met
-// inside the engine, and to 0 if they did not.
+/// Evaluates every expression to defaultEntryPointResult, after pausing first when the
+/// expression's head is Pause. Rendezvous evaluates to 1 if concurrentCallsToMeet calls met
+/// inside the engine, and to 0 if they did not.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "Pause") {
