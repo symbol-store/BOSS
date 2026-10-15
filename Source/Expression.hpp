@@ -1,6 +1,7 @@
 #pragma once
 #include "Utilities.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -223,7 +224,7 @@ namespace generic {
 //
 // Set with `stream << boss::pretty`; clear with `boss::compact`. When the flag is
 // set and a hook has been installed (by linking Shims/BossPrettyPrint.cpp — built
-// into libBOSS and the REPL but not into Tests), operator<< for ComplexExpression
+// into libBOSS, the REPL and Tests), operator<< for ComplexExpression
 // delegates to it. Without the hook the flag is a silent no-op. Note: only the
 // default `ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>` is routed;
 // extensible variants (custom atoms) fall through to the compact renderer.
@@ -234,10 +235,20 @@ inline int prettyStreamIndex() {
   static int const index = std::ios_base::xalloc();
   return index;
 }
-using PrettyPrintHook = void (*)(std::ostream&,
+// Returns true when it has rendered the expression. A hook that cannot render (for instance
+// because its scheme context or printer is unavailable) returns false, and operator<< falls
+// back to the compact renderer rather than emitting nothing.
+using PrettyPrintHook = bool (*)(std::ostream&,
                                  ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>> const&);
-inline PrettyPrintHook& prettyPrintHook() {
-  static PrettyPrintHook hook = nullptr;
+// The flag index and the hook live in function-local statics. On ELF and Mach-O these have
+// vague linkage and are shared between libBOSS and any executable linked against it, so a
+// hook installed from one module is visible in the other. Where that is not the case (a DLL
+// built without exported data symbols, say), each module needs its own installer, which is
+// why Shims/BossPrettyPrint.cpp is compiled into both the BOSS library and the boss binary.
+// Atomic, so a thread installing or clearing the hook does not race with operator<< reading it
+// on another thread.
+inline std::atomic<PrettyPrintHook>& prettyPrintHook() {
+  static std::atomic<PrettyPrintHook> hook {nullptr};
   return hook;
 }
 inline std::ostream& pretty(std::ostream& stream) {
@@ -248,6 +259,23 @@ inline std::ostream& compact(std::ostream& stream) {
   stream.iword(prettyStreamIndex()) = 0;
   return stream;
 }
+// Clears a stream's pretty flag until the end of the scope, so that the expressions nested in a
+// compact fallback cannot reach the hook.
+class CompactFallbackScope {
+public:
+  explicit CompactFallbackScope(std::ostream& suspendedStream)
+      : stream(&suspendedStream),
+        suspendedFlag(std::exchange(suspendedStream.iword(prettyStreamIndex()), 0)) {}
+  ~CompactFallbackScope() { stream->iword(prettyStreamIndex()) = suspendedFlag; }
+  CompactFallbackScope(CompactFallbackScope const&) = delete;
+  CompactFallbackScope(CompactFallbackScope&&) = delete;
+  CompactFallbackScope& operator=(CompactFallbackScope const&) = delete;
+  CompactFallbackScope& operator=(CompactFallbackScope&&) = delete;
+
+private:
+  std::ostream* stream;
+  long suspendedFlag;
+};
 
 template <typename T>
 inline constexpr bool isComplexExpression =
@@ -1363,22 +1391,34 @@ public:
    */
   friend ::std::ostream& operator<<(::std::ostream& out,
                                     ComplexExpressionWithAdditionalCustomAtoms const& e) {
+    auto const renderCompact = [&out, &e]() -> ::std::ostream& {
+      out << "(" << e.getHead();
+      if(!e.getArguments().empty()) {
+        out << " " << e.getArguments().front();
+        for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
+          out << " " << *it;
+        }
+      }
+      out << ")";
+      return out;
+    };
     if constexpr(std::is_same_v<ComplexExpressionWithAdditionalCustomAtoms,
                                 ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>>) {
-      if(out.iword(prettyStreamIndex()) != 0 && prettyPrintHook() != nullptr) {
-        prettyPrintHook()(out, e);
-        return out;
+      if(out.iword(prettyStreamIndex()) != 0) {
+        // Only pretty mode reads the hook, so compact rendering does no atomic load. It is read
+        // once: checking and then calling prettyPrintHook() separately would let another thread
+        // swap or clear it in between, and the call would use the second read.
+        PrettyPrintHook const hook = prettyPrintHook();
+        if(hook != nullptr && hook(out, e)) {
+          return out;
+        }
+        // A hook that declined this expression could still render a nested one. Pretty mode is
+        // off while the arguments print, so the whole fallback is compact.
+        CompactFallbackScope const compactFallback(out);
+        return renderCompact();
       }
     }
-    out << "(" << e.getHead();
-    if(!e.getArguments().empty()) {
-      out << " " << e.getArguments().front();
-      for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
-        out << " " << *it;
-      }
-    }
-    out << ")";
-    return out;
+    return renderCompact();
   }
 
   ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
