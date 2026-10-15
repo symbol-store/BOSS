@@ -1,277 +1,287 @@
-# BOSS Core Thread-Safety Audit
+# BOSS Core Thread Safety
 
-> **Scope:** BOSS *core* only — `Source/*` excluding engine implementations (engines live
-> in separate repos, loaded via `dlopen`). Engines are treated as opaque functions; this
-> document characterizes what core does on either side of an engine call, not what an
-> engine does internally.
->
-> **Status:** Phase 1 inventory. This is a reference to grep when reviewing PRs that touch
-> shared state. Each entry cites `file:line` so claims are checkable.
->
-> **How this was derived:** by reading the core headers/sources listed below and the pinned
-> chibi-scheme 0.12 source (`CMakeLists.txt:133`, SHA-pinned). Where a conclusion depends
-> on a chibi build flag, the flag and its observed default are cited so the assumption is
-> auditable.
+This document lists the state that BOSS core shares between threads and describes how BOSS core
+synchronizes access to that state. Each entry names the function or variable that a reader can
+search for.
 
-## TL;DR — the threading model core actually has today
+## Terms
 
-The original (pre-Phase-4) inventory found **exactly three** pieces of shared mutable state in
-core, all hanging off a single process-wide object. Phase 4 adds three more, the atomic
-`evaluationsInFlight` counter, the `reconfigurationInProgress` flag and the
-`librariesAwaitingTeardown` queue of destroyed instances' libraries, described under
-"Implications for later phases" below. The original three are:
+- **BOSS core**: the code in `Source/`.
+- **Engine**: a shared library that BOSS core loads with `dlopen` and calls through the library's
+  `evaluate` function and, if the library exports one, its `reset` function. Engines are not part
+  of BOSS core. This document describes what BOSS core does before and after it calls an engine,
+  and not what an engine does inside that call.
+- **Dispatch**: a call from BOSS core into an engine's `evaluate` function.
+- **Engine pipeline**: the ordered list of engines to which `BootstrapEngine` dispatches an
+  expression.
+- **Bootstrap command**: an expression whose head is one of the operators in
+  `BootstrapEngine::registeredOperators`, such as `SetDefaultEnginePipeline`. `BootstrapEngine`
+  evaluates a bootstrap command itself, without a dispatch.
+- **Root evaluation**: a call to `BootstrapEngine::evaluate` with `isRootExpression` set, which is
+  the default. The calls that `BootstrapEngine::evaluate` makes on the arguments of an expression
+  pass `false`.
+- **Reconfiguration**: an evaluation of `SetDefaultEnginePipeline` or `ResetEngines`. Both
+  operators replace the engine pipeline, and both reset and unload every loaded engine.
+- **In flight**: `BootstrapEngine` counts a dispatch as in flight from the moment a root
+  evaluation that is not a bootstrap command copies the engine pipeline, or the
+  `EvaluateInEngines` operator starts, until that evaluation returns. The counter is
+  `evaluationsInFlight`.
+- **chibi context**: a `sexp` value that `sexp_make_eval_context` creates. `initialize_boss_context`
+  creates one, and `BossContextGuard` destroys it with `sexp_destroy_context` when the
+  `BossContextGuard` object goes out of scope.
 
-1. A function-local `static boss::engines::BootstrapEngine engine;` constructed on the first
-   call to `BOSSEvaluate` (`Source/BOSS.cpp:32`). There is **one** of these per process.
-   Every C caller (`BOSSEvaluate`, `boss::evaluate`), every REPL session, and every
-   per-thread chibi context ultimately routes through it.
-2. `BootstrapEngine::defaultEnginePipeline` (a `std::vector<Expression>`) — the active engine
-   pipeline. Read on every root evaluation, rewritten by `SetDefaultEnginePipeline` /
-   `ResetEngines`.
-3. `BootstrapEngine::libraries` (a `LibraryCache`, i.e. an `unordered_map`) — the engine
-   registry. **Lazily mutated *during* evaluation** (first use of an engine path `dlopen`s
-   and inserts).
+The findings below come from reading the BOSS core sources and the source of chibi-scheme 0.12,
+which `CMakeLists.txt` downloads with a fixed SHA-256 hash. Where a finding depends on a chibi
+build flag, this document gives the flag and the flag's default value.
 
-As originally inventoried, none of the three was synchronized. **Phase 4 has since added an
-`engineStateMutex` guarding G2 + G3** (see "Implications" below); the description here is the
-hazard the inventory found and Phase 4 fixed. Everything else in core is either **per-context**
-(chibi state) or **caller-owned** (the C value API, serialization buffers) and is safe under
-the *"one context per concurrent caller"* rule.
+## Summary
 
-**The load-bearing finding:** *per-thread context ≠ per-thread engine.* A caller can give
-every thread its own `sexp` context (isolating all chibi state — see §3), and the moment any
-of those threads dispatches a query it crosses the FFI boundary
-(`BOSSEvaluate`, `chibi-bindings.stub:44`) into the **shared** singleton engine and its
-registry/pipeline. Context isolation buys parsing/GC isolation; it buys **nothing** for engine
-dispatch. This was why the per-thread-context configuration was not race-free — the gap Phase 4
-closed by synchronizing the singleton's shared state without serializing engine calls.
+BOSS core shares the following state between threads:
 
----
+1. The `BootstrapEngine` object `engine`, a function-local static in `BOSSEvaluate`
+   (`Source/BOSS.cpp`). The C++ runtime constructs `engine` on the first call to `BOSSEvaluate`.
+   Every caller of `BOSSEvaluate`, and so every chibi context, evaluates through this one object.
+2. `BootstrapEngine::defaultEnginePipeline`, the engine pipeline. Every root evaluation that is not
+   a bootstrap command reads it, and `SetDefaultEnginePipeline` and `ResetEngines` replace it.
+3. `BootstrapEngine::libraries`, a `LibraryCache` that maps a library path to the loaded library
+   and its `evaluate` and `reset` functions. The first dispatch to an engine loads the engine's
+   library and inserts it into the map, so an evaluation can change the map.
+4. Four static members of `BootstrapEngine` that PR #195 adds: the mutex `engineStateMutex`, the
+   counter `evaluationsInFlight`, the flag `reconfigurationInProgress` and the vector
+   `librariesAwaitingTeardown`. Sections 2 and 5 describe them.
 
-## 1. Globals & file-scope statics (`Source/*`, excluding engine impls)
+Before PR #195, BOSS core synchronized none of this state. PR #195 makes
+`defaultEnginePipeline`, `libraries` and `librariesAwaitingTeardown` accessible only under
+`engineStateMutex`. `BootstrapEngine` takes `engineStateMutex` to copy the engine pipeline and to
+look up engine functions, and releases `engineStateMutex` before every call into an engine, so
+dispatches from different threads run at the same time.
 
-> **Historical snapshot.** Sections 1 and 2 record the inventory as taken before Phase 4,
-> with the symbols and line numbers of that time (`defaultEngine` as a
-> `std::vector<std::string>`, `LibraryCache::at()`, `LibraryCache::clear()`). The "Now"
-> notes at the end of each section give the current symbols and synchronization.
+All other state that BOSS core uses is either part of one chibi context (section 3) or memory
+that the caller allocates and frees (section 4). Threads can therefore use BOSS core
+concurrently as long as no two threads use the same chibi context.
 
-| # | Location | Symbol | What it is | Lifetime / owner | Synchronization | Risk |
-|---|----------|--------|------------|------------------|-----------------|------|
-| G1 | `BOSS.cpp:32` | `engine` | function-local `static BootstrapEngine` — the singleton dispatcher | process lifetime; constructed on first `BOSSEvaluate` | none (C++11 guarantees thread-safe *construction* only) | **HIGH** — central shared object; holds G2 + G3. Every thread/context dispatches through this one instance. |
-| G2 | `BootstrapEngine.hpp:116` | `BootstrapEngine::defaultEngine` | `std::vector<std::string>` engine pipeline | member of G1 | none | **HIGH** — read on every root `evaluate()` (`BootstrapEngine.hpp:244`); cleared/rewritten by `SetDefaultEnginePipeline` (`:155`) and `ResetEngines` (`:202`). Read/write data race + iterator invalidation. |
-| G3 | `BootstrapEngine.hpp:114` | `BootstrapEngine::libraries` | `LibraryCache` (private `unordered_map<string, LibraryAndFunctions>`) | member of G1 | none | **HIGH** — see §2. Mutated mid-evaluation via lazy `dlopen`. |
-| G4 | `BootstrapEngine.hpp:118` | `registeredOperators` | `const unordered_map<Symbol, function<...>>` | member of G1 | const after construction | LOW — immutable; concurrent reads safe. **But** its closures capture `this` and touch G2/G3, so the hazard is in G2/G3, not the map itself. |
-| G5 | `Expression.hpp:199` | `typenames` | function-local `static std::map<type_index,const char*>` | first-use, process lifetime | C++11 thread-safe static init | LOW/benign — error-path only, read-only after init. |
-| G6 | `ExpressionUtilities.hpp:122` | `operator""_` | `static` UDL **function** (internal linkage) | — | n/a | NONE — function, not state. |
-| G7 | `PortableBOSSSerialization.h:44,48` | `..._RLE_MINIMUM_SIZE`, `..._RLE_BIT` | `static size_t const` constants | — | n/a | NONE — compile-time constants (internal linkage in a header). |
-| G8 | `PortableBOSSSerialization.h:86–312` | `make*Argument`, `storeString`, `viewString`, … | `static` **functions** operating on a caller-supplied `root` | — | n/a | NONE — no global state; all state lives in the caller-owned `PortableBOSSRootExpression` buffer. Reentrant per distinct `root`. |
-
-Notes:
-- `Serialization.hpp` statics (`:27,80,93,117,…`) are all `static constexpr` or `static`
-  *member functions* — no shared mutable state. `Serialization.cpp` is a 29-byte stub.
-  **Serialization is reentrant as long as each call owns its `root` buffer**, which the API
-  enforces (the buffer is returned to / supplied by the caller).
-- No file-scope namespace-level mutable variables exist in core. The Windows `dlopen`/`dlsym`
-  shims (`BootstrapEngine.hpp:19–53`) are `static` functions, not state.
-- **Now:** G2 is `BootstrapEngine::defaultEnginePipeline`, a `std::vector<Expression>`. G2 and
-  G3 are both `GUARDED_BY(engineStateMutex)`: dispatch reads the pipeline and looks up
-  libraries under the shared lock, and `SetDefaultEnginePipeline` / `ResetEngines` change
-  them under the exclusive lock. G1 itself is still unsynchronized beyond its thread-safe
-  construction, which is all it needs now that G2 and G3 carry their own locking.
-
-## 2. Engine registry (`LibraryCache`)
-
-**There is no central registration table.** Engines are shared libraries identified by
-filesystem path. The only registry is `BootstrapEngine::libraries`
-(`BootstrapEngine.hpp:77–114`), private to the singleton engine (hence effectively
-process-global).
-
-- **Lookup is lazy and mutating.** `LibraryCache::at(path)` (`BootstrapEngine.hpp:78`): on a
-  cache miss it `dlopen(path, RTLD_NOW | RTLD_NODELETE)`, `dlsym`s `evaluate` (required) and
-  `reset` (optional), then `emplace`s into the map. Hit → returns cached entry.
-- **Mutated *during* evaluation: YES.** `at()` is called from inside the `EvaluateInEngines`
-  operator, which runs as part of `evaluate()`. So evaluation is **not** a read-only operation against the registry — the
-  first query that names a not-yet-loaded engine inserts into the map while other threads may
-  be reading or inserting.
-  - Concurrent inserts → data race on the `unordered_map` (possible rehash) and a possible
-    **double `dlopen`** of the same path.
-- **Handle lifetime.** Handles live in the map for the life of the singleton. `RTLD_NODELETE`
-  means the library stays mapped even after `dlclose`. `LibraryCache::clear()`
-  (`:99`, run by `~LibraryCache` and by `ResetEngines` at `:203`) calls each engine's `reset`
-  then `dlclose`, then empties the map.
-- **Teardown races dispatch.** `ResetEngines` can `clear()` the cache (calling engine `reset`
-  + `dlclose`) concurrently with another thread mid-dispatch through an entry. Even with
-  `RTLD_NODELETE` keeping code mapped, `reset()` mutating engine-internal state under an
-  in-flight call is a use-after-reset hazard. (Engine-internal effects are out of scope, but
-  *core* hands the engine a `reset` while another core thread is calling `evaluate` — that
-  sequencing is core's responsibility.)
-- **Synchronization at inventory time: none.**
-- **Now:** `LibraryCache::at()` is replaced by `tryGet()` (under the shared lock) and
-  `loadOrGet()` (under the exclusive lock, double-checked), both reached through
-  `resolveEvaluateFunction`. `LibraryCache::clear()` is replaced by `detachAll()`, which
-  empties the map under the exclusive lock; `unloadLibraries` then calls `reset` and
-  `dlclose` outside the lock. Teardown no longer races dispatch: a reconfiguration is
-  refused while `evaluationsInFlight` is non-zero (a root evaluation counts from the moment
-  it takes its pipeline snapshot), and while `reconfigurationInProgress` is set, from
-  `beginReconfiguration` until `unloadLibraries` has returned, any new dispatch is refused.
-  A destructor cannot be refused, so `~LibraryCache` passes its detached libraries to
-  `tearDownOnceNoDispatchIsInFlight`. While a dispatch is in flight, that function queues
-  the libraries and sets `reconfigurationInProgress`; the dispatch that brings
-  `evaluationsInFlight` to zero then resets and unloads them through
-  `finishReconfiguration`.
-- The dynamic loader (`dlopen`/`dlclose`) is itself thread-safe on glibc/macOS; the
-  **unsynchronized map mutation around it is not**. Loading an engine also runs its static
-  initializers on whichever thread first touches it — noted for engine maintainers, not
-  fixed here.
-
-## 3. Chibi-scheme context
-
-A `BossContext` is a `sexp ctx` produced by `initialize_boss_context()`
-(`ExpressionParser.hpp:237`) via `sexp_make_eval_context`, owned by an RAII
-`BossContextGuard` (`:30`, non-copyable/non-movable, `sexp_destroy_context` on scope exit).
-
-**Per-context state — unsafe to share a single `ctx` across threads, safe across distinct
-contexts:**
-- GC root stack (`sexp_gc_var*` / `sexp_gc_preserve*` / `sexp_gc_release*`), used throughout
-  `expr_to_sexp` (`:61`), `eval_string` (`:222`), `evaluate_expression` (`:275`), and the
-  REPL.
-- Eval stack, environment chain (`:255`), I/O ports (`:254`), and the bump allocator/heap.
-
-All of the above are created per `sexp_make_eval_context` and are **not internally
-synchronized** — two threads in the same `ctx` race on the root stack and allocator. Hence the
-contract: **one context per concurrent caller.**
-
-**Process-global chibi state — verified against pinned chibi 0.12, default build flags:**
-- The CMake build (`CMakeLists.txt:132–141`) passes **no** `-DSEXP_USE_*` flags. In chibi's
-  `features.h`, `SEXP_USE_BOEHM` and `SEXP_USE_MALLOC` both default to `0`
-  (`features.h:507,527`). Consequently:
-  - `SEXP_USE_GLOBAL_HEAP` → `0` (`features.h:602–608`) ⇒ **heap is per-context.** ✓
-  - `SEXP_USE_GLOBAL_SYMBOLS` → `0` (`features.h:610–616`) ⇒ **symbol table is per-context.** ✓
-    So `sexp_intern` (`ExpressionParser.hpp:57,69,214,…`) on *distinct* contexts does not race.
-- The **only** process-global chibi state in this configuration is the one-time init guard
-  `static int sexp_initialized_p` (chibi `sexp.c:22`), set inside `sexp_init()`
-  (`sexp.c:4025`, reached via `sexp_scheme_init()` which BOSS calls at the top of **every**
-  `initialize_boss_context()`, `ExpressionParser.hpp:238`). It guards `sexp_gc_init()` and —
-  only under `GLOBAL_SYMBOLS`, which is off here — the symbol-table zeroing.
-  - **Risk: init-time race only.** Two threads making their *first* `initialize_boss_context()`
-    call concurrently race on `sexp_initialized_p` (an unsynchronized read-modify-write) and
-    on the one-time init it guards. After the first init it is a benign read.
-  - **Mitigation (cheap):** warm up once — call `initialize_boss_context()` (or bare
-    `sexp_scheme_init()`) on the main thread *before* spawning workers, or wrap the first init
-    in `std::call_once`. No per-call locking needed.
-
-> ⚠️ **Build-flag assumption to pin.** If chibi is ever rebuilt with `SEXP_USE_BOEHM` or
-> `SEXP_USE_MALLOC` (e.g. to debug the native GC — see `features.h:75–97`), both
-> `SEXP_USE_GLOBAL_SYMBOLS` and `SEXP_USE_GLOBAL_HEAP` flip to `1`, making the symbol table
-> and heap **process-global**. At that point `sexp_intern` and allocation race *across*
-> contexts and the per-thread-context model breaks entirely. The concurrency tests (Phase 2)
-> should assert/encode this build assumption.
-
-**Cross-layer hazard (the one that matters):** the `boss-eval` macro
-(`ExpressionParser.hpp:157–163`) expands to a call to the `BOSSEvaluate` FFI binding
-(`Shims/chibi-bindings.stub:44`), which lands in the single `static BootstrapEngine`
-(G1). Fully isolated per-thread chibi contexts therefore still converge on that shared dispatcher
-the instant a query dispatches. Before Phase 4 its pipeline and library cache were
-unsynchronized (§1/§2); Phase 4 puts them under `engineStateMutex`, so concurrent dispatches
-no longer race on them, but every context still dispatches through the same object. **Context isolation does not
-imply dispatch isolation.**
-
-**Context destruction owned the host's standard streams (found + fixed in Phase 2).**
-`initialize_boss_context()` originally called
-`sexp_load_standard_ports(ctx, env, stdin, stdout, stderr, /*no_close=*/0)`
-(`ExpressionParser.hpp:254`). With `no_close=0`, chibi marks the `stdin`/`stdout`/`stderr`
-ports close-on-finalize, so `sexp_destroy_context` → `sexp_finalize_port` → `fclose(stdout)`
-(chibi `sexp.c:227`). For the single-context REPL this is harmless (it dies at process exit),
-but for the *many-contexts* model this audit targets it is a real defect: destroying any
-context `fclose`s the host application's stdio, and in the per-thread-context configuration
-every `BossContextGuard` destruction `fclose`s the **shared** `FILE*` — a data race plus a
-double `fclose` (undefined behavior) across threads. Fixed by passing `no_close=1` (a library
-context must not take ownership of the process's standard streams). Tracked as
-`known-races.md` R5.
-
-## 4. Named-handle storage / other cross-call state
-
-- Searched core for `Name` / `ByName` / global handle or interning registries: **none.**
-  `Symbol::getName()` is a value accessor; there is no C++-side global symbol/name table
-  (interning is per chibi `ctx`, §3).
-- The C API hands out raw **owning** pointers (`BOSSExpression*`, `BOSSSymbol*`, and `char*`
-  from `strdup` in `BOSS.cpp:86,142,145`). These are caller-owned with explicit `free*`
-  functions; no shared registry retains them.
-- Between `BOSSEvaluate` calls, the **only** state core retains is the singleton engine itself
-  (G1 → G2 + G3). There is no other cross-call core state.
+Separate chibi contexts separate the chibi state of the threads, but not their dispatches: every
+chibi context evaluates a query by calling `BOSSEvaluate` (section 3), and `BOSSEvaluate`
+evaluates through the single `engine` object. Before PR #195, threads with separate chibi contexts
+therefore had data races on `defaultEnginePipeline` and `libraries`.
 
 ---
 
-## Implications for later phases
+## 1. Process-wide variables in BOSS core
 
-- **Phase 4 (dispatch contract) — implemented.** Decision: engines are assumed reentrant and
-  concurrent evaluation is explicitly desired, so the dispatcher must **not** serialize engine
-  calls. `BootstrapEngine` now guards G2 (`defaultEnginePipeline`) and G3 (`libraries`) with a
-  single `boss::concurrency::SharedMutex` (`engineStateMutex`) — the capability-annotated
-  wrapper from `Source/ThreadSafety.hpp`, not a bare `std::shared_mutex`, which is what makes
-  `-Wthread-safety` able to check the `GUARDED_BY` obligations — under one invariant: **the
-  lock is never held across an engine call.** The dispatch path snapshots the pipeline and resolves engine
-  function pointers under a *shared* lock, releases it, then calls engines lock-free
-  (`RTLD_NODELETE` keeps resolved pointers valid). First-use `dlopen` upgrades to an *exclusive*
-  lock (double-checked). Reconfiguration (`SetDefaultEnginePipeline`/`ResetEngines`) takes the
-  exclusive lock and is valid only under a **quiesce** contract (no eval in flight, and a dispatch
-  that starts while a reconfiguration is still resetting and unloading engines is refused) — core keeps
-  its own state consistent, but `ResetEngines` resets+unloads engines, which is unsafe under a
-  concurrent in-flight call regardless of locking; `ResetEngines` does the reset/unload outside
-  the lock. The per-engine `EngineThreadingPolicy` enum was **dropped** (all engines assumed
-  reentrant; re-add if a non-thread-safe engine appears). The full contract lives at the top of
-  `Source/BootstrapEngine.hpp`. The `--direct --suite pipeline` run of the stress harness added
-  in #198 reproduces R1 against the unlocked code and runs TSan-clean against this one. The discipline collapses to one mutex with no lock ordering, so **Phase 6
-  (formal modeling) is not warranted.**
-- **Phase 2 (stress harness) — added in #198; results below.** `Tests/Concurrency/stress.cpp` +
-  the `boss_concurrency_stress` ThreadSanitizer target are not part of this branch. Empirically (Apple clang 21 / arm64,
-  see `Tests/Concurrency/known-races.md`):
-  - **per-thread-context + pure: CLEAN** (8000+ evals, 0 races) — confirms chibi is
-    per-context isolated in this build, validating §3.
-  - **shared-context + pure: RACE** on the shared ctx heap, then crash — confirms the
-    "one context per caller" contract is mandatory (R3).
-  - **G1/G2 confirmed (R1):** the `defaultEngine` race is real, reported by TSan directly on
-    the `BOSSEvaluate::engine` singleton. It only surfaces through **direct** dispatch
-    (`--direct`); the chibi path buries the access window under parse/GC work, so a clean
-    chibi-path pipeline run is *not* evidence the race is gone.
-  - **G3 (`libraries`) still needs a loadable engine fixture** (`--engine`) to exercise the
-    `dlopen` insert; predicted, not yet reproduced.
-  - The §3 init-time race is avoided by a one-context warm-up before the worker threads start.
-- **Phase 5 (defensive instrumentation) — implemented.** Two mechanisms in
-  `Source/ThreadSafety.hpp`:
-  - **`ConcurrencyTripwire`** — a debug-build-only (`!NDEBUG`) RAII object defined here; #198
-    adds the call at the top of `evaluate_expression` (`ExpressionParser.hpp`). It maintains a process-global
-    `ctx → {owning thread, depth}` registry; if a second thread enters an evaluation on a `ctx`
-    already owned by another thread, it prints a diagnostic and `std::abort()`s — converting the
-    silent corruption of a shared chibi context into an immediate, loud crash. Same-thread
-    re-entry is depth-counted and allowed, so ordinary nested evaluation never trips it. In
-    release builds it compiles to an empty no-op object. With #198 applied, the harness's `--mode shared`
-    aborts with the tripwire message in a Debug build; `--mode per-thread` does not. (The engine
-    singleton — the other candidate site — is now lock-protected by Phase 4, so the per-`ctx`
-    tripwire is the remaining silent-corruption hazard worth guarding.)
-  - **Clang Thread Safety Analysis** — `defaultEnginePipeline` and `libraries` are `GUARDED_BY` an
-    annotated `SharedMutex` (`engineStateMutex`); `SharedLock`/`UniqueLock` guards carry the
-    acquire/release capability attributes. The build enables `-Wthread-safety
-    -Werror=thread-safety` (Clang-only; macros are no-ops elsewhere), so any unguarded access to
-    the guarded state fails the build. This statically enforces the Phase 4 discipline; it
-    already caught one real gap (a callback-boundary write in `SetDefaultEnginePipeline`) during
-    development, which was fixed.
+| Location | Symbol | What it is | Synchronization |
+|----------|--------|------------|-----------------|
+| `BOSS.cpp`, `BOSSEvaluate` | `engine` | function-local `static BootstrapEngine` | C++11 makes the construction thread-safe. The members below are synchronized as listed. |
+| `BootstrapEngine.hpp` | `BootstrapEngine::defaultEnginePipeline` | `std::vector<Expression>`, the engine pipeline | `BOSS_GUARDED_BY(engineStateMutex)` |
+| `BootstrapEngine.hpp` | `BootstrapEngine::libraries` | `LibraryCache`, a private `unordered_map<string, LibraryAndFunctions>` | `BOSS_GUARDED_BY(engineStateMutex)` |
+| `BootstrapEngine.hpp` | `BootstrapEngine::librariesAwaitingTeardown` | static `vector<LibraryAndFunctions>` | `BOSS_GUARDED_BY(engineStateMutex)` |
+| `BootstrapEngine.hpp` | `BootstrapEngine::evaluationsInFlight`, `BootstrapEngine::reconfigurationInProgress` | static atomics | atomic; section 5 explains which lock each access also holds |
+| `BootstrapEngine.hpp` | `BootstrapEngine::registeredOperators` | `const unordered_map<Symbol, function<...>>` | Not modified after construction, so concurrent reads are safe. The functions in the map capture `this` and access the pipeline and the library cache under `engineStateMutex`. |
+| `Expression.hpp` | `typenames` | function-local `static std::map<type_index, const char*>` | C++11 makes the initialization thread-safe, and nothing modifies the map afterwards. Only error messages read it. |
 
-## Quick grep map
+The remaining `static` declarations in BOSS core declare functions or constants, not variables:
 
-| Looking for… | Where |
+- `operator""_` in `ExpressionUtilities.hpp` is a `static` function.
+- `PortableBOSSSerialization.h` declares `static size_t const` constants and `static` functions
+  (`make*Argument`, `storeString`, `viewString` and others). The functions read and write only the
+  `PortableBOSSRootExpression` buffer that the caller passes, so two threads can call them
+  concurrently on different buffers.
+- The `static` declarations in `Serialization.hpp` are `static constexpr` values and `static`
+  member functions.
+- The Windows replacements for `dlopen` and `dlsym` at the top of `BootstrapEngine.hpp` are
+  `static` functions.
+
+BOSS core has no other mutable variables at namespace scope.
+
+## 2. Engine library cache (`LibraryCache`)
+
+BOSS core has no table in which engines register themselves. A library path identifies an
+engine, and `BootstrapEngine::libraries` is the only map from paths to loaded engines. Because
+`engine` in `BOSSEvaluate` is the only `BootstrapEngine` in a typical process, this map is in
+effect process-wide.
+
+- **Lookup.** `resolveEvaluateFunction` takes `engineStateMutex` shared and calls
+  `LibraryCache::tryGet`. If the library is not loaded yet, `resolveEvaluateFunction` releases
+  the shared lock, takes `engineStateMutex` exclusively and calls `LibraryCache::loadOrGet`.
+  `loadOrGet` checks the map again, because another thread can load the library between the two
+  locks. If the library is still missing, `loadOrGet` calls
+  `dlopen(path, RTLD_NOW | RTLD_NODELETE)`, looks up `evaluate` (required) and `reset` (optional)
+  with `dlsym`, and inserts the result into the map.
+- **Before PR #195,** `LibraryCache::at` inserted into the map without a lock. Two threads that
+  dispatched to the same unloaded engine at the same time had a data race on the
+  `unordered_map`, including a possible rehash, and could both call `dlopen` on the same path.
+- **Function pointers outside the lock.** `BootstrapEngine` calls an engine's `evaluate` after it
+  has released `engineStateMutex`. `RTLD_NODELETE` makes the dynamic loader keep a library mapped
+  even after `dlclose`, so a function pointer that `BootstrapEngine` looked up under the lock
+  remains valid. On Windows, `BootstrapEngine.hpp` defines `RTLD_NODELETE` as 0.
+- **Teardown.** `LibraryCache::detachAll` empties the map under the exclusive lock and returns
+  the removed libraries. `unloadLibraries` then calls each library's `reset` and `dlclose` without
+  holding the lock, because `reset` is a call into the engine. If a `reset` throws,
+  `unloadLibraries` still resets and unloads the remaining libraries, and rethrows the first
+  exception afterwards.
+- **Reconfiguration during a dispatch.** Before PR #195, `ResetEngines` could reset and unload an
+  engine while another thread was inside that engine's `evaluate`. `RTLD_NODELETE` keeps the code
+  mapped, but `reset` changes the engine's state during the other thread's call. Section 5
+  describes how PR #195 refuses such a reconfiguration.
+- **Loading.** `dlopen` and `dlclose` are thread-safe on glibc and macOS. Loading an engine runs
+  the engine's static initializers on the thread that first dispatches to it. BOSS core does not
+  change this behaviour, and engine authors need to know it.
+
+## 3. chibi contexts
+
+`initialize_boss_context` (`ExpressionParser.hpp`) creates a chibi context with
+`sexp_make_eval_context`. A `BossContextGuard` object destroys the context with
+`sexp_destroy_context` when the object goes out of scope, and cannot be copied or moved.
+
+**State of one chibi context.** Two threads must not use the same chibi context at the same time.
+Different threads can use different chibi contexts. `sexp_make_eval_context` creates a separate
+instance of each of the following for every context:
+
+- the GC root stack (`sexp_gc_var*`, `sexp_gc_preserve*`, `sexp_gc_release*`), which
+  `expr_to_sexp`, `eval_string`, `evaluate_expression` and the REPL use;
+- the evaluation stack, the environment chain, the I/O ports, the heap and the allocator.
+
+chibi does not synchronize access to any of these. Two threads that use one chibi context
+therefore have data races on the root stack and the allocator. Hence the rule: **no two threads
+evaluate in the same chibi context at the same time.**
+
+**Process-wide chibi state, checked against chibi 0.12 with default build flags.**
+
+- `CMakeLists.txt` passes no `-DSEXP_USE_*` flags to the chibi build. In chibi's `features.h`,
+  `SEXP_USE_BOEHM` and `SEXP_USE_MALLOC` both default to 0 (`features.h:507,527`). As a result:
+  - `SEXP_USE_GLOBAL_HEAP` is 0 (`features.h:602-608`), so every context has a separate heap.
+  - `SEXP_USE_GLOBAL_SYMBOLS` is 0 (`features.h:610-616`), so every context has a separate
+    symbol table, and calls to `sexp_intern` on different contexts do not race.
+- In this configuration the only process-wide chibi state is `static int sexp_initialized_p`
+  (chibi `sexp.c:22`). `sexp_init` (`sexp.c:4025`), which `sexp_scheme_init` calls, reads and
+  sets this flag without synchronization, and calls `sexp_gc_init` only when the flag is not
+  set yet. Two threads that initialize chibi for the first time at the same time race on the
+  flag and on `sexp_gc_init`. `initialize_boss_context` therefore calls `sexp_scheme_init`
+  through `std::call_once`.
+
+**Build-flag assumption.** If chibi is built with `SEXP_USE_BOEHM` or `SEXP_USE_MALLOC` set, for
+example to debug chibi's garbage collector (`features.h:75-97`), then `SEXP_USE_GLOBAL_SYMBOLS`
+and `SEXP_USE_GLOBAL_HEAP` both become 1. All contexts then share one symbol table and one heap,
+`sexp_intern` and allocation race across contexts, and separate contexts no longer make
+concurrent evaluation safe.
+
+**Dispatch from separate chibi contexts.** `setup_boss_scheme` defines the `boss-eval` macro, which
+expands to a call to the `BOSSEvaluate` binding in `Shims/chibi-bindings.stub`. That binding
+calls `BOSSEvaluate`, which evaluates through the single `engine` object. Threads with separate
+chibi contexts therefore all dispatch through one `BootstrapEngine`. Since PR #195, their
+dispatches do not race on `defaultEnginePipeline` and `libraries`, but separate chibi contexts
+alone do not make dispatch thread-safe.
+
+**Standard streams.** `initialize_boss_context` used to call
+`sexp_load_standard_ports(ctx, env, stdin, stdout, stderr, 0)`. With the last argument
+(`no_close`) at 0, chibi closes the three `FILE*` streams when it finalizes their ports, so
+`sexp_destroy_context` called `fclose(stdout)` (chibi `sexp.c:227`). With one context per
+process this happened only at exit. With one context per thread, every destruction of a context
+closed the process's shared `stdin`, `stdout` and `stderr`, which is a data race and a double
+`fclose`. `initialize_boss_context` now passes 1, so that chibi does not close the streams.
+`Tests/Concurrency/known-races.md`, which PR #198 adds, lists this problem as R5.
+
+## 4. Other state that persists between calls
+
+- BOSS core has no table of named handles and no global table of names. `Symbol::getName()`
+  returns a value. chibi interns symbols per context (section 3).
+- The C API returns pointers that the caller frees with the matching `free*` function:
+  `BOSSExpression*`, `BOSSSymbol*`, and `char*` strings that `BOSS.cpp` allocates with `strdup`.
+  BOSS core keeps no pointer to these objects.
+- Between calls to `BOSSEvaluate`, the only state that BOSS core keeps is the `engine` object and
+  its members (section 1).
+
+---
+
+## 5. Dispatch contract and locking
+
+The comment at the top of `Source/BootstrapEngine.hpp` states the full contract. In short:
+
+- **Engines.** Every engine's `evaluate` and `reset` must be reentrant. `BootstrapEngine` may call
+  the same engine from several threads at once and never makes one dispatch wait for another.
+- **Locking.** `engineStateMutex` is a `boss::concurrency::SharedMutex`, the wrapper from
+  `Source/ThreadSafety.hpp` that declares Clang's capability attributes, so that
+  `-Wthread-safety` can check every access to a `BOSS_GUARDED_BY` member. A root evaluation
+  copies the engine pipeline and looks up engine functions under the shared lock, and loads a
+  missing library under the exclusive lock (section 2). `BootstrapEngine` never holds
+  `engineStateMutex` during a call into an engine.
+- **Reconfiguration.** `SetDefaultEnginePipeline` and `ResetEngines` take the exclusive lock and
+  call `beginReconfiguration`, which throws if `evaluationsInFlight` is not 0 and otherwise sets
+  `reconfigurationInProgress`. `BootstrapEngine` increments `evaluationsInFlight` under the shared
+  lock, so while a reconfiguration holds the exclusive lock, no dispatch can start. The
+  reconfiguration then calls `LibraryCache::detachAll`, releases the lock and calls
+  `unloadLibraries`. While `reconfigurationInProgress` is set, `InFlightGuard` refuses every new
+  dispatch, because a dispatch in that interval could load an engine again and call it while
+  `unloadLibraries` is still running that engine's `reset`. When the reconfiguration returns or
+  throws, the `ReconfigurationEnd` object calls `finishReconfiguration`, which clears
+  `reconfigurationInProgress`.
+- **Destruction.** A destructor cannot refuse to run. If a dispatch is in flight when a
+  `BootstrapEngine` is destroyed, `~LibraryCache` calls `tearDownOnceNoDispatchIsInFlight`, which
+  appends the libraries to `librariesAwaitingTeardown` and sets `reconfigurationInProgress`. The
+  `InFlightGuard` destructor that decrements `evaluationsInFlight` to 0 then calls
+  `finishReconfiguration`, which resets and unloads the queued libraries.
+- **Engine threading policies.** Because every engine is required to be reentrant, BOSS core has
+  no per-engine setting that would make dispatches to a non-reentrant engine wait for each other.
+  Such a setting can be added if an engine that is not reentrant needs to be supported.
+- **No lock order.** BOSS core uses a single mutex, so no lock order exists that a formal model
+  would need to check.
+
+**Static checks.** `Source/ThreadSafety.hpp` defines `SharedMutex`, `SharedLock`, `UniqueLock` and
+the `BOSS_GUARDED_BY` macro with Clang's thread-safety attributes. With Clang, `CMakeLists.txt`
+compiles with `-Wthread-safety -Werror=thread-safety`, so the build fails on any access to
+`defaultEnginePipeline` or `libraries` that does not hold `engineStateMutex`. With other
+compilers the macros expand to nothing. During development, this analysis rejected a write to
+the pipeline in `SetDefaultEnginePipeline` that happened outside the lock; that write now
+happens under the exclusive lock.
+
+**Debug-build check for a shared chibi context.** `ConcurrencyTripwire` in
+`Source/ThreadSafety.hpp` records, for each chibi context, the thread that is evaluating in that
+context and how deeply that thread has nested its evaluations. If a second thread starts an
+evaluation in a context while another thread is evaluating in it, `ConcurrencyTripwire` prints
+a message and calls `std::abort()`, so that a shared context crashes the program immediately
+instead of corrupting memory. A nested evaluation on the same thread increases the depth and
+does not abort. Builds that define `NDEBUG` replace `ConcurrencyTripwire` with an empty class.
+PR #198 constructs a `ConcurrencyTripwire` at the start of `evaluate_expression`.
+
+**Stress-test results.** PR #198 adds `Tests/Concurrency/stress.cpp`, the
+`boss_concurrency_stress` target built with ThreadSanitizer, and
+`Tests/Concurrency/known-races.md`, which numbers the races R1 to R5. On Apple clang 21 on arm64:
+
+- **One chibi context per thread, expressions that dispatch to no engine:** more than 8000
+  evaluations, no race reported. This result agrees with section 3.
+- **One chibi context for all threads, expressions that dispatch to no engine:**
+  ThreadSanitizer reports a race on the context's heap, and the program then crashes (R3). No
+  two threads may share a context.
+- **Engine pipeline (R1):** without the locking from PR #195, ThreadSanitizer reports the race on
+  `defaultEnginePipeline` in the `engine` object. The harness shows the race only with
+  `--direct`, which calls `BOSSEvaluate` without chibi. Through chibi, parsing and garbage
+  collection take so much longer than the access to the pipeline that the accesses of different
+  threads rarely overlap, so a clean run through chibi does not show that the race is absent.
+  With the locking from PR #195, `--direct --suite pipeline` reports no race.
+- **Library cache:** the harness can reach the race on `libraries` only when `--engine` names an
+  engine library to load. The race is predicted from the code and not yet reproduced.
+- **First chibi initialization (R4):** by default the harness creates one context before it starts
+  the worker threads. With `--no-warmup`, the worker threads create their first contexts
+  concurrently. With the `std::call_once` removed and chibi compiled with `-fsanitize=thread`,
+  ThreadSanitizer reported the race on `sexp_initialized_p` in 6 of 6 runs on Linux.
+- **Shared context with `ConcurrencyTripwire`:** in a Debug build, `--mode shared` aborts with the
+  `ConcurrencyTripwire` message, and `--mode per-thread` does not.
+
+## Where to find each mechanism
+
+| Looking for | Where |
 |---|---|
-| The singleton engine | `BOSS.cpp`, the `static BootstrapEngine engine` in `BOSSEvaluate` |
-| Engine-state mutex (Phase 4) | `BootstrapEngine.hpp` (`engineStateMutex`) |
-| Engine pipeline mutation | `BootstrapEngine.hpp` (`SetDefaultEnginePipeline`, `ResetEngines`) |
-| Quiesce-first enforcement | `BootstrapEngine.hpp` (`evaluationsInFlight`, `reconfigurationInProgress`, `InFlightGuard`, `beginReconfiguration`, `ReconfigurationEnd`) |
-| Lazy dlopen / registry insert | `BootstrapEngine.hpp` (`resolveEvaluateFunction`, `LibraryCache::loadOrGet`) |
-| Registry teardown | `BootstrapEngine.hpp` (`LibraryCache::detachAll`) + `unloadLibraries`, which runs outside the lock |
-| Threading annotations / guards | `Source/ThreadSafety.hpp` (`SharedMutex`, `SharedLock`, `GUARDED_BY`) |
-| Concurrency tripwire | `Source/ThreadSafety.hpp` (`ConcurrencyTripwire`); #198 adds its call in `ExpressionParser.hpp`'s `evaluate_expression` |
-| Thread-safety build gate | `CMakeLists.txt` (`-Wthread-safety -Werror=thread-safety`, Clang-only) |
-| FFI dispatch boundary | `Shims/chibi-bindings.stub:44`, `ExpressionParser.hpp:163` |
-| Context creation / destruction | `ExpressionParser.hpp:237` (`initialize_boss_context`), `:36` (`~BossContextGuard`) |
-| Standard-streams ownership fix (R5) | `ExpressionParser.hpp:259` (`no_close=1`) |
-| chibi global init guard | chibi `sexp.c:22`, `:4025` |
-| chibi global-heap/symbols flags | chibi `features.h:602–616` (depend on `:507,527`) |
+| The single `BootstrapEngine` | `BOSS.cpp`, `static boss::engines::BootstrapEngine engine` in `BOSSEvaluate` |
+| The mutex for engine state | `BootstrapEngine.hpp`, `engineStateMutex` |
+| Changes to the engine pipeline | `BootstrapEngine.hpp`, `SetDefaultEnginePipeline` and `ResetEngines` |
+| Refusal of reconfiguration during a dispatch | `BootstrapEngine.hpp`, `evaluationsInFlight`, `reconfigurationInProgress`, `InFlightGuard`, `beginReconfiguration`, `ReconfigurationEnd` |
+| Loading an engine on first use | `BootstrapEngine.hpp`, `resolveEvaluateFunction` and `LibraryCache::loadOrGet` |
+| Unloading engines | `BootstrapEngine.hpp`, `LibraryCache::detachAll` and `unloadLibraries` |
+| Thread-safety annotations and lock types | `Source/ThreadSafety.hpp`, `SharedMutex`, `SharedLock`, `UniqueLock`, `BOSS_GUARDED_BY` |
+| Check for a shared chibi context | `Source/ThreadSafety.hpp`, `ConcurrencyTripwire` |
+| Compiler flags for the thread-safety analysis | `CMakeLists.txt`, `-Wthread-safety -Werror=thread-safety` (Clang only) |
+| Call from chibi into BOSS core | `Shims/chibi-bindings.stub`, the `BOSSEvaluate` binding; `ExpressionParser.hpp`, the `boss-eval` macro |
+| Creation and destruction of chibi contexts | `ExpressionParser.hpp`, `initialize_boss_context` and `~BossContextGuard` |
+| Standard-stream fix (R5) | `ExpressionParser.hpp`, the `sexp_load_standard_ports` call in `initialize_boss_context` |
+| chibi's one-time initialization flag | chibi `sexp.c:22` and `:4025` |
+| chibi's global heap and symbol flags | chibi `features.h:602-616`, which depend on `:507,527` |

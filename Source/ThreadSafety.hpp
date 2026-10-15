@@ -9,9 +9,6 @@
 // while the lock is held. std::shared_mutex itself is not annotated by libc++/libstdc++, hence
 // this thin wrapper.
 //
-// The first consumer is BootstrapEngine's engineStateMutex, which guards the library cache and
-// the default engine pipeline (see Source/BootstrapEngine.hpp and docs/threading-audit.md).
-//
 // All macros are no-ops outside Clang (GCC/MSVC ignore the attributes), so the analysis is a
 // Clang-only, zero-runtime-cost static check. See
 // https://clang.llvm.org/docs/ThreadSafetyAnalysis.html

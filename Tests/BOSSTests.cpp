@@ -775,9 +775,9 @@ template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
 
 namespace {
 // The stub engine's pause and reset controls. dlopen (BootstrapEngine.hpp's LoadLibrary
-// shim on Windows) returns the image BootstrapEngine already loaded, so these functions drive the
-// very stub instance the engine calls. The handle is never closed, which keeps that image loaded
-// for the rest of the run.
+// shim on Windows) returns the image that BootstrapEngine already loaded, so these functions
+// control the same stub instance that BootstrapEngine calls. The test never closes the
+// handle, so the image remains loaded until the process exits.
 struct StubPauseControls {
   int (*waitUntilCallPaused)();
   void (*releasePausedCall)();
@@ -834,14 +834,14 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
-  // Every BootstrapEngine gets the same stub image from dlopen, so another instance's
-  // ResetEngines is refused as well.
+  // Every BootstrapEngine gets the same stub image from dlopen, so a second BootstrapEngine
+  // refuses ResetEngines as well.
   CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   stub.releasePausedCall();
   CHECK(pausedDispatch.get() == std::int64_t {1});
 
-  // While ResetEngines is still resetting the stub, a dispatch is refused.
+  // BootstrapEngine refuses a dispatch while ResetEngines is still resetting the stub.
   stub.pauseNextReset();
   auto pausedReset =
       std::async(std::launch::async, [&engine] { return engine.evaluate("ResetEngines"_()); });
@@ -851,7 +851,7 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
   stub.releasePausedCall();
   CHECK(pausedReset.get() == std::string("okay"));
 
-  // Both work again once nothing is running.
+  // Both operators succeed again once no engine call is running.
   CHECK(dispatchToStub(5) == std::int64_t {1});
   CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
 }
@@ -863,9 +863,9 @@ TEST_CASE("Reconfiguration is refused during a dispatch through the default pipe
   auto const stub = stubPauseControls();
   REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) == std::string("okay"));
 
-  // A root evaluation goes through the default pipeline, so this pauses inside the stub and
-  // is counted as in flight from the moment evaluate() takes its pipeline snapshot. The
-  // checks are non-fatal so that the paused call is always released.
+  // A root evaluation goes through the default pipeline, so this evaluation pauses inside the
+  // stub, and BootstrapEngine counts it as in flight from the moment evaluate() copies the
+  // pipeline. The checks are non-fatal so that the paused call is always released.
   auto pausedEvaluation =
       std::async(std::launch::async, [&engine] { return engine.evaluate("Pause"_()); });
   stub.requireCallPaused();
@@ -920,8 +920,9 @@ TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][co
                     Catch::Matchers::ContainsSubstring("stub reset failure"));
   CHECK(dispatchToStub(5) == std::int64_t {1});
 
-  // A queued teardown has no caller to report to, so the dispatch that runs it returns its own
-  // result. The checks are non-fatal so that the paused call is always released.
+  // Queued libraries have no caller to report a reset failure to, so the dispatch that resets
+  // and unloads them returns the dispatch's result. The checks are non-fatal so that the
+  // paused call is always released.
   auto pausedDispatch =
       std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
   stub.requireCallPaused();
@@ -940,8 +941,8 @@ TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][co
 
 TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
   {
-    // A separate engine loads the stub once to find out whether it can be loaded at all, so the
-    // engine under test still starts with a cold library cache.
+    // A separate BootstrapEngine loads the stub once to find out whether the stub can be loaded
+    // at all, so the BootstrapEngine under test still starts with an empty library cache.
     auto probeEngine = boss::engines::BootstrapEngine();
     requireStubEngine(
         [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
@@ -958,8 +959,9 @@ TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
       return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), "Rendezvous"_()));
     }));
   }
-  // The dispatches start together, so their first uses of the stub also race on the cold
-  // library cache. Each returns 1 only if all four calls were inside the stub at once.
+  // The dispatches start together, so the four threads also make BootstrapEngine load the stub
+  // into the empty library cache concurrently. Each dispatch returns 1 only if all four calls
+  // were inside the stub at once.
   start.set_value();
   for(auto& dispatch : dispatches) {
     CHECK(dispatch.get() == std::int64_t {1});

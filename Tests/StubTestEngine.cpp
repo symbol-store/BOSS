@@ -14,9 +14,9 @@ using boss::ComplexExpression;
 constexpr std::int64_t defaultEntryPointResult = 1;
 
 // Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
-// stubPauseNextReset) until the test calls stubReleasePausedCall, so it can check what
-// BootstrapEngine refuses while that call is running. Every wait gives up after pauseTimeout, so a
-// test that fails part-way cannot hang its run.
+// stubPauseNextReset) until the test calls stubReleasePausedCall, so that the test can check
+// what BootstrapEngine refuses while that call is running. Every wait ends after
+// pauseTimeout, so a test that fails part-way cannot block the test run indefinitely.
 constexpr auto pauseTimeout = std::chrono::seconds(30);
 std::mutex pauseMutex;
 std::condition_variable pauseChanged;
@@ -36,9 +36,9 @@ void pauseUntilReleased() {
 }
 
 // Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
-// Rendezvous waits until concurrentCallsToMeet of them are inside the engine at the same time,
-// and gives up after rendezvousTimeout, so a dispatcher that serialized engine calls fails the
-// test instead of hanging it.
+// Rendezvous waits until concurrentCallsToMeet evaluations are inside the engine at the same
+// time, and stops waiting after rendezvousTimeout, so that the test fails instead of
+// blocking if BootstrapEngine makes engine calls wait for each other.
 constexpr int concurrentCallsToMeet = 4;
 constexpr auto rendezvousTimeout = std::chrono::seconds(10);
 std::mutex rendezvousMutex;
