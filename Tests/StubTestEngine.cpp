@@ -18,6 +18,11 @@ constexpr std::int64_t defaultEntryPointResult = 1;
 /// what BootstrapEngine refuses while that call is running. Every wait ends after
 /// pauseTimeout, so a test that fails part-way cannot block the test run indefinitely.
 constexpr auto pauseTimeout = std::chrono::seconds(30);
+// The pause and rendezvous controls below cannot be const: the exported extern "C" entry
+// points and reset()/evaluate() share this state across the DSO boundary, with no object to
+// hang it on. The anonymous namespace does not help, because
+// cppcoreguidelines-avoid-non-const-global-variables fires on internal linkage too.
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 std::mutex pauseMutex;
 std::condition_variable pauseChanged;
 bool callPaused = false;
@@ -25,6 +30,7 @@ bool pauseReleased = false;
 bool pauseNextReset = false;
 int resetCount = 0;
 bool throwFromNextReset = false;
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 void pauseUntilReleased() {
   std::unique_lock<std::mutex> lock(pauseMutex);
@@ -41,10 +47,12 @@ void pauseUntilReleased() {
 /// blocking if BootstrapEngine makes engine calls wait for each other.
 constexpr int concurrentCallsToMeet = 4;
 constexpr auto rendezvousTimeout = std::chrono::seconds(10);
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 std::mutex rendezvousMutex;
 std::condition_variable rendezvousChanged;
 int rendezvousArrivals = 0;
 std::uint64_t rendezvousGeneration = 0;
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 bool meetConcurrentCalls() {
   std::unique_lock<std::mutex> lock(rendezvousMutex);
