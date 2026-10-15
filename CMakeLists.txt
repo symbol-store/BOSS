@@ -235,9 +235,9 @@ endif()
 add_dependencies(Tests catch2)
 
 # A minimal engine that Tests loads by name (libStubTestEngine.so next to the Tests binary), so
-# dispatch paths that need a real engine library run in the default test suite without
-# fetching an external engine. MODULE gives the .so suffix on macOS too, which is the name
-# BootstrapEngine derives from a StubTest engine symbol.
+# dispatch paths that need a real engine library, such as GetEntryPoint and the reconfiguration
+# refusals, run in the default test suite without fetching an external engine. MODULE gives the
+# .so suffix on macOS too, which is the name BootstrapEngine derives from a StubTest engine symbol.
 # MSVC builds the stub as SHARED, like the engines, because CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS
 # exports nothing from a MODULE library.
 if(MSVC)

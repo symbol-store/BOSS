@@ -853,6 +853,29 @@ TEST_CASE("A BootstrapEngine destroyed during a dispatch resets its engines afte
   CHECK(dispatchToStub(5) == std::int64_t {1});
 }
 
+TEST_CASE("Custom engine entry points", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto evaluateWithStub = [&engine](boss::Expression&& stubSpec) {
+    return engine.evaluate("EvaluateInEngines"_("List"_(std::move(stubSpec)), 5));
+  };
+  requireStubEngine([&evaluateWithStub] { evaluateWithStub("StubTest"_); });
+  // libStubTestEngine.so answers GetEntryPoint from the engine spec's argument.
+  CHECK(evaluateWithStub("StubTest"_("Override"_)) == std::int64_t {4242});
+  // 0 and a non-int64 result both mean "no override", so evaluate stays the entry point.
+  CHECK(evaluateWithStub("StubTest"_("Zero"_)) == std::int64_t {1});
+  CHECK(evaluateWithStub("StubTest"_("NotAPointer"_)) == std::int64_t {1});
+  // A plain engine symbol never asks for a custom entry point. The stub answers an
+  // argument-less GetEntryPoint with its custom entry point, so asking would return 4242.
+  CHECK(evaluateWithStub("StubTest"_) == std::int64_t {1});
+  // The spec's span argument reaches GetEntryPoint as a span. The spec's dynamic argument alone
+  // asks for Zero, so a request without the span would fall back to evaluate.
+  auto specWithSpan = boss::expressions::ComplexExpression(
+      "StubTest"_, {}, boss::expressions::ExpressionArguments("Zero"_),
+      boss::expressions::ExpressionSpanArguments(
+          boss::Span<std::int64_t>(std::vector<std::int64_t> {1})));
+  CHECK(evaluateWithStub(std::move(specWithSpan)) == std::int64_t {4242});
+}
+
 TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
   auto engine = boss::engines::BootstrapEngine();
   auto dispatchToStub = [&engine](boss::Expression&& expression) {
