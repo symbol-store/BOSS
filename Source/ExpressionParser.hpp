@@ -131,6 +131,11 @@ inline sexp setup_boss_scheme(sexp ctx, sexp env) {
   eval("define"_("bossTypeID"_, "quote"_(_("bool"_, "int8"_, "int32"_, "long"_, "float"_, "double"_,
                                            "string"_, "symbol"_, "complexExpression"_))));
 
+  // Splits a BOSS expression's arguments into (dynamic-arguments . span-arguments), keeping the
+  // order within each list. A span object becomes a span argument wherever it appears, and so does
+  // every argument after the :spans marker. convert-from-boss-expression writes that marker in
+  // front of the span arguments it emits, so reading its output back yields the original
+  // expression.
   eval("define"_(
       _("partition-boss-args"_, "args"_),
       "let"_("loop"_,
