@@ -259,16 +259,18 @@ inline std::ostream& compact(std::ostream& stream) {
   stream.iword(prettyStreamIndex()) = 0;
   return stream;
 }
-class PrettyModeSuspension {
+// Clears a stream's pretty flag until the end of the scope, so that the expressions nested in a
+// compact fallback cannot reach the hook.
+class CompactFallbackScope {
 public:
-  explicit PrettyModeSuspension(std::ostream& suspendedStream)
+  explicit CompactFallbackScope(std::ostream& suspendedStream)
       : stream(&suspendedStream),
         suspendedFlag(std::exchange(suspendedStream.iword(prettyStreamIndex()), 0)) {}
-  ~PrettyModeSuspension() { stream->iword(prettyStreamIndex()) = suspendedFlag; }
-  PrettyModeSuspension(PrettyModeSuspension const&) = delete;
-  PrettyModeSuspension(PrettyModeSuspension&&) = delete;
-  PrettyModeSuspension& operator=(PrettyModeSuspension const&) = delete;
-  PrettyModeSuspension& operator=(PrettyModeSuspension&&) = delete;
+  ~CompactFallbackScope() { stream->iword(prettyStreamIndex()) = suspendedFlag; }
+  CompactFallbackScope(CompactFallbackScope const&) = delete;
+  CompactFallbackScope(CompactFallbackScope&&) = delete;
+  CompactFallbackScope& operator=(CompactFallbackScope const&) = delete;
+  CompactFallbackScope& operator=(CompactFallbackScope&&) = delete;
 
 private:
   std::ostream* stream;
@@ -1412,7 +1414,7 @@ public:
         }
         // A hook that declined this expression could still render a nested one. Pretty mode is
         // off while the arguments print, so the whole fallback is compact.
-        PrettyModeSuspension const suspension(out);
+        CompactFallbackScope const compactFallback(out);
         return renderCompact();
       }
     }

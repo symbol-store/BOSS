@@ -223,8 +223,8 @@ TEST_CASE("Pretty-print manipulator toggles the per-stream flag", "[expressions]
 }
 
 namespace {
-// Puts back whatever hook was installed when it was created. The Tests binary links
-// Shims/BossPrettyPrint.cpp, so that is normally the chibi-backed hook.
+// prettyPrintHook() is process-wide, so a test that replaces the hook would otherwise leave
+// its replacement installed for every test that runs after it.
 class InstalledHookRestorer {
 public:
   InstalledHookRestorer() : installedHook(boss::prettyPrintHook()) {}
