@@ -203,6 +203,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   # the add_custom_command rule above at the same time, so this target runs the rule once
   # and those targets depend on this target.
   add_custom_target(chibi-bindings DEPENDS ${REPLFiles})
+  add_dependencies(chibi-bindings chibi-scheme)
 
   target_include_directories(BOSS SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(BOSS
