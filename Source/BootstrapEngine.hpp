@@ -425,13 +425,12 @@ class BootstrapEngine : public Engine {
          // ResetEngines throws instead of unloading engines that this evaluation calls.
          InFlightGuard const inFlight(evaluationsInFlight, reconfigurationInProgress,
                                       engineStateMutex);
-         // `self = this` rather than a plain `this` capture: capturing `this` directly in this
-         // nested lambda crashes clang 18 (an assertion in Sema::BuildCaptureInit while
-         // instantiating the enclosing generic lambda).
+         // Captures `this` as `self`, because clang 18 fails an assertion in
+         // Sema::BuildCaptureInit when a lambda nested in a generic lambda captures `this`
+         // directly.
          auto resolveEngineEntryPoint = [self = this](auto const& enginePath) {
-           // Resolve the base entry point under the engine-state lock (resolveEvaluateFunction
-           // locks internally and releases before returning), then do any GetEntryPoint engine
-           // call below with NO lock held.
+           // resolveEvaluateFunction takes engineStateMutex and releases the mutex before it
+           // returns, so BootstrapEngine holds no lock during the GetEntryPoint call below.
            auto* entryPoint = self->resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
            visit(overload(
                      [&entryPoint](ComplexExpression const& engine) {
@@ -440,14 +439,15 @@ class BootstrapEngine : public Engine {
                                .clone(
                                    boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)
                                .decompose();
-                       // Owning handles so the GetEntryPoint input and result are released even
-                       // if the engine call, or decoding its result, exits by exception.
+                       // ExpressionHandle frees the GetEntryPoint request and the engine's answer,
+                       // also when the engine call or the decoding of the answer throws.
                        using ExpressionHandle =
                            std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
-                       // A fresh empty static-argument tuple rather than a move of `statics`: it
-                       // is an empty std::tuple<>, so the move has no effect and clang-tidy (run
-                       // with warnings-as-errors) rejects it. Naming its type keeps the
-                       // structured binding referenced.
+                       // Passes a new empty static-argument tuple instead of moving `statics`.
+                       // `statics` is an empty std::tuple<>, so clang-tidy reports a move of
+                       // `statics` as a move without effect, and CI treats that warning as an
+                       // error. decltype(statics) also keeps the structured binding `statics` in
+                       // use.
                        auto const input =
                            ExpressionHandle(new BOSSExpression {ComplexExpression(
                                                 Symbol("GetEntryPoint"), decltype(statics) {},
@@ -458,16 +458,15 @@ class BootstrapEngine : public Engine {
                        if(output != nullptr) {
                          visit(overload(
                                    [&entryPoint](std::int64_t value) {
-                                     // 0 means "no override": keep the engine's default evaluate
-                                     // entry point rather than dispatching through a null
-                                     // function pointer.
+                                     // An answer of 0 keeps evaluate as the entry point, so that
+                                     // BootstrapEngine does not call a null function pointer.
                                      if(value == 0) {
                                        return;
                                      }
-                                     // The cast below narrows on any target where intptr_t is
-                                     // smaller than int64_t (32-bit builds). Silently truncating
-                                     // would hand dispatch a plausible-looking but wrong address,
-                                     // so refuse a value that cannot round-trip instead.
+                                     // Where intptr_t is narrower than int64_t (32-bit builds), the
+                                     // cast below drops the high bits, and BootstrapEngine would
+                                     // call a wrong address. BootstrapEngine therefore throws for a
+                                     // value that the cast changes.
                                      auto const asPointerInt = static_cast<std::intptr_t>(value);
                                      if(static_cast<std::int64_t>(asPointerInt) != value) {
                                        throw std::runtime_error(
@@ -478,10 +477,9 @@ class BootstrapEngine : public Engine {
                                      entryPoint = reinterpret_cast<LibraryAndFunctions::EntryPoint>(
                                          asPointerInt);
                                    },
-                                   // Anything other than an int64 means "no override" -- that is
-                                   // the documented contract, so that an engine which does not
-                                   // implement GetEntryPoint keeps its default entry point rather
-                                   // than failing the whole dispatch.
+                                   // An answer that is not an int64 keeps evaluate as the entry
+                                   // point, so that an engine without a GetEntryPoint
+                                   // implementation still evaluates expressions.
                                    [](auto const& /*unused*/) {}),
                                output->delegate);
                        }
