@@ -16,10 +16,10 @@ constexpr std::int64_t defaultEntryPointResult = 1;
 constexpr std::int64_t customEntryPointResult = 4242;
 
 /// Lets a test hold one engine call (an evaluation of Pause, a reset armed with
-/// stubPauseNextReset, or a GetEngineDescription armed with stubPauseNextDescription) until
-/// the test calls stubReleasePausedCall, so that the test can check what BootstrapEngine
-/// refuses while that call is running. Every wait ends after pauseTimeout, so a test that
-/// fails part-way cannot block the test run indefinitely.
+/// scriptablePauseNextReset, or a GetEngineDescription armed with scriptablePauseNextDescription)
+/// until the test calls scriptableReleasePausedCall, so that the test can check what
+/// BootstrapEngine refuses while that call is running. Every wait ends after pauseTimeout, so a
+/// test that fails part-way cannot block the test run indefinitely.
 constexpr auto pauseTimeout = std::chrono::seconds(30);
 struct PauseState {
   std::mutex mutex;
@@ -66,7 +66,7 @@ BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
   auto const& arguments = request.getDynamicArguments();
   auto const* mode = arguments.empty() ? nullptr : std::get_if<Symbol>(&arguments.front());
   // answerGetEntryPoint also answers a request without arguments with the custom entry
-  // point, so that a test that dispatches through a plain StubTest symbol fails if
+  // point, so that a test that dispatches through a plain Scriptable symbol fails if
   // BootstrapEngine sends GetEntryPoint for that symbol.
   if(arguments.empty() || (mode != nullptr && mode->getName() == "Override")) {
     return answerWithCustomEntryPoint();
@@ -77,17 +77,17 @@ BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
   return new BOSSExpression {"not an entry point"};
 }
 
-/// CMake builds this file as three stub engines, so that one test can request
+/// CMake builds this file as three scriptable engines, so that one test can request
 /// GetEngineDescription from a pipeline whose engines answer with a string, with nothing and
 /// with a non-string.
 BOSSExpression* describeEngine() {
-#if defined(STUB_ENGINE_DESCRIPTION_IS_NOTHING)
+#if defined(SCRIPTABLE_ENGINE_DESCRIPTION_IS_NOTHING)
   return nullptr;
-#elif defined(STUB_ENGINE_DESCRIPTION_IS_NUMBER)
+#elif defined(SCRIPTABLE_ENGINE_DESCRIPTION_IS_NUMBER)
   constexpr std::int64_t numericDescription = 7;
   return new BOSSExpression {numericDescription};
 #else
-  return new BOSSExpression {"A stub engine for the BOSS tests.\n"};
+  return new BOSSExpression {"A scriptable engine for the BOSS tests.\n"};
 #endif
 }
 
@@ -130,38 +130,38 @@ bool waitAtCallBarrier() {
 }
 } // namespace
 
-extern "C" void stubPauseNextReset() {
+extern "C" void scriptablePauseNextReset() {
   auto& state = PauseState::singleton();
   std::scoped_lock const lock(state.mutex);
   state.pauseNextReset = true;
 }
 
-extern "C" void stubPauseNextDescription() {
+extern "C" void scriptablePauseNextDescription() {
   auto& state = PauseState::singleton();
   std::scoped_lock const lock(state.mutex);
   state.pauseNextDescription = true;
 }
 
-extern "C" int stubWaitUntilCallPaused() {
+extern "C" int scriptableWaitUntilCallPaused() {
   auto& state = PauseState::singleton();
   std::unique_lock<std::mutex> lock(state.mutex);
   return state.changed.wait_for(lock, pauseTimeout, [&state] { return state.callPaused; }) ? 1 : 0;
 }
 
-extern "C" void stubReleasePausedCall() {
+extern "C" void scriptableReleasePausedCall() {
   auto& state = PauseState::singleton();
   std::scoped_lock const lock(state.mutex);
   state.released = true;
   state.changed.notify_all();
 }
 
-extern "C" int stubResetCount() {
+extern "C" int scriptableResetCount() {
   auto& state = PauseState::singleton();
   std::scoped_lock const lock(state.mutex);
   return state.resetCount;
 }
 
-extern "C" void stubThrowFromNextReset() {
+extern "C" void scriptableThrowFromNextReset() {
   auto& state = PauseState::singleton();
   std::scoped_lock const lock(state.mutex);
   state.throwFromNextReset = true;
@@ -183,7 +183,7 @@ extern "C" void reset() {
     pauseUntilReleased();
   }
   if(throwThisReset) {
-    throw std::runtime_error("stub reset failure");
+    throw std::runtime_error("scriptable engine reset failure");
   }
 }
 
@@ -191,7 +191,7 @@ extern "C" void reset() {
 /// argument with a custom entry point, GetEntryPoint(Zero) with 0 and any other GetEntryPoint
 /// request with a string, so that the tests can check how BootstrapEngine handles each result.
 /// Answers GetEngineDescription with the answer of describeEngine, after pausing first when
-/// stubPauseNextDescription armed the pause. Evaluates Barrier to 1 if callsToWaitFor calls
+/// scriptablePauseNextDescription armed the pause. Evaluates Barrier to 1 if callsToWaitFor calls
 /// were inside the engine at the same time, and to 0 if they were not. Evaluates every other
 /// expression to defaultEntryPointResult, after pausing first when the expression's head is
 /// Pause.

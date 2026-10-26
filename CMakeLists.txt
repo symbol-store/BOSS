@@ -244,32 +244,33 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
 endif()
 add_dependencies(Tests catch2)
 
-# Tests loads these stub engines by their library names (libStubTestEngine.so,
-# libStubSilentEngine.so and libStubNumericEngine.so next to the Tests binary), so that
-# the default test suite can test dispatch into a real engine library without downloading
-# an external engine. A MODULE library has the .so suffix on macOS as well, and
-# BootstrapEngine derives the name libStubTestEngine.so from a StubTest engine symbol.
-# With MSVC, CMake builds the stubs as SHARED, like the engines, because
+# Tests loads these scriptable engines by their library names (libScriptableEngine.so,
+# libScriptableSilentEngine.so and libScriptableNumericEngine.so next to the Tests
+# binary), so that the default test suite can test dispatch into a real engine library
+# without downloading an external engine. A MODULE library has the .so suffix on macOS as
+# well, and BootstrapEngine derives the name libScriptableEngine.so from a Scriptable
+# engine symbol.
+# With MSVC, CMake builds the scriptable engines as SHARED, like the engines, because
 # CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS exports nothing from a MODULE library.
 if(MSVC)
-  set(_stub_engine_library_type SHARED)
+  set(_scriptable_engine_library_type SHARED)
 else()
-  set(_stub_engine_library_type MODULE)
+  set(_scriptable_engine_library_type MODULE)
 endif()
-# CMake builds Tests/StubTestEngine.cpp three times, and the three stub engines differ only
-# in how each stub engine answers GetEngineDescription.
-foreach(StubEngine IN ITEMS StubTestEngine StubSilentEngine StubNumericEngine)
-  add_library(${StubEngine} ${_stub_engine_library_type} Tests/StubTestEngine.cpp)
-  add_dependencies(${StubEngine} spdlog)
-  target_include_directories(${StubEngine} SYSTEM PRIVATE ${BOSS_BINARY_DIR}/deps/include)
-  target_link_libraries(${StubEngine} Threads::Threads)
-  set_target_properties(${StubEngine} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
+# CMake builds Tests/ScriptableEngine.cpp three times, and the three scriptable engines
+# differ only in how each scriptable engine answers GetEngineDescription.
+foreach(ScriptableEngineTarget IN ITEMS ScriptableEngine ScriptableSilentEngine ScriptableNumericEngine)
+  add_library(${ScriptableEngineTarget} ${_scriptable_engine_library_type} Tests/ScriptableEngine.cpp)
+  add_dependencies(${ScriptableEngineTarget} spdlog)
+  target_include_directories(${ScriptableEngineTarget} SYSTEM PRIVATE ${BOSS_BINARY_DIR}/deps/include)
+  target_link_libraries(${ScriptableEngineTarget} Threads::Threads)
+  set_target_properties(${ScriptableEngineTarget} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
     LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>
     RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
-  add_dependencies(Tests ${StubEngine})
+  add_dependencies(Tests ${ScriptableEngineTarget})
 endforeach()
-target_compile_definitions(StubSilentEngine PRIVATE STUB_ENGINE_DESCRIPTION_IS_NOTHING)
-target_compile_definitions(StubNumericEngine PRIVATE STUB_ENGINE_DESCRIPTION_IS_NUMBER)
+target_compile_definitions(ScriptableSilentEngine PRIVATE SCRIPTABLE_ENGINE_DESCRIPTION_IS_NOTHING)
+target_compile_definitions(ScriptableNumericEngine PRIVATE SCRIPTABLE_ENGINE_DESCRIPTION_IS_NUMBER)
 # On Linux, dlopen does not search the executable's directory for a bare library name, so
 # the rpath of Tests is $ORIGIN, in the build tree and in the installation.
 if(UNIX AND NOT APPLE)
@@ -411,11 +412,11 @@ else()
   install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
-# Tests loads the stub engines by their bare library names, so the installation copies
-# the stub engines into the directory of Tests. There, the dynamic loader finds the stub
-# engines through the $ORIGIN rpath on Linux, and LoadLibrary finds the stub engines on
-# Windows.
-install(TARGETS StubTestEngine StubSilentEngine StubNumericEngine
+# Tests loads the scriptable engines by their bare library names, so the installation
+# copies the scriptable engines into the directory of Tests. There, the dynamic loader
+# finds the scriptable engines through the $ORIGIN rpath on Linux, and LoadLibrary finds
+# the scriptable engines on Windows.
+install(TARGETS ScriptableEngine ScriptableSilentEngine ScriptableNumericEngine
   LIBRARY DESTINATION bin RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
