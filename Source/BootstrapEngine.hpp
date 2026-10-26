@@ -296,15 +296,16 @@ class BootstrapEngine : public Engine {
   /// instance. So while a dispatch is in flight, or another thread is resetting and unloading
   /// engines, this function queues the libraries, sets reconfigurationInProgress and returns.
   /// While reconfigurationInProgress is set, InFlightGuard refuses new dispatches.
-  static void tearDownOnceNoDispatchIsInFlight(vector<LibraryAndFunctions>&& detachedLibraries)
+  static void tearDownOnceNoDispatchIsInFlight(vector<LibraryAndFunctions> detachedLibraries)
       BOSS_EXCLUDES(engineStateMutex) {
     if(detachedLibraries.empty()) {
       return;
     }
     {
       boss::concurrency::UniqueLock const lock(engineStateMutex);
-      librariesAwaitingTeardown.insert(librariesAwaitingTeardown.end(), detachedLibraries.begin(),
-                                       detachedLibraries.end());
+      librariesAwaitingTeardown.insert(librariesAwaitingTeardown.end(),
+                                       make_move_iterator(detachedLibraries.begin()),
+                                       make_move_iterator(detachedLibraries.end()));
       bool const anotherThreadTearsDown =
           reconfigurationInProgress.load() || evaluationsInFlight.load() > 0;
       reconfigurationInProgress = true;
