@@ -21,7 +21,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
+#include <exception> // IWYU pragma: keep
 #include <functional>
 #include <future>
 #include <iterator>
@@ -925,11 +925,10 @@ TEST_CASE("Custom engine entry points", "[engines]") {
   // BootstrapEngine passes the spec's span argument to GetEntryPoint as a span. The
   // spec's dynamic argument alone selects Zero, so without the span in the request, the
   // dispatch would call evaluate and return 1.
-  auto specWithSpan = boss::expressions::ComplexExpression(
-      "StubTest"_, {}, boss::expressions::ExpressionArguments("Zero"_),
-      boss::expressions::ExpressionSpanArguments(
-          boss::Span<std::int64_t>(std::vector<std::int64_t> {1})));
-  CHECK(evaluateWithStub(std::move(specWithSpan)) == std::int64_t {4242});
+  CHECK(evaluateWithStub(boss::expressions::ComplexExpression(
+            "StubTest"_, {}, boss::expressions::ExpressionArguments("Zero"_),
+            boss::expressions::ExpressionSpanArguments(
+                boss::Span<std::int64_t>(std::vector<std::int64_t> {1})))) == std::int64_t {4242});
 }
 
 TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
