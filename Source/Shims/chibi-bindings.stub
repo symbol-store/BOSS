@@ -1,6 +1,7 @@
 (c-include "BOSS.h")
 (define-c-struct BOSSExpression finalizer: freeBOSSExpression)
 (define-c-struct BOSSSymbol finalizer: freeBOSSSymbol)
+(define-c-struct BOSSExpressionSpan predicate: BOSSExpressionSpan? finalizer: freeBOSSExpressionSpan)
 (define-c (free BOSSSymbol) symbolNameToNewBOSSSymbol ((const string)))
 (define-c (free (const string)) bossSymbolToNewString ((const BOSSSymbol)))
 
@@ -34,6 +35,31 @@
 (define-c BOSSExpression getArgumentFromBOSSExpressionArray ((pointer BOSSExpression) size_t))
 (define-c (pointer BOSSExpression) getArgumentsFromBOSSExpression ((const BOSSExpression)))
 (define-c void freeBOSSArguments ((pointer BOSSExpression)))
+
+;; span arguments (zero-copy columnar / binary payloads)
+(define-c (free BOSSExpression) newComplexBOSSExpressionWithSpans
+  (BOSSSymbol size_t (array BOSSExpression) size_t (array BOSSExpressionSpan)))
+(define-c size_t getDynamicArgumentCountFromBOSSExpression ((const BOSSExpression)))
+(define-c (pointer BOSSExpression) getDynamicArgumentsFromBOSSExpression ((const BOSSExpression)))
+(define-c size_t getSpanArgumentCountFromBOSSExpression ((const BOSSExpression)))
+(define-c (pointer BOSSExpressionSpan) getSpanArgumentsFromBOSSExpression (BOSSExpression))
+;; getSpanFromBOSSSpanArray hands the span to the GC wrapper that frees it and clears its array
+;; entry, so freeBOSSSpansNotTakenAndArray frees exactly the spans that were never taken, for
+;; example when an exception leaves the conversion before it reaches them.
+(c-declare "struct BOSSExpressionSpan* getSpanFromBOSSSpanArray(struct BOSSExpressionSpan** array, size_t index) { struct BOSSExpressionSpan* span = array[index]; array[index] = NULL; return span; }")
+(define-c (free BOSSExpressionSpan) getSpanFromBOSSSpanArray ((pointer BOSSExpressionSpan) size_t))
+(c-declare "static void freeBOSSSpansNotTakenAndArray(struct BOSSExpressionSpan** array, size_t count) { for(size_t index = 0; index < count; ++index) { if(array[index] != NULL) { freeBOSSExpressionSpan(array[index]); } } freeBOSSSpanArray(array); }")
+(define-c void freeBOSSSpansNotTakenAndArray ((pointer BOSSExpressionSpan) size_t))
+(define-c size_t getBOSSSpanBeginAddress ((const BOSSExpressionSpan)))
+;; Scheme builds int8 spans from bytevectors (the binary payload path). Note this constructor
+;; COPIES: makeInt8BOSSSpan copies the bytevector's bytes into the new span's buffer. It is the
+;; span itself that then moves zero-copy across the bridge, not this initial construction.
+;; Spans of the other element types are constructed host-side via the make*BOSSSpan C API or
+;; arrive from engine output; they too cross the bridge unmodified via the span accessors.
+;; Declared with a bytevector argument, so the generated stub raises a Scheme type error for any
+;; other object before C reads its storage; the length arrives as a computed second argument.
+(c-declare "static struct BOSSExpressionSpan* bytevectorToNewInt8BOSSSpan(char const* data, size_t length) { return makeInt8BOSSSpan((int8_t const*)data, length); }")
+(define-c (free BOSSExpressionSpan) bytevectorToNewInt8BOSSSpan (bytevector (value (bytevector-length arg0) size_t)))
 
 
 ;; BOSSEvaluate takes ownership and frees the input internally.

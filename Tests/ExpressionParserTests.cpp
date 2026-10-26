@@ -1,4 +1,6 @@
+#include "../Source/Expression.hpp"
 #include "../Source/ExpressionParser.hpp"
+#include "../Source/ExpressionUtilities.hpp"
 
 extern "C" {
 #include <chibi/eval.h>
@@ -8,6 +10,13 @@ extern "C" {
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+
+#include <cstdint>
+#include <ios>
+#include <ostream>
+#include <sstream>
+#include <streambuf>
+#include <vector>
 
 // Catch2 reruns the test case from the top for every SECTION, so each section gets a fresh
 // context and a redefinition of boss-print cannot leak into the next one.
@@ -69,5 +78,53 @@ TEST_CASE("evaluate_expression", "[ExpressionParser]") {
     auto const result = boss::evaluate_expression(ctx, env, "\"a\\u0000b\"");
     CHECK(result.is_error);
     CHECK_THAT(result.text, Catch::Matchers::ContainsSubstring("U+0000"));
+  }
+}
+
+namespace {
+// Fails every write, so an ostream using it with badbit exceptions enabled throws.
+class FailingStreamBuffer : public std::streambuf {
+protected:
+  int_type overflow(int_type /*unused*/) override { return traits_type::eof(); }
+};
+} // namespace
+
+TEST_CASE("pretty_print_expression", "[ExpressionParser][pretty]") {
+  using boss::utilities::operator""_;
+  boss::ComplexExpression const expression = "Plus"_("x"_, "y"_);
+  std::stringstream compactOut;
+  compactOut << expression;
+
+  SECTION("renders through the chibi printer") {
+    std::stringstream out;
+    CHECK(boss::pretty_print_expression(out, expression));
+    CHECK(out.str() == "(Plus x y)\n");
+  }
+
+  SECTION("renders the values held in span arguments") {
+    boss::ComplexExpression const spanBacked =
+        "Plus"_(boss::Span<std::int64_t>(std::vector<std::int64_t> {1, 2}));
+    std::stringstream out;
+    CHECK(boss::pretty_print_expression(out, spanBacked));
+    CHECK(out.str() == "(Plus 1 2)\n");
+  }
+
+  SECTION("is the hook that boss::pretty uses once BossPrettyPrint.cpp is linked") {
+    CHECK(boss::prettyPrintHook() == &boss::pretty_print_expression);
+    std::stringstream out;
+    out << boss::pretty << expression;
+    CHECK(out.str() == "(Plus x y)\n");
+    CHECK(out.str() != compactOut.str());
+  }
+
+  SECTION("lets a stream's exception through and keeps rendering afterwards") {
+    FailingStreamBuffer failingBuffer;
+    std::ostream failingStream(&failingBuffer);
+    failingStream.exceptions(std::ios::badbit);
+    CHECK_THROWS_AS(boss::pretty_print_expression(failingStream, expression),
+                    std::ios_base::failure);
+    std::stringstream out;
+    CHECK(boss::pretty_print_expression(out, expression));
+    CHECK(out.str() == "(Plus x y)\n");
   }
 }

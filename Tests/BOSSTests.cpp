@@ -228,16 +228,69 @@ TEST_CASE("Pretty-print manipulator toggles the per-stream flag", "[expressions]
   CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
 }
 
+namespace {
+// prettyPrintHook() is process-wide, so a test that replaces the hook would otherwise leave
+// its replacement installed for every test that runs after it.
+class InstalledHookRestorer {
+public:
+  InstalledHookRestorer() : installedHook(boss::prettyPrintHook()) {}
+  ~InstalledHookRestorer() { boss::prettyPrintHook() = installedHook; }
+  InstalledHookRestorer(InstalledHookRestorer const&) = delete;
+  InstalledHookRestorer(InstalledHookRestorer&&) = delete;
+  InstalledHookRestorer& operator=(InstalledHookRestorer const&) = delete;
+  InstalledHookRestorer& operator=(InstalledHookRestorer&&) = delete;
+
+private:
+  boss::expressions::generic::PrettyPrintHook installedHook;
+};
+} // namespace
+
 TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pretty]") {
-  // The Tests binary does not link Shims/BossPrettyPrint.cpp, so the hook stays null
-  // and pretty mode falls through to the compact renderer.
-  REQUIRE(boss::prettyPrintHook() == nullptr);
+  InstalledHookRestorer const restorer;
+  boss::prettyPrintHook() = nullptr;
   auto expr = "Filter"_("Load"_("path"), "Greater"_("x"_, 3));
   std::stringstream compactOut;
   compactOut << expr;
   std::stringstream prettyOut;
   prettyOut << boss::pretty << expr;
   CHECK(prettyOut.str() == compactOut.str());
+}
+
+TEST_CASE("Pretty falls back to compact when the hook declines", "[expressions][pretty]") {
+  InstalledHookRestorer const restorer;
+
+  auto const expr = "Filter"_("Load"_(), "Greater"_("x"_, "y"_));
+  std::stringstream compactOut;
+  compactOut << expr;
+
+  // A hook that cannot render must not swallow the output.
+  boss::prettyPrintHook() = [](std::ostream&, boss::ComplexExpression const&) { return false; };
+  std::stringstream declinedOut;
+  declinedOut << boss::pretty << expr;
+  CHECK(declinedOut.str() == compactOut.str());
+
+  // A hook that declines the outer expression but renders a nested one must not mix its
+  // output into the compact fallback.
+  boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const& expression) {
+    if(expression.getHead().getName() != "Greater") {
+      return false;
+    }
+    stream << "RENDERED";
+    return true;
+  };
+  std::stringstream selectiveOut;
+  selectiveOut << boss::pretty << expr;
+  CHECK(selectiveOut.str() == compactOut.str());
+  CHECK(selectiveOut.iword(boss::prettyStreamIndex()) == 1);
+
+  // A hook that does render owns the output entirely.
+  boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const&) {
+    stream << "RENDERED";
+    return true;
+  };
+  std::stringstream renderedOut;
+  renderedOut << boss::pretty << expr;
+  CHECK(renderedOut.str() == "RENDERED");
 }
 
 TEST_CASE("Compact rendering is lisp-style", "[expressions][pretty]") {
@@ -699,10 +752,10 @@ TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
 }
 
 namespace {
-// Runs loadStub, which makes BootstrapEngine load a stub engine by its bare library name. On
-// macOS, dlopen looks a bare name up in the working directory rather than next to the Tests
-// binary, so there a stub that cannot be loaded skips the test. Elsewhere the Tests build must
-// make the stub loadable, so a load failure fails the test.
+/// Runs loadStub, which makes BootstrapEngine load a stub engine by its bare library name. On
+/// macOS, dlopen looks a bare name up in the working directory rather than next to the Tests
+/// binary, so there a stub that cannot be loaded skips the test. Elsewhere the Tests build must
+/// make the stub loadable, so a load failure fails the test.
 template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
 #ifdef __APPLE__
   try {
@@ -721,10 +774,10 @@ template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
 } // namespace
 
 namespace {
-// The stub engine's pause and reset controls. dlopen (BootstrapEngine.hpp's LoadLibrary
-// shim on Windows) returns the image BootstrapEngine already loaded, so these functions drive the
-// very stub instance the engine calls. The handle is never closed, which keeps that image loaded
-// for the rest of the run.
+/// The stub engine's pause and reset controls. dlopen (BootstrapEngine.hpp's LoadLibrary
+/// shim on Windows) returns the image that BootstrapEngine already loaded, so these functions
+/// control the same stub instance that BootstrapEngine calls. The test never closes the
+/// handle, so the image remains loaded until the process exits.
 struct StubPauseControls {
   int (*waitUntilCallPaused)();
   void (*releasePausedCall)();
@@ -733,8 +786,8 @@ struct StubPauseControls {
   void (*throwFromNextReset)();
   void (*pauseNextDescription)();
 
-  // Fails the test instead of blocking when no stub call pauses within the stub's timeout. It
-  // first releases a call that pauses late, so that the dispatch that made the call can finish.
+  /// Fails the test instead of blocking when no stub call pauses within the stub's timeout. It
+  /// first releases a call that pauses late, so that the dispatch that made the call can finish.
   void requireCallPaused() const {
     if(waitUntilCallPaused() == 0) {
       releasePausedCall();
@@ -783,14 +836,14 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
-  // Every BootstrapEngine gets the same stub image from dlopen, so another instance's
-  // ResetEngines is refused as well.
+  // Every BootstrapEngine gets the same stub image from dlopen, so a second BootstrapEngine
+  // refuses ResetEngines as well.
   CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   stub.releasePausedCall();
   CHECK(pausedDispatch.get() == std::int64_t {1});
 
-  // While ResetEngines is still resetting the stub, a dispatch is refused.
+  // BootstrapEngine refuses a dispatch while ResetEngines is still resetting the stub.
   stub.pauseNextReset();
   auto pausedReset =
       std::async(std::launch::async, [&engine] { return engine.evaluate("ResetEngines"_()); });
@@ -800,7 +853,7 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
   stub.releasePausedCall();
   CHECK(pausedReset.get() == std::string("okay"));
 
-  // Both work again once nothing is running.
+  // Both operators succeed again once no engine call is running.
   CHECK(dispatchToStub(5) == std::int64_t {1});
   CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
 }
@@ -812,9 +865,9 @@ TEST_CASE("Reconfiguration is refused during a dispatch through the default pipe
   auto const stub = stubPauseControls();
   REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) == std::string("okay"));
 
-  // A root evaluation goes through the default pipeline, so this pauses inside the stub and
-  // is counted as in flight from the moment evaluate() takes its pipeline snapshot. The
-  // checks are non-fatal so that the paused call is always released.
+  // A root evaluation goes through the default pipeline, so this evaluation pauses inside the
+  // stub, and BootstrapEngine counts it as in flight from the moment evaluate() copies the
+  // pipeline. The checks are non-fatal so that the paused call is always released.
   auto pausedEvaluation =
       std::async(std::launch::async, [&engine] { return engine.evaluate("Pause"_()); });
   stub.requireCallPaused();
@@ -863,14 +916,17 @@ TEST_CASE("Custom engine entry points", "[engines]") {
   requireStubEngine([&evaluateWithStub] { evaluateWithStub("StubTest"_); });
   // libStubTestEngine.so answers GetEntryPoint from the engine spec's argument.
   CHECK(evaluateWithStub("StubTest"_("Override"_)) == std::int64_t {4242});
-  // 0 and a non-int64 result both mean "no override", so evaluate stays the entry point.
+  // BootstrapEngine keeps evaluate as the entry point when GetEntryPoint returns 0 or a
+  // value that is not an int64.
   CHECK(evaluateWithStub("StubTest"_("Zero"_)) == std::int64_t {1});
   CHECK(evaluateWithStub("StubTest"_("NotAPointer"_)) == std::int64_t {1});
-  // A plain engine symbol never asks for a custom entry point. The stub answers an
-  // argument-less GetEntryPoint with its custom entry point, so asking would return 4242.
+  // BootstrapEngine sends no GetEntryPoint request for a plain engine symbol. The stub
+  // answers a GetEntryPoint request without arguments with its custom entry point, so a
+  // request would make this dispatch return 4242.
   CHECK(evaluateWithStub("StubTest"_) == std::int64_t {1});
-  // The spec's span argument reaches GetEntryPoint as a span. The spec's dynamic argument alone
-  // asks for Zero, so a request without the span would fall back to evaluate.
+  // BootstrapEngine passes the spec's span argument to GetEntryPoint as a span. The
+  // spec's dynamic argument alone selects Zero, so without the span in the request, the
+  // dispatch would call evaluate and return 1.
   auto specWithSpan = boss::expressions::ComplexExpression(
       "StubTest"_, {}, boss::expressions::ExpressionArguments("Zero"_),
       boss::expressions::ExpressionSpanArguments(
@@ -927,8 +983,9 @@ TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][co
                     Catch::Matchers::ContainsSubstring("stub reset failure"));
   CHECK(dispatchToStub(5) == std::int64_t {1});
 
-  // A queued teardown has no caller to report to, so the dispatch that runs it returns its own
-  // result. The checks are non-fatal so that the paused call is always released.
+  // Queued libraries have no caller to report a reset failure to, so the dispatch that resets
+  // and unloads them returns the dispatch's result. The checks are non-fatal so that the
+  // paused call is always released.
   auto pausedDispatch =
       std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
   stub.requireCallPaused();
@@ -947,14 +1004,14 @@ TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][co
 
 TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
   {
-    // A separate engine loads the stub once to find out whether it can be loaded at all, so the
-    // engine under test still starts with a cold library cache.
+    // A separate BootstrapEngine loads the stub once to find out whether the stub can be loaded
+    // at all, so the BootstrapEngine under test still starts with an empty library cache.
     auto probeEngine = boss::engines::BootstrapEngine();
     requireStubEngine(
         [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
   }
   auto engine = boss::engines::BootstrapEngine();
-  constexpr int concurrentDispatches = 4; // concurrentCallsToMeet in Tests/StubTestEngine.cpp
+  constexpr int concurrentDispatches = 4; // callsToWaitFor in Tests/StubTestEngine.cpp
   std::promise<void> start;
   std::shared_future<void> const startSignal = start.get_future().share();
   std::vector<std::future<boss::Expression>> dispatches;
@@ -962,11 +1019,12 @@ TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
   for(int dispatch = 0; dispatch < concurrentDispatches; ++dispatch) {
     dispatches.push_back(std::async(std::launch::async, [&engine, startSignal] {
       startSignal.wait();
-      return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), "Rendezvous"_()));
+      return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), "Barrier"_()));
     }));
   }
-  // The dispatches start together, so their first uses of the stub also race on the cold
-  // library cache. Each returns 1 only if all four calls were inside the stub at once.
+  // The dispatches start together, so the four threads also make BootstrapEngine load the stub
+  // into the empty library cache concurrently. Each dispatch returns 1 only if all four calls
+  // were inside the stub at once.
   start.set_value();
   for(auto& dispatch : dispatches) {
     CHECK(dispatch.get() == std::int64_t {1});
