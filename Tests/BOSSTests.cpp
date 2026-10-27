@@ -945,8 +945,8 @@ TEST_CASE("Engine descriptions", "[engines]") {
       [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
   engine.evaluate(
       "SetDefaultEnginePipeline"_("Scriptable"_, "ScriptableSilent"_, "ScriptableNumeric"_));
-  // One section per engine, in pipeline order, whether the engine answered with a string, with
-  // nothing or with a non-string.
+  // GetEngineDescription writes one section per engine, in pipeline order, whether the engine
+  // answers with a string, with nothing or with a non-string.
   CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
         "## ScriptableEngine\n\nA scriptable engine for the BOSS tests.\n"
         "\n## ScriptableSilentEngine\n\n(no description: the engine returned nothing)\n"
@@ -961,9 +961,9 @@ TEST_CASE("Reconfiguration is refused while engines are being described",
   auto const scriptableEngine = scriptablePauseControls();
   REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)) == std::string("okay"));
 
-  // GetEngineDescription calls into the scriptable engine, so while that call is paused both
-  // reconfiguration operators are refused. The checks are non-fatal so that the paused call is
-  // always released.
+  // GetEngineDescription calls the scriptable engine, so BootstrapEngine refuses both
+  // reconfiguration operators while that call is paused. The checks are non-fatal so that the test
+  // always releases the paused call.
   scriptableEngine.pauseNextDescription();
   auto pausedDescription = std::async(
       std::launch::async, [&engine] { return engine.evaluate("GetEngineDescription"_()); });

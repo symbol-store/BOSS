@@ -336,15 +336,13 @@ class BootstrapEngine : public Engine {
 #endif
   }
 
-  /// Resolves a pipeline entry to the library it names: a Symbol, and a ComplexExpression via
-  /// its head, map to the platform library name; any other entry is required to be a string
-  /// and is used verbatim. For an entry that is none of these, get<string> throws
-  /// ArgumentTypeMismatch<string>, a subclass of bad_variant_access, and the engine-resolution
-  /// tests check the message "expected and actual type mismatch..." of that exception.
+  /// Resolves a pipeline entry to the library it names: a Symbol, and a ComplexExpression via its
+  /// head, map to the platform library name. Any other entry has to be a string, and
+  /// libraryNameForEnginePath uses that string verbatim. For an entry that is none of these,
+  /// get<string> throws ArgumentTypeMismatch<string>, a subclass of bad_variant_access.
   ///
-  /// libraryNameForEnginePath is a template so that callers can pass both an Expression from
-  /// the stored pipeline and the ArgumentWrapper that ComplexExpression::getArguments()
-  /// returns on the dispatch path.
+  /// libraryNameForEnginePath is a template so that callers can pass both an Expression and an
+  /// ArgumentWrapper.
   template <typename EnginePath> static string libraryNameForEnginePath(EnginePath const& path) {
     auto resolve =
         overload([](Symbol const& engine) -> string { return symbolToLibraryName(engine); },
@@ -583,12 +581,14 @@ class BootstrapEngine : public Engine {
       {Symbol("GetEngineDescription"),
        [this](auto&& /*expression*/) -> Expression {
          using boss::utilities::operator""_;
-         // This operator calls into engines, so it must count as in flight: otherwise a
-         // concurrent SetDefaultEnginePipeline or ResetEngines would pass
-         // beginReconfiguration's in-flight check and unload an engine while it is being queried.
+         // InFlightGuard counts this operator as an in-flight dispatch, because the operator calls
+         // engines. Without that count, beginReconfiguration would accept a concurrent
+         // SetDefaultEnginePipeline or ResetEngines, which could unload an engine during its
+         // GetEngineDescription call.
          InFlightGuard const inFlight(evaluationsInFlight, reconfigurationInProgress,
                                       engineStateMutex);
-         // Snapshot the pipeline under a shared lock, then resolve + call engines with no lock.
+         // Copies the pipeline under a shared lock, so that the engine calls below run without
+         // engineStateMutex.
          vector<Expression> pipeline;
          {
            boss::concurrency::SharedLock const lock(engineStateMutex);
@@ -600,11 +600,12 @@ class BootstrapEngine : public Engine {
          }
          string descriptions;
          for(auto const& enginePath : pipeline) {
-           // Resolved once and reused, so the section heading is guaranteed to name the very
-           // library that was resolved rather than a second, independent derivation of it.
+           // The section heading uses the same libraryName, so that the heading names the library
+           // that resolveEvaluateFunction loaded.
            auto const libraryName = libraryNameForEnginePath(enginePath);
            auto* evalFn = resolveEvaluateFunction(libraryName);
-           // Owning handles so neither expression leaks if the engine call throws.
+           // ExpressionHandle frees the GetEngineDescription request and the engine's answer, also
+           // when the engine call throws.
            using ExpressionHandle = std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
            auto const queryWrapper = ExpressionHandle(
                new BOSSExpression {"GetEngineDescription"_()}, &freeBOSSExpression);
@@ -614,9 +615,8 @@ class BootstrapEngine : public Engine {
            if(engineName.compare(0, 3, "lib") == 0) {
              engineName.erase(0, 3);
            }
-           // One section per engine, whatever the engine answered -- an engine that returns
-           // nothing, or something other than a string, must still be visible in the document
-           // rather than silently vanishing from it.
+           // Writes a section for every engine, also for an engine that answers with nothing or
+           // with a non-string, so that the document lists every engine in the pipeline.
            if(!descriptions.empty()) {
              descriptions += "\n";
            }
