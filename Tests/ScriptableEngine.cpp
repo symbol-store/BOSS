@@ -18,10 +18,11 @@ constexpr std::int64_t customEntryPointResult = 4242;
 /// Lets a test hold one engine call (an evaluation of Pause, a reset armed with
 /// scriptablePauseNextReset, or a GetEngineDescription armed with scriptablePauseNextDescription)
 /// until the test calls scriptableReleasePausedCall, so that the test can check what
-/// BootstrapEngine refuses while that call is running. Every wait ends after pauseTimeout, so a
-/// test that fails part-way cannot block the test run indefinitely.
-constexpr auto pauseTimeout = std::chrono::seconds(30);
+/// BootstrapEngine refuses while that call is running. Every wait ends after PauseState::timeout,
+/// so a test that fails part-way cannot block the test run indefinitely.
 struct PauseState {
+  static constexpr auto timeout = std::chrono::seconds(30);
+
   std::mutex mutex;
   std::condition_variable changed;
   bool callPaused = false;
@@ -42,7 +43,7 @@ void pauseUntilReleased() {
   std::unique_lock<std::mutex> lock(state.mutex);
   state.callPaused = true;
   state.changed.notify_all();
-  state.changed.wait_for(lock, pauseTimeout, [&state] { return state.released; });
+  state.changed.wait_for(lock, PauseState::timeout, [&state] { return state.released; });
   state.callPaused = false;
   state.released = false;
 }
@@ -92,12 +93,13 @@ BOSSExpression* describeEngine() {
 }
 
 /// Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
-/// Barrier waits until callsToWaitFor evaluations are inside the engine at the same
-/// time, and stops waiting after barrierTimeout, so that the test fails instead of
+/// Barrier waits until CallBarrier::callsToWaitFor evaluations are inside the engine at the
+/// same time, and stops waiting after CallBarrier::timeout, so that the test fails instead of
 /// blocking if BootstrapEngine makes engine calls wait for each other.
-constexpr int callsToWaitFor = 4;
-constexpr auto barrierTimeout = std::chrono::seconds(10);
 struct CallBarrier {
+  static constexpr int callsToWaitFor = 4;
+  static constexpr auto timeout = std::chrono::seconds(10);
+
   std::mutex mutex;
   std::condition_variable changed;
   int arrivals = 0;
@@ -113,13 +115,13 @@ bool waitAtCallBarrier() {
   auto& barrier = CallBarrier::singleton();
   std::unique_lock<std::mutex> lock(barrier.mutex);
   auto const generation = barrier.generation;
-  if(++barrier.arrivals == callsToWaitFor) {
+  if(++barrier.arrivals == CallBarrier::callsToWaitFor) {
     barrier.arrivals = 0;
     ++barrier.generation;
     barrier.changed.notify_all();
     return true;
   }
-  if(barrier.changed.wait_for(lock, barrierTimeout, [&barrier, generation] {
+  if(barrier.changed.wait_for(lock, CallBarrier::timeout, [&barrier, generation] {
        return barrier.generation != generation;
      })) {
     return true;
@@ -145,7 +147,9 @@ extern "C" void scriptablePauseNextDescription() {
 extern "C" int scriptableWaitUntilCallPaused() {
   auto& state = PauseState::singleton();
   std::unique_lock<std::mutex> lock(state.mutex);
-  return state.changed.wait_for(lock, pauseTimeout, [&state] { return state.callPaused; }) ? 1 : 0;
+  return state.changed.wait_for(lock, PauseState::timeout, [&state] { return state.callPaused; })
+             ? 1
+             : 0;
 }
 
 extern "C" void scriptableReleasePausedCall() {
@@ -191,10 +195,10 @@ extern "C" void reset() {
 /// argument with a custom entry point, GetEntryPoint(Zero) with 0 and any other GetEntryPoint
 /// request with a string, so that the tests can check how BootstrapEngine handles each result.
 /// Answers GetEngineDescription with the answer of describeEngine, after pausing first when
-/// scriptablePauseNextDescription armed the pause. Evaluates Barrier to 1 if callsToWaitFor calls
-/// were inside the engine at the same time, and to 0 if they were not. Evaluates every other
-/// expression to defaultEntryPointResult, after pausing first when the expression's head is
-/// Pause.
+/// scriptablePauseNextDescription armed the pause. Evaluates Barrier to 1 if
+/// CallBarrier::callsToWaitFor calls were inside the engine at the same time, and to 0 if they
+/// were not. Evaluates every other expression to defaultEntryPointResult, after pausing first
+/// when the expression's head is Pause.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "GetEntryPoint") {
