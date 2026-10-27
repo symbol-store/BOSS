@@ -18,9 +18,10 @@ constexpr std::int64_t customEntryPointResult = 4242;
 /// Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
 /// stubPauseNextReset) until the test calls stubReleasePausedCall, so that the test can check
 /// what BootstrapEngine refuses while that call is running. Every wait ends after
-/// pauseTimeout, so a test that fails part-way cannot block the test run indefinitely.
-constexpr auto pauseTimeout = std::chrono::seconds(30);
+/// PauseState::timeout, so a test that fails part-way cannot block the test run indefinitely.
 struct PauseState {
+  static constexpr auto timeout = std::chrono::seconds(30);
+
   std::mutex mutex;
   std::condition_variable changed;
   bool callPaused = false;
@@ -40,7 +41,7 @@ void pauseUntilReleased() {
   std::unique_lock<std::mutex> lock(state.mutex);
   state.callPaused = true;
   state.changed.notify_all();
-  state.changed.wait_for(lock, pauseTimeout, [&state] { return state.released; });
+  state.changed.wait_for(lock, PauseState::timeout, [&state] { return state.released; });
   state.callPaused = false;
   state.released = false;
 }
@@ -123,7 +124,9 @@ extern "C" void stubPauseNextReset() {
 extern "C" int stubWaitUntilCallPaused() {
   auto& state = PauseState::singleton();
   std::unique_lock<std::mutex> lock(state.mutex);
-  return state.changed.wait_for(lock, pauseTimeout, [&state] { return state.callPaused; }) ? 1 : 0;
+  return state.changed.wait_for(lock, PauseState::timeout, [&state] { return state.callPaused; })
+             ? 1
+             : 0;
 }
 
 extern "C" void stubReleasePausedCall() {

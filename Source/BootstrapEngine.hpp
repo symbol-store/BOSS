@@ -434,12 +434,12 @@ class BootstrapEngine : public Engine {
            // returns, so BootstrapEngine holds no lock during the GetEntryPoint call below.
            auto* entryPoint = self->resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
            visit(overload(
-                     [&entryPoint](ComplexExpression const& engine) {
+                     [&entryPoint](ComplexExpression& engine) {
+                       // Moves the engine spec's arguments into the GetEntryPoint request
+                       // instead of cloning them, because EvaluateInEngines does not read the
+                       // engine spec afterwards.
                        auto [_originalHead, statics, dynamics, spans] =
-                           engine
-                               .clone(
-                                   boss::expressions::CloneReason::CONVERSION_TO_C_BOSS_EXPRESSION)
-                               .decompose();
+                           std::move(engine).decompose();
                        // ExpressionHandle frees the GetEntryPoint request and the engine's answer,
                        // also when the engine call or the decoding of the answer throws.
                        using ExpressionHandle =
