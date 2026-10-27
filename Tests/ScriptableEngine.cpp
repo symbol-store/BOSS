@@ -31,6 +31,7 @@ struct PauseState {
   bool pauseNextDescription = false;
   int resetCount = 0;
   bool throwFromNextReset = false;
+  bool throwFromNextEvaluation = false;
 
   static PauseState& singleton() {
     static PauseState state;
@@ -171,6 +172,12 @@ extern "C" void scriptableThrowFromNextReset() {
   state.throwFromNextReset = true;
 }
 
+extern "C" void scriptableThrowFromNextEvaluation() {
+  auto& state = PauseState::singleton();
+  std::scoped_lock const lock(state.mutex);
+  state.throwFromNextEvaluation = true;
+}
+
 extern "C" void reset() {
   auto& state = PauseState::singleton();
   bool pauseThisReset = false;
@@ -199,7 +206,18 @@ extern "C" void reset() {
 /// CallBarrier::callsToWaitFor calls were inside the engine at the same time, and to 0 if they
 /// were not. Evaluates every other expression to defaultEntryPointResult, after pausing first
 /// when the expression's head is Pause.
+/// Throws instead, for the first evaluation after a call to scriptableThrowFromNextEvaluation.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
+  bool throwThisEvaluation = false;
+  {
+    auto& state = PauseState::singleton();
+    std::scoped_lock const lock(state.mutex);
+    throwThisEvaluation = state.throwFromNextEvaluation;
+    state.throwFromNextEvaluation = false;
+  }
+  if(throwThisEvaluation) {
+    throw std::runtime_error("scriptable engine evaluation failure");
+  }
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "GetEntryPoint") {
     return answerGetEntryPoint(*request);

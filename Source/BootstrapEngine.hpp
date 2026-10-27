@@ -422,6 +422,132 @@ class BootstrapEngine : public Engine {
     return libraries.loadOrGet(libraryPath).evaluateFunction;
   }
 
+  using ExpressionHandle = std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
+
+  struct EngineAnswer {
+    ExpressionHandle answer;
+    bool engineThrew;
+  };
+
+  static ComplexExpression elideArguments(ComplexExpression const& expression) {
+    ExpressionArguments arguments;
+    if(!expression.getArguments().empty()) {
+      arguments.emplace_back(Symbol("..."));
+    }
+    return ComplexExpression(Symbol(expression.getHead()), std::move(arguments));
+  }
+
+  static Expression summarizeInput(Expression const& input) {
+    return visit(
+        overload(
+            [](ComplexExpression const& complex) -> Expression { return elideArguments(complex); },
+            [](Symbol const& symbol) -> Expression { return symbol; },
+            [](auto const& /*unused*/) -> Expression { return Symbol("..."); }),
+        input);
+  }
+
+  template <typename EnginePath> static Expression summarizeEngine(EnginePath const& engine) {
+    return visit(
+        overload([](ComplexExpression const& spec) -> Expression { return elideArguments(spec); },
+                 [](Symbol const& symbol) -> Expression { return symbol; },
+                 [](string const& libraryPath) -> Expression { return libraryPath; },
+                 [](auto const& /*unused*/) -> Expression { return Symbol("..."); }),
+        engine);
+  }
+
+  /// Reports only a summary of the input, because the engine may have consumed its input before
+  /// it threw, and copying every input in advance would copy expressions that can be very large.
+  static Expression reportEngineFailure(vector<Expression> const& engineSummaries,
+                                        std::size_t engineThatThrew, Expression&& inputSummary,
+                                        string message) {
+    ExpressionArguments remainingEngines;
+    for(auto engine = engineThatThrew; engine < engineSummaries.size(); ++engine) {
+      remainingEngines.push_back(
+          engineSummaries.at(engine).clone(boss::expressions::CloneReason::EXPRESSION_WRAPPING));
+    }
+    return "ErrorWhenEvaluatingExpression"_(
+        "EvaluateInEngines"_("List"_(std::move(remainingEngines)), std::move(inputSummary)),
+        Expression(std::move(message)));
+  }
+
+  static EngineAnswer
+  dispatchThroughEngines(vector<LibraryAndFunctions::EntryPoint> const& entryPoints,
+                         vector<Expression> const& engineSummaries, ExpressionHandle input) {
+    auto current = std::move(input);
+    for(std::size_t engine = 0; engine < entryPoints.size() && current != nullptr; ++engine) {
+      auto inputSummary = summarizeInput(current->delegate);
+      try {
+        current = ExpressionHandle(entryPoints.at(engine)(current.get()), &freeBOSSExpression);
+      } catch(std::exception const& exception) {
+        return {ExpressionHandle(new BOSSExpression {reportEngineFailure(engineSummaries, engine,
+                                                                         std::move(inputSummary),
+                                                                         exception.what())},
+                                 &freeBOSSExpression),
+                true};
+      }
+    }
+    return {std::move(current), false};
+  }
+
+  /// Moves a complex spec's arguments into the GetEntryPoint request, so the caller must not read
+  /// the spec afterwards. EnginePath has to be non-const: for a const spec, the
+  /// ComplexExpression& overload does not match, and the fallback silently keeps evaluate.
+  template <typename EnginePath>
+  LibraryAndFunctions::EntryPoint resolveEngineEntryPoint(EnginePath& enginePath)
+      BOSS_EXCLUDES(engineStateMutex) {
+    // resolveEvaluateFunction takes engineStateMutex and releases the mutex before it
+    // returns, so BootstrapEngine holds no lock during the GetEntryPoint call below.
+    auto* entryPoint = resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
+    visit(overload(
+              [&entryPoint](ComplexExpression& engine) {
+                auto [_originalHead, statics, dynamics, spans] = std::move(engine).decompose();
+                // ExpressionHandle frees the GetEntryPoint request and the engine's answer,
+                // also when the engine call or the decoding of the answer throws.
+                // Passes a new empty static-argument tuple instead of moving `statics`.
+                // `statics` is an empty std::tuple<>, so clang-tidy reports a move of
+                // `statics` as a move without effect, and CI treats that warning as an
+                // error. decltype(statics) also keeps the structured binding `statics` in
+                // use.
+                auto const input =
+                    ExpressionHandle(new BOSSExpression {ComplexExpression(
+                                         Symbol("GetEntryPoint"), decltype(statics) {},
+                                         std::move(dynamics), std::move(spans))},
+                                     &freeBOSSExpression);
+                auto const output = ExpressionHandle(entryPoint(input.get()), &freeBOSSExpression);
+                if(output != nullptr) {
+                  visit(overload(
+                            [&entryPoint](std::int64_t value) {
+                              // An answer of 0 keeps evaluate as the entry point, so that
+                              // BootstrapEngine does not call a null function pointer.
+                              if(value == 0) {
+                                return;
+                              }
+                              // Where intptr_t is narrower than int64_t (32-bit builds), the
+                              // cast below drops the high bits, and BootstrapEngine would
+                              // call a wrong address. BootstrapEngine therefore throws for a
+                              // value that the cast changes.
+                              auto const asPointerInt = static_cast<std::intptr_t>(value);
+                              if(static_cast<std::int64_t>(asPointerInt) != value) {
+                                throw std::runtime_error(
+                                    "GetEntryPoint returned " + std::to_string(value) +
+                                    ", which does not fit in a pointer on this platform");
+                              }
+                              // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                              entryPoint =
+                                  reinterpret_cast<LibraryAndFunctions::EntryPoint>(asPointerInt);
+                            },
+                            // An answer that is not an int64 keeps evaluate as the entry
+                            // point, so that an engine without a GetEntryPoint
+                            // implementation still evaluates expressions.
+                            [](auto const& /*unused*/) {}),
+                        output->delegate);
+                }
+              },
+              [](auto const& /*unused*/) {}),
+          enginePath);
+    return entryPoint;
+  }
+
   unordered_map<Symbol, std::function<Expression(ComplexExpression&&)>> const registeredOperators {
       {Symbol("EvaluateInEngines"),
        [this](auto&& e) -> Expression {
@@ -429,100 +555,34 @@ class BootstrapEngine : public Engine {
          // ResetEngines throws instead of unloading engines that this evaluation calls.
          InFlightGuard const inFlight(evaluationsInFlight, reconfigurationInProgress,
                                       engineStateMutex);
-         // Captures `this` as `self`, because clang 18 fails an assertion in
-         // Sema::BuildCaptureInit when a lambda nested in a generic lambda captures `this`
-         // directly.
-         auto resolveEngineEntryPoint = [self = this](auto const& enginePath) {
-           // resolveEvaluateFunction takes engineStateMutex and releases the mutex before it
-           // returns, so BootstrapEngine holds no lock during the GetEntryPoint call below.
-           auto* entryPoint = self->resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
-           visit(overload(
-                     [&entryPoint](ComplexExpression& engine) {
-                       // Moves the engine spec's arguments into the GetEntryPoint request
-                       // instead of cloning them, because EvaluateInEngines does not read the
-                       // engine spec afterwards.
-                       auto [_originalHead, statics, dynamics, spans] =
-                           std::move(engine).decompose();
-                       // ExpressionHandle frees the GetEntryPoint request and the engine's answer,
-                       // also when the engine call or the decoding of the answer throws.
-                       using ExpressionHandle =
-                           std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
-                       // Passes a new empty static-argument tuple instead of moving `statics`.
-                       // `statics` is an empty std::tuple<>, so clang-tidy reports a move of
-                       // `statics` as a move without effect, and CI treats that warning as an
-                       // error. decltype(statics) also keeps the structured binding `statics` in
-                       // use.
-                       auto const input =
-                           ExpressionHandle(new BOSSExpression {ComplexExpression(
-                                                Symbol("GetEntryPoint"), decltype(statics) {},
-                                                std::move(dynamics), std::move(spans))},
-                                            &freeBOSSExpression);
-                       auto const output =
-                           ExpressionHandle(entryPoint(input.get()), &freeBOSSExpression);
-                       if(output != nullptr) {
-                         visit(overload(
-                                   [&entryPoint](std::int64_t value) {
-                                     // An answer of 0 keeps evaluate as the entry point, so that
-                                     // BootstrapEngine does not call a null function pointer.
-                                     if(value == 0) {
-                                       return;
-                                     }
-                                     // Where intptr_t is narrower than int64_t (32-bit builds), the
-                                     // cast below drops the high bits, and BootstrapEngine would
-                                     // call a wrong address. BootstrapEngine therefore throws for a
-                                     // value that the cast changes.
-                                     auto const asPointerInt = static_cast<std::intptr_t>(value);
-                                     if(static_cast<std::int64_t>(asPointerInt) != value) {
-                                       throw std::runtime_error(
-                                           "GetEntryPoint returned " + std::to_string(value) +
-                                           ", which does not fit in a pointer on this platform");
-                                     }
-                                     // NOLINTNEXTLINE(performance-no-int-to-ptr)
-                                     entryPoint = reinterpret_cast<LibraryAndFunctions::EntryPoint>(
-                                         asPointerInt);
-                                   },
-                                   // An answer that is not an int64 keeps evaluate as the entry
-                                   // point, so that an engine without a GetEntryPoint
-                                   // implementation still evaluates expressions.
-                                   [](auto const& /*unused*/) {}),
-                               output->delegate);
-                       }
-                     },
-                     [](auto const& /*unused*/) {}),
-                 enginePath);
-           return entryPoint;
-         };
-
-         auto symbols = vector<LibraryAndFunctions::EntryPoint>();
+         auto entryPoints = vector<LibraryAndFunctions::EntryPoint>();
+         auto engineSummaries = vector<Expression>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
          // Looks up every engine's entry point before the first engine call, so that the
-         // dispatch loops below run without engineStateMutex.
+         // dispatch loop below runs without engineStateMutex. Captures `this` as `self`, because
+         // clang 18 fails an assertion in Sema::BuildCaptureInit when a lambda nested in a generic
+         // lambda captures `this` directly.
          for_each(args.begin(), args.end(),
-                  [&symbols, &resolveEngineEntryPoint](auto&& enginePath) {
-                    symbols.push_back(
-                        resolveEngineEntryPoint(std::forward<decltype(enginePath)>(enginePath)));
+                  [self = this, &entryPoints, &engineSummaries](auto&& enginePath) {
+                    engineSummaries.push_back(summarizeEngine(enginePath));
+                    entryPoints.push_back(self->resolveEngineEntryPoint(enginePath));
                   });
-         for_each(make_move_iterator(std::next(
-                      e.getArguments().begin())), // Note: first argument is the engine path
-                  make_move_iterator(prev(e.getArguments().end())), [&symbols](auto&& argument) {
-                    auto* wrapper = new BOSSExpression {std::forward<decltype(argument)>(argument)};
-                    for(auto sym : symbols) {
-                      auto* oldWrapper = wrapper;
-                      wrapper = (sym(wrapper));
-                      freeBOSSExpression(oldWrapper);
-                    }
-                    freeBOSSExpression(wrapper);
-                  });
-
-         auto* r = new BOSSExpression {*prev(e.getArguments().end())};
-         for(auto sym : symbols) {
-           auto* oldWrapper = r;
-           r = sym(r);
-           freeBOSSExpression(oldWrapper);
+         auto const dispatch = [&entryPoints, &engineSummaries](auto&& argument) {
+           return dispatchThroughEngines(
+               entryPoints, engineSummaries,
+               ExpressionHandle(new BOSSExpression {std::forward<decltype(argument)>(argument)},
+                                &freeBOSSExpression));
+         };
+         // The first argument is the engine list.
+         auto arguments = e.getArguments();
+         for(auto argument = std::next(arguments.begin()); argument != prev(arguments.end());
+             ++argument) {
+           auto evaluation = dispatch(*argument);
+           if(evaluation.engineThrew) {
+             return std::move(evaluation.answer->delegate);
+           }
          }
-         auto result = std::move(r->delegate);
-         freeBOSSExpression(r); // NOLINT
-         return std::move(result);
+         return std::move(dispatch(*prev(arguments.end())).answer->delegate);
        }},
       {Symbol("SetDefaultEnginePipeline"),
        [this](auto&& expression) -> Expression {
@@ -599,30 +659,44 @@ class BootstrapEngine : public Engine {
            }
          }
          string descriptions;
-         for(auto const& enginePath : pipeline) {
+         for(auto& enginePath : pipeline) {
            // The section heading uses the same libraryName, so that the heading names the library
            // that resolveEvaluateFunction loaded.
            auto const libraryName = libraryNameForEnginePath(enginePath);
-           auto* evalFn = resolveEvaluateFunction(libraryName);
-           // ExpressionHandle frees the GetEngineDescription request and the engine's answer, also
-           // when the engine call throws.
-           using ExpressionHandle = std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
-           auto const queryWrapper = ExpressionHandle(
-               new BOSSExpression {"GetEngineDescription"_()}, &freeBOSSExpression);
-           auto const resultWrapper =
-               ExpressionHandle(evalFn(queryWrapper.get()), &freeBOSSExpression);
+           vector<Expression> engineSummaries;
+           engineSummaries.push_back(summarizeEngine(enginePath));
+           EngineAnswer evaluation {ExpressionHandle(nullptr, &freeBOSSExpression), false};
+           try {
+             evaluation = dispatchThroughEngines(
+                 {resolveEngineEntryPoint(enginePath)}, engineSummaries,
+                 ExpressionHandle(new BOSSExpression {"GetEngineDescription"_()},
+                                  &freeBOSSExpression));
+           } catch(std::exception const& exception) {
+             evaluation = {ExpressionHandle(new BOSSExpression {reportEngineFailure(
+                                                engineSummaries, 0, "GetEngineDescription"_(),
+                                                exception.what())},
+                                            &freeBOSSExpression),
+                           true};
+           }
            auto engineName = path(libraryName).stem().string();
            if(engineName.compare(0, 3, "lib") == 0) {
              engineName.erase(0, 3);
            }
-           // Writes a section for every engine, also for an engine that answers with nothing or
-           // with a non-string, so that the document lists every engine in the pipeline.
+           // Writes a section for every engine, also for an engine that answers with nothing, with
+           // a non-string or with an exception, so that the document lists every engine in the
+           // pipeline.
            if(!descriptions.empty()) {
              descriptions += "\n";
            }
            descriptions += "## " + engineName + "\n\n";
-           if(resultWrapper == nullptr) {
+           if(evaluation.answer == nullptr) {
              descriptions += "(no description: the engine returned nothing)\n";
+             continue;
+           }
+           if(evaluation.engineThrew) {
+             std::stringstream report;
+             report << evaluation.answer->delegate;
+             descriptions += "(no description: " + report.str() + ")\n";
              continue;
            }
            visit(
@@ -633,7 +707,7 @@ class BootstrapEngine : public Engine {
                           descriptions +=
                               "(no description: the engine returned " + rendered.str() + ")\n";
                         }),
-               resultWrapper->delegate);
+               evaluation.answer->delegate);
          }
          return descriptions;
        }},
@@ -718,16 +792,20 @@ public:
     auto wrappedE = !pipelineArgs.empty()
                         ? "EvaluateInEngines"_("List"_(std::move(pipelineArgs)), std::move(e))
                         : std::move(e);
-    return visit(overload(
-                     [this](ComplexExpression&& unevaluatedE) -> Expression {
-                       if(registeredOperators.count(unevaluatedE.getHead()) == 0) {
-                         return std::move(unevaluatedE);
-                       }
-                       auto const& op = registeredOperators.at(unevaluatedE.getHead());
-                       return op(evaluateArguments(std::move(unevaluatedE)));
-                     },
-                     [](auto&& e) -> Expression { return e; }),
-                 std::forward<Expression>(wrappedE));
+    return visit(
+        overload(
+            [this, isRootExpression](ComplexExpression&& unevaluatedE) -> Expression {
+              // Below the root, GetEngineDescription goes to the engines, which answer it
+              // themselves.
+              if(registeredOperators.count(unevaluatedE.getHead()) == 0 ||
+                 (!isRootExpression && unevaluatedE.getHead() == Symbol("GetEngineDescription"))) {
+                return std::move(unevaluatedE);
+              }
+              auto const& op = registeredOperators.at(unevaluatedE.getHead());
+              return op(evaluateArguments(std::move(unevaluatedE)));
+            },
+            [](auto&& e) -> Expression { return e; }),
+        std::forward<Expression>(wrappedE));
   }
 };
 } // namespace

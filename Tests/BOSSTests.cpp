@@ -786,6 +786,7 @@ struct ScriptablePauseControls {
   int (*resetCount)();
   void (*throwFromNextReset)();
   void (*pauseNextDescription)();
+  void (*throwFromNextEvaluation)();
 
   /// Fails the test instead of blocking when no scriptable engine call pauses within the scriptable
   /// engine's timeout. It first releases a call that pauses late, so that the dispatch that made
@@ -816,7 +817,8 @@ ScriptablePauseControls scriptablePauseControls() {
           reinterpret_cast<void (*)()>(lookUp("scriptablePauseNextReset")),
           reinterpret_cast<int (*)()>(lookUp("scriptableResetCount")),
           reinterpret_cast<void (*)()>(lookUp("scriptableThrowFromNextReset")),
-          reinterpret_cast<void (*)()>(lookUp("scriptablePauseNextDescription"))};
+          reinterpret_cast<void (*)()>(lookUp("scriptablePauseNextDescription")),
+          reinterpret_cast<void (*)()>(lookUp("scriptableThrowFromNextEvaluation"))};
   // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 }
 } // namespace
@@ -951,6 +953,66 @@ TEST_CASE("Engine descriptions", "[engines]") {
         "## ScriptableEngine\n\nA scriptable engine for the BOSS tests.\n"
         "\n## ScriptableSilentEngine\n\n(no description: the engine returned nothing)\n"
         "\n## ScriptableNumericEngine\n\n(no description: the engine returned 7)\n");
+}
+
+TEST_CASE("An engine that throws ends the evaluation with an error report", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  auto const failure = std::string("scriptable engine evaluation failure");
+
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate(
+            "EvaluateInEngines"_("List"_("Scriptable"_, "ScriptableNumeric"_), "Payload"_(1, 2))) ==
+        "ErrorWhenEvaluatingExpression"_(
+            "EvaluateInEngines"_("List"_("Scriptable"_, "ScriptableNumeric"_), "Payload"_("..."_)),
+            failure));
+
+  // ScriptableNumeric answers with an int64, which the report summarizes as "...".
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate("EvaluateInEngines"_(
+            "List"_("ScriptableNumeric"_, "Scriptable"_, "ScriptableSilent"_), "Payload"_(1, 2))) ==
+        "ErrorWhenEvaluatingExpression"_(
+            "EvaluateInEngines"_("List"_("Scriptable"_, "ScriptableSilent"_), "..."_), failure));
+
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "First"_(1), "Last"_(2))) ==
+        "ErrorWhenEvaluatingExpression"_(
+            "EvaluateInEngines"_("List"_("Scriptable"_), "First"_("..."_)), failure));
+
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)) == std::int64_t {1});
+}
+
+TEST_CASE("Engine descriptions report an engine that throws", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  engine.evaluate("SetDefaultEnginePipeline"_("ScriptableNumeric"_, "Scriptable"_));
+  std::stringstream expectedReport;
+  expectedReport << "ErrorWhenEvaluatingExpression"_(
+      "EvaluateInEngines"_("List"_("Scriptable"_), "GetEngineDescription"_()),
+      std::string("scriptable engine evaluation failure"));
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
+        "## ScriptableNumericEngine\n\n(no description: the engine returned 7)\n"
+        "\n## ScriptableEngine\n\n(no description: " +
+            expectedReport.str() + ")\n");
+}
+
+TEST_CASE("Engine descriptions of an empty pipeline", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  engine.evaluate("SetDefaultEnginePipeline"_());
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())).empty());
+}
+
+TEST_CASE("GetEngineDescription inside an expression reaches the engines", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "GetEngineDescription"_())) ==
+        std::string("A scriptable engine for the BOSS tests.\n"));
 }
 
 TEST_CASE("Reconfiguration is refused while engines are being described",
