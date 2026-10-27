@@ -2,11 +2,9 @@ name: C/C++ CI
 
 on:
   push:
-    branches: [ '*' ]
+    branches: [ '**' ]
     tags:
       - '*'
-  pull_request:
-    branches: [ '*' ]
   workflow_dispatch: {}
 
 jobs:
