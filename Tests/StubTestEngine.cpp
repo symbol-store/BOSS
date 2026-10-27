@@ -77,12 +77,13 @@ BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
 }
 
 /// Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
-/// Barrier waits until callsToWaitFor evaluations are inside the engine at the same
-/// time, and stops waiting after barrierTimeout, so that the test fails instead of
+/// Barrier waits until CallBarrier::callsToWaitFor evaluations are inside the engine at the
+/// same time, and stops waiting after CallBarrier::timeout, so that the test fails instead of
 /// blocking if BootstrapEngine makes engine calls wait for each other.
-constexpr int callsToWaitFor = 4;
-constexpr auto barrierTimeout = std::chrono::seconds(10);
 struct CallBarrier {
+  static constexpr int callsToWaitFor = 4;
+  static constexpr auto timeout = std::chrono::seconds(10);
+
   std::mutex mutex;
   std::condition_variable changed;
   int arrivals = 0;
@@ -98,13 +99,13 @@ bool waitAtCallBarrier() {
   auto& barrier = CallBarrier::singleton();
   std::unique_lock<std::mutex> lock(barrier.mutex);
   auto const generation = barrier.generation;
-  if(++barrier.arrivals == callsToWaitFor) {
+  if(++barrier.arrivals == CallBarrier::callsToWaitFor) {
     barrier.arrivals = 0;
     ++barrier.generation;
     barrier.changed.notify_all();
     return true;
   }
-  if(barrier.changed.wait_for(lock, barrierTimeout, [&barrier, generation] {
+  if(barrier.changed.wait_for(lock, CallBarrier::timeout, [&barrier, generation] {
        return barrier.generation != generation;
      })) {
     return true;
@@ -171,9 +172,9 @@ extern "C" void reset() {
 /// Answers GetEntryPoint(Override), GetEntryPoint() and any GetEntryPoint request with a span
 /// argument with a custom entry point, GetEntryPoint(Zero) with 0 and any other GetEntryPoint
 /// request with a string, so that the tests can check how BootstrapEngine handles each result.
-/// Evaluates Barrier to 1 if callsToWaitFor calls were inside the engine at the same time, and
-/// to 0 if they were not. Evaluates every other expression to defaultEntryPointResult, after
-/// pausing first when the expression's head is Pause.
+/// Evaluates Barrier to 1 if CallBarrier::callsToWaitFor calls were inside the engine at the
+/// same time, and to 0 if they were not. Evaluates every other expression to
+/// defaultEntryPointResult, after pausing first when the expression's head is Pause.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "GetEntryPoint") {
