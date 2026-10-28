@@ -1,7 +1,6 @@
 # Tests/Concurrency — BOSS core thread-safety harness
 
-Phase 2 of the thread-safety hardening plan. See `docs/threading-audit.md` for the inventory
-this exercises and `known-races.md` for the TSan triage log.
+Phase 2 of the thread-safety hardening plan. See `known-races.md` for the TSan triage log.
 
 ## What's here
 

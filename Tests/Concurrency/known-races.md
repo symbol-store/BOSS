@@ -1,7 +1,7 @@
 # BOSS Concurrency — Known Races (TSan triage log)
 
 This is the living triage log for ThreadSanitizer reports from `boss_concurrency_stress`
-(see `Tests/Concurrency/stress.cpp` and `docs/threading-audit.md`). Every report goes in the
+(see `Tests/Concurrency/stress.cpp`). Every report goes in the
 table below with a **classification**, an **in-scope** flag, and a **status**.
 
 ## Scope rule (which races are *ours*)
@@ -38,7 +38,7 @@ flags leaves chibi uninstrumented. Consequences for such a build:
   because chibi's install step links the `chibi-scheme` executable against the
   instrumented library.
 
-Also pin the chibi build assumption (audit §3): this analysis holds only while chibi is built
+Also pin the chibi build assumption: this analysis holds only while chibi is built
 with **neither** `SEXP_USE_BOEHM` nor `SEXP_USE_MALLOC` (so heap + symbol table are
 per-context). If that changes, per-thread-context stops being isolatable and new
 chibi-per-context races appear that are *not* fixable in core.
@@ -74,8 +74,8 @@ TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
 |----|-------------------------|------------------------|------------------------|-------|----------|--------|-------|
 | R1 | `--direct --suite pipeline` | `BOSSEvaluate::engine` → `defaultEngine` (G1/G2) | write in `SetDefaultEnginePipeline` operator vs read at `BootstrapEngine.hpp:244` (`!defaultEngine.empty()`) | core | yes | **FIXED** | The headline core race. Was REAL on the process-wide singleton. Fixed by the Phase 4 `engineStateMutex` (snapshot pipeline under a shared lock; reconfig under exclusive). Reproducer now TSan-clean across repeated runs. See detail R1 below. |
 | R2 | `--direct --suite pure --engine <path>` | `BootstrapEngine::libraries` `unordered_map` (G3) | lazy `dlopen` insert (`loadOrGet`) vs lookup (`tryGet`); possible double `dlopen` | core | yes | **FIXED (by design)** | Same `engineStateMutex` guards `libraries`: `resolveEvaluateFunction` does shared-lock lookup, exclusive-lock double-checked `dlopen` on miss. Not independently reproduced, but covered by the Phase 4 lock. The reproducer uses the `pure` suite because every `pipeline` expression is a bootstrap command, which BootstrapEngine never wraps in the engine pipeline, so `pipeline` never loads the engine. |
-| R3 | `--mode shared --suite pure` | shared chibi ctx heap / GC root stack (audit §3) | write/write in `evaluate_expression` (`ExpressionParser.hpp`) on the shared ctx heap | chibi-per-context | baseline only | **REAL** | Expected. Sharing a `ctx` is unsafe — the contract, not a core bug. Vanishes in `--mode per-thread`. Crashes (DEADLYSIGNAL) shortly after. See detail R3 below. |
-| R4 | `--mode per-thread --no-warmup` | chibi `sexp_initialized_p` (audit §3) | `sexp_init` RMW of the global init flag | core-adjacent (chibi global) | yes | **FIXED** | Init-time only. `initialize_boss_context` now calls `boss::initializeSchemeOnce`, which libBOSS defines and which runs `sexp_scheme_init` through `std::call_once`, so concurrent first context creation no longer races on the flag; callers need no warm-up. The CI configure step builds chibi with `-fsanitize=thread`, so TSan sees the flag accesses: with the `std::call_once` removed, the clean check reported the race on `scheme_initialized_p` / `sexp_initialized_p` on 6 of 6 Linux runs, and on 0 of 6 runs with an uninstrumented chibi. |
+| R3 | `--mode shared --suite pure` | shared chibi ctx heap / GC root stack | write/write in `evaluate_expression` (`ExpressionParser.hpp`) on the shared ctx heap | chibi-per-context | baseline only | **REAL** | Expected. Sharing a `ctx` is unsafe — the contract, not a core bug. Vanishes in `--mode per-thread`. Crashes (DEADLYSIGNAL) shortly after. See detail R3 below. |
+| R4 | `--mode per-thread --no-warmup` | chibi `sexp_initialized_p` | `sexp_init` RMW of the global init flag | core-adjacent (chibi global) | yes | **FIXED** | Init-time only. `initialize_boss_context` now calls `boss::initializeSchemeOnce`, which libBOSS defines and which runs `sexp_scheme_init` through `std::call_once`, so concurrent first context creation no longer races on the flag; callers need no warm-up. The CI configure step builds chibi with `-fsanitize=thread`, so TSan sees the flag accesses: with the `std::call_once` removed, the clean check reported the race on `scheme_initialized_p` / `sexp_initialized_p` on 6 of 6 Linux runs, and on 0 of 6 runs with an uninstrumented chibi. |
 | R5 | any context create+destroy (found via harness warm-up) | process `stdin`/`stdout`/`stderr` `FILE*` | `sexp_finalize_port` `fclose` on context destroy (`initialize_boss_context` passed `no_close=0`) | core | yes | **FIXED** | Destroying a context fclosed the host's stdio (and double-fclosed it under concurrent destruction). Fixed in `ExpressionParser.hpp` by `no_close=1`. See detail R5 below. |
 
 Notes on what did **not** surface:

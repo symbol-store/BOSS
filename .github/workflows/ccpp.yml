@@ -2,11 +2,9 @@ name: C/C++ CI
 
 on:
   push:
-    branches: [ '*' ]
+    branches: [ '**' ]
     tags:
       - '*'
-  pull_request:
-    branches: [ '*' ]
   workflow_dispatch: {}
 
 jobs:
@@ -97,7 +95,7 @@ jobs:
   # Thread-safety hardening (Phases 2/4): build the ThreadSanitizer concurrency stress harness
   # and run it. Two hard gates — per-thread+pure and the --direct dispatch+reconfig gate
   # (race-free since Phase 4) — plus the shared-context baseline as informational (it is
-  # expected to race). See docs/threading-audit.md and Tests/Concurrency/known-races.md.
+  # expected to race). See Tests/Concurrency/known-races.md.
   concurrency-stress:
     needs: [format-check]  # restore to: needs: [format-check, check-runner]
     runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}

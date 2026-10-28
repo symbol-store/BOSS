@@ -129,6 +129,10 @@ else()
 endif()
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
+  # BOSS evaluates concurrently in separate chibi contexts, which is safe only because chibi
+  # gives each context a separate heap and symbol table. Defining SEXP_USE_BOEHM or
+  # SEXP_USE_MALLOC for this build would make chibi share one heap and one symbol table
+  # between all contexts.
   ExternalProject_Add(chibi-scheme
     URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
     URL_HASH SHA256=b70a1147bc70a0f90df3fb6081bc99808237fd17a9accf9ee7a2cc20d95a4df0
@@ -162,11 +166,13 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
   list(APPEND TestFiles Tests/ExpressionParserTests.cpp)
   set(SchemeInitializationFiles Source/SchemeInitialization.cpp)
+  set(PrettyPrintFiles Source/Shims/BossPrettyPrint.cpp)
 endif()
 
 # BOSS
 
-add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles})
+add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles}
+  ${PrettyPrintFiles})
 
 # boss and Tests find libBOSS through this rpath once installed (libBOSS goes to lib, they go
 # to bin).
@@ -191,7 +197,8 @@ endif()
 # that a process that also loads engines linking libBOSS has one BootstrapEngine coordination
 # state and one chibi.
 if(WIN32)
-  set(_host_boss_sources ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles})
+  set(_host_boss_sources ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles}
+    ${PrettyPrintFiles})
   set(_host_boss_library "")
   set(_host_chibi_library
     ${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
@@ -203,7 +210,7 @@ else()
 endif()
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  add_dependencies(BOSS chibi-scheme)
+  add_dependencies(BOSS chibi-scheme chibi-bindings)
   set_source_files_properties(${REPLFiles} PROPERTIES
     INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 
@@ -229,13 +236,19 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
     VERBATIM)
 
+  # Several targets compile REPLFiles. In a parallel build, each of those targets would run
+  # the add_custom_command rule above at the same time, so this target runs the rule once
+  # and those targets depend on this target.
+  add_custom_target(chibi-bindings DEPENDS ${REPLFiles})
+  add_dependencies(chibi-bindings chibi-scheme)
+
   target_include_directories(BOSS SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(BOSS
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
   set_target_properties(BOSS PROPERTIES INSTALL_RPATH "${_libboss_install_rpath}")
 
   add_executable(boss Source/BOSSREPL.cpp ${_host_boss_sources})
-  add_dependencies(boss chibi-scheme)
+  add_dependencies(boss chibi-scheme chibi-bindings)
   target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
   target_link_libraries(boss ${_host_boss_library}
@@ -261,8 +274,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   # multi-threaded driver instrumented with ThreadSanitizer. Unlike `boss`, it compiles the BOSS
   # sources itself so that ThreadSanitizer instruments them; it never loads libBOSS, so its
   # process still has one copy of BOSS's process-wide state. EXCLUDE_FROM_ALL: this is a
-  # diagnostic tool, not part of the default build. See docs/threading-audit.md and
-  # Tests/Concurrency/known-races.md.
+  # diagnostic tool, not part of the default build. See Tests/Concurrency/known-races.md.
   #
   # ThreadSanitizer is mutually exclusive with the AddressSanitizer-based `Sanitize` build
   # type, so the target is skipped there; configure a separate build dir without
@@ -322,19 +334,20 @@ endif()
 add_executable(Tests ${TestFiles} ${_host_boss_sources})
 target_link_libraries(Tests ${_host_boss_library})
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  add_dependencies(Tests chibi-scheme)
+  add_dependencies(Tests chibi-scheme chibi-bindings)
   target_include_directories(Tests SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(Tests
     ${_chibi_prefix}/lib/${_host_chibi_library})
 endif()
 add_dependencies(Tests catch2)
 
-# A minimal engine that Tests loads by name (libStubTestEngine.so next to the Tests binary), so
-# dispatch paths that need a real engine library run in the default test suite without
-# fetching an external engine. MODULE gives the .so suffix on macOS too, which is the name
-# BootstrapEngine derives from a StubTest engine symbol.
-# MSVC builds the stub as SHARED, like the engines, because CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS
-# exports nothing from a MODULE library.
+# Tests loads this stub engine by its library name (libStubTestEngine.so next to the Tests
+# binary), so that the default test suite can test dispatch into a real engine library
+# without downloading an external engine. A MODULE library has the .so suffix on macOS as
+# well, and BootstrapEngine derives the name libStubTestEngine.so from a StubTest engine
+# symbol.
+# With MSVC, CMake builds the stub as SHARED, like the engines, because
+# CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS exports nothing from a MODULE library.
 if(MSVC)
   set(_stub_engine_library_type SHARED)
 else()
@@ -348,8 +361,8 @@ set_target_properties(StubTestEngine PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQ
   LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>
   RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
 add_dependencies(Tests StubTestEngine)
-# dlopen of a bare library name does not search the executable's directory on Linux, so Tests
-# carries $ORIGIN as its rpath, both in the build tree and once installed.
+# On Linux, dlopen does not search the executable's directory for a bare library name, so
+# the rpath of Tests is $ORIGIN, in the build tree and in the installation.
 if(UNIX AND NOT APPLE)
   set_target_properties(Tests PROPERTIES BUILD_RPATH "$ORIGIN"
     INSTALL_RPATH "$ORIGIN;${_boss_library_install_rpath}")
@@ -493,9 +506,10 @@ else()
   install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
-# Tests loads StubTestEngine by its bare library name, so the installed Tests needs it in the
-# same directory (found there through the $ORIGIN rpath on Linux, and by LoadLibrary on
-# Windows).
+# Tests loads StubTestEngine by its bare library name, so the installation copies
+# StubTestEngine into the directory of Tests. There, the dynamic loader finds
+# StubTestEngine through the $ORIGIN rpath on Linux, and LoadLibrary finds StubTestEngine
+# on Windows.
 install(TARGETS StubTestEngine LIBRARY DESTINATION bin RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)

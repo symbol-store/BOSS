@@ -28,8 +28,7 @@
 //   cmake --build <dir> --target boss_concurrency_stress
 //   TSAN_OPTIONS="halt_on_error=1" ./boss_concurrency_stress --mode per-thread --suite pure
 //
-// See docs/threading-audit.md (the inventory this exercises) and
-// Tests/Concurrency/known-races.md (the triage log).
+// See Tests/Concurrency/known-races.md (the triage log).
 
 #include "BOSS.hpp"       // boss::evaluate
 #include "Expression.hpp" // boss::Expression

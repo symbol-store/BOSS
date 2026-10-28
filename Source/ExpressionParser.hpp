@@ -58,18 +58,52 @@ struct BossContextGuard {
 /// build the scheme environment, and are free to change shape without notice.
 namespace detail {
 
+// Restores ctx's list of GC roots when it goes out of scope, the same assignment
+// sexp_gc_release makes. Roots preserved after it is created therefore come off the context
+// even when a C++ exception (std::bad_alloc from building an Expression or a std::string)
+// unwinds the frame that preserved them, instead of staying linked to a dead stack frame.
+class GcRootScope {
+public:
+  explicit GcRootScope(sexp ctx) : ctx(ctx), savedRoots(sexp_context_saves(ctx)) {}
+  ~GcRootScope() { sexp_context_saves(ctx) = savedRoots; }
+  GcRootScope(GcRootScope const&) = delete;
+  GcRootScope(GcRootScope&&) = delete;
+  GcRootScope& operator=(GcRootScope const&) = delete;
+  GcRootScope& operator=(GcRootScope&&) = delete;
+
+private:
+  sexp ctx;
+  sexp_gc_var_t* savedRoots;
+};
+
 inline sexp expr_to_sexp(sexp ctx, boss::Expression const& expr);
 
 inline sexp complex_expr_to_sexp(sexp ctx, boss::ComplexExpression const& expr) {
   auto const& head = expr.getHead().getName();
-  auto const& args = expr.getDynamicArguments();
   sexp_gc_var2(lst, item);
+  GcRootScope const rootScope(ctx);
   sexp_gc_preserve2(ctx, lst, item);
   lst = SEXP_NULL;
-  for(auto it = args.rbegin(); it != args.rend(); ++it) {
-    item = expr_to_sexp(ctx, *it);
+  auto prependArgument = [&](boss::Expression const& argument) {
+    item = expr_to_sexp(ctx, argument);
     lst = sexp_cons(ctx, item, lst);
+  };
+  // Dynamic arguments and then each span argument's elements, the order getArguments() and
+  // the compact renderer use, so a span-backed expression keeps its values. The list is
+  // built reversed and then put in order.
+  for(auto const& argument : expr.getDynamicArguments()) {
+    prependArgument(argument);
   }
+  for(auto const& span : expr.getSpanArguments()) {
+    std::visit(
+        [&prependArgument](auto const& typedSpan) {
+          for(auto const& element : typedSpan) {
+            prependArgument(element);
+          }
+        },
+        span);
+  }
+  lst = sexp_nreverse(ctx, lst);
   if(!head.empty()) {
     item = sexp_intern(ctx, head.c_str(), -1);
     lst = sexp_cons(ctx, item, lst);
@@ -132,22 +166,56 @@ inline sexp setup_boss_scheme(sexp ctx, sexp env) {
   eval("define"_("bossTypeID"_, "quote"_(_("bool"_, "int8"_, "int32"_, "long"_, "float"_, "double"_,
                                            "string"_, "symbol"_, "complexExpression"_))));
 
+  // Splits a BOSS expression's arguments into (dynamic-arguments . span-arguments), keeping the
+  // order within each list. A span object becomes a span argument wherever it appears, and so does
+  // every argument after the :spans marker. convert-from-boss-expression writes that marker in
+  // front of the span arguments it emits, so reading its output back yields the original
+  // expression.
+  eval("define"_(
+      _("partition-boss-args"_, "args"_),
+      "let"_("loop"_,
+             _(_("rest"_, "args"_), _("dyn"_, "quote"_(_())), _("spans"_, "quote"_(_())),
+               _("forced"_, false)),
+             "cond"_(
+                 _("null?"_("rest"_), "cons"_("reverse"_("dyn"_), "reverse"_("spans"_))),
+                 _("and"_("not"_("forced"_), "eq?"_("car"_("rest"_), "quote"_(":spans"_))),
+                   "loop"_("cdr"_("rest"_), "dyn"_, "spans"_, true)),
+                 // Everything after :spans is forwarded to newComplexBOSSExpressionWithSpans as a
+                 // BOSSExpressionSpan, so a non-span here would only fail at the FFI boundary,
+                 // with a confusing error. Reject it in scheme, where the caller's mistake is.
+                 _("and"_("forced"_, "not"_("BOSSExpressionSpan?"_("car"_("rest"_)))),
+                   "error"_("arguments after :spans must be span objects", "car"_("rest"_))),
+                 _("or"_("forced"_, "BOSSExpressionSpan?"_("car"_("rest"_))),
+                   "loop"_("cdr"_("rest"_), "dyn"_, "cons"_("car"_("rest"_), "spans"_), "forced"_)),
+                 _("else"_, "loop"_("cdr"_("rest"_), "cons"_("car"_("rest"_), "dyn"_), "spans"_,
+                                    "forced"_))))));
+
+  // A dynamic argument that is the symbol :spans comes back quoted, so convert-to-boss-expression
+  // reads it as a literal symbol instead of the marker that starts the span arguments.
+  eval("define"_(_("quote-spans-symbol"_, "x"_), "if"_("eq?"_("x"_, "quote"_(":spans"_)),
+                                                       "list"_("quote"_("quote"_), "x"_), "x"_)));
+
   eval("define"_(
       _("convert-to-boss-expression"_, "x"_),
-      "match"_(
-          "x"_, _(_("quote"_("quote"_), "argument"_), "convert-to-boss-expression"_("argument"_)),
-          _(_("head"_, "arguments"_, "..."_),
-            "newComplexBOSSExpression"_("symbolNameToNewBOSSSymbol"_("symbol->string"_("head"_)),
-                                        "length"_("arguments"_),
-                                        "map"_("convert-to-boss-expression"_, "arguments"_))),
-          _(_("?"_, "boolean?"_, "b"_), "boolToNewBOSSExpression"_("b"_)),
-          _(_("?"_, "exact-integer?"_, "i"_),
-            "if"_("and"_(">="_("i"_, kInt32Min), "<="_("i"_, kInt32Max)),
-                  "intToNewBOSSExpression"_("i"_), "longToNewBOSSExpression"_("i"_))),
-          _(_("?"_, "real?"_, "f"_), "doubleToNewBOSSExpression"_("f"_)),
-          _(_("?"_, "string?"_, "s"_), "stringToNewBOSSExpression"_("s"_)),
-          _(_("?"_, "symbol?"_, "s"_),
-            "symbolNameToNewBOSSExpression"_("symbol->string"_("s"_))))));
+      "match"_("x"_,
+               _(_("quote"_("quote"_), "argument"_), "convert-to-boss-expression"_("argument"_)),
+               _(_("head"_, "arguments"_, "..."_),
+                 "let*"_(_(_("partitioned"_, "partition-boss-args"_("arguments"_)),
+                           _("dynamic-args"_, "car"_("partitioned"_)),
+                           _("span-args"_, "cdr"_("partitioned"_))),
+                         "newComplexBOSSExpressionWithSpans"_(
+                             "symbolNameToNewBOSSSymbol"_("symbol->string"_("head"_)),
+                             "length"_("dynamic-args"_),
+                             "map"_("convert-to-boss-expression"_, "dynamic-args"_),
+                             "length"_("span-args"_), "span-args"_))),
+               _(_("?"_, "boolean?"_, "b"_), "boolToNewBOSSExpression"_("b"_)),
+               _(_("?"_, "exact-integer?"_, "i"_),
+                 "if"_("and"_(">="_("i"_, kInt32Min), "<="_("i"_, kInt32Max)),
+                       "intToNewBOSSExpression"_("i"_), "longToNewBOSSExpression"_("i"_))),
+               _(_("?"_, "real?"_, "f"_), "doubleToNewBOSSExpression"_("f"_)),
+               _(_("?"_, "string?"_, "s"_), "stringToNewBOSSExpression"_("s"_)),
+               _(_("?"_, "symbol?"_, "s"_),
+                 "symbolNameToNewBOSSExpression"_("symbol->string"_("s"_))))));
 
   eval("define"_(
       _("convert-from-boss-expression"_, "x"_),
@@ -158,21 +226,42 @@ inline sexp setup_boss_scheme(sexp ctx, sexp env) {
           "case"_(
               "type"_,
               _(_("complexExpression"_),
-                "let"_(_(_("args"_, "getArgumentsFromBOSSExpression"_("x"_))),
-                       "dynamic-wind"_(
-                           "lambda"_(_(), false),
-                           "lambda"_(
-                               _(), "quasiquote"_(
-                                        _("unquote"_("string->symbol"_("bossSymbolToNewString"_(
-                                              "getHeadFromBOSSExpression"_("x"_)))),
-                                          "unquote-splicing"_("generator-map->list"_(
-                                              "lambda"_(_("i"_),
-                                                        "convert-from-boss-expression"_(
-                                                            "getArgumentFromBOSSExpressionArray"_(
-                                                                "args"_, "i"_))),
-                                              "make-iota-generator"_(
-                                                  "getArgumentCountFromBOSSExpression"_("x"_))))))),
-                           "lambda"_(_(), "freeBOSSArguments"_("args"_))))),
+                "let*"_(
+                    _(_("dyn-args"_, "getDynamicArgumentsFromBOSSExpression"_("x"_)),
+                      _("dyn-count"_, "getDynamicArgumentCountFromBOSSExpression"_("x"_)),
+                      _("span-count"_, "getSpanArgumentCountFromBOSSExpression"_("x"_)),
+                      _("span-array"_, "getSpanArgumentsFromBOSSExpression"_("x"_))),
+                    "dynamic-wind"_(
+                        "lambda"_(_(), false),
+                        "lambda"_(
+                            _(),
+                            "let"_(
+                                _(_("head"_,
+                                    "string->symbol"_("bossSymbolToNewString"_(
+                                        "getHeadFromBOSSExpression"_("x"_)))),
+                                  _("dynamic"_,
+                                    "generator-map->list"_(
+                                        "lambda"_(
+                                            _("i"_),
+                                            "quote-spans-symbol"_("convert-from-boss-expression"_(
+                                                "getArgumentFromBOSSExpressionArray"_("dyn-args"_,
+                                                                                      "i"_)))),
+                                        "make-iota-generator"_("dyn-count"_)))),
+                                "if"_(">"_("span-count"_, 0),
+                                      "cons"_(
+                                          "head"_,
+                                          "append"_(
+                                              "dynamic"_,
+                                              "cons"_("quote"_(":spans"_),
+                                                      "generator-map->list"_(
+                                                          "lambda"_(_("i"_),
+                                                                    "getSpanFromBOSSSpanArray"_(
+                                                                        "span-array"_, "i"_)),
+                                                          "make-iota-generator"_("span-count"_))))),
+                                      "cons"_("head"_, "dynamic"_)))),
+                        "lambda"_(
+                            _(), "freeBOSSArguments"_("dyn-args"_),
+                            "freeBOSSSpansNotTakenAndArray"_("span-array"_, "span-count"_))))),
               _(_("int32"_), "getIntValueFromBOSSExpression"_("x"_)),
               _(_("int8"_), "getCharValueFromBOSSExpression"_("x"_)),
               _(_("string"_), "getNewStringValueFromBOSSExpression"_("x"_)),
@@ -233,19 +322,17 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 
 /* ─── Initialize a full BOSS chibi context ─── */
 
-// Runs sexp_scheme_init exactly once per process; chibi's init flag is not synchronized and
-// hosts create contexts from several threads. SchemeInitialization.cpp defines it inside
-// libBOSS, because a once_flag defined in this header would exist once per binary. Hosts
-// link the shared chibi library that libBOSS links, so the process has one chibi init flag.
+/// Runs sexp_scheme_init once per process. libBOSS defines it, because a once_flag in this
+/// header would exist once per binary.
 void initializeSchemeOnce();
 
-// Threading contract for hosts that embed BOSS evaluation:
-// - A chibi context is not thread-safe. Each thread creates and uses its own context.
-// - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
-//   BootstrapEngine locks its own state, so distinct contexts may evaluate concurrently.
-//   Engines must be reentrant, and SetDefaultEnginePipeline and ResetEngines are refused
-//   while any engine dispatch is in flight. Bootstrap commands, and evaluations that reach no
-//   engine, do not count as dispatches.
+/// Threading contract for hosts that embed BOSS evaluation:
+/// - A chibi context is not thread-safe. Each thread creates and uses a separate context.
+/// - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
+///   BootstrapEngine locks its engine pipeline and library cache, so distinct contexts may
+///   evaluate concurrently. Engines must be reentrant, and BootstrapEngine refuses
+///   SetDefaultEnginePipeline and ResetEngines while any engine dispatch is in flight.
+///   Bootstrap commands, and evaluations that reach no engine, do not count as dispatches.
 inline sexp initialize_boss_context() {
   initializeSchemeOnce();
   sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);
@@ -294,7 +381,7 @@ inline sexp initialize_boss_context() {
 inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& expr_str,
                                       bool pretty = true) {
   // Debug-only: abort loudly if a second thread is evaluating on this same context, which
-  // violates the one-context-per-caller contract (docs/threading-audit.md §3). No-op in release.
+  // violates the one-context-per-caller contract. No-op in release.
   boss::concurrency::ConcurrencyTripwire const tripwire(ctx, "evaluate_expression");
   sexp_gc_var4(result, out_port, result_str, arg_list);
   sexp_gc_preserve4(ctx, result, out_port, result_str, arg_list);
@@ -326,6 +413,55 @@ inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& exp
   }
   sexp_gc_release4(ctx);
   return {is_error, text};
+}
+
+/* ─── Chibi-backed pretty printer (used by Shims/BossPrettyPrint.cpp) ─── */
+
+// Returns false without writing to `stream` if this thread has no usable chibi context or
+// boss-print is unavailable, or if the printer raises, so the caller can fall back to the
+// compact renderer instead of producing empty output.
+inline bool pretty_print_expression(std::ostream& stream,
+                                    boss::ComplexExpression const& expression) {
+  struct ThreadContext {
+    BossContextGuard guard {initialize_boss_context()};
+    // SEXP_FALSE, not nullptr, is chibi's "no value" sentinel, and it is what keeps the
+    // sexp_procedurep(print_proc) test below safe: sexp_pointerp(nullptr) is true, so that
+    // check would read a tag through a null pointer if print_proc were ever left null.
+    sexp env = guard.ctx == nullptr ? SEXP_FALSE : sexp_context_env(guard.ctx);
+    sexp print_proc =
+        (env == nullptr || env == SEXP_FALSE)
+            ? SEXP_FALSE
+            : sexp_env_ref(guard.ctx, env, sexp_intern(guard.ctx, "boss-print", -1), SEXP_FALSE);
+  };
+  // const: the per-thread context is built once by its member initialisers and only read
+  // afterwards -- the chibi calls below take the handles by value.
+  thread_local ThreadContext const tls;
+  if(tls.guard.ctx == nullptr || !sexp_procedurep(tls.print_proc)) {
+    return false;
+  }
+  std::string renderedText;
+  // Not `sexp const`: sexp is a pointer typedef, so const there binds to the pointer rather
+  // than the pointee and misc-misplaced-const rejects it (clang-tidy runs as errors here).
+  sexp ctx = tls.guard.ctx;
+  sexp_gc_var3(form, arg_list, result_str);
+  detail::GcRootScope const rootScope(ctx);
+  sexp_gc_preserve3(ctx, form, arg_list, result_str);
+  form = detail::complex_expr_to_sexp(ctx, expression);
+  arg_list = sexp_list1(ctx, form);
+  result_str = sexp_apply(ctx, tls.print_proc, arg_list);
+  bool const rendered = !sexp_exceptionp(result_str) && sexp_stringp(result_str);
+  if(rendered) {
+    renderedText = sexp_string_data(result_str);
+  }
+  sexp_gc_release3(ctx);
+  // Written only after the roots are released: a stream with exceptions enabled may throw
+  // here, and an exception must not leave this thread's context holding roots into this frame.
+  // Nothing is written when rendering failed, so a pending width() is left for the compact
+  // renderer that operator<< falls back to.
+  if(rendered) {
+    stream << renderedText;
+  }
+  return rendered;
 }
 
 } // namespace boss
