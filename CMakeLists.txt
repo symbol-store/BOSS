@@ -173,7 +173,7 @@ endif()
 add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles} ${PrettyPrintFiles})
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  add_dependencies(BOSS chibi-scheme)
+  add_dependencies(BOSS chibi-scheme chibi-bindings)
   set_source_files_properties(${REPLFiles} PROPERTIES
     INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 
@@ -199,13 +199,19 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
     VERBATIM)
 
+  # Several targets compile REPLFiles. In a parallel build, each of those targets would run
+  # the add_custom_command rule above at the same time, so this target runs the rule once
+  # and those targets depend on this target.
+  add_custom_target(chibi-bindings DEPENDS ${REPLFiles})
+  add_dependencies(chibi-bindings chibi-scheme)
+
   target_include_directories(BOSS SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(BOSS
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 
   # Standalone BOSS REPL binary (statically linked)
   add_executable(boss Source/BOSSREPL.cpp ${ImplementationFiles} ${REPLFiles} ${PrettyPrintFiles})
-  add_dependencies(boss chibi-scheme)
+  add_dependencies(boss chibi-scheme chibi-bindings)
   target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
   target_link_libraries(boss
@@ -232,7 +238,7 @@ endif()
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   target_sources(Tests PRIVATE ${REPLFiles} ${PrettyPrintFiles})
-  add_dependencies(Tests chibi-scheme)
+  add_dependencies(Tests chibi-scheme chibi-bindings)
   target_include_directories(Tests SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(Tests
     ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})

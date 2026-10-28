@@ -60,6 +60,7 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #include <cstdint>
 #include <exception>
 #include <iterator>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <sstream>
@@ -295,15 +296,16 @@ class BootstrapEngine : public Engine {
   /// instance. So while a dispatch is in flight, or another thread is resetting and unloading
   /// engines, this function queues the libraries, sets reconfigurationInProgress and returns.
   /// While reconfigurationInProgress is set, InFlightGuard refuses new dispatches.
-  static void tearDownOnceNoDispatchIsInFlight(vector<LibraryAndFunctions>&& detachedLibraries)
+  static void tearDownOnceNoDispatchIsInFlight(vector<LibraryAndFunctions> detachedLibraries)
       BOSS_EXCLUDES(engineStateMutex) {
     if(detachedLibraries.empty()) {
       return;
     }
     {
       boss::concurrency::UniqueLock const lock(engineStateMutex);
-      librariesAwaitingTeardown.insert(librariesAwaitingTeardown.end(), detachedLibraries.begin(),
-                                       detachedLibraries.end());
+      librariesAwaitingTeardown.insert(librariesAwaitingTeardown.end(),
+                                       make_move_iterator(detachedLibraries.begin()),
+                                       make_move_iterator(detachedLibraries.end()));
       bool const anotherThreadTearsDown =
           reconfigurationInProgress.load() || evaluationsInFlight.load() > 0;
       reconfigurationInProgress = true;
@@ -424,16 +426,79 @@ class BootstrapEngine : public Engine {
          // ResetEngines throws instead of unloading engines that this evaluation calls.
          InFlightGuard const inFlight(evaluationsInFlight, reconfigurationInProgress,
                                       engineStateMutex);
+         // Captures `this` as `self`, because clang 18 fails an assertion in
+         // Sema::BuildCaptureInit when a lambda nested in a generic lambda captures `this`
+         // directly.
+         auto resolveEngineEntryPoint = [self = this](auto const& enginePath) {
+           // resolveEvaluateFunction takes engineStateMutex and releases the mutex before it
+           // returns, so BootstrapEngine holds no lock during the GetEntryPoint call below.
+           auto* entryPoint = self->resolveEvaluateFunction(libraryNameForEnginePath(enginePath));
+           visit(overload(
+                     [&entryPoint](ComplexExpression& engine) {
+                       // Moves the engine spec's arguments into the GetEntryPoint request
+                       // instead of cloning them, because EvaluateInEngines does not read the
+                       // engine spec afterwards.
+                       auto [_originalHead, statics, dynamics, spans] =
+                           std::move(engine).decompose();
+                       // ExpressionHandle frees the GetEntryPoint request and the engine's answer,
+                       // also when the engine call or the decoding of the answer throws.
+                       using ExpressionHandle =
+                           std::unique_ptr<BOSSExpression, decltype(&freeBOSSExpression)>;
+                       // Passes a new empty static-argument tuple instead of moving `statics`.
+                       // `statics` is an empty std::tuple<>, so clang-tidy reports a move of
+                       // `statics` as a move without effect, and CI treats that warning as an
+                       // error. decltype(statics) also keeps the structured binding `statics` in
+                       // use.
+                       auto const input =
+                           ExpressionHandle(new BOSSExpression {ComplexExpression(
+                                                Symbol("GetEntryPoint"), decltype(statics) {},
+                                                std::move(dynamics), std::move(spans))},
+                                            &freeBOSSExpression);
+                       auto const output =
+                           ExpressionHandle(entryPoint(input.get()), &freeBOSSExpression);
+                       if(output != nullptr) {
+                         visit(overload(
+                                   [&entryPoint](std::int64_t value) {
+                                     // An answer of 0 keeps evaluate as the entry point, so that
+                                     // BootstrapEngine does not call a null function pointer.
+                                     if(value == 0) {
+                                       return;
+                                     }
+                                     // Where intptr_t is narrower than int64_t (32-bit builds), the
+                                     // cast below drops the high bits, and BootstrapEngine would
+                                     // call a wrong address. BootstrapEngine therefore throws for a
+                                     // value that the cast changes.
+                                     auto const asPointerInt = static_cast<std::intptr_t>(value);
+                                     if(static_cast<std::int64_t>(asPointerInt) != value) {
+                                       throw std::runtime_error(
+                                           "GetEntryPoint returned " + std::to_string(value) +
+                                           ", which does not fit in a pointer on this platform");
+                                     }
+                                     // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                                     entryPoint = reinterpret_cast<LibraryAndFunctions::EntryPoint>(
+                                         asPointerInt);
+                                   },
+                                   // An answer that is not an int64 keeps evaluate as the entry
+                                   // point, so that an engine without a GetEntryPoint
+                                   // implementation still evaluates expressions.
+                                   [](auto const& /*unused*/) {}),
+                               output->delegate);
+                       }
+                     },
+                     [](auto const& /*unused*/) {}),
+                 enginePath);
+           return entryPoint;
+         };
+
          auto symbols = vector<LibraryAndFunctions::EntryPoint>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
-         // Looks up every engine's evaluate function before the first engine call, so that the
+         // Looks up every engine's entry point before the first engine call, so that the
          // dispatch loops below run without engineStateMutex.
-         // `self = this` rather than a plain `this` capture: capturing `this` directly in this
-         // nested generic lambda crashes clang 18 (an assertion in Sema::BuildCaptureInit while
-         // instantiating the enclosing generic lambda).
-         for_each(args.begin(), args.end(), [self = this, &symbols](auto&& enginePath) {
-           symbols.push_back(self->resolveEvaluateFunction(libraryNameForEnginePath(enginePath)));
-         });
+         for_each(args.begin(), args.end(),
+                  [&symbols, &resolveEngineEntryPoint](auto&& enginePath) {
+                    symbols.push_back(
+                        resolveEngineEntryPoint(std::forward<decltype(enginePath)>(enginePath)));
+                  });
          for_each(make_move_iterator(std::next(
                       e.getArguments().begin())), // Note: first argument is the engine path
                   make_move_iterator(prev(e.getArguments().end())), [&symbols](auto&& argument) {

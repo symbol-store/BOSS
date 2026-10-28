@@ -21,7 +21,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
+#include <exception> // IWYU pragma: keep
 #include <functional>
 #include <future>
 #include <iterator>
@@ -906,6 +906,31 @@ TEST_CASE("A BootstrapEngine destroyed during a dispatch resets its engines afte
   CHECK(dispatchToStub(5) == std::int64_t {1});
 }
 
+TEST_CASE("Custom engine entry points", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto evaluateWithStub = [&engine](boss::Expression&& stubSpec) {
+    return engine.evaluate("EvaluateInEngines"_("List"_(std::move(stubSpec)), 5));
+  };
+  requireStubEngine([&evaluateWithStub] { evaluateWithStub("StubTest"_); });
+  // libStubTestEngine.so answers GetEntryPoint from the engine spec's argument.
+  CHECK(evaluateWithStub("StubTest"_("Override"_)) == std::int64_t {4242});
+  // BootstrapEngine keeps evaluate as the entry point when GetEntryPoint returns 0 or a
+  // value that is not an int64.
+  CHECK(evaluateWithStub("StubTest"_("Zero"_)) == std::int64_t {1});
+  CHECK(evaluateWithStub("StubTest"_("NotAPointer"_)) == std::int64_t {1});
+  // BootstrapEngine sends no GetEntryPoint request for a plain engine symbol. The stub
+  // answers a GetEntryPoint request without arguments with its custom entry point, so a
+  // request would make this dispatch return 4242.
+  CHECK(evaluateWithStub("StubTest"_) == std::int64_t {1});
+  // BootstrapEngine passes the spec's span argument to GetEntryPoint as a span. The
+  // spec's dynamic argument alone selects Zero, so without the span in the request, the
+  // dispatch would call evaluate and return 1.
+  CHECK(evaluateWithStub(boss::expressions::ComplexExpression(
+            "StubTest"_, {}, boss::expressions::ExpressionArguments("Zero"_),
+            boss::expressions::ExpressionSpanArguments(
+                boss::Span<std::int64_t>(std::vector<std::int64_t> {1})))) == std::int64_t {4242});
+}
+
 TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
   auto engine = boss::engines::BootstrapEngine();
   auto dispatchToStub = [&engine](boss::Expression&& expression) {
@@ -948,7 +973,7 @@ TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
         [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
   }
   auto engine = boss::engines::BootstrapEngine();
-  constexpr int concurrentDispatches = 4; // concurrentCallsToMeet in Tests/StubTestEngine.cpp
+  constexpr int concurrentDispatches = 4; // callsToWaitFor in Tests/StubTestEngine.cpp
   std::promise<void> start;
   std::shared_future<void> const startSignal = start.get_future().share();
   std::vector<std::future<boss::Expression>> dispatches;
@@ -956,7 +981,7 @@ TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
   for(int dispatch = 0; dispatch < concurrentDispatches; ++dispatch) {
     dispatches.push_back(std::async(std::launch::async, [&engine, startSignal] {
       startSignal.wait();
-      return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), "Rendezvous"_()));
+      return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), "Barrier"_()));
     }));
   }
   // The dispatches start together, so the four threads also make BootstrapEngine load the stub

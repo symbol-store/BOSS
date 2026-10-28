@@ -71,6 +71,25 @@ This is the only required entry point. Every other interaction with BOSS happens
 - Make `evaluate` and `reset` reentrant. BOSS may call `evaluate` from several threads at once, and never makes one call wait for another.
 - Clear your engine's state in `reset`. On Linux and macOS, BOSS loads engines with `RTLD_NODELETE`, so unloading an engine leaves its library mapped, and loading the engine again does not run its static initializers again.
 
+### Optional: a custom entry point via `GetEntryPoint`
+
+A pipeline entry can name your engine by a complex expression instead of a symbol or a path, for example `"MyEngine"_("Fast"_)` in place of `"MyEngine"_`. BOSS then loads `libMyEngineEngine.so` as usual and, before dispatching to it, asks your `evaluate` which entry point to use:
+
+1. BOSS calls your `evaluate` with `GetEntryPoint(…)`, whose arguments are the dynamic and span arguments of the pipeline entry (`GetEntryPoint("Fast"_)` in the example). Static arguments are not forwarded.
+2. To override the entry point, return an `int64` holding the address of a function with the same signature as `evaluate`:
+
+   ```cpp
+   BOSSExpression* fastEvaluate(BOSSExpression* e);
+   // inside evaluate, when the head is GetEntryPoint:
+   return new BOSSExpression{boss::Expression(
+       static_cast<std::int64_t>(reinterpret_cast<std::intptr_t>(&fastEvaluate)))};
+   ```
+
+   BOSS then calls that function instead of `evaluate` for this pipeline entry.
+3. Returning `0`, or anything that is not an `int64`, means "no override": BOSS keeps calling `evaluate`. An engine that does not recognise `GetEntryPoint` therefore keeps working, as long as it returns something other than a non-zero `int64` for it.
+
+BOSS frees both the `GetEntryPoint` request and your answer. The function you return must stay callable for the dispatch that asked for it, and a function in your library is. On Linux and macOS BOSS opens engines with `RTLD_NODELETE`, so their code stays mapped even after `ResetEngines` or `SetDefaultEnginePipeline` unloads them. On Windows there is no such flag: unloading calls `FreeLibrary`, which can unmap the library. BOSS refuses both operators while a dispatch is in flight, so the address is safe for that dispatch, but neither BOSS nor your engine should keep it across a reconfiguration. BOSS asks again on every dispatch through that pipeline entry, so answer quickly and reentrantly. If the address does not fit in a pointer on the platform (a 32-bit build), the dispatch fails with an error instead of calling a truncated address.
+
 ### The minimal `evaluate`
 
 ```cpp

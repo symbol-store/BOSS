@@ -10,97 +10,156 @@
 
 namespace {
 using boss::ComplexExpression;
+using boss::Symbol;
 
 constexpr std::int64_t defaultEntryPointResult = 1;
+constexpr std::int64_t customEntryPointResult = 4242;
 
 /// Lets a test hold one engine call (an evaluation of Pause, or a reset armed with
 /// stubPauseNextReset) until the test calls stubReleasePausedCall, so that the test can check
 /// what BootstrapEngine refuses while that call is running. Every wait ends after
-/// pauseTimeout, so a test that fails part-way cannot block the test run indefinitely.
-constexpr auto pauseTimeout = std::chrono::seconds(30);
-std::mutex pauseMutex;
-std::condition_variable pauseChanged;
-bool callPaused = false;
-bool pauseReleased = false;
-bool pauseNextReset = false;
-int resetCount = 0;
-bool throwFromNextReset = false;
+/// PauseState::timeout, so a test that fails part-way cannot block the test run indefinitely.
+struct PauseState {
+  static constexpr auto timeout = std::chrono::seconds(30);
+
+  std::mutex mutex;
+  std::condition_variable changed;
+  bool callPaused = false;
+  bool released = false;
+  bool pauseNextReset = false;
+  int resetCount = 0;
+  bool throwFromNextReset = false;
+
+  static PauseState& singleton() {
+    static PauseState state;
+    return state;
+  }
+};
 
 void pauseUntilReleased() {
-  std::unique_lock<std::mutex> lock(pauseMutex);
-  callPaused = true;
-  pauseChanged.notify_all();
-  pauseChanged.wait_for(lock, pauseTimeout, [] { return pauseReleased; });
-  callPaused = false;
-  pauseReleased = false;
+  auto& state = PauseState::singleton();
+  std::unique_lock<std::mutex> lock(state.mutex);
+  state.callPaused = true;
+  state.changed.notify_all();
+  state.changed.wait_for(lock, PauseState::timeout, [&state] { return state.released; });
+  state.callPaused = false;
+  state.released = false;
+}
+
+BOSSExpression* customEntryPoint(BOSSExpression* /*unused*/) {
+  return new BOSSExpression {customEntryPointResult};
+}
+
+BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
+  auto const answerWithCustomEntryPoint = [] {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    auto const address = reinterpret_cast<std::intptr_t>(&customEntryPoint);
+    return new BOSSExpression {static_cast<std::int64_t>(address)};
+  };
+  // answerGetEntryPoint answers every request with a span argument with the custom entry
+  // point, whatever the dynamic arguments are, so that the test fails if BootstrapEngine
+  // leaves the engine spec's span arguments out of the request.
+  if(!request.getSpanArguments().empty()) {
+    return answerWithCustomEntryPoint();
+  }
+  auto const& arguments = request.getDynamicArguments();
+  auto const* mode = arguments.empty() ? nullptr : std::get_if<Symbol>(&arguments.front());
+  // answerGetEntryPoint also answers a request without arguments with the custom entry
+  // point, so that a test that dispatches through a plain StubTest symbol fails if
+  // BootstrapEngine sends GetEntryPoint for that symbol.
+  if(arguments.empty() || (mode != nullptr && mode->getName() == "Override")) {
+    return answerWithCustomEntryPoint();
+  }
+  if(mode != nullptr && mode->getName() == "Zero") {
+    return new BOSSExpression {std::int64_t {0}};
+  }
+  return new BOSSExpression {"not an entry point"};
 }
 
 /// Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
-/// Rendezvous waits until concurrentCallsToMeet evaluations are inside the engine at the same
-/// time, and stops waiting after rendezvousTimeout, so that the test fails instead of
+/// Barrier waits until CallBarrier::callsToWaitFor evaluations are inside the engine at the
+/// same time, and stops waiting after CallBarrier::timeout, so that the test fails instead of
 /// blocking if BootstrapEngine makes engine calls wait for each other.
-constexpr int concurrentCallsToMeet = 4;
-constexpr auto rendezvousTimeout = std::chrono::seconds(10);
-std::mutex rendezvousMutex;
-std::condition_variable rendezvousChanged;
-int rendezvousArrivals = 0;
-std::uint64_t rendezvousGeneration = 0;
+struct CallBarrier {
+  static constexpr int callsToWaitFor = 4;
+  static constexpr auto timeout = std::chrono::seconds(10);
 
-bool meetConcurrentCalls() {
-  std::unique_lock<std::mutex> lock(rendezvousMutex);
-  auto const generation = rendezvousGeneration;
-  if(++rendezvousArrivals == concurrentCallsToMeet) {
-    rendezvousArrivals = 0;
-    ++rendezvousGeneration;
-    rendezvousChanged.notify_all();
+  std::mutex mutex;
+  std::condition_variable changed;
+  int arrivals = 0;
+  std::uint64_t generation = 0;
+
+  static CallBarrier& singleton() {
+    static CallBarrier state;
+    return state;
+  }
+};
+
+bool waitAtCallBarrier() {
+  auto& barrier = CallBarrier::singleton();
+  std::unique_lock<std::mutex> lock(barrier.mutex);
+  auto const generation = barrier.generation;
+  if(++barrier.arrivals == CallBarrier::callsToWaitFor) {
+    barrier.arrivals = 0;
+    ++barrier.generation;
+    barrier.changed.notify_all();
     return true;
   }
-  if(rendezvousChanged.wait_for(lock, rendezvousTimeout,
-                                [generation] { return rendezvousGeneration != generation; })) {
+  if(barrier.changed.wait_for(lock, CallBarrier::timeout, [&barrier, generation] {
+       return barrier.generation != generation;
+     })) {
     return true;
   }
-  // Leave the rendezvous so that a later test starts with no arrivals.
-  --rendezvousArrivals;
+  // Leaves the barrier so that a later test starts with no arrivals.
+  --barrier.arrivals;
   return false;
 }
 } // namespace
 
 extern "C" void stubPauseNextReset() {
-  std::scoped_lock const lock(pauseMutex);
-  pauseNextReset = true;
+  auto& state = PauseState::singleton();
+  std::scoped_lock const lock(state.mutex);
+  state.pauseNextReset = true;
 }
 
 extern "C" int stubWaitUntilCallPaused() {
-  std::unique_lock<std::mutex> lock(pauseMutex);
-  return pauseChanged.wait_for(lock, pauseTimeout, [] { return callPaused; }) ? 1 : 0;
+  auto& state = PauseState::singleton();
+  std::unique_lock<std::mutex> lock(state.mutex);
+  return state.changed.wait_for(lock, PauseState::timeout, [&state] { return state.callPaused; })
+             ? 1
+             : 0;
 }
 
 extern "C" void stubReleasePausedCall() {
-  std::scoped_lock const lock(pauseMutex);
-  pauseReleased = true;
-  pauseChanged.notify_all();
+  auto& state = PauseState::singleton();
+  std::scoped_lock const lock(state.mutex);
+  state.released = true;
+  state.changed.notify_all();
 }
 
 extern "C" int stubResetCount() {
-  std::scoped_lock const lock(pauseMutex);
-  return resetCount;
+  auto& state = PauseState::singleton();
+  std::scoped_lock const lock(state.mutex);
+  return state.resetCount;
 }
 
 extern "C" void stubThrowFromNextReset() {
-  std::scoped_lock const lock(pauseMutex);
-  throwFromNextReset = true;
+  auto& state = PauseState::singleton();
+  std::scoped_lock const lock(state.mutex);
+  state.throwFromNextReset = true;
 }
 
 extern "C" void reset() {
+  auto& state = PauseState::singleton();
   bool pauseThisReset = false;
   bool throwThisReset = false;
   {
-    std::scoped_lock const lock(pauseMutex);
-    pauseThisReset = pauseNextReset;
-    pauseNextReset = false;
-    ++resetCount;
-    throwThisReset = throwFromNextReset;
-    throwFromNextReset = false;
+    std::scoped_lock const lock(state.mutex);
+    pauseThisReset = state.pauseNextReset;
+    state.pauseNextReset = false;
+    ++state.resetCount;
+    throwThisReset = state.throwFromNextReset;
+    state.throwFromNextReset = false;
   }
   if(pauseThisReset) {
     pauseUntilReleased();
@@ -110,16 +169,22 @@ extern "C" void reset() {
   }
 }
 
-/// Evaluates every expression to defaultEntryPointResult, after pausing first when the
-/// expression's head is Pause. Rendezvous evaluates to 1 if concurrentCallsToMeet calls met
-/// inside the engine, and to 0 if they did not.
+/// Answers GetEntryPoint(Override), GetEntryPoint() and any GetEntryPoint request with a span
+/// argument with a custom entry point, GetEntryPoint(Zero) with 0 and any other GetEntryPoint
+/// request with a string, so that the tests can check how BootstrapEngine handles each result.
+/// Evaluates Barrier to 1 if CallBarrier::callsToWaitFor calls were inside the engine at the
+/// same time, and to 0 if they were not. Evaluates every other expression to
+/// defaultEntryPointResult, after pausing first when the expression's head is Pause.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
+  if(request != nullptr && request->getHead().getName() == "GetEntryPoint") {
+    return answerGetEntryPoint(*request);
+  }
   if(request != nullptr && request->getHead().getName() == "Pause") {
     pauseUntilReleased();
   }
-  if(request != nullptr && request->getHead().getName() == "Rendezvous") {
-    return new BOSSExpression {std::int64_t {meetConcurrentCalls() ? 1 : 0}};
+  if(request != nullptr && request->getHead().getName() == "Barrier") {
+    return new BOSSExpression {std::int64_t {waitAtCallBarrier() ? 1 : 0}};
   }
   return new BOSSExpression {defaultEntryPointResult};
 }
