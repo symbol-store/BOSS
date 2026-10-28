@@ -15,11 +15,6 @@ using boss::Symbol;
 constexpr std::int64_t defaultEntryPointResult = 1;
 constexpr std::int64_t customEntryPointResult = 4242;
 
-/// Lets a test hold one engine call (an evaluation of Pause, a reset armed with
-/// scriptablePauseNextReset, or a GetEngineDescription armed with scriptablePauseNextDescription)
-/// until the test calls scriptableReleasePausedCall, so that the test can check what
-/// BootstrapEngine refuses while that call is running. Every wait ends after PauseState::timeout,
-/// so a test that fails part-way cannot block the test run indefinitely.
 struct PauseState {
   static constexpr auto timeout = std::chrono::seconds(30);
 
@@ -53,23 +48,19 @@ BOSSExpression* customEntryPoint(BOSSExpression* /*unused*/) {
   return new BOSSExpression {customEntryPointResult};
 }
 
+/// Answers span-carrying and argument-less requests with the custom entry point, so a dropped
+/// span or an unwanted request changes the result.
 BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
   auto const answerWithCustomEntryPoint = [] {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto const address = reinterpret_cast<std::intptr_t>(&customEntryPoint);
     return new BOSSExpression {static_cast<std::int64_t>(address)};
   };
-  // answerGetEntryPoint answers every request with a span argument with the custom entry
-  // point, whatever the dynamic arguments are, so that the test fails if BootstrapEngine
-  // leaves the engine spec's span arguments out of the request.
   if(!request.getSpanArguments().empty()) {
     return answerWithCustomEntryPoint();
   }
   auto const& arguments = request.getDynamicArguments();
   auto const* mode = arguments.empty() ? nullptr : std::get_if<Symbol>(&arguments.front());
-  // answerGetEntryPoint also answers a request without arguments with the custom entry
-  // point, so that a test that dispatches through a plain Scriptable symbol fails if
-  // BootstrapEngine sends GetEntryPoint for that symbol.
   if(arguments.empty() || (mode != nullptr && mode->getName() == "Override")) {
     return answerWithCustomEntryPoint();
   }
@@ -79,9 +70,6 @@ BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
   return new BOSSExpression {"not an entry point"};
 }
 
-/// CMake builds this file as three scriptable engines, so that one test can request
-/// GetEngineDescription from a pipeline whose engines answer with a string, with nothing and
-/// with a non-string.
 BOSSExpression* describeEngine() {
 #if defined(SCRIPTABLE_ENGINE_DESCRIPTION_IS_NOTHING)
   return nullptr;
@@ -93,10 +81,6 @@ BOSSExpression* describeEngine() {
 #endif
 }
 
-/// Lets a test check that BootstrapEngine runs engine calls concurrently: each evaluation of
-/// Barrier waits until CallBarrier::callsToWaitFor evaluations are inside the engine at the
-/// same time, and stops waiting after CallBarrier::timeout, so that the test fails instead of
-/// blocking if BootstrapEngine makes engine calls wait for each other.
 struct CallBarrier {
   static constexpr int callsToWaitFor = 4;
   static constexpr auto timeout = std::chrono::seconds(10);
@@ -127,7 +111,6 @@ bool waitAtCallBarrier() {
      })) {
     return true;
   }
-  // Leaves the barrier so that a later test starts with no arrivals.
   --barrier.arrivals;
   return false;
 }
@@ -189,6 +172,8 @@ extern "C" void reset() {
     ++state.resetCount;
     throwThisReset = state.throwFromNextReset;
     state.throwFromNextReset = false;
+    state.throwFromNextEvaluation = false;
+    state.pauseNextDescription = false;
   }
   if(pauseThisReset) {
     pauseUntilReleased();
@@ -198,15 +183,6 @@ extern "C" void reset() {
   }
 }
 
-/// Answers GetEntryPoint(Override), GetEntryPoint() and any GetEntryPoint request with a span
-/// argument with a custom entry point, GetEntryPoint(Zero) with 0 and any other GetEntryPoint
-/// request with a string, so that the tests can check how BootstrapEngine handles each result.
-/// Answers GetEngineDescription with the answer of describeEngine, after pausing first when
-/// scriptablePauseNextDescription armed the pause. Evaluates Barrier to 1 if
-/// CallBarrier::callsToWaitFor calls were inside the engine at the same time, and to 0 if they
-/// were not. Evaluates every other expression to defaultEntryPointResult, after pausing first
-/// when the expression's head is Pause.
-/// Throws instead, for the first evaluation after a call to scriptableThrowFromNextEvaluation.
 extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   bool throwThisEvaluation = false;
   {

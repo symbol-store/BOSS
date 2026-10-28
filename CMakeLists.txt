@@ -245,21 +245,12 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
 endif()
 add_dependencies(Tests catch2)
 
-# Tests loads these scriptable engines by their library names (libScriptableEngine.so,
-# libScriptableSilentEngine.so and libScriptableNumericEngine.so next to the Tests
-# binary), so that the default test suite can test dispatch into a real engine library
-# without downloading an external engine. A MODULE library has the .so suffix on macOS as
-# well, and BootstrapEngine derives the name libScriptableEngine.so from a Scriptable
-# engine symbol.
-# With MSVC, CMake builds the scriptable engines as SHARED, like the engines, because
-# CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS exports nothing from a MODULE library.
+# MSVC: SHARED, because CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS exports nothing from a MODULE library.
 if(MSVC)
   set(_scriptable_engine_library_type SHARED)
 else()
   set(_scriptable_engine_library_type MODULE)
 endif()
-# CMake builds Tests/ScriptableEngine.cpp three times, and the three scriptable engines
-# differ only in how each scriptable engine answers GetEngineDescription.
 foreach(ScriptableEngineTarget IN ITEMS ScriptableEngine ScriptableSilentEngine ScriptableNumericEngine)
   add_library(${ScriptableEngineTarget} ${_scriptable_engine_library_type} Tests/ScriptableEngine.cpp)
   add_dependencies(${ScriptableEngineTarget} spdlog)
@@ -413,10 +404,6 @@ else()
   install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
-# Tests loads the scriptable engines by their bare library names, so the installation
-# copies the scriptable engines into the directory of Tests. There, the dynamic loader
-# finds the scriptable engines through the $ORIGIN rpath on Linux, and LoadLibrary finds
-# the scriptable engines on Windows.
 install(TARGETS ScriptableEngine ScriptableSilentEngine ScriptableNumericEngine
   LIBRARY DESTINATION bin RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)

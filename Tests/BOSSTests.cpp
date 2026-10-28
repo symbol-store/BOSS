@@ -752,10 +752,6 @@ TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
 }
 
 namespace {
-/// Runs loadScriptableEngine, which makes BootstrapEngine load a scriptable engine by its bare
-/// library name. On macOS, dlopen looks a bare name up in the working directory rather than next to
-/// the Tests binary, so there a scriptable engine that cannot be loaded skips the test. Elsewhere
-/// the Tests build must make the scriptable engine loadable, so a load failure fails the test.
 template <typename LoadScriptableEngine>
 void requireScriptableEngine(LoadScriptableEngine&& loadScriptableEngine) {
 #ifdef __APPLE__
@@ -775,10 +771,6 @@ void requireScriptableEngine(LoadScriptableEngine&& loadScriptableEngine) {
 } // namespace
 
 namespace {
-/// The scriptable engine's pause and reset controls. dlopen (BootstrapEngine.hpp's LoadLibrary
-/// shim on Windows) returns the image that BootstrapEngine already loaded, so these functions
-/// control the same scriptable engine instance that BootstrapEngine calls. The test never closes
-/// the handle, so the image remains loaded until the process exits.
 struct ScriptablePauseControls {
   int (*waitUntilCallPaused)();
   void (*releasePausedCall)();
@@ -788,9 +780,6 @@ struct ScriptablePauseControls {
   void (*pauseNextDescription)();
   void (*throwFromNextEvaluation)();
 
-  /// Fails the test instead of blocking when no scriptable engine call pauses within the scriptable
-  /// engine's timeout. It first releases a call that pauses late, so that the dispatch that made
-  /// the call can finish.
   void requireCallPaused() const {
     if(waitUntilCallPaused() == 0) {
       releasePausedCall();
@@ -831,8 +820,6 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
   requireScriptableEngine([&dispatchToScriptableEngine] { dispatchToScriptableEngine(5); });
   auto const scriptableEngine = scriptablePauseControls();
 
-  // While an engine call is running, both reconfiguration operators are refused. The checks
-  // are non-fatal so that the paused call is always released.
   auto pausedDispatch = std::async(std::launch::async, [&dispatchToScriptableEngine] {
     return dispatchToScriptableEngine("Pause"_());
   });
@@ -841,14 +828,11 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
-  // Every BootstrapEngine gets the same scriptable engine image from dlopen, so a second
-  // BootstrapEngine refuses ResetEngines as well.
   CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   scriptableEngine.releasePausedCall();
   CHECK(pausedDispatch.get() == std::int64_t {1});
 
-  // BootstrapEngine refuses a dispatch while ResetEngines is still resetting the scriptable engine.
   scriptableEngine.pauseNextReset();
   auto pausedReset =
       std::async(std::launch::async, [&engine] { return engine.evaluate("ResetEngines"_()); });
@@ -858,7 +842,6 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
   scriptableEngine.releasePausedCall();
   CHECK(pausedReset.get() == std::string("okay"));
 
-  // Both operators succeed again once no engine call is running.
   CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
   CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
 }
@@ -871,9 +854,6 @@ TEST_CASE("Reconfiguration is refused during a dispatch through the default pipe
   auto const scriptableEngine = scriptablePauseControls();
   REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)) == std::string("okay"));
 
-  // A root evaluation goes through the default pipeline, so this evaluation pauses inside the
-  // scriptable engine, and BootstrapEngine counts it as in flight from the moment evaluate() copies
-  // the pipeline. The checks are non-fatal so that the paused call is always released.
   auto pausedEvaluation =
       std::async(std::launch::async, [&engine] { return engine.evaluate("Pause"_()); });
   scriptableEngine.requireCallPaused();
@@ -895,7 +875,6 @@ TEST_CASE("A BootstrapEngine destroyed during a dispatch resets its engines afte
   requireScriptableEngine([&dispatchToScriptableEngine] { dispatchToScriptableEngine(5); });
   auto const scriptableEngine = scriptablePauseControls();
 
-  // The checks are non-fatal so that the paused call is always released.
   auto pausedDispatch = std::async(std::launch::async, [&dispatchToScriptableEngine] {
     return dispatchToScriptableEngine("Pause"_());
   });
@@ -922,19 +901,10 @@ TEST_CASE("Custom engine entry points", "[engines]") {
   };
   requireScriptableEngine(
       [&evaluateWithScriptableEngine] { evaluateWithScriptableEngine("Scriptable"_); });
-  // libScriptableEngine.so answers GetEntryPoint from the engine spec's argument.
   CHECK(evaluateWithScriptableEngine("Scriptable"_("Override"_)) == std::int64_t {4242});
-  // BootstrapEngine keeps evaluate as the entry point when GetEntryPoint returns 0 or a
-  // value that is not an int64.
   CHECK(evaluateWithScriptableEngine("Scriptable"_("Zero"_)) == std::int64_t {1});
   CHECK(evaluateWithScriptableEngine("Scriptable"_("NotAPointer"_)) == std::int64_t {1});
-  // BootstrapEngine sends no GetEntryPoint request for a plain engine symbol. The scriptable engine
-  // answers a GetEntryPoint request without arguments with its custom entry point, so a
-  // request would make this dispatch return 4242.
   CHECK(evaluateWithScriptableEngine("Scriptable"_) == std::int64_t {1});
-  // BootstrapEngine passes the spec's span argument to GetEntryPoint as a span. The
-  // spec's dynamic argument alone selects Zero, so without the span in the request, the
-  // dispatch would call evaluate and return 1.
   CHECK(evaluateWithScriptableEngine(boss::expressions::ComplexExpression(
             "Scriptable"_, {}, boss::expressions::ExpressionArguments("Zero"_),
             boss::expressions::ExpressionSpanArguments(
@@ -947,8 +917,6 @@ TEST_CASE("Engine descriptions", "[engines]") {
       [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
   engine.evaluate(
       "SetDefaultEnginePipeline"_("Scriptable"_, "ScriptableSilent"_, "ScriptableNumeric"_));
-  // GetEngineDescription writes one section per engine, in pipeline order, whether the engine
-  // answers with a string, with nothing or with a non-string.
   CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
         "## ScriptableEngine\n\nA scriptable engine for the BOSS tests.\n"
         "\n## ScriptableSilentEngine\n\n(no description: the engine returned nothing)\n"
@@ -969,7 +937,6 @@ TEST_CASE("An engine that throws ends the evaluation with an error report", "[en
             "EvaluateInEngines"_("List"_("Scriptable"_, "ScriptableNumeric"_), "Payload"_("..."_)),
             failure));
 
-  // ScriptableNumeric answers with an int64, which the report summarizes as "...".
   scriptableEngine.throwFromNextEvaluation();
   CHECK(engine.evaluate("EvaluateInEngines"_(
             "List"_("ScriptableNumeric"_, "Scriptable"_, "ScriptableSilent"_), "Payload"_(1, 2))) ==
@@ -1023,9 +990,6 @@ TEST_CASE("Reconfiguration is refused while engines are being described",
   auto const scriptableEngine = scriptablePauseControls();
   REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)) == std::string("okay"));
 
-  // GetEngineDescription calls the scriptable engine, so BootstrapEngine refuses both
-  // reconfiguration operators while that call is paused. The checks are non-fatal so that the test
-  // always releases the paused call.
   scriptableEngine.pauseNextDescription();
   auto pausedDescription = std::async(
       std::launch::async, [&engine] { return engine.evaluate("GetEngineDescription"_()); });
@@ -1048,15 +1012,11 @@ TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][co
   requireScriptableEngine([&dispatchToScriptableEngine] { dispatchToScriptableEngine(5); });
   auto const scriptableEngine = scriptablePauseControls();
 
-  // ResetEngines reports the failure to its caller.
   scriptableEngine.throwFromNextReset();
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("scriptable engine reset failure"));
   CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
 
-  // Queued libraries have no caller to report a reset failure to, so the dispatch that resets
-  // and unloads them returns the dispatch's result. The checks are non-fatal so that the
-  // paused call is always released.
   auto pausedDispatch = std::async(std::launch::async, [&dispatchToScriptableEngine] {
     return dispatchToScriptableEngine("Pause"_());
   });
@@ -1074,17 +1034,19 @@ TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][co
   CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
 }
 
+namespace {
+void requireScriptableEngineLoadable() {
+  auto probeEngine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+}
+} // namespace
+
 TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
-  {
-    // A separate BootstrapEngine loads the scriptable engine once to find out whether the
-    // scriptable engine can be loaded at all, so the BootstrapEngine under test still starts with
-    // an empty library cache.
-    auto probeEngine = boss::engines::BootstrapEngine();
-    requireScriptableEngine(
-        [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
-  }
+  requireScriptableEngineLoadable();
   auto engine = boss::engines::BootstrapEngine();
-  constexpr int concurrentDispatches = 4; // callsToWaitFor in Tests/ScriptableEngine.cpp
+  constexpr int concurrentDispatches =
+      4; // CallBarrier::callsToWaitFor in Tests/ScriptableEngine.cpp
   std::promise<void> start;
   std::shared_future<void> const startSignal = start.get_future().share();
   std::vector<std::future<boss::Expression>> dispatches;
@@ -1095,9 +1057,6 @@ TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
       return engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "Barrier"_()));
     }));
   }
-  // The dispatches start together, so the four threads also make BootstrapEngine load the
-  // scriptable engine into the empty library cache concurrently. Each dispatch returns 1 only if
-  // all four calls were inside the scriptable engine at once.
   start.set_value();
   for(auto& dispatch : dispatches) {
     CHECK(dispatch.get() == std::int64_t {1});
