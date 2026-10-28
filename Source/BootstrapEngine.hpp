@@ -532,9 +532,10 @@ class BootstrapEngine : public Engine {
                                     "GetEntryPoint returned " + std::to_string(value) +
                                     ", which does not fit in a pointer on this platform");
                               }
-                              // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                              // NOLINTBEGIN(performance-no-int-to-ptr)
                               entryPoint =
                                   reinterpret_cast<LibraryAndFunctions::EntryPoint>(asPointerInt);
+                              // NOLINTEND(performance-no-int-to-ptr)
                             },
                             // An answer that is not an int64 keeps evaluate as the entry
                             // point, so that an engine without a GetEntryPoint
