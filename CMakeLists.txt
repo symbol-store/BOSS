@@ -129,6 +129,11 @@ else()
 endif()
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
+  if(NOT APPLE)
+    set(_chibi_rpath "-Wl,-rpath,${_chibi_prefix}/lib")
+  else()
+    set(_chibi_rpath "")
+  endif()
   # BOSS evaluates concurrently in separate chibi contexts, which is safe only because chibi
   # gives each context a separate heap and symbol table. Defining SEXP_USE_BOEHM or
   # SEXP_USE_MALLOC for this build would make chibi share one heap and one symbol table
@@ -139,8 +144,8 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
     DOWNLOAD_EXTRACT_TIMESTAMP NEW
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> libchibi-scheme.a prefix=${_chibi_prefix} "CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}}" "LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}}" CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
-    INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${_chibi_prefix} "LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}}" CC=${CMAKE_C_COMPILER}
+    BUILD_COMMAND ${MAKE_EXECUTABLE} -j 1 -C <SOURCE_DIR> libchibi-scheme.a prefix=${_chibi_prefix} "CFLAGS=${CMAKE_C_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}}" "LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} ${_chibi_rpath}" CC=${CMAKE_C_COMPILER} LD=${CMAKE_LINKER}
+    INSTALL_COMMAND ${MAKE_EXECUTABLE} -C <SOURCE_DIR> install prefix=${_chibi_prefix} "LDFLAGS=${CMAKE_EXE_LINKER_FLAGS${CMAKE_BUILD_TYPE_TOUPPER}} ${_chibi_rpath}" CC=${CMAKE_C_COMPILER}
     BUILD_BYPRODUCTS ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX} ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
   )
 endif()
