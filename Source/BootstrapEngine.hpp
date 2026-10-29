@@ -71,6 +71,28 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 
 namespace boss {
 namespace engines {
+struct LibraryAndFunctions {
+  using EntryPoint = BOSSExpression* (*)(BOSSExpression*);
+  void* library;
+  void (*resetFunction)(void);
+  EntryPoint evaluateFunction;
+};
+
+// dlopen gives every BootstrapEngine in the process the same engine image, so all of them
+// have to see each other's dispatches and reconfigurations. BOSS.cpp defines this state,
+// because a static member of BootstrapEngine, which is declared in the anonymous namespace
+// below, would exist once per translation unit.
+struct EngineDispatchCoordination {
+  boss::concurrency::SharedMutex engineStateMutex;
+  std::atomic<std::size_t> evaluationsInFlight {0};
+  std::atomic<bool> reconfigurationInProgress {false};
+  // Libraries of destroyed BootstrapEngine instances, waiting to be reset and unloaded until no
+  // dispatch is in flight. finishReconfiguration tears them down before it clears
+  // reconfigurationInProgress.
+  std::vector<LibraryAndFunctions> librariesAwaitingTeardown BOSS_GUARDED_BY(engineStateMutex);
+};
+EngineDispatchCoordination& engineDispatchCoordination();
+
 namespace {
 using boss::utilities::operator""_;
 
@@ -90,16 +112,8 @@ using boss::Symbol;
 using boss::expressions::generic::visit;
 using boss::utilities::overload;
 
-struct LibraryAndFunctions {
-  using EntryPoint = BOSSExpression* (*)(BOSSExpression*);
-  void* library;
-  void (*resetFunction)(void);
-  EntryPoint evaluateFunction;
-};
-
-/// Callers must not hold engineStateMutex, because reset() is an engine call. A reset() that
-/// throws does not stop the remaining libraries from being reset and unloaded; the first
-/// exception is rethrown once every library has been unloaded.
+/// Must run without engineStateMutex, because reset() is an engine call. Rethrows the first
+/// exception from reset() after unloading every library.
 void unloadLibraries(vector<LibraryAndFunctions> const& libs) {
   std::exception_ptr firstResetFailure;
   for(auto const& lib : libs) {
@@ -154,31 +168,10 @@ void unloadLibraries(vector<LibraryAndFunctions> const& libs) {
 /// during its evaluation.
 class BootstrapEngine : public Engine {
 
-  /// BootstrapEngine reads `libraries`, `defaultEnginePipeline` and `librariesAwaitingTeardown`
-  /// only while it holds this mutex, shared or exclusively, and changes them only while it
-  /// holds the mutex exclusively. Declared first so that the BOSS_GUARDED_BY annotations below
-  /// can name it. The mutex and the two atomics below are static, so every BootstrapEngine in
-  /// the process uses the same ones: dlopen returns the same engine image to every instance,
-  /// and with separate state one instance's ResetEngines could reset an engine during another
-  /// instance's dispatch.
-  static inline boss::concurrency::SharedMutex engineStateMutex;
-
-  /// The number of dispatches in flight. Engine calls run without engineStateMutex, so the
-  /// mutex alone cannot stop a reconfiguration from resetting or unloading an engine during a
-  /// call. beginReconfiguration therefore throws while this count is not 0.
-  static inline std::atomic<std::size_t> evaluationsInFlight {0};
-
-  /// True from the moment a reconfiguration takes the exclusive lock until the reconfiguration
-  /// has reset and unloaded its engines. The reconfiguration releases the lock before
-  /// unloadLibraries runs, and a dispatch that started in between would load an engine again
-  /// and call it while unloadLibraries is still running that engine's reset().
-  static inline std::atomic<bool> reconfigurationInProgress {false};
-
-  /// Libraries of destroyed BootstrapEngine instances, to be reset and unloaded once no
-  /// dispatch is in flight. finishReconfiguration resets and unloads these libraries before
-  /// it clears reconfigurationInProgress.
-  static inline vector<LibraryAndFunctions>
-      librariesAwaitingTeardown BOSS_GUARDED_BY(engineStateMutex);
+  boss::concurrency::SharedMutex& engineStateMutex = engineDispatchCoordination().engineStateMutex;
+  std::atomic<std::size_t>& evaluationsInFlight = engineDispatchCoordination().evaluationsInFlight;
+  std::atomic<bool>& reconfigurationInProgress =
+      engineDispatchCoordination().reconfigurationInProgress;
 
   /// Increments evaluationsInFlight for the lifetime of the object.
   ///
@@ -221,7 +214,7 @@ class BootstrapEngine : public Engine {
         lastDispatchBeforeQueuedTeardown = --counter == 0 && reconfigurationInProgress.load();
       }
       if(lastDispatchBeforeQueuedTeardown) {
-        finishReconfiguration();
+        finishReconfiguration(engineDispatchCoordination());
       }
     }
     InFlightGuard(InFlightGuard const&) = delete;
@@ -265,24 +258,18 @@ class BootstrapEngine : public Engine {
     reconfigurationInProgress = true;
   }
 
-  /// Resets and unloads queued libraries until none remain, then clears
-  /// reconfigurationInProgress. One thread at a time runs this function: the reconfiguration
-  /// operator or destructor that set reconfigurationInProgress, or the last dispatch that a
-  /// queued library waited for. The loop also resets and unloads libraries that another
-  /// destroyed instance queued while this thread was unloading.
-  /// It does not throw, so that a destructor can call it. A queued library's reset() that
-  /// throws has no caller to report to, and unloadLibraries has unloaded every library before
-  /// it rethrows, so the loop discards that exception.
-  static void finishReconfiguration() BOSS_EXCLUDES(engineStateMutex) {
+  /// Does not throw, so that a destructor can call it.
+  static void finishReconfiguration(EngineDispatchCoordination& coordination)
+      BOSS_EXCLUDES(coordination.engineStateMutex) {
     while(true) {
       vector<LibraryAndFunctions> librariesToUnload;
       {
-        boss::concurrency::UniqueLock const lock(engineStateMutex);
-        if(librariesAwaitingTeardown.empty()) {
-          reconfigurationInProgress = false;
+        boss::concurrency::UniqueLock const lock(coordination.engineStateMutex);
+        if(coordination.librariesAwaitingTeardown.empty()) {
+          coordination.reconfigurationInProgress = false;
           return;
         }
-        librariesToUnload.swap(librariesAwaitingTeardown);
+        librariesToUnload.swap(coordination.librariesAwaitingTeardown);
       }
       try {
         unloadLibraries(librariesToUnload);
@@ -291,29 +278,27 @@ class BootstrapEngine : public Engine {
     }
   }
 
-  /// A destructor cannot refuse to run the way the reconfiguration operators do, and waiting
-  /// for in-flight dispatches would deadlock when one of those dispatches destroys this
-  /// instance. So while a dispatch is in flight, or another thread is resetting and unloading
-  /// engines, this function queues the libraries, sets reconfigurationInProgress and returns.
-  /// While reconfigurationInProgress is set, InFlightGuard refuses new dispatches.
-  static void tearDownOnceNoDispatchIsInFlight(vector<LibraryAndFunctions> detachedLibraries)
-      BOSS_EXCLUDES(engineStateMutex) {
+  /// Queues the libraries while a dispatch is in flight, because a destructor can neither refuse
+  /// to run nor wait.
+  static void tearDownOnceNoDispatchIsInFlight(EngineDispatchCoordination& coordination,
+                                               vector<LibraryAndFunctions> detachedLibraries)
+      BOSS_EXCLUDES(coordination.engineStateMutex) {
     if(detachedLibraries.empty()) {
       return;
     }
     {
-      boss::concurrency::UniqueLock const lock(engineStateMutex);
-      librariesAwaitingTeardown.insert(librariesAwaitingTeardown.end(),
-                                       make_move_iterator(detachedLibraries.begin()),
-                                       make_move_iterator(detachedLibraries.end()));
-      bool const anotherThreadTearsDown =
-          reconfigurationInProgress.load() || evaluationsInFlight.load() > 0;
-      reconfigurationInProgress = true;
+      boss::concurrency::UniqueLock const lock(coordination.engineStateMutex);
+      coordination.librariesAwaitingTeardown.insert(coordination.librariesAwaitingTeardown.end(),
+                                                    make_move_iterator(detachedLibraries.begin()),
+                                                    make_move_iterator(detachedLibraries.end()));
+      bool const anotherThreadTearsDown = coordination.reconfigurationInProgress.load() ||
+                                          coordination.evaluationsInFlight.load() > 0;
+      coordination.reconfigurationInProgress = true;
       if(anotherThreadTearsDown) {
         return;
       }
     }
-    finishReconfiguration();
+    finishReconfiguration(coordination);
   }
 
   /// Calls finishReconfiguration in its destructor. The reconfiguration operators declare the
@@ -321,7 +306,7 @@ class BootstrapEngine : public Engine {
   class ReconfigurationEnd {
   public:
     ReconfigurationEnd() = default;
-    ~ReconfigurationEnd() { finishReconfiguration(); }
+    ~ReconfigurationEnd() { finishReconfiguration(engineDispatchCoordination()); }
     ReconfigurationEnd(ReconfigurationEnd const&) = delete;
     ReconfigurationEnd(ReconfigurationEnd&&) = delete;
     ReconfigurationEnd& operator=(ReconfigurationEnd const&) = delete;
@@ -399,7 +384,7 @@ class BootstrapEngine : public Engine {
       return libs;
     }
 
-    ~LibraryCache() { tearDownOnceNoDispatchIsInFlight(detachAll()); }
+    ~LibraryCache() { tearDownOnceNoDispatchIsInFlight(engineDispatchCoordination(), detachAll()); }
 
     LibraryCache() = default;
     LibraryCache(LibraryCache const&) = delete;

@@ -8,6 +8,7 @@ extern "C" {
 #include "BOSS.hpp"
 #include "Expression.hpp"
 #include "ExpressionUtilities.hpp"
+#include "ThreadSafety.hpp"
 #include "UnicodeEscapes.hpp"
 #include "Utilities.hpp"
 
@@ -17,7 +18,6 @@ extern "C" {
 #include <cstring>
 #include <iostream>
 #include <limits>
-#include <mutex>
 #include <string>
 #include <utility>
 #include <variant>
@@ -322,6 +322,10 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 
 /* ─── Initialize a full BOSS chibi context ─── */
 
+/// Runs sexp_scheme_init once per process. libBOSS defines it, because a once_flag in this
+/// header would exist once per binary.
+void initializeSchemeOnce();
+
 /// Threading contract for hosts that embed BOSS evaluation:
 /// - A chibi context is not thread-safe. Each thread creates and uses a separate context.
 /// - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
@@ -330,11 +334,7 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 ///   SetDefaultEnginePipeline and ResetEngines while any engine dispatch is in flight.
 ///   Bootstrap commands, and evaluations that reach no engine, do not count as dispatches.
 inline sexp initialize_boss_context() {
-  // sexp_scheme_init tests and sets a process-wide flag without synchronization, and
-  // pretty_print_expression creates a context on any thread's first use, so the host cannot
-  // order the first calls itself. call_once runs it exactly once.
-  static std::once_flag schemeInitialized;
-  std::call_once(schemeInitialized, sexp_scheme_init);
+  initializeSchemeOnce();
   sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);
   if(ctx == nullptr || sexp_exceptionp(ctx)) {
     std::cerr << "Failed to initialize chibi-scheme context\n";
@@ -380,6 +380,9 @@ inline sexp initialize_boss_context() {
 
 inline EvalResult evaluate_expression(sexp ctx, sexp env, std::string const& expr_str,
                                       bool pretty = true) {
+  // Debug-only: abort loudly if a second thread is evaluating on this same context, which
+  // violates the one-context-per-caller contract. No-op in release.
+  boss::concurrency::ConcurrencyTripwire const tripwire(ctx, "evaluate_expression");
   sexp_gc_var4(result, out_port, result_str, arg_list);
   sexp_gc_preserve4(ctx, result, out_port, result_str, arg_list);
   result = eval_string(ctx, env, expr_str.c_str());

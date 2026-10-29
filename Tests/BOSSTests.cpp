@@ -1,3 +1,4 @@
+#include "../Source/BOSS.hpp"
 #include "../Source/BootstrapEngine.hpp"
 #include "../Source/Expression.hpp"
 #include "../Source/ExpressionUtilities.hpp"
@@ -832,6 +833,10 @@ TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][co
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  std::stringstream singletonResetOutput;
+  singletonResetOutput << boss::evaluate("ResetEngines"_());
+  CHECK_THAT(singletonResetOutput.str(),
+             Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   scriptableEngine.releasePausedCall();
   CHECK(pausedDispatch.get() == std::int64_t {1});
 

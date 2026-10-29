@@ -17,6 +17,12 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+boss::engines::EngineDispatchCoordination& boss::engines::engineDispatchCoordination() {
+  static EngineDispatchCoordination coordination;
+  return coordination;
+}
+
 using namespace boss::utilities;
 using boss::expressions::CloneReason;
 using std::get; // NOLINT(misc-unused-using-decls)
