@@ -134,6 +134,10 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   else()
     set(_chibi_rpath "")
   endif()
+  # BOSS evaluates concurrently in separate chibi contexts, which is safe only because chibi
+  # gives each context a separate heap and symbol table. Defining SEXP_USE_BOEHM or
+  # SEXP_USE_MALLOC for this build would make chibi share one heap and one symbol table
+  # between all contexts.
   ExternalProject_Add(chibi-scheme
     URL https://github.com/ashinn/chibi-scheme/archive/refs/tags/0.12.tar.gz
     URL_HASH SHA256=b70a1147bc70a0f90df3fb6081bc99808237fd17a9accf9ee7a2cc20d95a4df0
@@ -165,14 +169,16 @@ set(BenchmarkFiles Benchmarks/BOSSBenchmarks.cpp)
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   set(REPLStubFiles chibi-bindings.stub)
   set(REPLFiles ${CMAKE_CURRENT_BINARY_DIR}/Source/Shims/chibi-bindings.c)
+  list(APPEND TestFiles Tests/ExpressionParserTests.cpp)
+  set(PrettyPrintFiles Source/Shims/BossPrettyPrint.cpp)
 endif()
 
 # BOSS
 
-add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles})
+add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles} ${PrettyPrintFiles})
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  add_dependencies(BOSS chibi-scheme)
+  add_dependencies(BOSS chibi-scheme chibi-bindings)
   set_source_files_properties(${REPLFiles} PROPERTIES
     INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 
@@ -198,13 +204,19 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shims/${REPLStubFiles} ${_chibi_prefix}/bin/chibi-ffi ${_chibi_prefix}/include/chibi/eval.h
     VERBATIM)
 
+  # Several targets compile REPLFiles. In a parallel build, each of those targets would run
+  # the add_custom_command rule above at the same time, so this target runs the rule once
+  # and those targets depend on this target.
+  add_custom_target(chibi-bindings DEPENDS ${REPLFiles})
+  add_dependencies(chibi-bindings chibi-scheme)
+
   target_include_directories(BOSS SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_link_libraries(BOSS
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 
   # Standalone BOSS REPL binary (statically linked)
-  add_executable(boss Source/boss-repl.cpp ${ImplementationFiles} ${REPLFiles})
-  add_dependencies(boss chibi-scheme)
+  add_executable(boss Source/BOSSREPL.cpp ${ImplementationFiles} ${REPLFiles} ${PrettyPrintFiles})
+  add_dependencies(boss chibi-scheme chibi-bindings)
   target_include_directories(boss SYSTEM PRIVATE ${_chibi_prefix}/include)
   target_include_directories(boss PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
   target_link_libraries(boss
@@ -229,7 +241,40 @@ endif()
 
 # Tests
 add_executable(Tests ${ImplementationFiles} ${TestFiles})
+if(NOT DISABLE_REPL AND MAKE_FOUND)
+  target_sources(Tests PRIVATE ${REPLFiles} ${PrettyPrintFiles})
+  add_dependencies(Tests chibi-scheme chibi-bindings)
+  target_include_directories(Tests SYSTEM PRIVATE ${_chibi_prefix}/include)
+  target_link_libraries(Tests
+    ${_chibi_prefix}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
+endif()
 add_dependencies(Tests catch2)
+
+# Tests loads this stub engine by its library name (libStubTestEngine.so next to the Tests
+# binary), so that the default test suite can test dispatch into a real engine library
+# without downloading an external engine. A MODULE library has the .so suffix on macOS as
+# well, and BootstrapEngine derives the name libStubTestEngine.so from a StubTest engine
+# symbol.
+# With MSVC, CMake builds the stub as SHARED, like the engines, because
+# CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS exports nothing from a MODULE library.
+if(MSVC)
+  set(_stub_engine_library_type SHARED)
+else()
+  set(_stub_engine_library_type MODULE)
+endif()
+add_library(StubTestEngine ${_stub_engine_library_type} Tests/StubTestEngine.cpp)
+add_dependencies(StubTestEngine spdlog)
+target_include_directories(StubTestEngine SYSTEM PRIVATE ${BOSS_BINARY_DIR}/deps/include)
+target_link_libraries(StubTestEngine Threads::Threads)
+set_target_properties(StubTestEngine PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
+  LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>
+  RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
+add_dependencies(Tests StubTestEngine)
+# On Linux, dlopen does not search the executable's directory for a bare library name, so
+# the rpath of Tests is $ORIGIN, in the build tree and in the installation.
+if(UNIX AND NOT APPLE)
+  set_target_properties(Tests PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+endif()
 
 target_link_libraries(Tests ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}Catch2$<$<CONFIG:Debug>:d>${CMAKE_STATIC_LIBRARY_SUFFIX})
 if(WIN32)
@@ -257,6 +302,45 @@ target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBR
 list(APPEND AllTargets BOSS Tests Benchmarks)
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   list(APPEND AllTargets boss)
+endif()
+
+########################## Default Engine Libraries ############################
+
+set(BOSS_DEFAULT_ENGINES "" CACHE STRING "Default engine library names (semicolon-separated)")
+if(NOT BOSS_DEFAULT_ENGINES STREQUAL "")
+  set(_default_engine_defs "")
+  foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
+    # Each name is interpolated twice: into the BOSS_DEFAULT_ENGINE_LIBS string literal below,
+    # and into a "symbol-store/<name>" repository to fetch. A quote would break out of the
+    # literal, and a slash or whitespace would silently fetch something other than intended, so
+    # reject anything that is not a plain identifier rather than generating either.
+    if(NOT _eng MATCHES "^[A-Za-z0-9_.+-]+$")
+      message(FATAL_ERROR
+        "BOSS_DEFAULT_ENGINES entry '${_eng}' is not a plain engine name. Expected only letters, "
+        "digits and _ . + - (for example ArrowComputeEngine); got characters that would corrupt "
+        "the generated BOSS_DEFAULT_ENGINE_LIBS definition or the engine repository name.")
+    endif()
+    list(APPEND _default_engine_defs "${CMAKE_BINARY_DIR}/${CMAKE_SHARED_MODULE_PREFIX}${_eng}${CMAKE_SHARED_MODULE_SUFFIX}")
+  endforeach()
+  string(JOIN "\",\"" _default_engine_init ${_default_engine_defs})
+  set(_default_engine_init "\"${_default_engine_init}\"")
+  foreach(Target IN LISTS AllTargets)
+    target_compile_definitions(${Target} PRIVATE BOSS_DEFAULT_ENGINE_LIBS=${_default_engine_init})
+  endforeach()
+  # An engine that BOSS_BUILD_ENGINES already lists, possibly pinned to a branch, must not be
+  # added again: a second ExternalProject_Add with the same name fails configuration.
+  foreach(_eng IN LISTS BOSS_DEFAULT_ENGINES)
+    set(_default_engine_is_listed FALSE)
+    foreach(_listed_engine IN LISTS BOSS_BUILD_ENGINES)
+      string(REGEX REPLACE "([^/]+)/([^:]+):?(.*)" "\\2" _listed_engine_name ${_listed_engine})
+      if(_listed_engine_name STREQUAL _eng)
+        set(_default_engine_is_listed TRUE)
+      endif()
+    endforeach()
+    if(NOT _default_engine_is_listed)
+      list(APPEND BOSS_BUILD_ENGINES "symbol-store/${_eng}")
+    endif()
+  endforeach()
 endif()
 
 ############################ Targets Common Properties ############################
@@ -303,6 +387,16 @@ set(PUBLIC_HEADER_LIST
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/Serialization.hpp;
   ${CMAKE_CURRENT_SOURCE_DIR}/Source/PortableBOSSSerialization.h
 )
+# ExpressionParser.hpp needs chibi's headers, library and Scheme modules at the consumer's end.
+# chibi's own install step puts all of them into the install prefix only when chibi is built
+# with that prefix; a default-prefix build stages chibi in the build tree instead (see
+# _chibi_prefix), so a default-prefix install would contain the header but not chibi's library
+# and modules.
+if(NOT DISABLE_REPL AND MAKE_FOUND AND _chibi_prefix STREQUAL CMAKE_INSTALL_PREFIX)
+  list(APPEND PUBLIC_HEADER_LIST
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/ExpressionParser.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/UnicodeEscapes.hpp)
+endif()
 set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
 
 if(WIN32)
@@ -317,8 +411,21 @@ else()
   install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
+# Tests loads StubTestEngine by its bare library name, so the installation copies
+# StubTestEngine into the directory of Tests. There, the dynamic loader finds
+# StubTestEngine through the $ORIGIN rpath on Linux, and LoadLibrary finds StubTestEngine
+# on Windows.
+install(TARGETS StubTestEngine LIBRARY DESTINATION bin RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)
+
+# Engines build as SHARED under MSVC and as MODULE elsewhere, and install(TARGETS) puts a
+# SHARED library's .dll into bin even when the engine only names a LIBRARY destination.
+if(MSVC)
+  set(_engine_runtime_directory bin)
+else()
+  set(_engine_runtime_directory lib)
+endif()
 
 foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
   string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\1" Namespace ${Engine})
@@ -335,5 +442,17 @@ foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
     GIT_TAG ${BranchName}
     DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/${CMAKE_PROJECT_NAME}
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${BOSS_BINARY_DIR}/engines $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -DBOSS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_REPOSITORY=${CMAKE_CURRENT_SOURCE_DIR} -DBOSS_SOURCE_BRANCH=${BOSS_CHECKOUT_BRANCH}
+  )
+  # Copy the built engine next to the BOSS binaries, to the absolute path that
+  # BOSS_DEFAULT_ENGINE_LIBS names. This is an ExternalProject step chained after
+  # the install step rather than a POST_BUILD command on a step target, so it runs whenever
+  # the engine project is built, on every generator.
+  ExternalProject_Add_Step(${EngineName} copy_to_binary_dir
+    DEPENDEES install
+    ALWAYS TRUE
+    COMMENT "Copying ${EngineName} next to the BOSS binaries"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${BOSS_BINARY_DIR}/engines/${_engine_runtime_directory}/${CMAKE_SHARED_MODULE_PREFIX}${EngineName}${CMAKE_SHARED_MODULE_SUFFIX}"
+      "${CMAKE_BINARY_DIR}/"
   )
 endforeach()
