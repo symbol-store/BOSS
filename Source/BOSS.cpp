@@ -10,6 +10,7 @@
 #include <cstring>
 #include <exception>
 #include <iterator>
+#include <new>
 #include <sstream>
 #include <string.h> //NOLINT(hicpp-deprecated-headers) // for strdup
 #include <type_traits>
@@ -422,7 +423,11 @@ struct PortableBOSSRootExpression* serializeBOSSExpression(struct BOSSExpression
   if(e == nullptr) {
     return nullptr;
   }
-  return boss::serialization::SerializedExpression(std::move(e->delegate)).extractRoot();
+  try {
+    return boss::serialization::SerializedExpression(std::move(e->delegate)).extractRoot();
+  } catch(std::bad_alloc const&) {
+    return nullptr;
+  }
 }
 struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSRootExpression* root) {
   if(root == nullptr) {

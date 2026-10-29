@@ -21,10 +21,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <exception> // IWYU pragma: keep
 #include <functional>
 #include <future>
 #include <iterator>
+#include <new>
 #include <numeric>
 #include <ostream>
 #include <sstream>
@@ -2041,6 +2043,23 @@ TEST_CASE("Expression Serialization round-trips span arguments") {
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[0]) == 1LL);
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[1]) == 2LL);
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[2]) == 3LL);
+}
+
+namespace {
+void* failToAllocate(size_t /*size*/) { return nullptr; }
+void* failToReallocate(void* /*memory*/, size_t /*size*/) { return nullptr; }
+} // namespace
+
+TEST_CASE("Serialization throws std::bad_alloc when an allocation or a reallocation fails") {
+  using SerializedExpressionWithFailingReallocation =
+      boss::serialization::SerializedExpression<std::malloc, failToReallocate>;
+  CHECK_THROWS_AS(boss::serialization::SerializedExpression<failToAllocate>(boss::Expression(5)),
+                  std::bad_alloc);
+  CHECK_THROWS_AS(boss::serialization::SerializedExpression<failToAllocate>("Plus"_(1, 2)),
+                  std::bad_alloc);
+  CHECK_THROWS_AS(SerializedExpressionWithFailingReallocation("Plus"_(1, 2)), std::bad_alloc);
+  CHECK_THROWS_AS(SerializedExpressionWithFailingReallocation(boss::Expression(boss::Symbol("Yo"))),
+                  std::bad_alloc);
 }
 
 TEST_CASE("Expression Serialization") {
