@@ -251,7 +251,7 @@ if(MSVC)
 else()
   set(_scriptable_engine_library_type MODULE)
 endif()
-foreach(ScriptableEngineTarget IN ITEMS ScriptableEngine ScriptableSilentEngine ScriptableNumericEngine)
+foreach(ScriptableEngineTarget IN ITEMS ScriptableEngine ScriptableNumericEngine)
   add_library(${ScriptableEngineTarget} ${_scriptable_engine_library_type} Tests/ScriptableEngine.cpp)
   add_dependencies(${ScriptableEngineTarget} spdlog)
   target_include_directories(${ScriptableEngineTarget} SYSTEM PRIVATE ${BOSS_BINARY_DIR}/deps/include)
@@ -261,7 +261,6 @@ foreach(ScriptableEngineTarget IN ITEMS ScriptableEngine ScriptableSilentEngine 
     RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Tests>)
   add_dependencies(Tests ${ScriptableEngineTarget})
 endforeach()
-target_compile_definitions(ScriptableSilentEngine PRIVATE SCRIPTABLE_ENGINE_DESCRIPTION_IS_NOTHING)
 target_compile_definitions(ScriptableNumericEngine PRIVATE SCRIPTABLE_ENGINE_DESCRIPTION_IS_NUMBER)
 # On Linux, dlopen does not search the executable's directory for a bare library name, so
 # the rpath of Tests is $ORIGIN, in the build tree and in the installation.
@@ -404,7 +403,7 @@ else()
   install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
-install(TARGETS ScriptableEngine ScriptableSilentEngine ScriptableNumericEngine
+install(TARGETS ScriptableEngine ScriptableNumericEngine
   LIBRARY DESTINATION bin RUNTIME DESTINATION bin)
 install(FILES Source/Shims/BOSS.rkt Server/Server.rkt DESTINATION bin)
 install(DIRECTORY ${BOSS_BINARY_DIR}/deps/include/spdlog DESTINATION include)

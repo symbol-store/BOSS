@@ -71,6 +71,13 @@ BOSSExpression** cloneToNewBOSSExpressionArray(Arguments const& arguments) {
   result[arguments.size()] = nullptr;
   return result;
 }
+bool hasNullArgument(BOSSExpression* const* arguments, size_t cardinality) {
+  if(cardinality == 0) {
+    return false;
+  }
+  return arguments == nullptr ||
+         ::std::find(arguments, arguments + cardinality, nullptr) != arguments + cardinality;
+}
 } // namespace
 
 extern "C" {
@@ -80,6 +87,9 @@ extern "C" {
  * invalid after calling BOSSEvaluate.
  */
 BOSSExpression* BOSSEvaluate(BOSSExpression* arg) {
+  if(arg == nullptr) {
+    return nullptr;
+  }
   try {
     static boss::engines::BootstrapEngine engine;
     auto* output = new BOSSExpression {engine.evaluate(std::move(arg->delegate))};
@@ -112,18 +122,30 @@ BOSSExpression* doubleToNewBOSSExpression(double value) {
   return new BOSSExpression {boss::Expression(value)};
 }
 BOSSExpression* stringToNewBOSSExpression(char const* string) {
+  if(string == nullptr) {
+    return nullptr;
+  }
   return new BOSSExpression {boss::Expression(::std::string(string))};
 }
 BOSSExpression* symbolNameToNewBOSSExpression(char const* name) {
+  if(name == nullptr) {
+    return nullptr;
+  }
   return new BOSSExpression {boss::Expression(boss::Symbol(name))};
 }
 
 BOSSSymbol* symbolNameToNewBOSSSymbol(char const* name) {
+  if(name == nullptr) {
+    return nullptr;
+  }
   return new BOSSSymbol {boss::Symbol(name)};
 }
 
 BOSSExpression* newComplexBOSSExpression(BOSSSymbol* head, size_t cardinality,
                                          BOSSExpression* arguments[]) {
+  if(head == nullptr || hasNullArgument(arguments, cardinality)) {
+    return nullptr;
+  }
   auto args = boss::ExpressionArguments();
   if(cardinality > 0) {
     // guard against pointer arithmetic (arguments + cardinality) on a possibly-null pointer
@@ -169,6 +191,9 @@ size_t getBOSSSpanBeginAddress(BOSSExpressionSpan const* span) {
 BOSSExpression* newComplexBOSSExpressionWithSpans(BOSSSymbol* head, size_t cardinality,
                                                   BOSSExpression* arguments[], size_t spanCount,
                                                   BOSSExpressionSpan* spans[]) {
+  if(head == nullptr || hasNullArgument(arguments, cardinality)) {
+    return nullptr;
+  }
   auto args = boss::ExpressionArguments();
   if(cardinality > 0) {
     // guard against pointer arithmetic (arguments + cardinality) on a possibly-null pointer
@@ -198,17 +223,29 @@ BOSSExpression* newComplexBOSSExpressionWithSpans(BOSSSymbol* head, size_t cardi
 }
 
 size_t getDynamicArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return 0;
+  }
   return get<boss::ComplexExpression>(arg->delegate).getDynamicArguments().size();
 }
 BOSSExpression** getDynamicArgumentsFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return nullptr;
+  }
   return cloneToNewBOSSExpressionArray(
       get<boss::ComplexExpression>(arg->delegate).getDynamicArguments());
 }
 
 size_t getSpanArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return 0;
+  }
   return get<boss::ComplexExpression>(arg->delegate).getSpanArguments().size();
 }
 BOSSExpressionSpan** getSpanArgumentsFromBOSSExpression(BOSSExpression* arg) {
+  if(arg == nullptr) {
+    return nullptr;
+  }
   auto& expression = get<boss::ComplexExpression>(arg->delegate);
   auto [head, staticArguments, dynamicArguments, spanArguments] =
       ::std::move(expression).decompose();
@@ -234,6 +271,9 @@ void freeBOSSExpressionSpan(BOSSExpressionSpan* span) {
 }
 
 char const* bossSymbolToNewString(BOSSSymbol const* arg) {
+  if(arg == nullptr) {
+    return nullptr;
+  }
   auto result = ::std::stringstream();
   result << arg->delegate;
   return strdup(result.str().c_str());
@@ -245,6 +285,9 @@ char const* bossSymbolToNewString(BOSSSymbol const* arg) {
  */
 
 size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return 0;
+  }
   static_assert(
       ::std::is_same_v<bool,
                        ::std::variant_alternative_t<0, boss::Expression::SuperType>>); // NOLINT
@@ -275,36 +318,71 @@ size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
   return arg->delegate.index();
 }
 
-bool getBoolValueFromBOSSExpression(BOSSExpression const* arg) { return get<bool>(arg->delegate); }
+bool getBoolValueFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return false;
+  }
+  return get<bool>(arg->delegate);
+}
 std::int8_t getCharValueFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return 0;
+  }
   return get<::std::int8_t>(arg->delegate);
 }
 std::int32_t getIntValueFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return 0;
+  }
   return get<::std::int32_t>(arg->delegate);
 }
 std::int64_t getLongValueFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return 0;
+  }
   return get<::std::int64_t>(arg->delegate);
 }
 std::float_t getFloatValueFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return 0;
+  }
   return get<::std::float_t>(arg->delegate);
 }
 std::double_t getDoubleValueFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return 0;
+  }
   return get<::std::double_t>(arg->delegate);
 }
 char* getNewStringValueFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return nullptr;
+  }
   return strdup(get<::std::string>(arg->delegate).c_str());
 }
 char const* getNewSymbolNameFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return nullptr;
+  }
   return strdup(get<boss::Symbol>(arg->delegate).getName().c_str());
 }
 
 BOSSSymbol* getHeadFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return nullptr;
+  }
   return new BOSSSymbol {get<boss::ComplexExpression>(arg->delegate).getHead()};
 }
 size_t getArgumentCountFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return 0;
+  }
   return get<boss::ComplexExpression>(arg->delegate).getArguments().size();
 }
 BOSSExpression** getArgumentsFromBOSSExpression(BOSSExpression const* arg) {
+  if(arg == nullptr) {
+    return nullptr;
+  }
   return cloneToNewBOSSExpressionArray(get<boss::ComplexExpression>(arg->delegate).getArguments());
 }
 
@@ -312,6 +390,9 @@ void freeBOSSExpression(BOSSExpression* expression) {
   delete expression; // NOLINT
 }
 void freeBOSSArguments(BOSSExpression** arguments) {
+  if(arguments == nullptr) {
+    return;
+  }
   for(auto i = 0U; arguments[i] != nullptr; i++) {
     delete arguments[i];
   }
@@ -338,9 +419,15 @@ Expression evaluate(Expression&& expr) {
 extern "C" {
 
 struct PortableBOSSRootExpression* serializeBOSSExpression(struct BOSSExpression* e) {
+  if(e == nullptr) {
+    return nullptr;
+  }
   return boss::serialization::SerializedExpression(std::move(e->delegate)).extractRoot();
 }
 struct BOSSExpression* deserializeBOSSExpression(struct PortableBOSSRootExpression* root) {
+  if(root == nullptr) {
+    return nullptr;
+  }
   return new BOSSExpression {boss::serialization::SerializedExpression(root).deserialize()};
 }
 }

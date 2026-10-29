@@ -71,9 +71,7 @@ BOSSExpression* answerGetEntryPoint(ComplexExpression const& request) {
 }
 
 BOSSExpression* describeEngine() {
-#if defined(SCRIPTABLE_ENGINE_DESCRIPTION_IS_NOTHING)
-  return nullptr;
-#elif defined(SCRIPTABLE_ENGINE_DESCRIPTION_IS_NUMBER)
+#if defined(SCRIPTABLE_ENGINE_DESCRIPTION_IS_NUMBER)
   constexpr std::int64_t numericDescription = 7;
   return new BOSSExpression {numericDescription};
 #else
@@ -194,6 +192,9 @@ extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   if(throwThisEvaluation) {
     throw std::runtime_error("scriptable engine evaluation failure");
   }
+  if(expression == nullptr) {
+    return nullptr;
+  }
   auto const* request = std::get_if<ComplexExpression>(&expression->delegate);
   if(request != nullptr && request->getHead().getName() == "GetEntryPoint") {
     return answerGetEntryPoint(*request);
@@ -216,6 +217,9 @@ extern "C" BOSSExpression* evaluate(BOSSExpression* expression) {
   }
   if(request != nullptr && request->getHead().getName() == "Barrier") {
     return new BOSSExpression {std::int64_t {waitAtCallBarrier() ? 1 : 0}};
+  }
+  if(request != nullptr && request->getHead().getName() == "AnswerNothing") {
+    return nullptr;
   }
   return new BOSSExpression {defaultEntryPointResult};
 }

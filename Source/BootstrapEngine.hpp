@@ -448,12 +448,15 @@ class BootstrapEngine : public Engine {
                                    ExpressionArguments(Symbol("...")));
   }
 
-  static Expression inputForErrorReport(Expression const& input) {
+  static Expression inputForErrorReport(BOSSExpression const* input) {
+    if(input == nullptr) {
+      return Symbol("Nothing");
+    }
     return visit(overload([](ComplexExpression const& complex)
                               -> Expression { return headWithEllipsis(complex); },
                           [](Symbol const& symbol) -> Expression { return symbol; },
                           [](auto const& /*unused*/) -> Expression { return Symbol("..."); }),
-                 input);
+                 input->delegate);
   }
 
   template <typename EnginePath>
@@ -484,8 +487,8 @@ class BootstrapEngine : public Engine {
                      vector<Expression> const& pipelineEntriesForErrorReport,
                      ExpressionHandle input) {
     auto current = std::move(input);
-    for(std::size_t engine = 0; engine < entryPoints.size() && current != nullptr; ++engine) {
-      auto reportedInput = inputForErrorReport(current->delegate);
+    for(std::size_t engine = 0; engine < entryPoints.size(); ++engine) {
+      auto reportedInput = inputForErrorReport(current.get());
       try {
         current = ExpressionHandle(entryPoints.at(engine)(current.get()), &freeBOSSExpression);
       } catch(std::exception const& exception) {
@@ -598,7 +601,7 @@ class BootstrapEngine : public Engine {
          }
          auto answer = dispatch(*prev(arguments.end()));
          if(answer == nullptr) {
-           throw std::runtime_error("an engine answered EvaluateInEngines with nothing");
+           return Symbol("Nothing");
          }
          return std::move(answer->delegate);
        }},

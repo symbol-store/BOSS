@@ -915,11 +915,9 @@ TEST_CASE("Engine descriptions", "[engines]") {
   auto engine = boss::engines::BootstrapEngine();
   requireScriptableEngine(
       [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
-  engine.evaluate(
-      "SetDefaultEnginePipeline"_("Scriptable"_, "ScriptableSilent"_, "ScriptableNumeric"_));
+  engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_, "ScriptableNumeric"_));
   CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
         "## ScriptableEngine\n\nA scriptable engine for the BOSS tests.\n"
-        "\n## ScriptableSilentEngine\n\n(no description: the engine returned nothing)\n"
         "\n## ScriptableNumericEngine\n\n(no description: the engine returned 7)\n");
 }
 
@@ -938,10 +936,10 @@ TEST_CASE("An engine that throws ends the evaluation with an error report", "[en
             failure));
 
   scriptableEngine.throwFromNextEvaluation();
-  CHECK(engine.evaluate("EvaluateInEngines"_(
-            "List"_("ScriptableNumeric"_, "Scriptable"_, "ScriptableSilent"_), "Payload"_(1, 2))) ==
-        "ErrorWhenEvaluatingExpression"_(
-            "EvaluateInEngines"_("List"_("Scriptable"_, "ScriptableSilent"_), "..."_), failure));
+  CHECK(engine.evaluate(
+            "EvaluateInEngines"_("List"_("ScriptableNumeric"_, "Scriptable"_), "Payload"_(1, 2))) ==
+        "ErrorWhenEvaluatingExpression"_("EvaluateInEngines"_("List"_("Scriptable"_), "..."_),
+                                         failure));
 
   scriptableEngine.throwFromNextEvaluation();
   CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "First"_(1), "Last"_(2))) ==
@@ -949,6 +947,20 @@ TEST_CASE("An engine that throws ends the evaluation with an error report", "[en
             "EvaluateInEngines"_("List"_("Scriptable"_), "First"_("..."_)), failure));
 
   CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)) == std::int64_t {1});
+}
+
+TEST_CASE("BootstrapEngine passes an answer of nothing on to the next engine", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  CHECK(get<boss::Symbol>(engine.evaluate("EvaluateInEngines"_(
+            "List"_("Scriptable"_, "ScriptableNumeric"_), "AnswerNothing"_()))) == "Nothing"_);
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("ScriptableNumeric"_, "Scriptable"_),
+                                             "AnswerNothing"_())) ==
+        "ErrorWhenEvaluatingExpression"_("EvaluateInEngines"_("List"_("Scriptable"_), "Nothing"_),
+                                         std::string("scriptable engine evaluation failure")));
 }
 
 TEST_CASE("Engine descriptions report an engine that throws", "[engines]") {
