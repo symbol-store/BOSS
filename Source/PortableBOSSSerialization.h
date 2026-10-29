@@ -385,6 +385,6 @@ struct BOSSExpression* parseURL(char const* url);
 #ifdef __cplusplus
 }
 #endif
-// NOLINTEND(hicpp-use-auto,cppcoreguidelines-pro-type-union-access)
+// NOLINTEND(hicpp-use-auto,cppcoreguidelines-pro-type-union-access,hicpp-use-nullptr)
 
 #endif /* PORTABLEBOSSSERIALIZATION_H */
