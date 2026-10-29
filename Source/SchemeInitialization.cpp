@@ -1,5 +1,6 @@
 #include "ExpressionParser.hpp"
 
+#include <chibi/eval.h>
 #include <mutex>
 
 void boss::initializeSchemeOnce() {

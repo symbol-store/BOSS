@@ -318,6 +318,8 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     endif()
     if(APPLE)
       target_link_libraries(boss_concurrency_stress "-Wl,-export_dynamic")
+    else()
+      set_target_properties(boss_concurrency_stress PROPERTIES ENABLE_EXPORTS ON)
     endif()
   elseif(BOSS_CONCURRENCY_STRESS AND CMAKE_BUILD_TYPE STREQUAL "Sanitize")
     message(STATUS
