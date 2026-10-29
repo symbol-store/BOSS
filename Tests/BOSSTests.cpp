@@ -1,3 +1,4 @@
+#include "../Source/BOSS.hpp"
 #include "../Source/BootstrapEngine.hpp"
 #include "../Source/Expression.hpp"
 #include "../Source/ExpressionUtilities.hpp"
