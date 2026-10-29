@@ -101,3 +101,16 @@ extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
 };
 ]=]
 )
+
+file(WRITE ${PROJECT_NAME}/README.md
+"# ${PROJECT_NAME}\n"
+[=[
+
+A BOSS engine. BootstrapEngine loads this library and calls its `evaluate` function.
+
+## Threading
+
+BootstrapEngine may call `evaluate` from several threads at the same time and holds no lock
+during the call, so `evaluate` must be reentrant.
+]=]
+)

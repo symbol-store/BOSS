@@ -274,12 +274,12 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
 
   install(TARGETS boss RUNTIME DESTINATION bin)
 
-  # ── Concurrency stress harness (Phase 2 of the thread-safety hardening plan) ──
+  # ── Concurrency stress harness ──
   # Uses the same chibi bridge and generated FFI bindings as the `boss` REPL target, but builds a
   # multi-threaded driver instrumented with ThreadSanitizer. Unlike `boss`, it compiles the BOSS
   # sources itself so that ThreadSanitizer instruments them; it never loads libBOSS, so its
   # process still has one copy of BOSS's process-wide state. EXCLUDE_FROM_ALL: this is a
-  # diagnostic tool, not part of the default build. See Tests/Concurrency/known-races.md.
+  # diagnostic tool, not part of the default build.
   #
   # ThreadSanitizer is mutually exclusive with the AddressSanitizer-based `Sanitize` build
   # type, so the target is skipped there; configure a separate build dir without
@@ -307,8 +307,7 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
     # instrumented. The chibi static lib is instrumented only when CMAKE_C_FLAGS_<CONFIG> and
     # CMAKE_EXE_LINKER_FLAGS_<CONFIG> include -fsanitize=thread; without them, the GC-root-stack
     # macros (sexp_gc_preserve/release) still execute in instrumented header code, so
-    # shared-context races are still observed. See Tests/Concurrency/known-races.md for the
-    # instrumentation note.
+    # shared-context races are still observed.
     target_compile_options(boss_concurrency_stress PRIVATE
       -fsanitize=thread -fno-omit-frame-pointer -g)
     target_link_options(boss_concurrency_stress PRIVATE -fsanitize=thread)

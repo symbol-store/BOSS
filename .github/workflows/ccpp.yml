@@ -92,10 +92,8 @@ jobs:
         path: |
           install
 
-  # Thread-safety hardening (Phases 2/4): build the ThreadSanitizer concurrency stress harness
-  # and run it. Two hard gates — per-thread+pure and the --direct dispatch+reconfig gate
-  # (race-free since Phase 4) — plus the shared-context baseline as informational (it is
-  # expected to race). See Tests/Concurrency/known-races.md.
+  # Builds the stress harness with ThreadSanitizer. The per-thread run and the --direct run must be
+  # race-free. The shared-context run is expected to race and only shows that TSan reports it.
   concurrency-stress:
     needs: [format-check]  # restore to: needs: [format-check, check-runner]
     runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
@@ -106,9 +104,9 @@ jobs:
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
     - name: configure
-      # The C flags instrument chibi too, so that TSan sees chibi's own globals (R4 in
-      # known-races.md). chibi's install step links the chibi-scheme executable against the
-      # instrumented library, which needs the TSan runtime and therefore the linker flag.
+      # The C flags instrument chibi too, so that TSan sees chibi's own globals. chibi's install
+      # step links the chibi-scheme executable against the instrumented library, which needs
+      # the TSan runtime and therefore the linker flag.
       run: |
         mkdir -p tsan
         cd tsan
@@ -128,13 +126,10 @@ jobs:
       run: |
         TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
           timeout 120 ./tsan/boss_concurrency_stress --mode shared --suite pure --threads 8 --iters 500 || true
-    - name: dispatch + reconfiguration check (--direct mixed — race-free since Phase 4)
-      # --direct hammers boss::evaluate() dispatch and concurrent reconfiguration. The mixed suite
-      # interleaves ordinary evaluations, which go through the pipeline snapshot and dispatch path,
-      # with SetDefaultEnginePipeline / ResetEngines; the pipeline suite alone is all bootstrap
-      # commands, which skip that path. The Phase 4
-      # engineStateMutex makes this race-free; this gate guards against regressions. (The chibi
-      # path buries the dispatch race under parse/GC work, so --direct is the reliable probe.)
+    - name: dispatch + reconfiguration check (--direct mixed, must be race-free)
+      # The mixed suite interleaves ordinary evaluations, which take the dispatch path, with
+      # SetDefaultEnginePipeline and ResetEngines. --direct skips chibi, whose parse and GC work
+      # hides the dispatch window from TSan.
       run: |
         TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
           ./tsan/boss_concurrency_stress --direct --suite mixed --threads 8 --iters 5000

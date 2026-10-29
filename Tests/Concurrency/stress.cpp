@@ -1,34 +1,5 @@
-// BOSS core concurrency stress harness (Phase 2 of the thread-safety hardening plan).
-//
-// Fires N worker threads × M iterations of a fixed expression suite at BOSS core,
-// in one of three configurations:
-//
-//   --mode shared      all threads share ONE chibi context (sexp ctx).
-//                      Known-unsafe baseline; the goal is to confirm TSan catches it.
-//                      Expect a TSan report (and possibly a crash) — that is success.
-//
-//   --mode per-thread  each thread builds its own context via initialize_boss_context().
-//                      This is the configuration we want clean. With the `pure` suite it
-//                      is TSan-clean; the `pipeline` suite hits the *shared* singleton
-//                      BootstrapEngine (BOSS.cpp:32) but the chibi parse/GC overhead buries
-//                      the race window, so it rarely surfaces here — use --direct for that.
-//
-//   --direct           bypass chibi; call boss::evaluate() dispatch directly (ignores --mode).
-//                      Maximizes the dispatch race window: --direct --suite pipeline reliably
-//                      surfaces the singleton-engine defaultEngine race. Race-free since
-//                      Phase 4 (engineStateMutex); this is now the regression gate for it.
-//
-// The suites round-trip purely through core (parse → expr_to_sexp →
-// convert-to-boss-expression → BOSSEvaluate dispatch → convert-from → serialize). With no
-// default engine pipeline configured, BOSSEvaluate returns expressions unevaluated for
-// unknown heads, so no engine shared object is loaded or required: the harness is
-// engine-independent by construction (the optional --engine hook is the one exception).
-//
-// Build with ThreadSanitizer (the boss_concurrency_stress CMake target does this):
-//   cmake --build <dir> --target boss_concurrency_stress
-//   TSAN_OPTIONS="halt_on_error=1" ./boss_concurrency_stress --mode per-thread --suite pure
-//
-// See Tests/Concurrency/known-races.md (the triage log).
+// Runs threads × iterations of fixed BOSS expression suites under ThreadSanitizer; `--help`
+// lists the options. The concurrency-stress job in .github/workflows/ccpp.yml builds and runs it.
 
 #include "BOSS.hpp"       // boss::evaluate
 #include "Expression.hpp" // boss::Expression
@@ -68,10 +39,8 @@ std::vector<std::string> const kPureSuite = {
     "List(\"unicode: \\u00e9\\u4e2d\")",     // exercises preprocessUnicodeEscapes()
 };
 
-// "pipeline": mutates the singleton's defaultEngine vector (audit item G2) via the bootstrap
-// operators. Because the engine is a process singleton, these contend on shared state even in
-// per-thread-context mode — the race the Phase 4 engineStateMutex fixes. Best probed with
-// --direct (see directExpr). None of these trigger a dlopen (all are bootstrap commands).
+// "pipeline": bootstrap commands that reconfigure the process-wide engine pipeline, so they
+// contend on shared state even with one context per thread. None of them loads an engine.
 std::vector<std::string> const kPipelineSuite = {
     "GetDefaultEnginePipeline()",
     "SetDefaultEnginePipeline(\"./libNonexistentEngine.so\")",
@@ -95,11 +64,8 @@ std::vector<std::string> buildMixedSuite() {
 
 /* ─── Direct-dispatch expressions ─── */
 
-// Built with the C++ expression API and fed straight to boss::evaluate(), bypassing chibi.
-// The chibi path spends almost all of its time in parse/GC, so the brief shared-state access
-// inside dispatch rarely overlaps across threads and TSan struggles to catch the dispatch
-// races (e.g. the defaultEngine race). Direct mode removes that overhead, so dispatch — the
-// plan's prime suspect — dominates each iteration and the race window is wide.
+// Built with the C++ expression API and passed to boss::evaluate() without chibi, whose parse
+// and GC work hides the short dispatch window from TSan.
 // NOLINTBEGIN(readability-magic-numbers) -- literal operands are the point of the fixtures
 // Read-only with respect to the singleton engine.
 boss::Expression pureDirectExpr(std::uint64_t i) {
@@ -157,9 +123,10 @@ struct Config {
   int iters = 1000;
   Mode mode = Mode::PerThread;
   std::string suite = "pure";
-  std::string enginePath; // optional: exercises the dlopen registry race (audit item G3)
-  bool direct = false;    // bypass chibi; hammer boss::evaluate() dispatch directly
-  bool warmup = true;     // create one context before the workers start
+  std::string
+      enginePath; // optional: dispatch through this engine, so workers race on the library cache
+  bool direct = false; // bypass chibi; hammer boss::evaluate() dispatch directly
+  bool warmup = true;  // create one context before the workers start
   unsigned seed = 1;
   bool quiet = false;
 };
@@ -242,8 +209,6 @@ void validateConfig(Config const& cfg, char const* program) {
     usageAndExit(program, 1);
   }
   if(cfg.suite != "pure" && cfg.suite != "pipeline" && cfg.suite != "mixed") {
-    // Without this an unknown suite silently ran the pure one, so a typo downgraded a gate to a
-    // weaker test that still reported success.
     std::cerr << "unknown --suite '" << cfg.suite << "'; expected pure, pipeline or mixed\n";
     usageAndExit(program, 1);
   }
@@ -322,10 +287,8 @@ int main(int argc, char** argv) try {
             << " warmup=" << (cfg.warmup && !cfg.direct ? "on" : "off") << "\n"
             << std::flush;
 
-  // initialize_boss_context runs chibi's one-time init (sexp_scheme_init) through
-  // initializeSchemeOnce, so the first contexts no longer race on it. The warm-up still creates and
-  // destroys one full context before any worker thread exists, so that first-use setup stays out of
-  // what TSan reports during the run. --no-warmup leaves that setup in the run.
+  // The warm-up creates and destroys one context before any worker thread exists, so that
+  // first-use setup stays out of what TSan reports. --no-warmup leaves that setup in the run.
   if(cfg.warmup && !cfg.direct) {
     sexp warm = boss::initialize_boss_context();
     if(warm != nullptr) {
@@ -339,8 +302,7 @@ int main(int argc, char** argv) try {
   std::atomic<bool> contextCreationFailed {false};
 
   // Optionally preset an engine pipeline, so that dispatches go through a real engine and race
-  // on the library cache (audit item G3). It is set through the C++ API rather than a scheme
-  // string literal, so the path needs no escaping.
+  // on the library cache. The C++ API passes the path as a string, so it needs no escaping.
   if(!cfg.enginePath.empty()) {
     using boss::utilities::operator""_;
     auto const setEnginePipeline = [&cfg] {
@@ -458,8 +420,7 @@ int main(int argc, char** argv) try {
   }
   std::cout << "done: evals=" << (totalOk + totalErr) << " ok=" << totalOk << " err=" << totalErr
             << " elapsed_ms=" << elapsed << "\n"
-            << "(data races, if any, are reported by ThreadSanitizer above; triage them in "
-               "Tests/Concurrency/known-races.md)\n"
+            << "(data races, if any, are reported by ThreadSanitizer above)\n"
             << std::flush;
 
   if(cfg.suite == "pure" && totalErr != 0) {
