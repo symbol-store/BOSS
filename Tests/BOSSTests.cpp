@@ -21,10 +21,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <exception> // IWYU pragma: keep
 #include <functional>
 #include <future>
 #include <iterator>
+#include <new>
 #include <numeric>
 #include <ostream>
 #include <sstream>
@@ -752,128 +754,116 @@ TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
 }
 
 namespace {
-/// Runs loadStub, which makes BootstrapEngine load a stub engine by its bare library name. On
-/// macOS, dlopen looks a bare name up in the working directory rather than next to the Tests
-/// binary, so there a stub that cannot be loaded skips the test. Elsewhere the Tests build must
-/// make the stub loadable, so a load failure fails the test.
-template <typename LoadStub> void requireStubEngine(LoadStub&& loadStub) {
+template <typename LoadScriptableEngine>
+void requireScriptableEngine(LoadScriptableEngine&& loadScriptableEngine) {
 #ifdef __APPLE__
   try {
-    std::forward<LoadStub>(loadStub)();
+    std::forward<LoadScriptableEngine>(loadScriptableEngine)();
   } catch(std::exception const& loadFailure) {
     if(std::string_view(loadFailure.what()).find("could not be loaded") == std::string_view::npos) {
       throw;
     }
-    SKIP("the stub engine could not be loaded ("
+    SKIP("the scriptable engine could not be loaded ("
          << loadFailure.what() << "); on macOS, run Tests from its build directory");
   }
 #else
-  std::forward<LoadStub>(loadStub)();
+  std::forward<LoadScriptableEngine>(loadScriptableEngine)();
 #endif
 }
 } // namespace
 
 namespace {
-/// The stub engine's pause and reset controls. dlopen (BootstrapEngine.hpp's LoadLibrary
-/// shim on Windows) returns the image that BootstrapEngine already loaded, so these functions
-/// control the same stub instance that BootstrapEngine calls. The test never closes the
-/// handle, so the image remains loaded until the process exits.
-struct StubPauseControls {
+struct ScriptablePauseControls {
   int (*waitUntilCallPaused)();
   void (*releasePausedCall)();
   void (*pauseNextReset)();
   int (*resetCount)();
   void (*throwFromNextReset)();
+  void (*pauseNextDescription)();
+  void (*throwFromNextEvaluation)();
 
-  /// Fails the test instead of blocking when no stub call pauses within the stub's timeout. It
-  /// first releases a call that pauses late, so that the dispatch that made the call can finish.
   void requireCallPaused() const {
     if(waitUntilCallPaused() == 0) {
       releasePausedCall();
-      FAIL("no stub engine call paused within the stub's timeout");
+      FAIL("no scriptable engine call paused within the scriptable engine's timeout");
     }
   }
 };
 
-StubPauseControls stubPauseControls() {
+ScriptablePauseControls scriptablePauseControls() {
 #ifdef _WIN32
-  auto* const stubLibrary = dlopen("StubTestEngine.dll", RTLD_NOW);
+  auto* const scriptableLibrary = dlopen("ScriptableEngine.dll", RTLD_NOW);
 #else
-  auto* const stubLibrary = dlopen("libStubTestEngine.so", RTLD_NOW);
+  auto* const scriptableLibrary = dlopen("libScriptableEngine.so", RTLD_NOW);
 #endif
-  REQUIRE(stubLibrary != nullptr);
-  auto const lookUp = [stubLibrary](char const* name) {
-    auto* const function = dlsym(stubLibrary, name);
+  REQUIRE(scriptableLibrary != nullptr);
+  auto const lookUp = [scriptableLibrary](char const* name) {
+    auto* const function = dlsym(scriptableLibrary, name);
     REQUIRE(function != nullptr);
     return function;
   };
   // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
-  return {reinterpret_cast<int (*)()>(lookUp("stubWaitUntilCallPaused")),
-          reinterpret_cast<void (*)()>(lookUp("stubReleasePausedCall")),
-          reinterpret_cast<void (*)()>(lookUp("stubPauseNextReset")),
-          reinterpret_cast<int (*)()>(lookUp("stubResetCount")),
-          reinterpret_cast<void (*)()>(lookUp("stubThrowFromNextReset"))};
+  return {reinterpret_cast<int (*)()>(lookUp("scriptableWaitUntilCallPaused")),
+          reinterpret_cast<void (*)()>(lookUp("scriptableReleasePausedCall")),
+          reinterpret_cast<void (*)()>(lookUp("scriptablePauseNextReset")),
+          reinterpret_cast<int (*)()>(lookUp("scriptableResetCount")),
+          reinterpret_cast<void (*)()>(lookUp("scriptableThrowFromNextReset")),
+          reinterpret_cast<void (*)()>(lookUp("scriptablePauseNextDescription")),
+          reinterpret_cast<void (*)()>(lookUp("scriptableThrowFromNextEvaluation"))};
   // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 }
 } // namespace
 
 TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][concurrency]") {
   auto engine = boss::engines::BootstrapEngine();
-  auto dispatchToStub = [&engine](boss::Expression&& expression) {
-    return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
+  auto dispatchToScriptableEngine = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), std::move(expression)));
   };
-  requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
-  auto const stub = stubPauseControls();
+  requireScriptableEngine([&dispatchToScriptableEngine] { dispatchToScriptableEngine(5); });
+  auto const scriptableEngine = scriptablePauseControls();
 
-  // While an engine call is running, both reconfiguration operators are refused. The checks
-  // are non-fatal so that the paused call is always released.
-  auto pausedDispatch =
-      std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
-  stub.requireCallPaused();
-  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)),
+  auto pausedDispatch = std::async(std::launch::async, [&dispatchToScriptableEngine] {
+    return dispatchToScriptableEngine("Pause"_());
+  });
+  scriptableEngine.requireCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
-  // Every BootstrapEngine gets the same stub image from dlopen, so a second BootstrapEngine
-  // refuses ResetEngines as well.
   CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
-  stub.releasePausedCall();
+  scriptableEngine.releasePausedCall();
   CHECK(pausedDispatch.get() == std::int64_t {1});
 
-  // BootstrapEngine refuses a dispatch while ResetEngines is still resetting the stub.
-  stub.pauseNextReset();
+  scriptableEngine.pauseNextReset();
   auto pausedReset =
       std::async(std::launch::async, [&engine] { return engine.evaluate("ResetEngines"_()); });
-  stub.requireCallPaused();
-  CHECK_THROWS_WITH(dispatchToStub(5),
+  scriptableEngine.requireCallPaused();
+  CHECK_THROWS_WITH(dispatchToScriptableEngine(5),
                     Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
-  stub.releasePausedCall();
+  scriptableEngine.releasePausedCall();
   CHECK(pausedReset.get() == std::string("okay"));
 
-  // Both operators succeed again once no engine call is running.
-  CHECK(dispatchToStub(5) == std::int64_t {1});
+  CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
   CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
 }
 
 TEST_CASE("Reconfiguration is refused during a dispatch through the default pipeline",
           "[engines][concurrency]") {
   auto engine = boss::engines::BootstrapEngine();
-  requireStubEngine([&engine] { engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
-  auto const stub = stubPauseControls();
-  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)) == std::string("okay"));
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)) == std::string("okay"));
 
-  // A root evaluation goes through the default pipeline, so this evaluation pauses inside the
-  // stub, and BootstrapEngine counts it as in flight from the moment evaluate() copies the
-  // pipeline. The checks are non-fatal so that the paused call is always released.
   auto pausedEvaluation =
       std::async(std::launch::async, [&engine] { return engine.evaluate("Pause"_()); });
-  stub.requireCallPaused();
-  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("StubTest"_)),
+  scriptableEngine.requireCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
   CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
                     Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
-  stub.releasePausedCall();
+  scriptableEngine.releasePausedCall();
   CHECK(pausedEvaluation.get() == std::int64_t {1});
   CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
 }
@@ -881,99 +871,196 @@ TEST_CASE("Reconfiguration is refused during a dispatch through the default pipe
 TEST_CASE("A BootstrapEngine destroyed during a dispatch resets its engines afterwards",
           "[engines][concurrency]") {
   auto engine = boss::engines::BootstrapEngine();
-  auto dispatchToStub = [&engine](boss::Expression&& expression) {
-    return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
+  auto dispatchToScriptableEngine = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), std::move(expression)));
   };
-  requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
-  auto const stub = stubPauseControls();
+  requireScriptableEngine([&dispatchToScriptableEngine] { dispatchToScriptableEngine(5); });
+  auto const scriptableEngine = scriptablePauseControls();
 
-  // The checks are non-fatal so that the paused call is always released.
-  auto pausedDispatch =
-      std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
-  stub.requireCallPaused();
-  auto const resetsBeforeDestruction = stub.resetCount();
+  auto pausedDispatch = std::async(std::launch::async, [&dispatchToScriptableEngine] {
+    return dispatchToScriptableEngine("Pause"_());
+  });
+  scriptableEngine.requireCallPaused();
+  auto const resetsBeforeDestruction = scriptableEngine.resetCount();
   {
     auto destroyedEngine = boss::engines::BootstrapEngine();
-    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)) ==
+    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)) ==
           std::int64_t {1});
   }
-  CHECK(stub.resetCount() == resetsBeforeDestruction);
-  CHECK_THROWS_WITH(dispatchToStub(5),
+  CHECK(scriptableEngine.resetCount() == resetsBeforeDestruction);
+  CHECK_THROWS_WITH(dispatchToScriptableEngine(5),
                     Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
-  stub.releasePausedCall();
+  scriptableEngine.releasePausedCall();
   CHECK(pausedDispatch.get() == std::int64_t {1});
-  CHECK(stub.resetCount() == resetsBeforeDestruction + 1);
-  CHECK(dispatchToStub(5) == std::int64_t {1});
+  CHECK(scriptableEngine.resetCount() == resetsBeforeDestruction + 1);
+  CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
 }
 
 TEST_CASE("Custom engine entry points", "[engines]") {
   auto engine = boss::engines::BootstrapEngine();
-  auto evaluateWithStub = [&engine](boss::Expression&& stubSpec) {
-    return engine.evaluate("EvaluateInEngines"_("List"_(std::move(stubSpec)), 5));
+  auto evaluateWithScriptableEngine = [&engine](boss::Expression&& scriptableEngineSpec) {
+    return engine.evaluate("EvaluateInEngines"_("List"_(std::move(scriptableEngineSpec)), 5));
   };
-  requireStubEngine([&evaluateWithStub] { evaluateWithStub("StubTest"_); });
-  // libStubTestEngine.so answers GetEntryPoint from the engine spec's argument.
-  CHECK(evaluateWithStub("StubTest"_("Override"_)) == std::int64_t {4242});
-  // BootstrapEngine keeps evaluate as the entry point when GetEntryPoint returns 0 or a
-  // value that is not an int64.
-  CHECK(evaluateWithStub("StubTest"_("Zero"_)) == std::int64_t {1});
-  CHECK(evaluateWithStub("StubTest"_("NotAPointer"_)) == std::int64_t {1});
-  // BootstrapEngine sends no GetEntryPoint request for a plain engine symbol. The stub
-  // answers a GetEntryPoint request without arguments with its custom entry point, so a
-  // request would make this dispatch return 4242.
-  CHECK(evaluateWithStub("StubTest"_) == std::int64_t {1});
-  // BootstrapEngine passes the spec's span argument to GetEntryPoint as a span. The
-  // spec's dynamic argument alone selects Zero, so without the span in the request, the
-  // dispatch would call evaluate and return 1.
-  CHECK(evaluateWithStub(boss::expressions::ComplexExpression(
-            "StubTest"_, {}, boss::expressions::ExpressionArguments("Zero"_),
+  requireScriptableEngine(
+      [&evaluateWithScriptableEngine] { evaluateWithScriptableEngine("Scriptable"_); });
+  CHECK(evaluateWithScriptableEngine("Scriptable"_("Override"_)) == std::int64_t {4242});
+  CHECK(evaluateWithScriptableEngine("Scriptable"_("Zero"_)) == std::int64_t {1});
+  CHECK(evaluateWithScriptableEngine("Scriptable"_("NotAPointer"_)) == std::int64_t {1});
+  CHECK(evaluateWithScriptableEngine("Scriptable"_) == std::int64_t {1});
+  CHECK(evaluateWithScriptableEngine(boss::expressions::ComplexExpression(
+            "Scriptable"_, {}, boss::expressions::ExpressionArguments("Zero"_),
             boss::expressions::ExpressionSpanArguments(
                 boss::Span<std::int64_t>(std::vector<std::int64_t> {1})))) == std::int64_t {4242});
 }
 
-TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
+TEST_CASE("Engine descriptions", "[engines]") {
   auto engine = boss::engines::BootstrapEngine();
-  auto dispatchToStub = [&engine](boss::Expression&& expression) {
-    return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), std::move(expression)));
-  };
-  requireStubEngine([&dispatchToStub] { dispatchToStub(5); });
-  auto const stub = stubPauseControls();
-
-  // ResetEngines reports the failure to its caller.
-  stub.throwFromNextReset();
-  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
-                    Catch::Matchers::ContainsSubstring("stub reset failure"));
-  CHECK(dispatchToStub(5) == std::int64_t {1});
-
-  // Queued libraries have no caller to report a reset failure to, so the dispatch that resets
-  // and unloads them returns the dispatch's result. The checks are non-fatal so that the
-  // paused call is always released.
-  auto pausedDispatch =
-      std::async(std::launch::async, [&dispatchToStub] { return dispatchToStub("Pause"_()); });
-  stub.requireCallPaused();
-  {
-    auto destroyedEngine = boss::engines::BootstrapEngine();
-    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)) ==
-          std::int64_t {1});
-  }
-  auto const resetsBeforeRelease = stub.resetCount();
-  stub.throwFromNextReset();
-  stub.releasePausedCall();
-  CHECK(pausedDispatch.get() == std::int64_t {1});
-  CHECK(stub.resetCount() == resetsBeforeRelease + 1);
-  CHECK(dispatchToStub(5) == std::int64_t {1});
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_, "ScriptableNumeric"_));
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
+        "## ScriptableEngine\n\nA scriptable engine for the BOSS tests.\n"
+        "\n## ScriptableNumericEngine\n\n(no description: the engine returned 7)\n");
 }
 
-TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
-  {
-    // A separate BootstrapEngine loads the stub once to find out whether the stub can be loaded
-    // at all, so the BootstrapEngine under test still starts with an empty library cache.
-    auto probeEngine = boss::engines::BootstrapEngine();
-    requireStubEngine(
-        [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), 5)); });
-  }
+TEST_CASE("An engine that throws ends the evaluation with an error report", "[engines]") {
   auto engine = boss::engines::BootstrapEngine();
-  constexpr int concurrentDispatches = 4; // callsToWaitFor in Tests/StubTestEngine.cpp
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  auto const failure = std::string("scriptable engine evaluation failure");
+
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate(
+            "EvaluateInEngines"_("List"_("Scriptable"_, "ScriptableNumeric"_), "Payload"_(1, 2))) ==
+        "ErrorWhenEvaluatingExpression"_(
+            "EvaluateInEngines"_("List"_("Scriptable"_, "ScriptableNumeric"_), "Payload"_("..."_)),
+            failure));
+
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate(
+            "EvaluateInEngines"_("List"_("ScriptableNumeric"_, "Scriptable"_), "Payload"_(1, 2))) ==
+        "ErrorWhenEvaluatingExpression"_("EvaluateInEngines"_("List"_("Scriptable"_), "..."_),
+                                         failure));
+
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "First"_(1), "Last"_(2))) ==
+        "ErrorWhenEvaluatingExpression"_(
+            "EvaluateInEngines"_("List"_("Scriptable"_), "First"_("..."_)), failure));
+
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)) == std::int64_t {1});
+}
+
+TEST_CASE("BootstrapEngine passes an answer of nothing on to the next engine", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  CHECK(get<boss::Symbol>(engine.evaluate("EvaluateInEngines"_(
+            "List"_("Scriptable"_, "ScriptableNumeric"_), "AnswerNothing"_()))) == "Nothing"_);
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("ScriptableNumeric"_, "Scriptable"_),
+                                             "AnswerNothing"_())) ==
+        "ErrorWhenEvaluatingExpression"_("EvaluateInEngines"_("List"_("Scriptable"_), "Nothing"_),
+                                         std::string("scriptable engine evaluation failure")));
+}
+
+TEST_CASE("Engine descriptions report an engine that throws", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  engine.evaluate("SetDefaultEnginePipeline"_("ScriptableNumeric"_, "Scriptable"_));
+  std::stringstream expectedReport;
+  expectedReport << "ErrorWhenEvaluatingExpression"_(
+      "EvaluateInEngines"_("List"_("Scriptable"_), "GetEngineDescription"_()),
+      std::string("scriptable engine evaluation failure"));
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
+        "## ScriptableNumericEngine\n\n(no description: the engine returned 7)\n"
+        "\n## ScriptableEngine\n\n(no description: " +
+            expectedReport.str() + ")\n");
+}
+
+TEST_CASE("Engine descriptions of an empty pipeline", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  engine.evaluate("SetDefaultEnginePipeline"_());
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())).empty());
+}
+
+TEST_CASE("GetEngineDescription inside an expression reaches the engines", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "GetEngineDescription"_())) ==
+        std::string("A scriptable engine for the BOSS tests.\n"));
+}
+
+TEST_CASE("Reconfiguration is refused while engines are being described",
+          "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)) == std::string("okay"));
+
+  scriptableEngine.pauseNextDescription();
+  auto pausedDescription = std::async(
+      std::launch::async, [&engine] { return engine.evaluate("GetEngineDescription"_()); });
+  scriptableEngine.requireCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  scriptableEngine.releasePausedCall();
+  CHECK(get<std::string>(pausedDescription.get()) ==
+        "## ScriptableEngine\n\nA scriptable engine for the BOSS tests.\n");
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
+}
+
+TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToScriptableEngine = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), std::move(expression)));
+  };
+  requireScriptableEngine([&dispatchToScriptableEngine] { dispatchToScriptableEngine(5); });
+  auto const scriptableEngine = scriptablePauseControls();
+
+  scriptableEngine.throwFromNextReset();
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("scriptable engine reset failure"));
+  CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
+
+  auto pausedDispatch = std::async(std::launch::async, [&dispatchToScriptableEngine] {
+    return dispatchToScriptableEngine("Pause"_());
+  });
+  scriptableEngine.requireCallPaused();
+  {
+    auto destroyedEngine = boss::engines::BootstrapEngine();
+    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)) ==
+          std::int64_t {1});
+  }
+  auto const resetsBeforeRelease = scriptableEngine.resetCount();
+  scriptableEngine.throwFromNextReset();
+  scriptableEngine.releasePausedCall();
+  CHECK(pausedDispatch.get() == std::int64_t {1});
+  CHECK(scriptableEngine.resetCount() == resetsBeforeRelease + 1);
+  CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
+}
+
+namespace {
+void requireScriptableEngineLoadable() {
+  auto probeEngine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+}
+} // namespace
+
+TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
+  requireScriptableEngineLoadable();
+  auto engine = boss::engines::BootstrapEngine();
+  constexpr int concurrentDispatches =
+      4; // CallBarrier::callsToWaitFor in Tests/ScriptableEngine.cpp
   std::promise<void> start;
   std::shared_future<void> const startSignal = start.get_future().share();
   std::vector<std::future<boss::Expression>> dispatches;
@@ -981,12 +1068,9 @@ TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
   for(int dispatch = 0; dispatch < concurrentDispatches; ++dispatch) {
     dispatches.push_back(std::async(std::launch::async, [&engine, startSignal] {
       startSignal.wait();
-      return engine.evaluate("EvaluateInEngines"_("List"_("StubTest"_), "Barrier"_()));
+      return engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "Barrier"_()));
     }));
   }
-  // The dispatches start together, so the four threads also make BootstrapEngine load the stub
-  // into the empty library cache concurrently. Each dispatch returns 1 only if all four calls
-  // were inside the stub at once.
   start.set_value();
   for(auto& dispatch : dispatches) {
     CHECK(dispatch.get() == std::int64_t {1});
@@ -1959,6 +2043,23 @@ TEST_CASE("Expression Serialization round-trips span arguments") {
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[0]) == 1LL);
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[1]) == 2LL);
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[2]) == 3LL);
+}
+
+namespace {
+void* failToAllocate(size_t /*size*/) { return nullptr; }
+void* failToReallocate(void* /*memory*/, size_t /*size*/) { return nullptr; }
+} // namespace
+
+TEST_CASE("Serialization throws std::bad_alloc when an allocation or a reallocation fails") {
+  using SerializedExpressionWithFailingReallocation =
+      boss::serialization::SerializedExpression<std::malloc, failToReallocate>;
+  CHECK_THROWS_AS(boss::serialization::SerializedExpression<failToAllocate>(boss::Expression(5)),
+                  std::bad_alloc);
+  CHECK_THROWS_AS(boss::serialization::SerializedExpression<failToAllocate>("Plus"_(1, 2)),
+                  std::bad_alloc);
+  CHECK_THROWS_AS(SerializedExpressionWithFailingReallocation("Plus"_(1, 2)), std::bad_alloc);
+  CHECK_THROWS_AS(SerializedExpressionWithFailingReallocation(boss::Expression(boss::Symbol("Yo"))),
+                  std::bad_alloc);
 }
 
 TEST_CASE("Expression Serialization") {

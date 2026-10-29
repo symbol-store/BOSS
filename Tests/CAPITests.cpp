@@ -2,9 +2,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 
 #include "../Source/BOSS.h"
+#include "../Source/PortableBOSSSerialization.h"
 
 TEST_CASE("Build Expression", "[api]") {
   auto input = (std::array {longToNewBOSSExpression(3), longToNewBOSSExpression(4)});
@@ -197,4 +199,71 @@ TEST_CASE("Span arguments round-trip zero-copy: string", "[api]") {
                        CHECK(std::string(first) == "barbaz");
                        freeBOSSString(first);
                      });
+}
+
+TEST_CASE("C API functions answer a null pointer without dereferencing it", "[api]") {
+  CHECK(BOSSEvaluate(nullptr) == nullptr);
+  CHECK(stringToNewBOSSExpression(nullptr) == nullptr);
+  CHECK(symbolNameToNewBOSSExpression(nullptr) == nullptr);
+  CHECK(symbolNameToNewBOSSSymbol(nullptr) == nullptr);
+  CHECK(bossSymbolToNewString(nullptr) == nullptr);
+  auto* head = symbolNameToNewBOSSSymbol("Head");
+  auto nullArgument = std::array<BOSSExpression*, 1> {nullptr};
+  CHECK(newComplexBOSSExpression(nullptr, 0, nullptr) == nullptr);
+  CHECK(newComplexBOSSExpression(head, 1, nullptr) == nullptr);
+  CHECK(newComplexBOSSExpression(head, 1, nullArgument.data()) == nullptr);
+  CHECK(newComplexBOSSExpressionWithSpans(nullptr, 0, nullptr, 0, nullptr) == nullptr);
+  CHECK(newComplexBOSSExpressionWithSpans(head, 1, nullArgument.data(), 0, nullptr) == nullptr);
+  freeBOSSSymbol(head);
+  CHECK(getDynamicArgumentCountFromBOSSExpression(nullptr) == 0);
+  CHECK(getDynamicArgumentsFromBOSSExpression(nullptr) == nullptr);
+  CHECK(getSpanArgumentCountFromBOSSExpression(nullptr) == 0);
+  CHECK(getSpanArgumentsFromBOSSExpression(nullptr) == nullptr);
+  CHECK(getBOSSExpressionTypeID(nullptr) == 0);
+  CHECK_FALSE(getBoolValueFromBOSSExpression(nullptr));
+  CHECK(getCharValueFromBOSSExpression(nullptr) == 0);
+  CHECK(getIntValueFromBOSSExpression(nullptr) == 0);
+  CHECK(getLongValueFromBOSSExpression(nullptr) == 0);
+  CHECK(getFloatValueFromBOSSExpression(nullptr) == 0);
+  CHECK(getDoubleValueFromBOSSExpression(nullptr) == 0);
+  CHECK(getNewStringValueFromBOSSExpression(nullptr) == nullptr);
+  CHECK(getNewSymbolNameFromBOSSExpression(nullptr) == nullptr);
+  CHECK(getHeadFromBOSSExpression(nullptr) == nullptr);
+  CHECK(getArgumentCountFromBOSSExpression(nullptr) == 0);
+  CHECK(getArgumentsFromBOSSExpression(nullptr) == nullptr);
+  freeBOSSArguments(nullptr);
+  CHECK(serializeBOSSExpression(nullptr) == nullptr);
+  CHECK(deserializeBOSSExpression(nullptr) == nullptr);
+}
+
+TEST_CASE("Serialization helpers answer a null pointer without dereferencing it", "[api]") {
+  CHECK(getExpressionArguments(nullptr) == nullptr);
+  CHECK(getArgumentTypes(nullptr) == nullptr);
+  CHECK(getExpressionSubexpressions(nullptr) == nullptr);
+  CHECK(getStringBuffer(nullptr) == nullptr);
+  CHECK(makeBoolArgument(nullptr, 0) == nullptr);
+  CHECK(makeCharArgument(nullptr, 0) == nullptr);
+  CHECK(makeIntArgument(nullptr, 0) == nullptr);
+  CHECK(makeLongArgument(nullptr, 0) == nullptr);
+  CHECK(makeFloatArgument(nullptr, 0) == nullptr);
+  CHECK(makeDoubleArgument(nullptr, 0) == nullptr);
+  CHECK(makeStringArgument(nullptr, 0) == nullptr);
+  CHECK(makeSymbolArgument(nullptr, 0) == nullptr);
+  CHECK(makeExpressionArgument(nullptr, 0) == nullptr);
+  CHECK(makeIntArgumentsRun(nullptr, 0, 1) == nullptr);
+  CHECK(makeExpression(nullptr, 0) == nullptr);
+  CHECK(viewString(nullptr, 0) == nullptr);
+  setRLEArgumentFlagOrPropagateTypes(nullptr, 0, 1);
+  CHECK(allocateExpressionTree(1, 1, nullptr) == nullptr);
+  CHECK(allocateExpressionTree(1, 1, [](size_t /*size*/) -> void* { return nullptr; }) == nullptr);
+  freeExpressionTree(nullptr, nullptr);
+  CHECK(storeString(nullptr, "text", std::realloc) == 0);
+  auto* root = allocateExpressionTree(1, 1, std::malloc);
+  REQUIRE(root != nullptr);
+  CHECK(storeString(&root, nullptr, std::realloc) == 0);
+  auto* const rootBeforeFailedGrowth = root;
+  CHECK(storeString(&root, "text",
+                    [](void* /*memory*/, size_t /*size*/) -> void* { return nullptr; }) == 0);
+  CHECK(root == rootBeforeFailedGrowth);
+  freeExpressionTree(root, std::free);
 }
