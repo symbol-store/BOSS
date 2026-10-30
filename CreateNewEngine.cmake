@@ -97,6 +97,9 @@ static Expression evaluate(Expression &&e) {
 };
 
 extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
+  if(e == nullptr) {
+    return nullptr;
+  }
   return new BOSSExpression{.delegate = evaluate(std::move(e->delegate))};
 };
 ]=]
