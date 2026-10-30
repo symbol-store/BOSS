@@ -108,9 +108,64 @@ file(WRITE ${PROJECT_NAME}/README.md
 
 A BOSS engine. BootstrapEngine loads this library and calls its `evaluate` function.
 
+## Contract
+
+- BootstrapEngine frees the answer of `evaluate` with `freeBOSSExpression`, so `evaluate` must
+  allocate the answer with `new BOSSExpression`.
+- `evaluate` may answer `nullptr`. BootstrapEngine passes that `nullptr` on to the next engine in
+  the pipeline, so `evaluate` must also accept `nullptr` as its input.
+- BootstrapEngine reports a `std::exception` that `evaluate` throws as an
+  `ErrorWhenEvaluatingExpression`.
+- If the library exports `extern "C" void reset()`, BootstrapEngine calls `reset` before it
+  unloads the library. On Linux and macOS, BootstrapEngine opens the library with
+  `RTLD_NODELETE`, so a later load does not run the static initializers again, and `reset` must
+  clear the engine's state.
+
 ## Threading
 
 BootstrapEngine may call `evaluate` from several threads at the same time and holds no lock
 during the call, so `evaluate` must be reentrant.
+
+## Custom entry points
+
+A pipeline entry can name this engine by a complex expression, such as `"MyEngine"_("Fast"_)`.
+Before each dispatch through that entry, BootstrapEngine calls `evaluate` with
+`GetEntryPoint("Fast"_)`. If `evaluate` answers with a non-zero `int64` that holds the address of
+a function with the signature of `evaluate`, BootstrapEngine calls that function instead of
+`evaluate`. Any other answer keeps `evaluate`.
+
+## Pattern matching
+
+`ExpressionUtilities.hpp` provides a dispatch chain:
+
+```cpp
+using namespace boss::utilities::experimental;
+using namespace boss::utilities::experimental::sentinel;
+
+return std::move(e)
+  < "Plus"_(AnySequence_) >= Recurse(evaluate) > [](auto head, auto dynamics, auto spans) { ... }
+  < "Load"_(String_) > [](auto head, auto dynamics, auto spans) { ... };
+```
+
+| Pattern               | Matches                                   |
+|-----------------------|-------------------------------------------|
+| `"Op"_(AnySequence_)` | `Op` with any number of arguments         |
+| `"Op"_(Any_, Any_)`   | `Op` with exactly two arguments           |
+| `"Op"_()`             | `Op` with no arguments                    |
+| `"Op"_(Symbol_)`      | `Op` with one symbol argument             |
+| `"Op"_(String_)`      | `Op` with one string argument             |
+| `"Op"_(Integer_)`     | `Op` with one integer argument            |
+
+The chain calls the handler of the first pattern that matches and returns an expression that
+matches no pattern unchanged. `>= Recurse(evaluate)` evaluates the dynamic arguments before the
+handler runs.
+
+## Loading engines
+
+Several loading engines in one pipeline can all match `Load`. A loading engine checks the path
+before it consumes any argument, and answers the unchanged `Load` expression when the path holds
+no data in its format. When a directory holds data in several formats, the engine answers
+`Union(Load(path), Table(...))` with the data that the engine read, so that the next engine
+reads the rest. `Symbol("NULL")` marks a missing value.
 ]=]
 )

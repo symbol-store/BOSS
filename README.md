@@ -47,10 +47,10 @@ Obviously, many tests will fail and you need to implement whatever functionality
 
 ## Running the Scheme tests
 
-The Scheme-level tests live in `Tests/repl-tests.scm` and use the `(chibi test)` framework. Run them from the repository root using the `boss` binary:
+The Scheme-level tests live in `Tests/repl-tests.scm` and use the `(chibi test)` framework. Run them with the `boss` binary from the directory that contains the `BOSS` clone and `build`:
 
 ```bash
-./build/deps/bin/boss Tests/repl-tests.scm
+./build/deps/bin/boss BOSS/Tests/repl-tests.scm
 ```
 
 The test file calls `(test-exit)` at the end, so the process exits with a non-zero status if any tests fail.
@@ -69,39 +69,4 @@ To evaluate expressions using an engine, load it first with `SetDefaultEnginePip
 
 ```bash
 ./build/deps/bin/boss -p '(SetDefaultEnginePipeline "build/libReferenceEngine.so")' -p '(Plus 8 1 4 9)'
-```
-
-## Implementing a new engine
-
-Here is an example of a fairly simple engine that only interprets a single expression: (Plus v1 v2 v3 ...)
-
-```cpp
-#include <BOSS.hpp>
-#include <Expression.hpp>
-#include <ExpressionUtilities.hpp>
-#include <Algorithm.hpp>
-
-using namespace boss::algorithm;
-using namespace boss::utilities::experimental;
-using namespace boss::utilities::experimental::sentinel;
-
-namespace ReferenceEngine {
-static boss::Expression evaluate(boss::Expression&& e) {
-  return std::move(e) //
-      < "Plus"_(AnySequence_) >= Recurse(evaluate) > [](auto, auto dynamics, auto) {
-        return visitAccumulate(std::move(dynamics), std::int64_t{0}, [](auto&& state, auto&& arg) {
-          if constexpr(std::is_same_v<std::decay_t<decltype(arg)>, std::int64_t> ||
-                       std::is_same_v<std::decay_t<decltype(arg)>, std::int32_t>) {
-            state += arg;
-          }
-          return state;
-        });
-      } //
-  ;
-} //
-} // namespace ReferenceEngine
-
-extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
-  return new BOSSExpression {.delegate = ReferenceEngine::evaluate(::std::move(e->delegate))};
-};
 ```

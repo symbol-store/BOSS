@@ -168,7 +168,7 @@ struct SerializedExpression {
   }
 
   // Overloads for ComplexExpressionWithAdditionalCustomAtoms (static-argument expressions).
-  // Static args each occupy one argument slot; complex-expression statics are not yet counted.
+  // Static args each occupy one argument slot.
   template <typename StaticArgsTuple, typename... AdditionalCustomAtoms>
   static uint64_t
   countArguments(boss::expressions::generic::ComplexExpressionWithAdditionalCustomAtoms<
@@ -194,7 +194,6 @@ struct SerializedExpression {
 
   // Serialize a single element from a static argument tuple.
   // Handles primitives and custom atoms (via serializeCustomAtom ADL hook).
-  // Complex expression statics are not yet supported.
   template <typename ArgT> void flattenSingleStaticArg(ArgT const& arg, uint64_t& argumentOutputI) {
     using T = std::decay_t<ArgT>;
     if constexpr(boss::expressions::generic::isComplexExpression<T>) {

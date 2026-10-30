@@ -35,9 +35,6 @@ template <typename Element> BOSSExpressionSpan* newBOSSSpan(::std::vector<Elemen
       boss::expressions::ExpressionSpanArgument(boss::Span<Element>(::std::move(values)))};
 }
 template <typename Element> BOSSExpressionSpan* newBOSSSpan(Element const* data, size_t size) {
-  // Nulls in, nulls out: a null buffer yields no span at all rather than a silently empty one.
-  // Ruling null out here also rules out the only pointer arithmetic that would be undefined --
-  // a non-null `data` with size 0 gives an empty range, which is fine.
   return data == nullptr ? nullptr : newBOSSSpan(::std::vector<Element>(data, data + size));
 }
 template <typename Element>
@@ -48,8 +45,6 @@ BOSSExpressionSpan* newBOSSSpanFromCStrings(char const* const* data, size_t size
   auto values = ::std::vector<Element>();
   values.reserve(size);
   for(size_t index = 0; index < size; ++index) {
-    // Nulls in, nulls out: a null element is not silently turned into an empty string. There is
-    // no null Element to put in its place, so the whole call yields no span.
     if(data[index] == nullptr) {
       return nullptr;
     }
@@ -58,16 +53,8 @@ BOSSExpressionSpan* newBOSSSpanFromCStrings(char const* const* data, size_t size
   return newBOSSSpan(::std::move(values));
 }
 /**
- * Clones a range of expressions into a freshly allocated, null-terminated BOSSExpression*
- * array for handing across the C boundary.
- *
- * Shared by getArgumentsFromBOSSExpression and getDynamicArgumentsFromBOSSExpression, which
- * differ only in which range they pass; without it the null-termination and the CloneReason
- * would be duplicated in both.
- *
- * @param arguments the expressions to clone; left untouched.
- * @return a new array of `arguments.size()` clones followed by a null terminator, owned by the
- *         caller and released with freeBOSSArguments.
+ * Clones a range of expressions into a new null-terminated BOSSExpression* array, which the
+ * caller releases with freeBOSSArguments.
  */
 template <typename Arguments>
 BOSSExpression** cloneToNewBOSSExpressionArray(Arguments const& arguments) {
@@ -262,11 +249,8 @@ BOSSExpressionSpan** getSpanArgumentsFromBOSSExpression(BOSSExpression* arg) {
                      return new BOSSExpressionSpan {::std::forward<decltype(span)>(span)};
                    });
   result[spanArguments.size()] = nullptr;
-  // Put the expression back without its spans. Reading the size of a moved-from vector
-  // would be unspecified, so rebuild with a default-constructed (empty) span container
-  // to make the documented "span-argument count becomes 0" contract hold.
-  // `{}` rather than moving staticArguments: for boss::ComplexExpression that tuple is empty
-  // and trivially copyable, so moving it is a no-op that performance-move-const-arg rejects.
+  // Rebuilt without spans, because the size of a moved-from vector is unspecified. `{}`,
+  // because performance-move-const-arg rejects moving the empty tuple of staticArguments.
   expression = boss::ComplexExpression(::std::move(head), {}, ::std::move(dynamicArguments));
   return result;
 }
@@ -285,11 +269,6 @@ char const* bossSymbolToNewString(BOSSSymbol const* arg) {
   result << arg->delegate;
   return strdup(result.str().c_str());
 }
-
-/**
- *  bool = 0, char = 1, int = 2, long = 3, float = 4, double = 5, std::string = 6, Symbol = 7,
- *  ComplexExpression = 8
- */
 
 size_t getBOSSExpressionTypeID(BOSSExpression const* arg) {
   if(arg == nullptr) {

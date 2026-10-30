@@ -135,10 +135,8 @@ public: // surface
   };
 
   /**
-   * because the Span constructor cannot infer what data structure/payload was used to hold the
-   * values in the other Span, arguments are copied into a std::vector. The alternative would be
-   * to use some kind of reference chain or counting but I (Holger) did not like that -- I am open
-   * to discussing this, though
+   * The Span constructor cannot infer the data structure that holds the values of the other
+   * Span, so clone copies the values into a std::vector.
    */
   template <typename... Reason> Span<std::remove_const_t<Scalar>> clone(Reason... reason) const& {
     checkCloneWithoutReason(reason...);
@@ -224,7 +222,7 @@ namespace generic {
 //
 // Set with `stream << boss::pretty`; clear with `boss::compact`. When the flag is
 // set and a hook has been installed (by linking Shims/BossPrettyPrint.cpp — built
-// into libBOSS, the REPL and Tests), operator<< for ComplexExpression
+// into libBOSS, and on Windows also into boss and Tests), operator<< for ComplexExpression
 // delegates to it. Without the hook the flag is a silent no-op. Note: only the
 // default `ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>` is routed;
 // extensible variants (custom atoms) fall through to the compact renderer.
@@ -244,7 +242,7 @@ using PrettyPrintHook = bool (*)(std::ostream&,
 // vague linkage and are shared between libBOSS and any executable linked against it, so a
 // hook installed from one module is visible in the other. Where that is not the case (a DLL
 // built without exported data symbols, say), each module needs its own installer, which is
-// why Shims/BossPrettyPrint.cpp is compiled into both the BOSS library and the boss binary.
+// why Windows builds compile Shims/BossPrettyPrint.cpp into boss and Tests as well as into BOSS.
 // Atomic, so a thread installing or clearing the hook does not race with operator<< reading it
 // on another thread.
 inline std::atomic<PrettyPrintHook>& prettyPrintHook() {

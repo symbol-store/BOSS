@@ -175,20 +175,10 @@ class BootstrapEngine : public Engine {
 
   /// Increments evaluationsInFlight for the lifetime of the object.
   ///
-  /// The constructor increments the count under the shared lock, and beginReconfiguration()
-  /// reads the count under the exclusive lock. Without the shared lock, the count could go
-  /// from 0 to 1 after a reconfiguration had read 0 and before the reconfiguration changed
-  /// engine state, and the reconfiguration would then reset() and dlclose() engines during a
-  /// dispatch that had just started. With the shared lock, a reconfiguration that holds the
-  /// exclusive lock and reads 0 can rely on no dispatch running and none starting until the
-  /// reconfiguration releases the lock. The constructor releases the shared lock before the
-  /// engine call, so BootstrapEngine still holds no lock during an engine call.
-  ///
-  /// The destructor decrements the count under the shared lock as well, so the decrement
-  /// cannot interleave with tearDownOnceNoDispatchIsInFlight. No reconfiguration starts while
-  /// a dispatch is in flight, so a count that reaches 0 while reconfigurationInProgress is set
-  /// means that a destroyed instance queued its libraries behind the in-flight dispatches. The
-  /// destructor that brings the count to 0 resets and unloads those libraries.
+  /// The count changes under the shared lock, so that a reconfiguration that reads 0 under the
+  /// exclusive lock can rely on no dispatch starting until the reconfiguration releases the lock.
+  /// The destructor that brings the count to 0 resets and unloads the libraries that a destroyed
+  /// instance queued.
   class InFlightGuard {
   public:
     /// Selects the constructor for a caller that already holds the shared lock.
@@ -608,21 +598,9 @@ class BootstrapEngine : public Engine {
              throw std::runtime_error(errorMessage.str());
            }
          });
-         // Under the exclusive lock, this operator replaces the pipeline and removes the loaded
-         // libraries from the cache. It unloads those libraries after releasing the lock, because
-         // reset() is an engine call.
-         //
-         // The in-flight check runs under the same exclusive lock as these changes, because a
-         // dispatch could otherwise start between the check and the changes.
-         //
-         // This operator resets and unloads every loaded engine, including the engines that remain
-         // in the pipeline, because a new pipeline starts a new configuration. The next evaluation
-         // therefore loads every engine again, even when the caller only reordered the pipeline.
-         // ResetEngines differs only in also clearing the pipeline.
          vector<LibraryAndFunctions> toUnload;
-         // Emplaced right after beginReconfiguration but declared out here, so that its destructor
-         // clears the flag on every exit, a throwing detachAll included, after the lock below has
-         // been released.
+         // Declared outside the lock scope, so that its destructor clears the flag on every exit,
+         // after the lock has been released.
          std::optional<ReconfigurationEnd> endReconfiguration;
          {
            boss::concurrency::UniqueLock const lock(engineStateMutex);
@@ -676,14 +654,9 @@ class BootstrapEngine : public Engine {
          return descriptions;
        }},
       {Symbol("ResetEngines"), [this](auto&& /*expression*/) -> Expression {
-         // Clears the pipeline and the library cache under the exclusive lock, and resets and
-         // unloads the engines after releasing the lock, because reset() is an engine call. The
-         // in-flight check runs under the exclusive lock for the same reason as in
-         // SetDefaultEnginePipeline.
          vector<LibraryAndFunctions> toUnload;
-         // Emplaced right after beginReconfiguration but declared out here, so that its destructor
-         // clears the flag on every exit, a throwing detachAll included, after the lock below has
-         // been released.
+         // Declared outside the lock scope, so that its destructor clears the flag on every exit,
+         // after the lock has been released.
          std::optional<ReconfigurationEnd> endReconfiguration;
          {
            boss::concurrency::UniqueLock const lock(engineStateMutex);
