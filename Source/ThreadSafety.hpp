@@ -1,17 +1,6 @@
 #pragma once
 
-// Clang Thread Safety Analysis support for BOSS core.
-//
-// Provides:
-//   * BOSS_GUARDED_BY / BOSS_REQUIRES / BOSS_EXCLUDES / ... annotation macros, and
-//   * a capability-annotated SharedMutex + SharedLock/UniqueLock RAII guards,
-// so the compiler can statically prove that fields guarded by a SharedMutex are only touched
-// while the lock is held. std::shared_mutex itself is not annotated by libc++/libstdc++, hence
-// this thin wrapper.
-//
-// All macros are no-ops outside Clang (GCC/MSVC ignore the attributes), so the analysis is a
-// Clang-only, zero-runtime-cost static check. See
-// https://clang.llvm.org/docs/ThreadSafetyAnalysis.html
+// std::shared_mutex has no thread-safety annotations, so this wrapper adds them for Clang.
 
 #include <shared_mutex>
 

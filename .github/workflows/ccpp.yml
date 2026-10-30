@@ -8,49 +8,9 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  # check-runner queries the GitHub API to detect idle self-hosted runners and
-  # routes subsequent jobs to them, falling back to ubuntu-latest when none are
-  # available. It requires GitHub Actions credits (ubuntu-latest runner) and is
-  # therefore disabled while the monthly credit budget is exhausted.
-  #
-  # To re-enable the fallback mechanism:
-  #   1. Uncomment this entire check-runner job.
-  #   2. In format-check: replace `needs: []` with `needs: [check-runner]`
-  #      and replace `runs-on: self-hosted` with
-  #      `runs-on: ${{ needs.check-runner.outputs.runner }}`
-  #   3. In build: replace `needs: [format-check]` with
-  #      `needs: [format-check, check-runner]` and replace
-  #      `runs-on: self-hosted` with
-  #      `runs-on: ${{ needs.check-runner.outputs.runner }}`
-  #
-  # check-runner:
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     actions: read
-  #   outputs:
-  #     runner: ${{ steps.pick.outputs.runner }}
-  #   steps:
-  #     - name: Check self-hosted runner availability
-  #       id: pick
-  #       env:
-  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       run: |
-  #         AVAILABLE=$(curl -s \
-  #           -H "Authorization: Bearer $GH_TOKEN" \
-  #           -H "Accept: application/vnd.github+json" \
-  #           "https://api.github.com/repos/${{ github.repository }}/actions/runners?per_page=100" \
-  #           | jq '[.runners[] | select(.status=="online" and .busy==false)] | length')
-  #         if [ "$AVAILABLE" -gt 0 ]; then
-  #           echo "runner=self-hosted" >> "$GITHUB_OUTPUT"
-  #           echo "Self-hosted runners available: $AVAILABLE — using self-hosted"
-  #         else
-  #           echo "runner=ubuntu-latest" >> "$GITHUB_OUTPUT"
-  #           echo "No self-hosted runners available — falling back to ubuntu-latest"
-  #         fi
-
   format-check:
-    needs: []  # restore to: needs: [check-runner]
-    runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
+    needs: []
+    runs-on: self-hosted
     steps:
     - uses: actions/checkout@v6
     - name: check
@@ -62,8 +22,8 @@ jobs:
         exit $(git status -s | wc -l)
 
   build:
-    needs: [format-check]  # restore to: needs: [format-check, check-runner]
-    runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
+    needs: [format-check]
+    runs-on: self-hosted
     strategy:
       matrix:
         build-type: [Release, Debug] # Sanitize
@@ -95,8 +55,8 @@ jobs:
   # Builds the stress harness with ThreadSanitizer. The per-thread run and the --direct run must be
   # race-free. The shared-context run is expected to race and only shows that TSan reports it.
   concurrency-stress:
-    needs: [format-check]  # restore to: needs: [format-check, check-runner]
-    runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
+    needs: [format-check]
+    runs-on: self-hosted
     steps:
     - uses: actions/checkout@v6
       with:
@@ -114,7 +74,7 @@ jobs:
         cd ..
     - name: build harness
       run: cmake --build tsan --target boss_concurrency_stress -- -j $(nproc)
-    - name: clean gate (per-thread + pure, no warm-up, must be race-free)
+    - name: per-thread check (pure suite, no warm-up, must be race-free)
       run: |
         TSAN_OPTIONS="halt_on_error=1 abort_on_error=1" \
           ./tsan/boss_concurrency_stress --mode per-thread --suite pure --threads 8 --iters 2000 --no-warmup
@@ -155,7 +115,7 @@ jobs:
         grep -q "BOSS ConcurrencyTripwire" tripwire.log || { cat tripwire.log; exit 1; }
 
   release:
-    runs-on: self-hosted  # restore to: runs-on: ${{ needs.check-runner.outputs.runner }}
+    runs-on: self-hosted
     strategy:
       matrix:
         build-type: [Release, Debug]

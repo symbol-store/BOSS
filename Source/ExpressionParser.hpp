@@ -326,13 +326,8 @@ inline sexp eval_string(sexp ctx, sexp env, const char* str) {
 /// header would exist once per binary.
 void initializeSchemeOnce();
 
-/// Threading contract for hosts that embed BOSS evaluation:
-/// - A chibi context is not thread-safe. Each thread creates and uses a separate context.
-/// - Every context evaluates through the process-wide BootstrapEngine in BOSS.cpp.
-///   BootstrapEngine locks its engine pipeline and library cache, so distinct contexts may
-///   evaluate concurrently. Engines must be reentrant, and BootstrapEngine refuses
-///   SetDefaultEnginePipeline and ResetEngines while any engine dispatch is in flight.
-///   Bootstrap commands, and evaluations that reach no engine, do not count as dispatches.
+/// A chibi context is not thread-safe, so each thread creates a separate context.
+/// BootstrapEngine.hpp states the threading rules for engines.
 inline sexp initialize_boss_context() {
   initializeSchemeOnce();
   sexp ctx = sexp_make_eval_context(nullptr, nullptr, nullptr, 0, 0);
