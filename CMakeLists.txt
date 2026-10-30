@@ -531,6 +531,10 @@ foreach(Engine IN LISTS BOSS_BUILD_ENGINES)
   string(REGEX REPLACE  "([^/]+)/([^:]+):?(.*)" "\\3" BranchName ${Engine})
   execute_process(COMMAND git branch --show-current WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     OUTPUT_VARIABLE BOSS_CHECKOUT_BRANCH OUTPUT_STRIP_TRAILING_WHITESPACE)
+  # A detached HEAD has no branch name, and an empty GIT_TAG makes ExternalProject use "master".
+  if(BOSS_CHECKOUT_BRANCH STREQUAL "")
+    set(BOSS_CHECKOUT_BRANCH "main")
+  endif()
   if(BranchName STREQUAL "")
     set(BranchName "main")
   endif()
