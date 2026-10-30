@@ -2341,9 +2341,9 @@ TEST_CASE("Chained Pattern Matching") {
   int whichCase = 0;
 
   SECTION("Only the first case runs when the first case matches") {
-    Expression result = "Load"_("hello") <
-                        "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
-                        [&whichCase](auto, const auto&, auto) -> Expression {
+    Expression const result = "Load"_("hello") <
+                              "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+                              [&whichCase](auto, const auto&, auto) -> Expression {
       whichCase = 1;
       return "matched1"_();
     } < "Store"_(String_) >= [&whichCase](auto, const auto&, auto) -> Expression {
@@ -2354,9 +2354,9 @@ TEST_CASE("Chained Pattern Matching") {
   }
 
   SECTION("Only the second case runs when the second case matches") {
-    Expression result = "Store"_("hello") <
-                        "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
-                        [&whichCase](auto, const auto&, auto) -> Expression {
+    Expression const result = "Store"_("hello") <
+                              "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+                              [&whichCase](auto, const auto&, auto) -> Expression {
       whichCase = 1;
       return "matched1"_();
     } < "Store"_(String_) >= [&whichCase](auto, const auto&, auto) -> Expression {
@@ -2367,9 +2367,9 @@ TEST_CASE("Chained Pattern Matching") {
   }
 
   SECTION("No case runs when no case matches") {
-    Expression result = "Other"_("hello") <
-                        "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
-                        [&whichCase](auto, const auto&, auto) -> Expression {
+    Expression const result = "Other"_("hello") <
+                              "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+                              [&whichCase](auto, const auto&, auto) -> Expression {
       whichCase = 1;
       return "matched1"_();
     } < "Store"_(String_) >= [&whichCase](auto, const auto&, auto) -> Expression {
