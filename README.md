@@ -34,7 +34,7 @@ cmake --build build
 cd build
 curl -sL 'https://github.com/owid/covid-19-data/blob/master/public/data/owid-covid-data.csv?raw=true' \
   | cut -d, -f1,4,12 > owid-covid-data.csv
-./boss -p '(ToStatus (Name (Materialize (OrderBy (Project (Load "owid-covid-data.csv") iso_code date (Int date) new_cases_per_million) (keys iso_code |int(date)|))) sorted))' -p '(Join (GroupBy (Name (Pairwise (Cumulate (ByName sorted) (sum new_cases_per_million)) smoothed_new_cases_per_million |sum(new_cases_per_million)| 7) smoothed) (max smoothed_new_cases_per_million) date) (keys date |max(smoothed_new_cases_per_million)|) (ByName smoothed) (keys date smoothed_new_cases_per_million))'
+./boss -p '(ToStatus (Name (Materialize (OrderBy (Project (Load "owid-covid-data.csv") iso_code date (Int date) new_cases_per_million) (keys iso_code |cast(date, {to_type=int32, allow_int_overflow=true, allow_time_truncate=true, allow_time_overflow=true, allow_decimal_truncate=true, allow_float_truncate=true, allow_invalid_utf8=true})|))) sorted))' -p '(Join (GroupBy (Name (Pairwise (Cumulate (ByName sorted) (sum new_cases_per_million)) smoothed_new_cases_per_million |sum(new_cases_per_million)| 7) smoothed) (max smoothed_new_cases_per_million) date) (ByName smoothed) (Equal date date) (Equal |max(smoothed_new_cases_per_million)| smoothed_new_cases_per_million))'
 ```
 
 ## Testing your engine

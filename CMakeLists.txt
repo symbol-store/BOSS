@@ -176,8 +176,11 @@ endif()
 
 # BOSS
 
-add_library(BOSS SHARED ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles}
+add_library(libBOSS SHARED ${ImplementationFiles} ${REPLFiles} ${SchemeInitializationFiles}
   ${PrettyPrintFiles})
+# Not named BOSS: the Makefile generator's CMakeFiles/BOSS.dir and CMakeFiles/boss.dir are one
+# directory on a case-insensitive file system.
+set_target_properties(libBOSS PROPERTIES OUTPUT_NAME BOSS)
 
 # boss and Tests find libBOSS through this rpath once installed (libBOSS goes to lib, they go
 # to bin).
@@ -209,13 +212,13 @@ if(WIN32)
     ${CMAKE_STATIC_LIBRARY_PREFIX}chibi-scheme${CMAKE_STATIC_LIBRARY_SUFFIX})
 else()
   set(_host_boss_sources "")
-  set(_host_boss_library BOSS)
+  set(_host_boss_library libBOSS)
   set(_host_chibi_library
     ${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
 endif()
 
 if(NOT DISABLE_REPL AND MAKE_FOUND)
-  add_dependencies(BOSS chibi-scheme chibi-bindings)
+  add_dependencies(libBOSS chibi-scheme chibi-bindings)
   set_source_files_properties(${REPLFiles} PROPERTIES
     INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 
@@ -247,10 +250,10 @@ if(NOT DISABLE_REPL AND MAKE_FOUND)
   add_custom_target(chibi-bindings DEPENDS ${REPLFiles})
   add_dependencies(chibi-bindings chibi-scheme)
 
-  target_include_directories(BOSS SYSTEM PRIVATE ${_chibi_prefix}/include)
-  target_link_libraries(BOSS
+  target_include_directories(libBOSS SYSTEM PRIVATE ${_chibi_prefix}/include)
+  target_link_libraries(libBOSS
     ${_chibi_prefix}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}chibi-scheme${CMAKE_SHARED_LIBRARY_SUFFIX})
-  set_target_properties(BOSS PROPERTIES INSTALL_RPATH "${_libboss_install_rpath}")
+  set_target_properties(libBOSS PROPERTIES INSTALL_RPATH "${_libboss_install_rpath}")
 
   add_executable(boss Source/BOSSREPL.cpp ${_host_boss_sources})
   add_dependencies(boss chibi-scheme chibi-bindings)
@@ -396,7 +399,7 @@ if(ITT_NOTIFY_INCLUDE_DIR)
 endif(ITT_NOTIFY_INCLUDE_DIR)
 target_link_libraries(Benchmarks ${BOSS_BINARY_DIR}/deps/lib/${CMAKE_SHARED_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX})
 
-list(APPEND AllTargets BOSS Tests Benchmarks)
+list(APPEND AllTargets libBOSS Tests Benchmarks)
 if(NOT DISABLE_REPL AND MAKE_FOUND)
   list(APPEND AllTargets boss)
 endif()
@@ -495,18 +498,18 @@ if(NOT DISABLE_REPL AND MAKE_FOUND AND _chibi_prefix STREQUAL CMAKE_INSTALL_PREF
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/ThreadSafety.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/UnicodeEscapes.hpp)
 endif()
-set_property(TARGET BOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
+set_property(TARGET libBOSS PROPERTY PUBLIC_HEADER ${PUBLIC_HEADER_LIST})
 
 if(WIN32)
-  install(TARGETS BOSS PUBLIC_HEADER DESTINATION include)
+  install(TARGETS libBOSS PUBLIC_HEADER DESTINATION include)
   # on Windows, one "import library" for each executable target is needed
   # to link the plugins without leaving any unresolved symbol in the dll
   foreach(Target IN LISTS AllTargets)
-    install(FILES ${BOSS_BINARY_DIR}/${Target}.lib DESTINATION lib OPTIONAL)
+    install(FILES ${BOSS_BINARY_DIR}/$<TARGET_FILE_BASE_NAME:${Target}>.lib DESTINATION lib OPTIONAL)
   endforeach()
 else()
   # other OS only need to expose the BOSS library
-  install(TARGETS BOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
+  install(TARGETS libBOSS PUBLIC_HEADER DESTINATION include LIBRARY DESTINATION lib)
 endif(WIN32)
 install(TARGETS Tests RUNTIME DESTINATION bin)
 install(TARGETS ScriptableEngine ScriptableNumericEngine
