@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
+#include <new>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -167,7 +168,7 @@ struct SerializedExpression {
   }
 
   // Overloads for ComplexExpressionWithAdditionalCustomAtoms (static-argument expressions).
-  // Static args each occupy one argument slot; complex-expression statics are not yet counted.
+  // Static args each occupy one argument slot.
   template <typename StaticArgsTuple, typename... AdditionalCustomAtoms>
   static uint64_t
   countArguments(boss::expressions::generic::ComplexExpressionWithAdditionalCustomAtoms<
@@ -193,7 +194,6 @@ struct SerializedExpression {
 
   // Serialize a single element from a static argument tuple.
   // Handles primitives and custom atoms (via serializeCustomAtom ADL hook).
-  // Complex expression statics are not yet supported.
   template <typename ArgT> void flattenSingleStaticArg(ArgT const& arg, uint64_t& argumentOutputI) {
     using T = std::decay_t<ArgT>;
     if constexpr(boss::expressions::generic::isComplexExpression<T>) {
@@ -211,10 +211,10 @@ struct SerializedExpression {
     } else if constexpr(std::is_same_v<T, double_t>) {
       *makeDoubleArgument(root, argumentOutputI++) = arg;
     } else if constexpr(std::is_same_v<T, std::string>) {
-      auto storedString = storeString(&root, arg.c_str(), reallocateFunction);
+      auto storedString = storeStringOrThrow(arg.c_str());
       *makeStringArgument(root, argumentOutputI++) = storedString;
     } else if constexpr(std::is_same_v<T, boss::Symbol>) {
-      auto storedString = storeString(&root, arg.getName().c_str(), reallocateFunction);
+      auto storedString = storeStringOrThrow(arg.getName().c_str());
       *makeSymbolArgument(root, argumentOutputI++) = storedString;
     } else if constexpr(hasCustomAtomSerializer<T>) {
       *makeLongArgument(root, argumentOutputI++) = static_cast<int64_t>(serializeCustomAtom(arg));
@@ -287,8 +287,8 @@ struct SerializedExpression {
                         auto const startChildOffset = nextLayerOffset + childrenCountRunningSum;
                         auto const endChildOffset =
                             nextLayerOffset + childrenCountRunningSum + childrenCount;
-                        auto storedString = storeString(&root, argument.getHead().getName().c_str(),
-                                                        reallocateFunction);
+                        auto storedString =
+                            storeStringOrThrow(argument.getHead().getName().c_str());
                         *makeExpression(root, expressionOutputI) =
                             PortableBOSSExpression {storedString, startChildOffset, endChildOffset};
                         *makeExpressionArgument(root, argumentOutputI++) = expressionOutputI++;
@@ -314,13 +314,11 @@ struct SerializedExpression {
                         *makeDoubleArgument(root, argumentOutputI++) = argument;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          std::string>) {
-                        auto storedString =
-                            storeString(&root, argument.c_str(), reallocateFunction);
+                        auto storedString = storeStringOrThrow(argument.c_str());
                         *makeStringArgument(root, argumentOutputI++) = storedString;
                       } else if constexpr(std::is_same_v<std::decay_t<decltype(argument)>,
                                                          boss::Symbol>) {
-                        auto storedString =
-                            storeString(&root, argument.getName().c_str(), reallocateFunction);
+                        auto storedString = storeStringOrThrow(argument.getName().c_str());
                         *makeSymbolArgument(root, argumentOutputI++) = storedString;
                       } else {
                         throw std::runtime_error("unknown type");
@@ -337,12 +335,31 @@ struct SerializedExpression {
     return argumentOutputI;
   }
 
+private:
+  static RootExpression* allocateExpressionTreeOrThrow(uint64_t argumentCount,
+                                                       uint64_t expressionCount) {
+    auto* root = allocateExpressionTree(argumentCount, expressionCount, allocateFunction);
+    if(root == nullptr) {
+      throw std::bad_alloc();
+    }
+    return root;
+  }
+
+  size_t storeStringOrThrow(char const* string) {
+    auto const fillIndexBeforeStoring = root->stringArgumentsFillIndex;
+    auto const offset = storeString(&root, string, reallocateFunction);
+    if(root->stringArgumentsFillIndex == fillIndexBeforeStoring) {
+      throw std::bad_alloc();
+    }
+    return offset;
+  }
+
   ////////////////////////////////   Surface Area ////////////////////////////////
 
 public:
   explicit SerializedExpression(boss::Expression&& input)
-      : SerializedExpression(allocateExpressionTree(countArguments(input), countExpressions(input),
-                                                    allocateFunction)) {
+      : SerializedExpression(
+            allocateExpressionTreeOrThrow(countArguments(input), countExpressions(input))) {
     std::visit(utilities::overload(
                    [this](boss::ComplexExpression&& input) {
                      auto argumentIterator = uint64_t {};
@@ -352,8 +369,7 @@ public:
                      auto const endChildOffset = startChildOffset +
                                                  input.getDynamicArguments().size() +
                                                  countSpanElements(input.getSpanArguments());
-                     auto storedString =
-                         storeString(&root, input.getHead().getName().c_str(), reallocateFunction);
+                     auto storedString = storeStringOrThrow(input.getHead().getName().c_str());
                      *makeExpression(root, expressionIterator) =
                          PortableBOSSExpression {storedString, startChildOffset, endChildOffset};
                      *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
@@ -362,8 +378,7 @@ public:
                      flattenArguments(argumentIterator, std::move(inputs), expressionIterator);
                    },
                    [this](expressions::atoms::Symbol&& input) {
-                     auto storedString =
-                         storeString(&root, std::move(input).getName().c_str(), reallocateFunction);
+                     auto storedString = storeStringOrThrow(std::move(input).getName().c_str());
                      *makeSymbolArgument(root, 0) = storedString;
                    },
                    [this](bool input) { *makeBoolArgument(root, 0) = input; },
@@ -393,7 +408,7 @@ public:
     auto const startChildOffset = uint64_t {1};
     auto const endChildOffset =
         startChildOffset + numStatics + dynamics.size() + countSpanElements(spans);
-    auto storedString = storeString(&root, head.getName().c_str(), reallocateFunction);
+    auto storedString = storeStringOrThrow(head.getName().c_str());
     *makeExpression(root, expressionIterator) =
         PortableBOSSExpression {storedString, startChildOffset, endChildOffset};
     *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
@@ -417,8 +432,7 @@ public:
                       a.getDynamicArguments().size() + countSpanElements(a.getSpanArguments());
                   auto const startChild = nextLayerOffset + childrenCountRunningSum;
                   auto const endChild = startChild + childrenCount;
-                  auto stored =
-                      storeString(&root, a.getHead().getName().c_str(), reallocateFunction);
+                  auto stored = storeStringOrThrow(a.getHead().getName().c_str());
                   *makeExpression(root, expressionIterator) =
                       PortableBOSSExpression {stored, startChild, endChild};
                   *makeExpressionArgument(root, argumentIterator++) = expressionIterator++;
@@ -437,10 +451,10 @@ public:
                 } else if constexpr(std::is_same_v<ArgT, double_t>) {
                   *makeDoubleArgument(root, argumentIterator++) = a;
                 } else if constexpr(std::is_same_v<ArgT, std::string>) {
-                  auto stored = storeString(&root, a.c_str(), reallocateFunction);
+                  auto stored = storeStringOrThrow(a.c_str());
                   *makeStringArgument(root, argumentIterator++) = stored;
                 } else if constexpr(std::is_same_v<ArgT, boss::Symbol>) {
-                  auto stored = storeString(&root, a.getName().c_str(), reallocateFunction);
+                  auto stored = storeStringOrThrow(a.getName().c_str());
                   *makeSymbolArgument(root, argumentIterator++) = stored;
                 } else if constexpr(hasCustomAtomSerializer<ArgT>) {
                   *makeLongArgument(root, argumentIterator++) =
@@ -461,8 +475,8 @@ public:
   explicit SerializedExpression(
       boss::expressions::generic::ComplexExpressionWithAdditionalCustomAtoms<
           StaticArgsTuple, AdditionalCustomAtoms...>&& input)
-      : SerializedExpression(allocateExpressionTree(countArguments(input), countExpressions(input),
-                                                    allocateFunction)) {
+      : SerializedExpression(
+            allocateExpressionTreeOrThrow(countArguments(input), countExpressions(input))) {
     ingestComplexExpression(std::move(input));
   }
 
@@ -555,7 +569,9 @@ public:
                               }
                               return result;
                             },
-                            [&argument, this](auto v) { return as<decltype(v)>(argument) == v; }),
+                            [&argument, this](const auto& v) {
+                              return as<std::decay_t<decltype(v)>>(argument) == v;
+                            }),
                         other);
       ;
     }

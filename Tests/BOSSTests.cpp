@@ -1,7 +1,9 @@
+#include "../Source/BOSS.hpp"
 #include "../Source/BootstrapEngine.hpp"
 #include "../Source/Expression.hpp"
 #include "../Source/ExpressionUtilities.hpp"
 #include "../Source/Serialization.hpp"
+#include "../Source/UnicodeEscapes.hpp"
 #include "../Source/Utilities.hpp"
 
 #include <algorithm>
@@ -16,12 +18,19 @@
 #include <catch2/generators/catch_generators_random.hpp>
 #include <catch2/generators/catch_generators_range.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <exception> // IWYU pragma: keep
 #include <functional>
+#include <future>
 #include <iterator>
+#include <new>
 #include <numeric>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -29,6 +38,9 @@
 #include <variant>
 #include <vector>
 
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
 using boss::Expression;
 using std::string;
 using std::string_literals::operator""s; // NOLINT(misc-unused-using-decls, misc-include-cleaner)
@@ -57,7 +69,47 @@ std::vector<string>
 // NOLINTBEGIN(readability-magic-numbers)
 // NOLINTBEGIN(bugprone-exception-escape)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
-// TODO: @Hubert, can you reduce the complexity of the tests, please?
+TEST_CASE("Unicode escape preprocessing", "[unicode]") {
+  using boss::preprocessUnicodeEscapes;
+  // Nothing to translate.
+  CHECK(preprocessUnicodeEscapes("").empty());
+  CHECK(preprocessUnicodeEscapes("(Plus 1 2)") == "(Plus 1 2)");
+  // \uXXXX becomes chibi's \xXXXX; form.
+  CHECK(preprocessUnicodeEscapes("\"caf\\u00e9\"") == "\"caf\\x00e9;\"");
+  CHECK(preprocessUnicodeEscapes("\\u0041\\u0042") == "\\x0041;\\x0042;");
+  // An escaped backslash does not start an escape, so this stays a literal backslash
+  // followed by u0041 rather than becoming a backslash followed by "A".
+  CHECK(preprocessUnicodeEscapes("\\\\u0041") == "\\\\u0041");
+  // Other escapes are passed through untouched.
+  CHECK(preprocessUnicodeEscapes("\\n\\u0041") == "\\n\\x0041;");
+  CHECK(preprocessUnicodeEscapes("\\\"") == "\\\"");
+  // Malformed or truncated sequences are left alone, and must not read past the end.
+  CHECK(preprocessUnicodeEscapes("\\u12") == "\\u12");
+  CHECK(preprocessUnicodeEscapes("\\uzzzz") == "\\uzzzz");
+  CHECK(preprocessUnicodeEscapes("abc\\") == "abc\\");
+  CHECK(preprocessUnicodeEscapes("\\") == "\\");
+  // A UTF-16 surrogate pair becomes one escape for the supplementary-plane character.
+  CHECK(preprocessUnicodeEscapes("\\uD83D\\uDE00") == "\\x1f600;");
+  CHECK(preprocessUnicodeEscapes("\\ud83d\\ude00") == "\\x1f600;");
+  // An unpaired surrogate has no scalar value and becomes U+FFFD REPLACEMENT CHARACTER.
+  CHECK(preprocessUnicodeEscapes("\\uD83D") == "\\xfffd;");
+  CHECK(preprocessUnicodeEscapes("\\uDE00") == "\\xfffd;");
+  CHECK(preprocessUnicodeEscapes("\\uD83D\\u0041") == "\\xfffd;\\x0041;");
+}
+
+TEST_CASE("NUL escape detection", "[unicode]") {
+  using boss::containsNulEscape;
+  CHECK(containsNulEscape("\"a\\x0;b\""));
+  CHECK(containsNulEscape("\"\\x0000;\""));
+  CHECK_FALSE(containsNulEscape("\"\\x00e9;\""));
+  CHECK_FALSE(containsNulEscape("\"\\x;\""));
+  // An escaped backslash followed by x0; is text, not an escape.
+  CHECK_FALSE(containsNulEscape("\"\\\\x0;\""));
+  // A character literal has no terminating semicolon, and convert-to-boss-expression does not
+  // convert characters.
+  CHECK_FALSE(containsNulEscape("#\\x0"));
+}
+
 TEST_CASE("Subspans work correctly", "[spans]") {
   auto input = boss::Span<int64_t> {std::vector<int64_t> {1, 2, 4, 3}};
   auto subrange = std::move(input).subspan(1, 3);
@@ -144,13 +196,6 @@ TEST_CASE("Expressions with static Arguments", "[expressions]") {
          {},
          {}});
     CHECK(e.getHead().getName() == "Duh");
-    // TODO: this check should be enabled but requires a way to construct argument wrappers
-    // from statically typed expressions
-    // std::visit(
-    //     [](auto&& arg) {
-    //       CHECK(std::is_same_v<decltype(arg), boss::expressions::ComplexExpression>);
-    //     },
-    //     e.getArguments().at(0).getArgument());
   }
 }
 
@@ -169,6 +214,93 @@ TEST_CASE("Expression Transformation", "[expressions]") {
   CHECK(e.getArguments().at(1) == v2 + 1);
 }
 
+TEST_CASE("Pretty-print manipulator toggles the per-stream flag", "[expressions][pretty]") {
+  std::stringstream stream;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+  stream << boss::pretty;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 1);
+  stream << boss::compact;
+  CHECK(stream.iword(boss::prettyStreamIndex()) == 0);
+}
+
+namespace {
+// prettyPrintHook() is process-wide, so a test that replaces the hook would otherwise leave
+// its replacement installed for every test that runs after it.
+class InstalledHookRestorer {
+public:
+  InstalledHookRestorer() : installedHook(boss::prettyPrintHook()) {}
+  ~InstalledHookRestorer() { boss::prettyPrintHook() = installedHook; }
+  InstalledHookRestorer(InstalledHookRestorer const&) = delete;
+  InstalledHookRestorer(InstalledHookRestorer&&) = delete;
+  InstalledHookRestorer& operator=(InstalledHookRestorer const&) = delete;
+  InstalledHookRestorer& operator=(InstalledHookRestorer&&) = delete;
+
+private:
+  boss::expressions::generic::PrettyPrintHook installedHook;
+};
+} // namespace
+
+TEST_CASE("Pretty flag is a no-op when no hook is installed", "[expressions][pretty]") {
+  InstalledHookRestorer const restorer;
+  boss::prettyPrintHook() = nullptr;
+  auto expr = "Filter"_("Load"_("path"), "Greater"_("x"_, 3));
+  std::stringstream compactOut;
+  compactOut << expr;
+  std::stringstream prettyOut;
+  prettyOut << boss::pretty << expr;
+  CHECK(prettyOut.str() == compactOut.str());
+}
+
+TEST_CASE("Pretty falls back to compact when the hook declines", "[expressions][pretty]") {
+  InstalledHookRestorer const restorer;
+
+  auto const expr = "Filter"_("Load"_(), "Greater"_("x"_, "y"_));
+  std::stringstream compactOut;
+  compactOut << expr;
+
+  // A hook that cannot render must not swallow the output.
+  boss::prettyPrintHook() = [](std::ostream&, boss::ComplexExpression const&) { return false; };
+  std::stringstream declinedOut;
+  declinedOut << boss::pretty << expr;
+  CHECK(declinedOut.str() == compactOut.str());
+
+  // A hook that declines the outer expression but renders a nested one must not mix its
+  // output into the compact fallback.
+  boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const& expression) {
+    if(expression.getHead().getName() != "Greater") {
+      return false;
+    }
+    stream << "RENDERED";
+    return true;
+  };
+  std::stringstream selectiveOut;
+  selectiveOut << boss::pretty << expr;
+  CHECK(selectiveOut.str() == compactOut.str());
+  CHECK(selectiveOut.iword(boss::prettyStreamIndex()) == 1);
+
+  // A hook that does render owns the output entirely.
+  boss::prettyPrintHook() = [](std::ostream& stream, boss::ComplexExpression const&) {
+    stream << "RENDERED";
+    return true;
+  };
+  std::stringstream renderedOut;
+  renderedOut << boss::pretty << expr;
+  CHECK(renderedOut.str() == "RENDERED");
+}
+
+TEST_CASE("Compact rendering is lisp-style", "[expressions][pretty]") {
+  auto render = [](auto const& expression) {
+    std::stringstream stream;
+    stream << expression;
+    return stream.str();
+  };
+  // A nullary expression renders as "(Head)" -- no trailing space before the paren.
+  CHECK(render("UnevaluatedPlus"_()) == "(UnevaluatedPlus)");
+  // Arguments are separated by a single space, and nested expressions nest as lists.
+  CHECK(render("Greater"_("x"_, "y"_)) == "(Greater x y)");
+  CHECK(render("Filter"_("Load"_(), "Greater"_("x"_, "y"_))) == "(Filter (Load) (Greater x y))");
+}
+
 TEST_CASE("Expression without arguments", "[expressions]") {
   auto const& e = "UnevaluatedPlus"_();
   CHECK(e.getHead().getName() == "UnevaluatedPlus");
@@ -181,7 +313,9 @@ public:
   }
 };
 // Teach the serializer how to encode DummyAtom as a uint64_t (it carries no data, so 0).
+namespace {
 uint64_t serializeCustomAtom(DummyAtom const& /*unused*/) { return 0; }
+} // namespace
 
 // Instrumented atom that counts moves and copies to verify serialization efficiency.
 struct CountingAtom {
@@ -199,7 +333,9 @@ struct CountingAtom {
 int CountingAtom::moves = 0;
 int CountingAtom::copies = 0;
 // Encode as the atom's integer payload so values can be checked after deserialization.
+namespace {
 uint64_t serializeCustomAtom(CountingAtom const& a) { return static_cast<uint64_t>(a.value); }
+} // namespace
 
 TEST_CASE("Expression cast to more general expression system", "[expressions]") {
   auto a = boss::ExtensibleExpressionSystem<>::Expression("howdie"_());
@@ -368,25 +504,20 @@ TEST_CASE("move expression's arguments to a new expression", "[expressions]") {
 
 TEST_CASE("copy expression's arguments to a new expression", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
-  auto args =
-      expr.getArguments(); // TODO: this one gets the reference to the arguments
-                           // when it should be a copy.
-                           // Any modification/move of args will be reflected in expr's arguments!
+  auto args = expr.getArguments();
   get<int32_t>(args.at(1)) = 2;
   auto expr2 = boss::ComplexExpression(expr.getHead(), args);
   get<int32_t>(args.at(1)) = 3;
   auto expr3 = boss::ComplexExpression(expr.getHead(), std::move(args)); // NOLINT
-  // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails for now (see above TODO)
   CHECK(get<int32_t>(expr2.getArguments().at(1)) == 2);
   CHECK(get<int32_t>(expr3.getArguments().at(1)) == 3);
 }
 
 TEST_CASE("copy non-const expression's arguments to ExpressionArguments", "[expressions]") {
   auto expr = "List"_("howdie"_(), 1, "unknown"_, "hello world"s);
-  boss::ExpressionArguments args = expr.getArguments(); // TODO: why is it moved?
+  boss::ExpressionArguments args = expr.getArguments();
   get<int32_t>(args.at(1)) = 2;
   auto expr2 = boss::ComplexExpression(expr.getHead(), std::move(args));
-  // CHECK(get<int64_t>(expr.getArguments().at(1)) == 1); // fails because args was moved (see TODO)
   CHECK(get<int32_t>(expr2.getArguments().at(1)) == 2);
 }
 
@@ -416,6 +547,91 @@ TEST_CASE("move and dispatch expression's arguments", "[expressions]") {
   CHECK(otherExpressions.size() == 3);
 }
 
+// NOLINTBEGIN(readability-magic-numbers)
+namespace {
+constexpr std::size_t largeStringSize = 200UL * 1024;
+std::string makeLargeString(char fillCharacter) {
+  return std::string(largeStringSize, fillCharacter);
+}
+} // namespace
+
+TEST_CASE("Large string as a standalone Expression", "[expressions][largestring]") {
+  auto const payload = makeLargeString('x');
+
+  Expression expression = payload;
+  CHECK(get<std::string>(expression).size() == largeStringSize);
+  CHECK(expression == payload);
+
+  Expression clonedExpression = expression.clone(CloneReason::FOR_TESTING);
+  CHECK(get<std::string>(clonedExpression).size() == largeStringSize);
+  CHECK(clonedExpression == payload);
+
+  Expression movedExpression = std::move(expression);
+  CHECK(get<std::string>(movedExpression).size() == largeStringSize);
+  CHECK(movedExpression == payload);
+}
+
+TEST_CASE("Large string as a ComplexExpression argument", "[expressions][largestring]") {
+  auto const payload = makeLargeString('a');
+
+  boss::ExpressionArguments arguments;
+  arguments.emplace_back(payload);
+  auto expression = boss::ComplexExpression("List"_, std::move(arguments));
+  REQUIRE(expression.getArguments().size() == 1);
+  CHECK(get<std::string>(expression.getArguments().at(0)).size() == largeStringSize);
+  CHECK(get<std::string>(expression.getArguments().at(0)) == payload);
+
+  auto clonedExpression = expression.clone(CloneReason::FOR_TESTING);
+  CHECK(clonedExpression == expression);
+  CHECK(get<std::string>(clonedExpression.getArguments().at(0)) == payload);
+
+  auto movedExpression = std::move(clonedExpression);
+  CHECK(get<std::string>(movedExpression.getArguments().at(0)) == payload);
+
+  auto [head, staticArguments, dynamicArguments, spanArguments] = std::move(expression).decompose();
+  CHECK(head.getName() == "List");
+  REQUIRE(dynamicArguments.size() == 1);
+  CHECK(get<std::string>(dynamicArguments.at(0)).size() == largeStringSize);
+  CHECK(get<std::string>(dynamicArguments.at(0)) == payload);
+
+  // A fresh, empty static-argument tuple rather than a move of staticArguments: the decomposed
+  // tuple is empty and trivially copyable, so the move has no effect and clang-tidy (run with
+  // warnings-as-errors) rejects it. Spelling the type as decltype(staticArguments) also keeps
+  // the structured binding referenced.
+  auto recomposedExpression =
+      boss::ComplexExpression(std::move(head), decltype(staticArguments) {},
+                              std::move(dynamicArguments), std::move(spanArguments));
+  CHECK(recomposedExpression == movedExpression);
+  CHECK(get<std::string>(recomposedExpression.getArguments().at(0)) == payload);
+}
+
+TEST_CASE("Large string as a ComplexExpression head", "[expressions][largestring]") {
+  auto const payload = makeLargeString('h');
+
+  auto expression = boss::ComplexExpression(boss::Symbol(payload), boss::ExpressionArguments {});
+  CHECK(expression.getHead().getName().size() == largeStringSize);
+  CHECK(expression.getHead().getName() == payload);
+
+  auto clonedExpression = expression.clone(CloneReason::FOR_TESTING);
+  CHECK(clonedExpression == expression);
+  CHECK(clonedExpression.getHead().getName() == payload);
+
+  auto movedExpression = std::move(clonedExpression);
+  CHECK(movedExpression.getHead().getName() == payload);
+
+  auto [head, staticArguments, dynamicArguments, spanArguments] = std::move(expression).decompose();
+  CHECK(head.getName().size() == largeStringSize);
+  CHECK(head.getName() == payload);
+  CHECK(dynamicArguments.empty());
+
+  auto recomposedExpression =
+      boss::ComplexExpression(std::move(head), decltype(staticArguments) {},
+                              std::move(dynamicArguments), std::move(spanArguments));
+  CHECK(recomposedExpression.getHead().getName() == payload);
+  CHECK(recomposedExpression == movedExpression);
+}
+// NOLINTEND(readability-magic-numbers)
+
 // NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int32_t, std::int64_t,
                    std::float_t, std::double_t) {
@@ -431,11 +647,39 @@ TEMPLATE_TEST_CASE("Complex Expressions with numeric Spans", "[spans]", std::int
 }
 
 // NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with copied numeric Spans", "[spans]", std::int32_t,
+                   std::int64_t, std::float_t, std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
+  auto argument = vector<TestType>(input);
+  auto s = boss::Span<TestType>(std::vector<TestType>(argument));
+  auto vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
+TEMPLATE_TEST_CASE("Complex Expressions with copied const numeric Spans", "[spans]", std::int32_t,
+                   std::int64_t, std::float_t, std::double_t) {
+  auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
+  auto const argument = vector<TestType>(input);
+  auto s = boss::Span<TestType const>(std::vector<TestType>(argument));
+  auto const vectorExpression = "duh"_(std::move(s));
+  REQUIRE(vectorExpression.getArguments().size() == input.size());
+  for(auto i = 0U; i < input.size(); i++) {
+    CHECK(vectorExpression.getArguments().at(i) == input.at(i));
+    CHECK(vectorExpression.getArguments()[i] == input[i]);
+  }
+}
+
+// NOLINTNEXTLINE
 TEMPLATE_TEST_CASE("Complex Expressions with non-owning numeric Spans", "[spans]", std::int32_t,
                    std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto argument = vector<TestType>(input);
-  auto s = boss::Span<TestType>(argument);
+  auto s = boss::Span<TestType>(argument.data(), argument.size(), nullptr);
   auto vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
@@ -449,7 +693,7 @@ TEMPLATE_TEST_CASE("Complex Expressions with non-owning const numeric Spans", "[
                    std::int32_t, std::int64_t, std::float_t, std::double_t) {
   auto input = GENERATE(take(3, chunk(5, random<TestType>(1, 1000))));
   auto const argument = vector<TestType>(input);
-  auto s = boss::Span<TestType const>(argument);
+  auto s = boss::Span<TestType const>(argument.data(), argument.size(), nullptr);
   auto const vectorExpression = "duh"_(std::move(s));
   REQUIRE(vectorExpression.getArguments().size() == input.size());
   for(auto i = 0U; i < input.size(); i++) {
@@ -476,11 +720,352 @@ TEMPLATE_TEST_CASE("Complex Expressions with Spans", "[spans]", std::string, bos
   auto vals = GENERATE(take(3, chunk(5, values({"a"s, "b"s, "c"s, "d"s, "e"s, "f"s, "g"s, "h"s}))));
   auto input = vector<TestType>();
   std::transform(begin(vals), end(vals), std::back_inserter(input),
-                 [](auto argument) { return TestType(argument); });
+                 [](auto argument) { return TestType(std::move(argument)); });
   auto vectorExpression = "duh"_(boss::Span<TestType>(std::move(input)));
   for(auto i = 0U; i < vals.size(); i++) {
     CHECK(vectorExpression.getArguments().at(0) == TestType(vals.at(0)));
     CHECK(vectorExpression.getArguments()[0] == TestType(vals[0]));
+  }
+}
+
+TEST_CASE("Default engine pipeline replacement", "[pipeline]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto currentPipeline = [&engine]() { return engine.evaluate("GetDefaultEnginePipeline"_()); };
+  engine.evaluate("SetDefaultEnginePipeline"_("first.so"));
+  CHECK(currentPipeline() == "List"_("first.so"));
+  // A second call replaces the pipeline rather than appending to it.
+  engine.evaluate("SetDefaultEnginePipeline"_("second.so", "Second"_));
+  CHECK(currentPipeline() == "List"_("second.so", "Second"_));
+  // The integer makes the update invalid, so it is rejected before the pipeline changes.
+  CHECK_THROWS(engine.evaluate("SetDefaultEnginePipeline"_("third.so", 42)));
+  CHECK(currentPipeline() == "List"_("second.so", "Second"_));
+}
+
+namespace {
+template <typename LoadScriptableEngine>
+void requireScriptableEngine(LoadScriptableEngine&& loadScriptableEngine) {
+#ifdef __APPLE__
+  try {
+    std::forward<LoadScriptableEngine>(loadScriptableEngine)();
+  } catch(std::exception const& loadFailure) {
+    if(std::string_view(loadFailure.what()).find("could not be loaded") == std::string_view::npos) {
+      throw;
+    }
+    SKIP("the scriptable engine could not be loaded ("
+         << loadFailure.what() << "); on macOS, run Tests from its build directory");
+  }
+#else
+  std::forward<LoadScriptableEngine>(loadScriptableEngine)();
+#endif
+}
+} // namespace
+
+namespace {
+struct ScriptablePauseControls {
+  int (*waitUntilCallPaused)();
+  void (*releasePausedCall)();
+  void (*pauseNextReset)();
+  int (*resetCount)();
+  void (*throwFromNextReset)();
+  void (*pauseNextDescription)();
+  void (*throwFromNextEvaluation)();
+
+  void requireCallPaused() const {
+    if(waitUntilCallPaused() == 0) {
+      releasePausedCall();
+      FAIL("no scriptable engine call paused within the scriptable engine's timeout");
+    }
+  }
+};
+
+ScriptablePauseControls scriptablePauseControls() {
+#ifdef _WIN32
+  auto* const scriptableLibrary = dlopen("ScriptableEngine.dll", RTLD_NOW);
+#else
+  auto* const scriptableLibrary = dlopen("libScriptableEngine.so", RTLD_NOW);
+#endif
+  REQUIRE(scriptableLibrary != nullptr);
+  auto const lookUp = [scriptableLibrary](char const* name) {
+    auto* const function = dlsym(scriptableLibrary, name);
+    REQUIRE(function != nullptr);
+    return function;
+  };
+  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+  return {reinterpret_cast<int (*)()>(lookUp("scriptableWaitUntilCallPaused")),
+          reinterpret_cast<void (*)()>(lookUp("scriptableReleasePausedCall")),
+          reinterpret_cast<void (*)()>(lookUp("scriptablePauseNextReset")),
+          reinterpret_cast<int (*)()>(lookUp("scriptableResetCount")),
+          reinterpret_cast<void (*)()>(lookUp("scriptableThrowFromNextReset")),
+          reinterpret_cast<void (*)()>(lookUp("scriptablePauseNextDescription")),
+          reinterpret_cast<void (*)()>(lookUp("scriptableThrowFromNextEvaluation"))};
+  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+} // namespace
+
+TEST_CASE("Reconfiguration and engine dispatch refuse to overlap", "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToScriptableEngine = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), std::move(expression)));
+  };
+  requireScriptableEngine([&dispatchToScriptableEngine] { dispatchToScriptableEngine(5); });
+  auto const scriptableEngine = scriptablePauseControls();
+
+  auto pausedDispatch = std::async(std::launch::async, [&dispatchToScriptableEngine] {
+    return dispatchToScriptableEngine("Pause"_());
+  });
+  scriptableEngine.requireCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  CHECK_THROWS_WITH(boss::engines::BootstrapEngine().evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  std::stringstream singletonResetOutput;
+  singletonResetOutput << boss::evaluate("ResetEngines"_());
+  CHECK_THAT(singletonResetOutput.str(),
+             Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  scriptableEngine.releasePausedCall();
+  CHECK(pausedDispatch.get() == std::int64_t {1});
+
+  scriptableEngine.pauseNextReset();
+  auto pausedReset =
+      std::async(std::launch::async, [&engine] { return engine.evaluate("ResetEngines"_()); });
+  scriptableEngine.requireCallPaused();
+  CHECK_THROWS_WITH(dispatchToScriptableEngine(5),
+                    Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
+  scriptableEngine.releasePausedCall();
+  CHECK(pausedReset.get() == std::string("okay"));
+
+  CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
+}
+
+TEST_CASE("Reconfiguration is refused during a dispatch through the default pipeline",
+          "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)) == std::string("okay"));
+
+  auto pausedEvaluation =
+      std::async(std::launch::async, [&engine] { return engine.evaluate("Pause"_()); });
+  scriptableEngine.requireCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  scriptableEngine.releasePausedCall();
+  CHECK(pausedEvaluation.get() == std::int64_t {1});
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
+}
+
+TEST_CASE("A BootstrapEngine destroyed during a dispatch resets its engines afterwards",
+          "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToScriptableEngine = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), std::move(expression)));
+  };
+  requireScriptableEngine([&dispatchToScriptableEngine] { dispatchToScriptableEngine(5); });
+  auto const scriptableEngine = scriptablePauseControls();
+
+  auto pausedDispatch = std::async(std::launch::async, [&dispatchToScriptableEngine] {
+    return dispatchToScriptableEngine("Pause"_());
+  });
+  scriptableEngine.requireCallPaused();
+  auto const resetsBeforeDestruction = scriptableEngine.resetCount();
+  {
+    auto destroyedEngine = boss::engines::BootstrapEngine();
+    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)) ==
+          std::int64_t {1});
+  }
+  CHECK(scriptableEngine.resetCount() == resetsBeforeDestruction);
+  CHECK_THROWS_WITH(dispatchToScriptableEngine(5),
+                    Catch::Matchers::ContainsSubstring("still resetting and unloading engines"));
+  scriptableEngine.releasePausedCall();
+  CHECK(pausedDispatch.get() == std::int64_t {1});
+  CHECK(scriptableEngine.resetCount() == resetsBeforeDestruction + 1);
+  CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
+}
+
+TEST_CASE("Custom engine entry points", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto evaluateWithScriptableEngine = [&engine](boss::Expression&& scriptableEngineSpec) {
+    return engine.evaluate("EvaluateInEngines"_("List"_(std::move(scriptableEngineSpec)), 5));
+  };
+  requireScriptableEngine(
+      [&evaluateWithScriptableEngine] { evaluateWithScriptableEngine("Scriptable"_); });
+  CHECK(evaluateWithScriptableEngine("Scriptable"_("Override"_)) == std::int64_t {4242});
+  CHECK(evaluateWithScriptableEngine("Scriptable"_("Zero"_)) == std::int64_t {1});
+  CHECK(evaluateWithScriptableEngine("Scriptable"_("NotAPointer"_)) == std::int64_t {1});
+  CHECK(evaluateWithScriptableEngine("Scriptable"_) == std::int64_t {1});
+  CHECK(evaluateWithScriptableEngine(boss::expressions::ComplexExpression(
+            "Scriptable"_, {}, boss::expressions::ExpressionArguments("Zero"_),
+            boss::expressions::ExpressionSpanArguments(
+                boss::Span<std::int64_t>(std::vector<std::int64_t> {1})))) == std::int64_t {4242});
+}
+
+TEST_CASE("Engine descriptions", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_, "ScriptableNumeric"_));
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
+        "## ScriptableEngine\n\nA scriptable engine for the BOSS tests.\n"
+        "\n## ScriptableNumericEngine\n\n(no description: the engine returned 7)\n");
+}
+
+TEST_CASE("An engine that throws ends the evaluation with an error report", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  auto const failure = std::string("scriptable engine evaluation failure");
+
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate(
+            "EvaluateInEngines"_("List"_("Scriptable"_, "ScriptableNumeric"_), "Payload"_(1, 2))) ==
+        "ErrorWhenEvaluatingExpression"_(
+            "EvaluateInEngines"_("List"_("Scriptable"_, "ScriptableNumeric"_), "Payload"_("..."_)),
+            failure));
+
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate(
+            "EvaluateInEngines"_("List"_("ScriptableNumeric"_, "Scriptable"_), "Payload"_(1, 2))) ==
+        "ErrorWhenEvaluatingExpression"_("EvaluateInEngines"_("List"_("Scriptable"_), "..."_),
+                                         failure));
+
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "First"_(1), "Last"_(2))) ==
+        "ErrorWhenEvaluatingExpression"_(
+            "EvaluateInEngines"_("List"_("Scriptable"_), "First"_("..."_)), failure));
+
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)) == std::int64_t {1});
+}
+
+TEST_CASE("BootstrapEngine passes an answer of nothing on to the next engine", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  CHECK(get<boss::Symbol>(engine.evaluate("EvaluateInEngines"_(
+            "List"_("Scriptable"_, "ScriptableNumeric"_), "AnswerNothing"_()))) == "Nothing"_);
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("ScriptableNumeric"_, "Scriptable"_),
+                                             "AnswerNothing"_())) ==
+        "ErrorWhenEvaluatingExpression"_("EvaluateInEngines"_("List"_("Scriptable"_), "Nothing"_),
+                                         std::string("scriptable engine evaluation failure")));
+}
+
+TEST_CASE("Engine descriptions report an engine that throws", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  engine.evaluate("SetDefaultEnginePipeline"_("ScriptableNumeric"_, "Scriptable"_));
+  std::stringstream expectedReport;
+  expectedReport << "ErrorWhenEvaluatingExpression"_(
+      "EvaluateInEngines"_("List"_("Scriptable"_), "GetEngineDescription"_()),
+      std::string("scriptable engine evaluation failure"));
+  scriptableEngine.throwFromNextEvaluation();
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())) ==
+        "## ScriptableNumericEngine\n\n(no description: the engine returned 7)\n"
+        "\n## ScriptableEngine\n\n(no description: " +
+            expectedReport.str() + ")\n");
+}
+
+TEST_CASE("Engine descriptions of an empty pipeline", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  engine.evaluate("SetDefaultEnginePipeline"_());
+  CHECK(get<std::string>(engine.evaluate("GetEngineDescription"_())).empty());
+}
+
+TEST_CASE("GetEngineDescription inside an expression reaches the engines", "[engines]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  CHECK(engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "GetEngineDescription"_())) ==
+        std::string("A scriptable engine for the BOSS tests.\n"));
+}
+
+TEST_CASE("Reconfiguration is refused while engines are being described",
+          "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&engine] { engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+  auto const scriptableEngine = scriptablePauseControls();
+  REQUIRE(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)) == std::string("okay"));
+
+  scriptableEngine.pauseNextDescription();
+  auto pausedDescription = std::async(
+      std::launch::async, [&engine] { return engine.evaluate("GetEngineDescription"_()); });
+  scriptableEngine.requireCallPaused();
+  CHECK_THROWS_WITH(engine.evaluate("SetDefaultEnginePipeline"_("Scriptable"_)),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("no engine dispatch is in flight"));
+  scriptableEngine.releasePausedCall();
+  CHECK(get<std::string>(pausedDescription.get()) ==
+        "## ScriptableEngine\n\nA scriptable engine for the BOSS tests.\n");
+  CHECK(engine.evaluate("ResetEngines"_()) == std::string("okay"));
+}
+
+TEST_CASE("An engine reset that throws leaves dispatch available", "[engines][concurrency]") {
+  auto engine = boss::engines::BootstrapEngine();
+  auto dispatchToScriptableEngine = [&engine](boss::Expression&& expression) {
+    return engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), std::move(expression)));
+  };
+  requireScriptableEngine([&dispatchToScriptableEngine] { dispatchToScriptableEngine(5); });
+  auto const scriptableEngine = scriptablePauseControls();
+
+  scriptableEngine.throwFromNextReset();
+  CHECK_THROWS_WITH(engine.evaluate("ResetEngines"_()),
+                    Catch::Matchers::ContainsSubstring("scriptable engine reset failure"));
+  CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
+
+  auto pausedDispatch = std::async(std::launch::async, [&dispatchToScriptableEngine] {
+    return dispatchToScriptableEngine("Pause"_());
+  });
+  scriptableEngine.requireCallPaused();
+  {
+    auto destroyedEngine = boss::engines::BootstrapEngine();
+    CHECK(destroyedEngine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)) ==
+          std::int64_t {1});
+  }
+  auto const resetsBeforeRelease = scriptableEngine.resetCount();
+  scriptableEngine.throwFromNextReset();
+  scriptableEngine.releasePausedCall();
+  CHECK(pausedDispatch.get() == std::int64_t {1});
+  CHECK(scriptableEngine.resetCount() == resetsBeforeRelease + 1);
+  CHECK(dispatchToScriptableEngine(5) == std::int64_t {1});
+}
+
+namespace {
+void requireScriptableEngineLoadable() {
+  auto probeEngine = boss::engines::BootstrapEngine();
+  requireScriptableEngine(
+      [&probeEngine] { probeEngine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), 5)); });
+}
+} // namespace
+
+TEST_CASE("Engine dispatches run concurrently", "[engines][concurrency]") {
+  requireScriptableEngineLoadable();
+  auto engine = boss::engines::BootstrapEngine();
+  constexpr int concurrentDispatches =
+      4; // CallBarrier::callsToWaitFor in Tests/ScriptableEngine.cpp
+  std::promise<void> start;
+  std::shared_future<void> const startSignal = start.get_future().share();
+  std::vector<std::future<boss::Expression>> dispatches;
+  dispatches.reserve(concurrentDispatches);
+  for(int dispatch = 0; dispatch < concurrentDispatches; ++dispatch) {
+    dispatches.push_back(std::async(std::launch::async, [&engine, startSignal] {
+      startSignal.wait();
+      return engine.evaluate("EvaluateInEngines"_("List"_("Scriptable"_), "Barrier"_()));
+    }));
+  }
+  start.set_value();
+  for(auto& dispatch : dispatches) {
+    CHECK(dispatch.get() == std::int64_t {1});
   }
 }
 
@@ -493,8 +1078,17 @@ TEST_CASE("Basics", "[basics]") { // NOLINT
   };
 
   SECTION("CatchingErrors") {
-    CHECK_THROWS_WITH(engine.evaluate("EvaluateInEngines"_("List"_(9), 5)),
-                      "expected and actual type mismatch in expression \"9\", expected string");
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_(9), 5)),
+        "expected and actual type mismatch in expression \"9\", expected string");
+
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_), 5)),
+        Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));
+
+    CHECK_THROWS_WITH( // NOLINT(portability-template-virtual-member-function)
+        engine.evaluate("EvaluateInEngines"_("List"_("NonExistentTestEngine"_(9)), 5)),
+        Catch::Matchers::ContainsSubstring("NonExistentTestEngineEngine"));
   }
 
   SECTION("Atomics") {
@@ -1401,14 +1995,8 @@ TEST_CASE("Extended Expression System Serialization") {
 }
 
 TEST_CASE("Static arguments bypass dynamic-argument wrapping during serialization") {
-  // CountingAtom is not a boss::Expression variant alternative, so it can only reach the
-  // serializer via the direct static-argument path (flattenArgumentsInTuple). If the old
-  // implicit-conversion path were taken, this test would fail to compile because
-  // convertStaticToDynamicArguments cannot place a CountingAtom into boss::Expression.
-  //
-  // Beyond the compile-time proof, we verify at runtime that:
-  //  - no copies occur (copies would indicate an unexpected wrapping step), and
-  //  - the payload values survive the round-trip (stored as int64_t via serializeCustomAtom).
+  // CountingAtom is not a boss::Expression alternative, so this test compiles only when the
+  // serializer takes the static-argument path.
   CountingAtom::reset();
   using Expr = boss::ComplexExpressionWithStaticArguments<CountingAtom, CountingAtom, CountingAtom>;
   auto expr = Expr {"Test"_, {CountingAtom {1}, CountingAtom {2}, CountingAtom {3}}, {}, {}};
@@ -1426,10 +2014,6 @@ TEST_CASE("Static arguments bypass dynamic-argument wrapping during serializatio
 }
 
 TEST_CASE("Expression Serialization round-trips span arguments") {
-  // Exposes the bug: in the boss::ComplexExpression serialization path,
-  // endChildOffset = startChildOffset + getDynamicArguments().size()
-  // which omits span arguments from the recorded child range, so span elements
-  // are silently lost on deserialization and getDynamicArguments() returns empty.
   boss::expressions::ExpressionSpanArguments spans;
   spans.emplace_back(boss::Span<int64_t>(std::vector<int64_t> {1LL, 2LL, 3LL}));
   boss::Expression expr = boss::ComplexExpression {"List"_, {}, {}, std::move(spans)};
@@ -1441,6 +2025,23 @@ TEST_CASE("Expression Serialization round-trips span arguments") {
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[0]) == 1LL);
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[1]) == 2LL);
   CHECK(std::get<int64_t>(ce.getDynamicArguments()[2]) == 3LL);
+}
+
+namespace {
+void* failToAllocate(size_t /*size*/) { return nullptr; }
+void* failToReallocate(void* /*memory*/, size_t /*size*/) { return nullptr; }
+} // namespace
+
+TEST_CASE("Serialization throws std::bad_alloc when an allocation or a reallocation fails") {
+  using SerializedExpressionWithFailingReallocation =
+      boss::serialization::SerializedExpression<std::malloc, failToReallocate>;
+  CHECK_THROWS_AS(boss::serialization::SerializedExpression<failToAllocate>(boss::Expression(5)),
+                  std::bad_alloc);
+  CHECK_THROWS_AS(boss::serialization::SerializedExpression<failToAllocate>("Plus"_(1, 2)),
+                  std::bad_alloc);
+  CHECK_THROWS_AS(SerializedExpressionWithFailingReallocation("Plus"_(1, 2)), std::bad_alloc);
+  CHECK_THROWS_AS(SerializedExpressionWithFailingReallocation(boss::Expression(boss::Symbol("Yo"))),
+                  std::bad_alloc);
 }
 
 TEST_CASE("Expression Serialization") {
@@ -1551,12 +2152,12 @@ TEST_CASE("Recursive Pattern Matching") {
   static auto evaluate = [](boss::Expression&& e) -> boss::Expression { return std::move(e); };
   auto hasRun = false;
   auto _ = ("Howdie"_() << "Howdie"_() >>= Recurse(evaluate)) >>
-           [&hasRun](auto, auto, auto) -> boss::Expression { return hasRun = true; };
+           [&hasRun](auto, const auto&, auto) -> boss::Expression { return hasRun = true; };
   REQUIRE(hasRun);
   // here is an alternative syntax that leads to clang-tidy issues
   hasRun = false;
   _ = "Howdie"_()<"Howdie"_() >= // NOLINT(bugprone-chained-comparison)
-                  Recurse(evaluate)>[&hasRun](auto, auto, auto) -> boss::Expression {
+                  Recurse(evaluate)>[&hasRun](auto, const auto&, auto) -> boss::Expression {
     return hasRun = true;
   };
   REQUIRE(hasRun);
@@ -1568,7 +2169,7 @@ TEST_CASE("Recursive Pattern Matching") {
   hasRun = false;
   std::function<boss::Expression(boss::Expression&&)> evaluate2 = [&](boss::Expression&& e) {
     return std::move(e) //
-           <"Inner"_() >= Recurse(evaluate2)>[&hasRun](auto, auto, auto) {
+           <"Inner"_() >= Recurse(evaluate2)>[&hasRun](auto, const auto&, auto) {
              hasRun = true;
              return "InnerResult";
            } //
@@ -1587,149 +2188,149 @@ TEST_CASE("Nested Pattern Matching") {
 
   auto hasRun = false;
 
-  // StringMatcher matches a string argument
-  hasRun = false;
-  "Load"_("hello") << "Load"_(String_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("String_ matches a string argument") {
+    "Load"_("hello") << "Load"_(String_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // StringMatcher rejects an integer argument
-  hasRun = false;
-  "Load"_(42) << "Load"_(String_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("String_ rejects an integer argument") {
+    "Load"_(42) << "Load"_(String_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // SymbolMatcher matches a symbol argument
-  hasRun = false;
-  "Load"_(boss::Symbol("col")) << "Load"_(Symbol_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("Symbol_ matches a symbol argument") {
+    "Load"_(boss::Symbol("col")) << "Load"_(Symbol_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // IntegerMatcher matches an int64 argument
-  hasRun = false;
-  "Load"_(std::int64_t {42}) << "Load"_(Integer_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("Integer_ matches an int64 argument") {
+    "Load"_(std::int64_t {42}) << "Load"_(Integer_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Nested pattern: "Schema"_("Load"_(String_)) matches "Schema"_("Load"_("hello"))
-  hasRun = false;
-  "Schema"_("Load"_("hello")) << "Schema"_("Load"_(String_)) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("A nested pattern matches a nested expression") {
+    "Schema"_("Load"_("hello")) << "Schema"_("Load"_(String_)) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Nested pattern rejects wrong inner head
-  hasRun = false;
-  "Schema"_("Store"_("hello")) << "Schema"_("Load"_(String_)) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("A nested pattern rejects a different inner head") {
+    "Schema"_("Store"_("hello")) << "Schema"_("Load"_(String_)) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // Nested pattern rejects wrong outer head
-  hasRun = false;
-  "Table"_("Load"_("hello")) << "Schema"_("Load"_(String_)) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("A nested pattern rejects a different outer head") {
+    "Table"_("Load"_("hello")) << "Schema"_("Load"_(String_)) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // Nested pattern rejects wrong argument type
-  hasRun = false;
-  "Schema"_("Load"_(42)) << "Schema"_("Load"_(String_)) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("A nested pattern rejects a different argument type") {
+    "Schema"_("Load"_(42)) << "Schema"_("Load"_(String_)) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // Pattern arg count must match exactly
-  hasRun = false;
-  "Load"_("hello", "world") << "Load"_(String_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("A pattern rejects a different argument count") {
+    "Load"_("hello", "world") << "Load"_(String_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // Literal structural matching: expression matches itself
-  hasRun = false;
-  "Schema"_("Table"_("tablename")) << "Schema"_("Table"_("tablename")) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("A literal pattern matches an equal expression") {
+    "Schema"_("Table"_("tablename")) << "Schema"_("Table"_("tablename")) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Literal structural matching rejects different head
-  hasRun = false;
-  "Schema"_("View"_("tablename")) << "Schema"_("Table"_("tablename")) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("A literal pattern rejects a different head") {
+    "Schema"_("View"_("tablename")) << "Schema"_("Table"_("tablename")) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // Literal structural matching rejects different argument value
-  hasRun = false;
-  "Schema"_("Table"_("othername")) << "Schema"_("Table"_("tablename")) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("A literal pattern rejects a different argument value") {
+    "Schema"_("Table"_("othername")) << "Schema"_("Table"_("tablename")) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // Any_ matches a string argument
-  hasRun = false;
-  "Select"_("hello") << "Select"_(Any_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("Any_ matches a string argument") {
+    "Select"_("hello") << "Select"_(Any_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Any_ matches an integer argument
-  hasRun = false;
-  "Select"_(std::int64_t {42}) << "Select"_(Any_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("Any_ matches an integer argument") {
+    "Select"_(std::int64_t {42}) << "Select"_(Any_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Any_ matches a symbol argument
-  hasRun = false;
-  "Select"_(boss::Symbol("col")) << "Select"_(Any_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("Any_ matches a symbol argument") {
+    "Select"_(boss::Symbol("col")) << "Select"_(Any_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Any_ matches a subexpression argument
-  hasRun = false;
-  "Select"_("Table"_("t")) << "Select"_(Any_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("Any_ matches a subexpression argument") {
+    "Select"_("Table"_("t")) << "Select"_(Any_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Any_ with two arguments matches two arguments of any type
-  hasRun = false;
-  "Select"_("hello", std::int64_t {42}) << "Select"_(Any_, Any_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("Two Any_ match two arguments of different types") {
+    "Select"_("hello", std::int64_t {42}) << "Select"_(Any_, Any_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Any_ does not match if argument count differs
-  hasRun = false;
-  "Select"_("hello", "world") << "Select"_(Any_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("One Any_ rejects two arguments") {
+    "Select"_("hello", "world") << "Select"_(Any_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // AnySequence_ matches zero arguments
-  hasRun = false;
-  "Select"_() << "Select"_(AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("AnySequence_ matches zero arguments") {
+    "Select"_() << "Select"_(AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // AnySequence_ matches one argument
-  hasRun = false;
-  "Select"_("hello") << "Select"_(AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("AnySequence_ matches one argument") {
+    "Select"_("hello") << "Select"_(AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // AnySequence_ matches multiple arguments of mixed types
-  hasRun = false;
-  "Select"_("hello", std::int64_t {42}, boss::Symbol("col")) << "Select"_(AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("AnySequence_ matches several arguments of different types") {
+    "Select"_("hello", std::int64_t {42}, boss::Symbol("col")) << "Select"_(AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // AnySequence_ matches a suffix (fixed prefix arg + wildcard rest)
-  hasRun = false;
-  "Select"_("hello", std::int64_t {42}) << "Select"_(Any_, AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("AnySequence_ matches the arguments after a fixed first argument") {
+    "Select"_("hello", std::int64_t {42}) << "Select"_(Any_, AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // AnySequence_ matches a prefix (wildcard rest + fixed suffix arg)
-  hasRun = false;
-  "Select"_("hello", std::int64_t {42}) << "Select"_(AnySequence_, Any_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("AnySequence_ matches the arguments before a fixed last argument") {
+    "Select"_("hello", std::int64_t {42}) << "Select"_(AnySequence_, Any_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // AnySequence_ rejects wrong head even with matching args
-  hasRun = false;
-  "From"_("hello") << "Select"_(AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("AnySequence_ rejects a different head") {
+    "From"_("hello") << "Select"_(AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 }
 
 TEST_CASE("Chained Pattern Matching") {
@@ -1737,43 +2338,106 @@ TEST_CASE("Chained Pattern Matching") {
   using namespace boss::utilities::experimental;
   using namespace boss::utilities::experimental::sentinel;
 
-  int whichArm = 0;
+  int whichCase = 0;
 
-  // First arm matches: second arm must not fire
-  whichArm = 0;
-  Expression result = "Load"_("hello") < "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
-                      [&whichArm](auto, auto, auto) -> Expression {
-    whichArm = 1;
-    return "matched1"_();
-  } < "Store"_(String_) >= [&whichArm](auto, auto, auto) -> Expression {
-    whichArm = 2;
-    return "matched2"_();
-  };
-  REQUIRE(whichArm == 1);
+  SECTION("Only the first case runs when the first case matches") {
+    Expression const result = "Load"_("hello") <
+                              "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+                              [&whichCase](auto, const auto&, auto) -> Expression {
+      whichCase = 1;
+      return "matched1"_();
+    } < "Store"_(String_) >= [&whichCase](auto, const auto&, auto) -> Expression {
+      whichCase = 2;
+      return "matched2"_();
+    };
+    REQUIRE(whichCase == 1);
+  }
 
-  // Second arm matches: first arm must not fire
-  whichArm = 0;
-  result = "Store"_("hello") < "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
-           [&whichArm](auto, auto, auto) -> Expression {
-    whichArm = 1;
-    return "matched1"_();
-  } < "Store"_(String_) >= [&whichArm](auto, auto, auto) -> Expression {
-    whichArm = 2;
-    return "matched2"_();
-  };
-  REQUIRE(whichArm == 2);
+  SECTION("Only the second case runs when the second case matches") {
+    Expression const result = "Store"_("hello") <
+                              "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+                              [&whichCase](auto, const auto&, auto) -> Expression {
+      whichCase = 1;
+      return "matched1"_();
+    } < "Store"_(String_) >= [&whichCase](auto, const auto&, auto) -> Expression {
+      whichCase = 2;
+      return "matched2"_();
+    };
+    REQUIRE(whichCase == 2);
+  }
 
-  // Neither arm matches: expression passes through unchanged
-  whichArm = 0;
-  result = "Other"_("hello") < "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
-           [&whichArm](auto, auto, auto) -> Expression {
-    whichArm = 1;
-    return "matched1"_();
-  } < "Store"_(String_) >= [&whichArm](auto, auto, auto) -> Expression {
-    whichArm = 2;
-    return "matched2"_();
+  SECTION("No case runs when no case matches") {
+    Expression const result = "Other"_("hello") <
+                              "Load"_(String_) >= // NOLINT(bugprone-chained-comparison)
+                              [&whichCase](auto, const auto&, auto) -> Expression {
+      whichCase = 1;
+      return "matched1"_();
+    } < "Store"_(String_) >= [&whichCase](auto, const auto&, auto) -> Expression {
+      whichCase = 2;
+      return "matched2"_();
+    };
+    REQUIRE(whichCase == 0);
+  }
+}
+
+TEST_CASE("Any_ matches atomic subjects") {
+  using namespace boss::utilities;
+  using namespace boss::utilities::experimental;
+  using namespace boss::utilities::experimental::sentinel;
+
+  // Unit level: matchArg(subject, Any_) is true for every atom kind (not just
+  // ComplexExpression subjects).
+  CHECK(matchArg(Expression(boss::Symbol("howdie")), Expression(Any_)));
+  CHECK(matchArg(Expression(std::string("hello")), Expression(Any_)));
+  CHECK(matchArg(Expression(std::int64_t {42}), Expression(Any_)));
+  CHECK(matchArg(Expression(std::int32_t {7}), Expression(Any_)));
+  CHECK(matchArg(Expression(std::int8_t {3}), Expression(Any_)));
+  CHECK(matchArg(Expression(3.5), Expression(Any_)));
+  CHECK(matchArg(Expression(true), Expression(Any_)));
+  CHECK(matchArg("Table"_("t"), Expression(Any_)));
+
+  // End-to-end: a ComplexExpression pattern never matches an atomic subject, so a
+  // trailing `< Any_` case is the one that runs. (Handlers are variadic because
+  // operator> instantiates the ComplexExpression-decomposition path unconditionally.)
+  int whichCase = 0;
+  Expression result = Expression(boss::Symbol("howdie")) < "Something"_() >=
+                      [&whichCase](auto&&...) -> Expression { // NOLINT(bugprone-chained-comparison)
+    whichCase = 1;
+    return "complex"_();
+  } < Any_ >= [&whichCase](auto&&...) -> Expression {
+    whichCase = 2;
+    return boss::Symbol("fired");
   };
-  REQUIRE(whichArm == 0);
+  CHECK(whichCase == 2);
+  CHECK(result == Expression(boss::Symbol("fired")));
+
+  // The handler can also echo the matched expression back unchanged. For an atomic
+  // subject the Any_ case invokes the handler with the whole Expression, so an
+  // `overload` with an Expression&& branch returns it verbatim. The decomposition
+  // branch exists only so operator>'s ComplexExpression path compiles.
+  auto echo = boss::utilities::overload(
+      [](Expression&& matched) -> Expression { return std::move(matched); },
+      [](auto&&... /*decomposed*/) -> Expression { return boss::Symbol("unreached"); });
+  Expression echoed = Expression(boss::Symbol("howdie")) < "Something"_() >= echo < Any_ >=
+                      echo; // NOLINT(bugprone-chained-comparison)
+  CHECK(echoed == Expression(boss::Symbol("howdie")));
+
+  // For a ComplexExpression subject, the Any_ case invokes the handler with the
+  // DECOMPOSED expression (head, static args, dynamic args, span args) rather than the
+  // whole Expression. Reconstructing a ComplexExpression from those four pieces yields
+  // a value equal to the original — same head, same arguments.
+  Expression original = "Table"_("Columns"_("a"), std::int64_t {42});
+  Expression expected = original.clone(CloneReason::FOR_TESTING);
+  auto reconstruct = [](auto&& head, auto&& statics, auto&& dynamics, auto&& spans) -> Expression {
+    return ComplexExpression(
+        std::forward<decltype(head)>(head), std::forward<decltype(statics)>(statics),
+        std::forward<decltype(dynamics)>(dynamics), std::forward<decltype(spans)>(spans));
+  };
+  Expression rebuilt = std::move(original) < "Nope"_(AnySequence_) >=
+                       [](auto&&...) -> Expression { // NOLINT(bugprone-chained-comparison)
+    return "unreached"_();
+  } < Any_ >= reconstruct;
+  CHECK(rebuilt == expected);
 }
 
 TEST_CASE("Span Argument Pattern Matching") {
@@ -1798,53 +2462,53 @@ TEST_CASE("Span Argument Pattern Matching") {
 
   auto hasRun = false;
 
-  // AnySequence_ matches all elements from a single span
-  hasRun = false;
-  loadExpressionFromSpan({1, 2, 3}) << "Load"_(AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("AnySequence_ matches every element of a span") {
+    loadExpressionFromSpan({1, 2, 3}) << "Load"_(AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // AnySequence_ matches an expression with no arguments and no spans
-  hasRun = false;
-  "Load"_() << "Load"_(AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("AnySequence_ matches an expression without arguments and spans") {
+    "Load"_() << "Load"_(AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Integer_ sentinel matches a span element of integer type
-  hasRun = false;
-  loadExpressionFromSpan({42}) << "Load"_(Integer_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("Integer_ matches an integer span element") {
+    loadExpressionFromSpan({42}) << "Load"_(Integer_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Exact value matches the first span element; AnySequence_ absorbs the rest
-  hasRun = false;
-  loadExpressionFromSpan({1, 2, 3}) << "Load"_(std::int64_t {1}, AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("A literal matches the first span element and AnySequence_ the rest") {
+    loadExpressionFromSpan({1, 2, 3}) << "Load"_(std::int64_t {1}, AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // Exact value mismatch on first span element: no match
-  hasRun = false;
-  loadExpressionFromSpan({1, 2, 3}) << "Load"_(std::int64_t {2}, AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("A literal rejects a different first span element") {
+    loadExpressionFromSpan({1, 2, 3}) << "Load"_(std::int64_t {2}, AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // Pattern count mismatch: pattern expects two elements, span has three
-  hasRun = false;
-  loadExpressionFromSpan({1, 2, 3}) << "Load"_(Integer_, Integer_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE_FALSE(hasRun);
+  SECTION("Two Integer_ reject a span of three elements") {
+    loadExpressionFromSpan({1, 2, 3}) << "Load"_(Integer_, Integer_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE_FALSE(hasRun);
+  }
 
-  // Dynamic args are matched first, then span elements continue the sequence
-  hasRun = false;
-  loadExpressionFromDynamicAndSpan(1, {2, 3}) << "Load"_(Integer_, Integer_, Integer_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("Span elements continue the sequence after the dynamic arguments") {
+    loadExpressionFromDynamicAndSpan(1, {2, 3}) << "Load"_(Integer_, Integer_, Integer_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 
-  // AnySequence_ covers both dynamic args and span elements in one sweep
-  hasRun = false;
-  loadExpressionFromDynamicAndSpan(1, {2, 3}) << "Load"_(AnySequence_) >>
-      [&hasRun](auto, auto, auto) -> Expression { return hasRun = true; };
-  REQUIRE(hasRun);
+  SECTION("AnySequence_ matches dynamic arguments and span elements together") {
+    loadExpressionFromDynamicAndSpan(1, {2, 3}) << "Load"_(AnySequence_) >>
+        [&hasRun](auto, const auto&, auto) -> Expression { return hasRun = true; };
+    REQUIRE(hasRun);
+  }
 }
 
 int main(int argc, char* argv[]) {

@@ -1,6 +1,7 @@
 #pragma once
 #include "Utilities.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -111,33 +112,11 @@ public: // surface
         _end(_begin + adaptee.size()), destructor([owner = std::move(adaptee)]() {}) {}
 
   /**
-   * The span does not take ownership of the adaptee. The vector better not be modified while the
-   * span lives
+   * Non-owning constructor: `begin` must be a random-access iterator that remains valid for the
+   * lifetime of this Span. `destructor` is retained only so callers can capture/keep alive the
+   * owner of that storage (or run other cleanup when the Span is destroyed); it does not make
+   * `begin` owned by the Span by itself.
    */
-  explicit Span(std::vector<std::remove_const_t<Scalar>>& adaptee)
-      : _begin([&adaptee]() {
-          if constexpr(std::is_same_v<Scalar, bool>) {
-            return adaptee.begin();
-          } else {
-            return adaptee.data();
-          }
-        }()),
-        _end(_begin + adaptee.size()) {}
-
-  /**
-   * The span does not take ownership of the adaptee. The vector better not be modified while the
-   * span lives
-   */
-  explicit Span(std::vector<std::remove_const_t<Scalar>> const& adaptee)
-      : _begin([&adaptee]() {
-          if constexpr(std::is_same_v<Scalar, bool>) {
-            return adaptee.begin();
-          } else {
-            return adaptee.data();
-          }
-        }()),
-        _end(_begin + adaptee.size()) {}
-
   explicit Span(IteratorType begin, size_t size, std::function<void(void)> destructor)
       : _begin(begin), _end(begin + size), destructor(std::move(destructor)) {}
 
@@ -156,10 +135,8 @@ public: // surface
   };
 
   /**
-   * because the Span constructor cannot infer what data structure/payload was used to hold the
-   * values in the other Span, arguments are copied into a std::vector. The alternative would be
-   * to use some kind of reference chain or counting but I (Holger) did not like that -- I am open
-   * to discussing this, though
+   * The Span constructor cannot infer the data structure that holds the values of the other
+   * Span, so clone copies the values into a std::vector.
    */
   template <typename... Reason> Span<std::remove_const_t<Scalar>> clone(Reason... reason) const& {
     checkCloneWithoutReason(reason...);
@@ -241,8 +218,63 @@ using AtomicExpressionWithAdditionalCustomAtoms =
 
 namespace generic {
 
+// ─── Pretty-print manipulator (stdlib-style, per-stream flag) ───────────────
+//
+// Set with `stream << boss::pretty`; clear with `boss::compact`. When the flag is
+// set and a hook has been installed (by linking Shims/BossPrettyPrint.cpp — built
+// into libBOSS, and on Windows also into boss and Tests), operator<< for ComplexExpression
+// delegates to it. Without the hook the flag is a silent no-op. Note: only the
+// default `ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>` is routed;
+// extensible variants (custom atoms) fall through to the compact renderer.
 template <typename StaticArgumentsTuple, typename... AdditionalCustomAtoms>
 class ComplexExpressionWithAdditionalCustomAtoms;
+
+inline int prettyStreamIndex() {
+  static int const index = std::ios_base::xalloc();
+  return index;
+}
+// Returns true when it has rendered the expression. A hook that cannot render (for instance
+// because its scheme context or printer is unavailable) returns false, and operator<< falls
+// back to the compact renderer rather than emitting nothing.
+using PrettyPrintHook = bool (*)(std::ostream&,
+                                 ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>> const&);
+// The flag index and the hook live in function-local statics. On ELF and Mach-O these have
+// vague linkage and are shared between libBOSS and any executable linked against it, so a
+// hook installed from one module is visible in the other. Where that is not the case (a DLL
+// built without exported data symbols, say), each module needs its own installer, which is
+// why Windows builds compile Shims/BossPrettyPrint.cpp into boss and Tests as well as into BOSS.
+// Atomic, so a thread installing or clearing the hook does not race with operator<< reading it
+// on another thread.
+inline std::atomic<PrettyPrintHook>& prettyPrintHook() {
+  static std::atomic<PrettyPrintHook> hook {nullptr};
+  return hook;
+}
+inline std::ostream& pretty(std::ostream& stream) {
+  stream.iword(prettyStreamIndex()) = 1;
+  return stream;
+}
+inline std::ostream& compact(std::ostream& stream) {
+  stream.iword(prettyStreamIndex()) = 0;
+  return stream;
+}
+// Clears a stream's pretty flag until the end of the scope, so that the expressions nested in a
+// compact fallback cannot reach the hook.
+class CompactFallbackScope {
+public:
+  explicit CompactFallbackScope(std::ostream& suspendedStream)
+      : stream(&suspendedStream),
+        suspendedFlag(std::exchange(suspendedStream.iword(prettyStreamIndex()), 0)) {}
+  ~CompactFallbackScope() { stream->iword(prettyStreamIndex()) = suspendedFlag; }
+  CompactFallbackScope(CompactFallbackScope const&) = delete;
+  CompactFallbackScope(CompactFallbackScope&&) = delete;
+  CompactFallbackScope& operator=(CompactFallbackScope const&) = delete;
+  CompactFallbackScope& operator=(CompactFallbackScope&&) = delete;
+
+private:
+  std::ostream* stream;
+  long suspendedFlag;
+};
+
 template <typename T>
 inline constexpr bool isComplexExpression =
     boss::utilities::isInstanceOfTemplate<std::decay_t<T>,
@@ -452,7 +484,7 @@ public:
 
   template <typename T2>
   constexpr std::enable_if_t<boss::utilities::is_comparable<T, T2>::value, bool>
-  operator==(T2 const other) const {
+  operator==(T2 const& other) const {
     return *_ptr == other;
   }
 
@@ -1358,15 +1390,34 @@ public:
    */
   friend ::std::ostream& operator<<(::std::ostream& out,
                                     ComplexExpressionWithAdditionalCustomAtoms const& e) {
-    out << e.getHead() << "[";
-    if(!e.getArguments().empty()) {
-      out << e.getArguments().front();
-      for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
-        out << "," << *it;
+    auto const renderCompact = [&out, &e]() -> ::std::ostream& {
+      out << "(" << e.getHead();
+      if(!e.getArguments().empty()) {
+        out << " " << e.getArguments().front();
+        for(auto it = ::std::next(e.getArguments().begin()); it != e.getArguments().end(); ++it) {
+          out << " " << *it;
+        }
+      }
+      out << ")";
+      return out;
+    };
+    if constexpr(std::is_same_v<ComplexExpressionWithAdditionalCustomAtoms,
+                                ComplexExpressionWithAdditionalCustomAtoms<std::tuple<>>>) {
+      if(out.iword(prettyStreamIndex()) != 0) {
+        // Only pretty mode reads the hook, so compact rendering does no atomic load. It is read
+        // once: checking and then calling prettyPrintHook() separately would let another thread
+        // swap or clear it in between, and the call would use the second read.
+        PrettyPrintHook const hook = prettyPrintHook();
+        if(hook != nullptr && hook(out, e)) {
+          return out;
+        }
+        // A hook that declined this expression could still render a nested one. Pretty mode is
+        // off while the arguments print, so the whole fallback is compact.
+        CompactFallbackScope const compactFallback(out);
+        return renderCompact();
       }
     }
-    out << "]";
-    return out;
+    return renderCompact();
   }
 
   ComplexExpressionWithAdditionalCustomAtoms(ComplexExpressionWithAdditionalCustomAtoms const&) =
@@ -1573,10 +1624,15 @@ using expressions::Expression;
 using expressions::ExpressionArguments;
 using expressions::Span; // NOLINT
 using expressions::Symbol;
+using expressions::generic::compact;                    // NOLINT
 using expressions::generic::ExtensibleExpressionSystem; // NOLINT
 using expressions::generic::get;                        // NOLINT
 using expressions::generic::get_if;                     // NOLINT
 using expressions::generic::holds_alternative;          // NOLINT
+using expressions::generic::pretty;                     // NOLINT
+using expressions::generic::prettyPrintHook;            // NOLINT — impl detail, exposed for testing
+using expressions::generic::prettyStreamIndex;          // NOLINT
+
 } // namespace boss
 
 namespace std {
