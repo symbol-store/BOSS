@@ -50,7 +50,7 @@ ExternalProject_Add(BOSS
   GIT_REPOSITORY \${BOSS_SOURCE_REPOSITORY}
   DOWNLOAD_DIR $ENV{HOME}/.cmake-downloads/\${CMAKE_PROJECT_NAME}
   GIT_TAG \${BOSS_SOURCE_BRANCH}
-  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=\${${PROJECT_NAME}_BINARY_DIR}/deps $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=\${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=\${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=\${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=\${CMAKE_CXX_FLAGS}
+  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=\${${PROJECT_NAME}_BINARY_DIR}/deps $<IF:$<CONFIG:>,,-DCMAKE_BUILD_TYPE=\${CMAKE_BUILD_TYPE}> -DCMAKE_CXX_COMPILER=\${CMAKE_CXX_COMPILER}  -DCMAKE_C_COMPILER=\${CMAKE_C_COMPILER} -DCMAKE_CXX_FLAGS=\${CMAKE_CXX_FLAGS} -DDISABLE_REPL=${DISABLE_REPL}
   )
 
 
@@ -84,6 +84,12 @@ file(WRITE ${PROJECT_NAME}/Source/${PROJECT_NAME}.cpp
 #include <ExpressionUtilities.hpp>
 #include <Utilities.hpp>
 
+#ifdef _WIN32
+  #define BOSS_API extern "C" __declspec(dllexport)
+#else
+  #define BOSS_API extern "C"
+#endif
+
 using std::string_literals::operator""s;
 using boss::utilities::operator""_;
 using boss::ComplexExpression;
@@ -96,7 +102,7 @@ static Expression evaluate(Expression &&e) {
   return std::move(e);
 };
 
-extern "C" BOSSExpression* evaluate(BOSSExpression* e) {
+BOSS_API BOSSExpression* evaluate(BOSSExpression* e) {
   if(e == nullptr) {
     return nullptr;
   }

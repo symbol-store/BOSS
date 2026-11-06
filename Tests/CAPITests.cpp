@@ -139,7 +139,7 @@ TEST_CASE("Span arguments round-trip zero-copy: double", "[api]") {
   constexpr auto FIRST_VALUE = 1.5;
   auto const values = std::array<double, 2> {FIRST_VALUE, -2.25};
   checkSpanRoundTrip(makeDoubleBOSSSpan(values.data(), values.size()), values.size(),
-                     [](BOSSExpression** flattened) {
+                     [&](BOSSExpression** flattened) {
                        CHECK(getDoubleValueFromBOSSExpression(flattened[0]) == FIRST_VALUE);
                      });
 }
