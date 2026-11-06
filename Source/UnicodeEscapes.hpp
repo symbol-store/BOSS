@@ -34,6 +34,7 @@ inline std::string preprocessUnicodeEscapes(std::string input) {
   constexpr unsigned int supplementaryPlaneFirst = 0x10000;
   constexpr unsigned int surrogatePayloadBits = 10;
   constexpr unsigned int replacementCharacter = 0xFFFD;
+  using ScalarHexDigitsBuffer = std::array<char, maximumScalarHexDigits>;
   auto isHex = [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; };
   auto startsUnicodeEscape = [&](std::size_t index) {
     return index + escapeLength <= input.size() && input[index] == '\\' &&
@@ -57,8 +58,8 @@ inline std::string preprocessUnicodeEscapes(std::string input) {
   }
   std::string output;
   output.reserve(input.size());
-  auto appendSchemeEscape = [&output](unsigned int scalarValue) {
-    std::array<char, maximumScalarHexDigits> digits {};
+  auto appendSchemeEscape = [&](unsigned int scalarValue) {
+    ScalarHexDigitsBuffer digits {};
     auto const formatted =
         std::to_chars(digits.data(), digits.data() + digits.size(), scalarValue, hexBase);
     output += "\\x";

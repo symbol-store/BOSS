@@ -553,9 +553,11 @@ class BootstrapEngine : public Engine {
          auto pipelineEntriesForErrorReport = vector<Expression>();
          auto args = get<ComplexExpression>(e.getArguments().at(0)).getArguments();
          // self = this: clang 18 asserts in Sema::BuildCaptureInit when a lambda nested in a
-         // generic lambda captures this.
+         // generic lambda captures this; MSVC also fails to resolve a bare `this` init-capture
+         // here, so capture a local copy of the pointer instead.
+         auto* const self = this;
          for_each(args.begin(), args.end(),
-                  [self = this, &entryPoints, &pipelineEntriesForErrorReport](auto&& enginePath) {
+                  [self, &entryPoints, &pipelineEntriesForErrorReport](auto&& enginePath) {
                     pipelineEntriesForErrorReport.push_back(
                         pipelineEntryForErrorReport(enginePath));
                     entryPoints.push_back(self->resolveEngineEntryPoint(enginePath));
