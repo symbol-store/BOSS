@@ -69,6 +69,8 @@ static void* dlsym(void* hModule, LPCSTR lpProcName) {
 #include <unordered_set>
 #include <variant>
 
+#include <spdlog/spdlog.h>
+
 namespace boss {
 namespace engines {
 struct LibraryAndFunctions {
@@ -92,6 +94,10 @@ struct EngineDispatchCoordination {
   std::vector<LibraryAndFunctions> librariesAwaitingTeardown BOSS_GUARDED_BY(engineStateMutex);
 };
 EngineDispatchCoordination& engineDispatchCoordination();
+
+/// SPDLOG_LEVEL=debug or evaluating (Logging on) turns on this debug log of the expressions
+/// engines receive and return. BOSS.cpp defines it, so that every image logs through one logger.
+spdlog::logger& engineDispatchLog();
 
 namespace {
 using boss::utilities::operator""_;
@@ -457,6 +463,48 @@ class BootstrapEngine : public Engine {
         Expression(std::move(message)));
   }
 
+  static string render(Expression const& expression) {
+    std::stringstream rendered;
+    rendered << expression;
+    return rendered.str();
+  }
+
+  static string engineNameForLog(Expression const& pipelineEntry) {
+    return visit(
+        overload([](string const& libraryPath) { return engineNameForLibrary(libraryPath); },
+                 [&pipelineEntry](auto const& /*unused*/) { return render(pipelineEntry); }),
+        pipelineEntry);
+  }
+
+  /// Renders the expression only when the log is on, because an engine's input or result can be
+  /// a whole table.
+  static void logEngineExpression(Expression const& pipelineEntry, BOSSExpression const* expression,
+                                  bool isEngineResult) {
+    if(!engineDispatchLog().should_log(spdlog::level::debug)) {
+      return;
+    }
+    engineDispatchLog().debug(
+        "{} {} {}", engineNameForLog(pipelineEntry), isEngineResult ? "returned" : "received",
+        expression == nullptr ? string("Nothing") : render(expression->delegate));
+  }
+
+  static ExpressionHandle callEngine(LibraryAndFunctions::EntryPoint entryPoint,
+                                     Expression const& pipelineEntry, BOSSExpression* input) {
+    logEngineExpression(pipelineEntry, input, false);
+    auto output = ExpressionHandle(nullptr, &freeBOSSExpression);
+    try {
+      output = ExpressionHandle(entryPoint(input), &freeBOSSExpression);
+    } catch(std::exception const& exception) {
+      if(engineDispatchLog().should_log(spdlog::level::debug)) {
+        engineDispatchLog().debug("{} threw: {}", engineNameForLog(pipelineEntry),
+                                  exception.what());
+      }
+      throw;
+    }
+    logEngineExpression(pipelineEntry, output.get(), true);
+    return output;
+  }
+
   static AnswerOrFailureReport
   pipeThroughEngines(vector<LibraryAndFunctions::EntryPoint> const& entryPoints,
                      vector<Expression> const& pipelineEntriesForErrorReport,
@@ -465,7 +513,8 @@ class BootstrapEngine : public Engine {
     for(std::size_t engine = 0; engine < entryPoints.size(); ++engine) {
       auto reportedInput = inputForErrorReport(current.get());
       try {
-        current = ExpressionHandle(entryPoints.at(engine)(current.get()), &freeBOSSExpression);
+        current = callEngine(entryPoints.at(engine), pipelineEntriesForErrorReport.at(engine),
+                             current.get());
       } catch(std::exception const& exception) {
         return {ExpressionHandle(new BOSSExpression {reportEngineFailure(
                                      pipelineEntriesForErrorReport, engine,
@@ -652,6 +701,22 @@ class BootstrapEngine : public Engine {
            descriptions += engineDescriptionSection(engineNameForLibrary(libraryName), evaluation);
          }
          return descriptions;
+       }},
+      {Symbol("Logging"),
+       [](auto&& expression) -> Expression {
+         auto const& arguments = expression.getArguments();
+         auto const setting =
+             arguments.size() == 1
+                 ? visit(overload([](Symbol const& symbol) { return symbol.getName(); },
+                                  [](auto const& /*unused*/) { return string(); }),
+                         arguments.at(0))
+                 : string();
+         if(setting != "on" && setting != "off") {
+           return "ErrorWhenEvaluatingExpression"_(std::move(expression),
+                                                   "Logging takes one argument, on or off");
+         }
+         engineDispatchLog().set_level(setting == "on" ? spdlog::level::debug : spdlog::level::off);
+         return "okay";
        }},
       {Symbol("ResetEngines"), [this](auto&& /*expression*/) -> Expression {
          vector<LibraryAndFunctions> toUnload;

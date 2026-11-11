@@ -18,9 +18,20 @@
 #include <variant>
 #include <vector>
 
+#include <spdlog/cfg/env.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 boss::engines::EngineDispatchCoordination& boss::engines::engineDispatchCoordination() {
   static EngineDispatchCoordination coordination;
   return coordination;
+}
+
+spdlog::logger& boss::engines::engineDispatchLog() {
+  static auto const logger = [] {
+    spdlog::cfg::load_env_levels();
+    return spdlog::stderr_color_mt("BootstrapEngine");
+  }();
+  return *logger;
 }
 
 using namespace boss::utilities;
