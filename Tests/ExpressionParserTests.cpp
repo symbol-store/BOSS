@@ -16,6 +16,7 @@ extern "C" {
 #include <ostream>
 #include <sstream>
 #include <streambuf>
+#include <string>
 #include <vector>
 
 // Catch2 reruns the test case from the top for every SECTION, so each section gets a fresh
@@ -35,6 +36,16 @@ TEST_CASE("evaluate_expression", "[ExpressionParser]") {
   SECTION("pretty-prints scalars through boss-print") {
     CHECK(boss::evaluate_expression(ctx, env, "42").text == "42\n");
     CHECK(boss::evaluate_expression(ctx, env, "\"hi\"").text == "\"hi\"\n");
+  }
+
+  SECTION("boss-print splices the elements of span arguments") {
+    sexp printed =
+        sexp_eval_string(ctx,
+                         "(boss-print (convert-from-boss-expression (convert-to-boss-expression"
+                         " (list 'Foo 1 (bytevectorToNewInt8BOSSSpan #u8(2 3))))))",
+                         -1, env);
+    REQUIRE(sexp_stringp(printed));
+    CHECK(std::string(sexp_string_data(printed)) == "(Foo 1 2 3)\n");
   }
 
   SECTION("writes with chibi's writer when pretty printing is off") {

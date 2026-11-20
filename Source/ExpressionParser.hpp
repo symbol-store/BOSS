@@ -136,6 +136,38 @@ constexpr int kSrfiGeneratorsLibrary = 158;
 constexpr auto kInt32Min = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min());
 constexpr auto kInt32Max = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
 
+inline sexp span_to_sexp_list(sexp ctx, boss::expressions::ExpressionSpanArgument const& span) {
+  sexp_gc_var2(lst, item);
+  GcRootScope const rootScope(ctx);
+  sexp_gc_preserve2(ctx, lst, item);
+  lst = SEXP_NULL;
+  std::visit(
+      [&](auto const& typedSpan) {
+        for(auto index = typedSpan.size(); index > 0; --index) {
+          item = expr_to_sexp(ctx, boss::Expression(typedSpan[index - 1]));
+          lst = sexp_cons(ctx, item, lst);
+        }
+      },
+      span);
+  sexp_gc_release2(ctx);
+  return lst;
+}
+
+inline sexp span_elements_for_printing(sexp ctx, sexp self, sexp_sint_t /*argumentCount*/,
+                                       sexp span) {
+  if(!sexp_pointerp(span) ||
+     sexp_pointer_tag(span) != sexp_unbox_fixnum(sexp_opcode_arg1_type(self)) ||
+     sexp_cpointer_value(span) == nullptr) {
+    return sexp_type_exception(ctx, self, sexp_unbox_fixnum(sexp_opcode_arg1_type(self)), span);
+  }
+  try {
+    return span_to_sexp_list(ctx,
+                             static_cast<BOSSExpressionSpan*>(sexp_cpointer_value(span))->delegate);
+  } catch(std::exception const& exception) {
+    return sexp_user_exception(ctx, self, exception.what(), span);
+  }
+}
+
 inline sexp setup_boss_scheme(sexp ctx, sexp env) {
   using boss::Expression;
   /* _(...) groups sub-expressions into bare parens — unlike "name"_(...) which
@@ -160,8 +192,6 @@ inline sexp setup_boss_scheme(sexp ctx, sexp env) {
 
   eval("import"_(_("srfi"_, kSrfiFormattingLibrary), _("srfi"_, kSrfiGeneratorsLibrary),
                  _("chibi"_, "match"_)));
-
-  eval("define"_(_("boss-print"_, "x"_), "show"_(false, _("pretty"_, "x"_))));
 
   eval("define"_("bossTypeID"_, "quote"_(_("bool"_, "int8"_, "int32"_, "long"_, "float"_, "double"_,
                                            "string"_, "symbol"_, "complexExpression"_))));
@@ -271,6 +301,35 @@ inline sexp setup_boss_scheme(sexp ctx, sexp env) {
               _(_("bool"_), "getBoolValueFromBOSSExpression"_("x"_)),
               _(_("symbol"_), "string->symbol"_("getNewSymbolNameFromBOSSExpression"_("x"_))),
               _("else"_, "show"_(false, "unknown, type: ", "type-index"_))))));
+
+  sexp const spanElementsOperation =
+      sexp_define_foreign(ctx, env, "span-elements-for-printing", 1, &span_elements_for_printing);
+  if(sexp_opcodep(spanElementsOperation)) {
+    sexp_opcode_arg1_type(spanElementsOperation) = sexp_make_fixnum(sexp_type_tag(
+        sexp_env_ref(ctx, env, sexp_intern(ctx, "BOSSExpressionSpan", -1), SEXP_FALSE)));
+  }
+
+  eval("define"_(
+      _("spans-expanded-for-printing"_, "x"_),
+      "if"_(
+          "pair?"_("x"_),
+          "let"_("loop"_, _(_("rest"_, "x"_), _("expanded"_, "quote"_(_()))),
+                 "cond"_(
+                     _("null?"_("rest"_), "reverse"_("expanded"_)),
+                     _("and"_("eq?"_("car"_("rest"_), "quote"_(":spans"_)),
+                              "pair?"_("cdr"_("rest"_)), "BOSSExpressionSpan?"_("cadr"_("rest"_))),
+                       "loop"_("cdr"_("rest"_), "expanded"_)),
+                     _("BOSSExpressionSpan?"_("car"_("rest"_)),
+                       "loop"_("cdr"_("rest"_),
+                               "append"_("reverse"_("span-elements-for-printing"_("car"_("rest"_))),
+                                         "expanded"_))),
+                     _("else"_, "loop"_("cdr"_("rest"_),
+                                        "cons"_("spans-expanded-for-printing"_("car"_("rest"_)),
+                                                "expanded"_))))),
+          "x"_)));
+
+  eval("define"_(_("boss-print"_, "x"_),
+                 "show"_(false, _("pretty"_, "spans-expanded-for-printing"_("x"_)))));
 
   eval("define-syntax"_(
       "boss-eval"_,
